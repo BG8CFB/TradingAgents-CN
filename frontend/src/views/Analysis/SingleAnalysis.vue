@@ -452,31 +452,11 @@
                 </div>
               </div>
 
-              <!-- MCP工具选择 -->
-              <div class="config-section">
+              <!-- MCP工具选择 (已移除，统一在设置中管理) -->
+              <!-- <div class="config-section">
                 <h4 class="config-title">🛠️ MCP工具</h4>
-                <div v-if="loadingMcpTools" class="loading-tools">
-                  <el-icon class="is-loading"><Loading /></el-icon> 加载工具中...
-                </div>
-                <div v-else-if="mcpTools.length === 0" class="no-tools">
-                  暂无可用MCP工具
-                </div>
-                <div v-else class="tools-list">
-                  <el-checkbox-group v-model="analysisForm.mcpTools" class="mcp-tools-group">
-                    <el-checkbox
-                      v-for="tool in mcpTools"
-                      :key="tool.id"
-                      :label="tool.id"
-                      :disabled="tool.status !== 'healthy'"
-                      class="tool-checkbox"
-                    >
-                      <el-tooltip :content="tool.description || tool.name" placement="top" :show-after="500">
-                        <span>{{ tool.name }}</span>
-                      </el-tooltip>
-                    </el-checkbox>
-                  </el-checkbox-group>
-                </div>
-              </div>
+                 ...
+              </div> -->
 
             </div>
           </el-card>

@@ -240,8 +240,12 @@ class MCPToolLoaderFactory:
 
     def __init__(self, config_file: str | Path | None = None):
         self.config_file = get_config_path(Path(config_file) if config_file else DEFAULT_CONFIG_FILE)
-        # 官方 MultiServerMCPClient 实例
-        self._mcp_client: Optional[Any] = None
+        # 官方 MultiServerMCPClient 实例集合
+        self._mcp_clients: Dict[str, Any] = {}
+        # 资源管理栈
+        from contextlib import AsyncExitStack
+        self._exit_stack = AsyncExitStack()
+        
         # 从 MCP 服务器加载的工具
         self._mcp_tools: List[Any] = []
         # 健康监控
@@ -460,6 +464,14 @@ class MCPToolLoaderFactory:
                     try:
                         logger.info(f"[MCP] 正在连接服务器 {name}...")
                         single_client = MultiServerMCPClient({name: params})
+                        
+                        # 使用 ExitStack 管理上下文，保持连接活跃
+                        # 如果 single_client 是上下文管理器，这将调用 __aenter__
+                        if hasattr(single_client, "__aenter__"):
+                            await self._exit_stack.enter_async_context(single_client)
+                        
+                        self._mcp_clients[name] = single_client
+                        
                         raw_tools = await single_client.get_tools()
 
                         # 为每个工具设置服务器名称元数据（兼容 StructuredTool）
@@ -480,6 +492,10 @@ class MCPToolLoaderFactory:
                         
                     except Exception as e:
                         logger.warning(f"[MCP] 服务器 {name} 连接失败: {e}")
+                        # 尝试清理失败的连接
+                        if name in self._mcp_clients:
+                            del self._mcp_clients[name]
+                            
                         # 标记为不可达，但不影响其他服务器
                         self._health_monitor._update_status(
                             name,
@@ -619,7 +635,7 @@ class MCPToolLoaderFactory:
     async def reload_config(self):
         """重新加载配置并重新初始化连接。"""
         # 关闭现有连接
-        await self.close_all_async()
+        await self.close()
         
         # 重置状态
         self._initialized = False
@@ -634,17 +650,15 @@ class MCPToolLoaderFactory:
         self._mcp_tools.clear()
         self._server_configs.clear()
 
-    async def close_all_async(self):
-        """异步关闭所有连接。"""
-        # 停止配置监视
-        await self._stop_config_watching()
-        
-        # 清理 MultiServerMCPClient
-        # langchain-mcp-adapters 0.1.0+ 不再需要显式关闭
-        self._mcp_client = None
-        
-        self.close_all()
+    async def close(self):
+        """关闭所有 MCP 连接"""
+        if self._async_config_watcher:
+            await self._async_config_watcher.stop()
+            
+        await self._exit_stack.aclose()
+        self._mcp_clients.clear()
         self._initialized = False
+        logger.info("[MCP] 已关闭所有连接")
 
     async def _start_config_watching(self):
         """启动配置文件监视。"""
