@@ -385,11 +385,26 @@ const loadAnalystNameMap = async () => {
       res.data.customModes.forEach(mode => {
         const name = mode.name || mode.slug
         if (mode.slug) {
+          // 1. 原始 slug 映射
           map[mode.slug] = name
+          
+          // 2. 规范化 ID 映射
           const normalized = normalizeAnalystId(mode.slug)
           if (normalized) {
             map[normalized] = name
           }
+
+          // 3. 报告模块 key 映射 (e.g. market-analyst -> market_report)
+          // 逻辑: 移除 -analyst 后缀, 横杠转下划线, 添加 _report 后缀
+          const baseKey = mode.slug.replace(/-analyst$/, '').replace(/-/g, '_')
+          const reportKey = `${baseKey}_report`
+          
+          // 直接使用中文名称，不添加图标
+          map[reportKey] = name
+          
+          // 4. 额外兼容常见 key 变体 (防止 key 不一致导致回退到英文)
+          map[baseKey] = name // e.g. market
+          map[`${baseKey}_analyst`] = name // e.g. market_analyst
         }
       })
       analystNameMap.value = map
@@ -889,30 +904,35 @@ const getModelDescription = (modelInfo: string) => {
 }
 
 const getModuleDisplayName = (moduleName: string) => {
+  // 1. 优先使用动态加载的映射 (第一阶段分析师)
+  if (analystNameMap.value && analystNameMap.value[moduleName]) {
+    return analystNameMap.value[moduleName]
+  }
+
   // 非第1阶段的固定报告映射（研究团队、交易团队、风险管理团队等）
   const fixedNameMap: Record<string, string> = {
     // 研究团队 (3个)
-    bull_researcher: '🐂 多头研究员',
-    bear_researcher: '🐻 空头研究员',
-    research_team_decision: '🔬 研究经理决策',
+    bull_researcher: '多头研究员',
+    bear_researcher: '空头研究员',
+    research_team_decision: '研究经理决策',
 
     // 交易团队 (1个)
-    trader_investment_plan: '💼 交易员计划',
+    trader_investment_plan: '交易员计划',
 
     // 风险管理团队 (4个)
-    risky_analyst: '⚡ 激进分析师',
-    safe_analyst: '🛡️ 保守分析师',
-    neutral_analyst: '⚖️ 中性分析师',
-    risk_management_decision: '👔 投资组合经理',
+    risky_analyst: '激进分析师',
+    safe_analyst: '保守分析师',
+    neutral_analyst: '中性分析师',
+    risk_management_decision: '投资组合经理',
 
     // 最终决策 (1个)
-    final_trade_decision: '🎯 最终交易决策',
+    final_trade_decision: '最终交易决策',
 
     // 兼容旧字段
-    investment_plan: '📋 投资建议',
-    investment_debate_state: '🔬 研究团队决策（旧）',
-    risk_debate_state: '⚖️ 风险管理团队（旧）',
-    detailed_analysis: '📄 详细分析'
+    investment_plan: '投资建议',
+    investment_debate_state: '研究团队决策（旧）',
+    risk_debate_state: '风险管理团队（旧）',
+    detailed_analysis: '详细分析'
   }
   
   if (fixedNameMap[moduleName]) {
@@ -922,7 +942,7 @@ const getModuleDisplayName = (moduleName: string) => {
   // 对于第1阶段分析师报告，自动生成友好名称
   if (moduleName.endsWith('_report')) {
     const name = moduleName.replace('_report', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-    return `📊 ${name}`
+    return `${name} Agent`
   }
   
   // 未匹配到时，做一个友好的回退：下划线转空格
