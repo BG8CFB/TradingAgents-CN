@@ -472,11 +472,8 @@ class MCPToolLoaderFactory:
                         logger.info(f"[MCP] 正在连接服务器 {name}...")
                         single_client = MultiServerMCPClient({name: params})
                         
-                        # 使用 ExitStack 管理上下文，保持连接活跃
-                        # 如果 single_client 是上下文管理器，这将调用 __aenter__
-                        if hasattr(single_client, "__aenter__"):
-                            await self._exit_stack.enter_async_context(single_client)
-                        
+                        # 适配 langchain-mcp-adapters >= 0.1.0
+                        # MultiServerMCPClient 不再作为上下文管理器使用，而是作为普通客户端实例
                         self._mcp_clients[name] = single_client
                         
                         raw_tools = await single_client.get_tools()
@@ -663,6 +660,20 @@ class MCPToolLoaderFactory:
             await self._async_config_watcher.stop()
             
         await self._exit_stack.aclose()
+        
+        # 手动关闭客户端连接 (适配新版 API)
+        for name, client in self._mcp_clients.items():
+            try:
+                # 尝试调用可能的关闭方法
+                if hasattr(client, "aclose"):
+                    await client.aclose()
+                elif hasattr(client, "close"):
+                    c = client.close()
+                    if asyncio.iscoroutine(c):
+                        await c
+            except Exception as e:
+                logger.warning(f"[MCP] 关闭服务器 {name} 连接失败: {e}")
+
         self._mcp_clients.clear()
         self._initialized = False
         logger.info("[MCP] 已关闭所有连接")

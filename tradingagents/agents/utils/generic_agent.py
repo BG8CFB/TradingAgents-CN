@@ -172,7 +172,12 @@ class GenericAgent:
             f"⚠️ 重要指令：\n"
             f"1. 如果工具调用失败（返回错误信息），请在报告中如实记录失败原因，**严禁编造**虚假数据。\n"
             f"2. 即使没有获取到完整数据，也请根据已知信息生成一份包含“错误说明”的报告。\n"
-            f"3. 你的报告将被用于最终汇总，请确保信息的真实性和准确性。"
+            f"3. 你的报告将被用于最终汇总，请确保信息的真实性和准确性。\n"
+            f"4. **禁止死循环**：\n"
+            f"   - 每次调用工具前，请仔细检查上方对话历史。\n"
+            f"   - **严禁**使用完全相同的参数连续两次调用同一个工具。\n"
+            f"   - 如果连续 3 次调用工具未获得有效信息，请立即停止尝试，基于现有信息生成报告。\n"
+            f"5. 最终输出必须包含具体的分析结论，不要只列出数据。"
         )
         system_msg_content += context_info
 
@@ -194,16 +199,41 @@ class GenericAgent:
             try:
                 logger.info(f"[{self.name}] 🚀 启动 LangGraph ReAct Agent...")
 
-                result_state = self.agent_executor.invoke({
-                    "messages": input_messages,
-                })
+                # 🔥 显式设置递归限制，防止模型陷入死循环
+                # 默认 100 太高，单个分析师通常 15 步足够
+                # 捕获 RecursionError 需要在外部进行，但设置 limit 可以避免无限等待
+                
+                # 🔄 改用 stream 模式以捕获中间步骤，实现 Graceful Exit
+                # 如果使用 invoke，一旦触发 RecursionError，中间产生的所有 ToolCalls 和思考都会丢失
+                final_state = state.copy()  # 初始化为当前状态
+                collected_messages = []     # 收集本轮执行产生的新消息
+                
+                # 使用 stream 模式执行
+                # stream_mode="values" 会返回状态字典的更新
+                iterator = self.agent_executor.stream(
+                    {"messages": input_messages},
+                    config={"recursion_limit": 25},
+                    stream_mode="values"
+                )
+                
+                for step_state in iterator:
+                    # step_state 是当前完整状态（包含累积的 messages）
+                    if "messages" in step_state:
+                        # 更新最终状态
+                        final_state = step_state
+                        # 记录消息数量变化，用于调试
+                        current_msg_count = len(step_state["messages"])
+                        # logger.debug(f"[{self.name}] ⏳ 步骤更新，当前消息数: {current_msg_count}")
 
+                result_state = final_state
                 result_messages = result_state.get("messages", [])
 
                 # --- 增强调试日志 ---
                 logger.info(f"[{self.name}] 🔍 系统提示词预览 (前500字符):\n{system_msg_content[:500]}...")
 
                 tool_calls_log = []
+                # 只分析本轮新增的消息（排除 input_messages）
+                # 简单起见，我们分析所有返回的消息，因为 input_messages 也在其中
                 for msg in result_messages:
                     if isinstance(msg, ToolMessage):
                         tool_calls_log.append(f"🛠️ 工具返回: {msg.name} (ID: {msg.tool_call_id}) -> {str(msg.content)[:200]}...")
@@ -233,8 +263,50 @@ class GenericAgent:
 
             except Exception as e:
                 import traceback
-                logger.error(f"[{self.name}] ❌ Agent 执行崩溃: {e}\n{traceback.format_exc()}")
-                final_report = f"# ❌ 分析失败\n\n智能体执行过程中发生严重错误，无法完成分析。\n\n**错误详情**:\n```\n{str(e)}\n```\n\n请检查日志获取更多信息。"
+                error_msg = str(e)
+                logger.error(f"[{self.name}] ❌ Agent 执行异常: {e}")
+                
+                # 🛡️ 智能死循环恢复 (Graceful Exit)
+                if "recursion limit" in error_msg.lower() or "need more steps" in error_msg.lower():
+                     logger.warning(f"[{self.name}] ⚠️ 触发递归限制 (死循环保护)。尝试基于已有的中间步骤生成总结报告...")
+                     
+                     try:
+                         # 1. 获取目前为止收集到的所有消息（即使 invoke 失败，我们可能从之前的 stream 中拿不到，
+                         #    但在 stream 循环内部抛出异常时，final_state 可能保留了最后一次成功的状态）
+                         #    ⚠️ 注意：如果 stream 在第一次 yield 之前就挂了，final_state 还是初始值。
+                         #    ⚠️ 如果是在中间挂了，final_state 应该是最近一次成功的 update。
+                         
+                         history_so_far = final_state.get("messages", [])
+                         
+                         # 2. 构造“强制总结”提示
+                         force_summary_prompt = (
+                             "\n\n🚨【系统紧急指令】🚨\n"
+                             "由于任务执行步骤过多，系统已强制中断工具调用。\n"
+                             "请忽略尚未完成的步骤。\n"
+                             "请立即基于**以上所有对话历史**和**已获取的工具结果**，生成一份最终分析报告。\n"
+                             "报告必须包含：\n"
+                             "1. ⚠️ 在开头显著位置注明：'（由于步骤限制，部分分析可能未完成）'。\n"
+                             "2. 已确认的事实和数据。\n"
+                             "3. 基于现有信息的推断和结论。\n"
+                             "4. 缺失信息的说明。\n"
+                             "不要再试图调用任何工具！直接输出报告内容。"
+                         )
+                         
+                         # 3. 再次调用 LLM (不带工具，纯对话模式)
+                         recovery_messages = history_so_far + [HumanMessage(content=force_summary_prompt)]
+                         
+                         logger.info(f"[{self.name}] 🚑 正在请求 LLM 进行紧急总结...")
+                         recovery_response = self.llm.invoke(recovery_messages)
+                         final_report = recovery_response.content
+                         
+                         logger.info(f"[{self.name}] ✅ 紧急总结成功，报告长度: {len(final_report)}")
+                         
+                     except Exception as recovery_error:
+                         logger.error(f"[{self.name}] ❌ 紧急总结失败: {recovery_error}")
+                         final_report = f"# ⚠️ 分析中断\n\n由于任务过于复杂或工具调用陷入循环，智能体已达到最大执行步数限制，且无法生成总结。\n\n错误详情: {error_msg}"
+                else:
+                     logger.error(f"[{self.name}] ❌ 非递归错误: {traceback.format_exc()}")
+                     final_report = f"# ❌ 分析失败\n\n智能体执行过程中发生严重错误，无法完成分析。\n\n**错误详情**:\n```\n{error_msg}\n```\n\n请检查日志获取更多信息。"
         else:
              # 无工具模式：直接调用 LLM
              try:

@@ -83,11 +83,19 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
         # 优先使用传入的 API Key，否则从环境变量读取
         dashscope_api_key = api_key or os.getenv('DASHSCOPE_API_KEY')
 
+        # 🛡️ 特殊处理：如果用户配置了 native API URL，自动修正为 None 以使用默认的兼容 URL
+        # DashScope Native API: https://dashscope.aliyuncs.com/api/v1
+        # OpenAI Compatible: https://dashscope.aliyuncs.com/compatible-mode/v1
+        final_base_url = backend_url
+        if backend_url and "dashscope.aliyuncs.com/api/v1" in backend_url:
+            logger.warning(f"⚠️ [Config Correction] 检测到 DashScope Native API URL ({backend_url})，已自动切换为 OpenAI 兼容模式 URL")
+            final_base_url = None
+
         # 传递 base_url 参数，使厂家配置的 default_base_url 生效
         return ChatDashScopeOpenAI(
             model=model,
             api_key=dashscope_api_key,  # 🔥 传递 API Key
-            base_url=backend_url if backend_url else None,  # 如果有自定义 URL 则使用
+            base_url=final_base_url if final_base_url else None,  # 如果有自定义 URL 则使用
             temperature=temperature,
             max_tokens=max_tokens,
             request_timeout=timeout

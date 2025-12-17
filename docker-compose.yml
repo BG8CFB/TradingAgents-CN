@@ -46,9 +46,9 @@ services:
     image: docker.1ms.run/redis:7-alpine
     container_name: tradingagents-redis
     restart: unless-stopped
-    # 仅在容器网络内部暴露端口，不对宿主机开放
-    expose:
-      - "6379"
+    # 映射端口到宿主机，方便本地开发调试
+    ports:
+      - "6379:6379"
     volumes:
       - tradingagents_redis_data:/data
     environment:

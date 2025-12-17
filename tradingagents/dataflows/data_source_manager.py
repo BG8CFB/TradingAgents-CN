@@ -2257,21 +2257,9 @@ def get_china_stock_data_unified(symbol: str, start_date: str, end_date: str) ->
     manager = get_data_source_manager()
     logger.info(f"🔍 [股票代码追踪] 调用 manager.get_stock_data，传入参数: symbol='{symbol}', start_date='{start_date}', end_date='{end_date}'")
     
-    # 尝试多源获取
-    results = manager.get_stock_data_all_sources(symbol, start_date, end_date)
-    
-    if len(results) > 1:
-        logger.info(f"✅ [多源数据] 成功获取 {len(results)} 个数据源的数据")
-        combined_result = f"# 多源数据对比 ({symbol})\n\n"
-        for source, data in results.items():
-            combined_result += f"## 数据源: {source.upper()}\n{data}\n\n"
-        result = combined_result
-    elif len(results) == 1:
-        logger.info(f"✅ [单源数据] 仅获取到 1 个数据源的数据")
-        result = list(results.values())[0]
-    else:
-        logger.warning(f"⚠️ [多源数据] 未获取到有效数据，尝试使用默认逻辑")
-        result = manager.get_stock_data(symbol, start_date, end_date)
+    # 直接调用统一的数据获取接口（内部包含优先级降级逻辑）
+    # 优先级：MongoDB -> Tushare/AKShare (根据配置)
+    result = manager.get_stock_data(symbol, start_date, end_date)
 
     # 分析返回结果的详细信息
     if result:
