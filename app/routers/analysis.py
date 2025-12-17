@@ -110,14 +110,15 @@ async def get_task_status_new(
 ):
     """获取分析任务状态（新版异步实现）"""
     try:
-        logger.info(f"🔍 [NEW ROUTE] 进入新版状态查询路由: {task_id}")
-        logger.info(f"👤 [NEW ROUTE] 用户: {user}")
+        # 减少高频轮询日志，避免刷屏
+        # logger.info(f"🔍 [NEW ROUTE] 进入新版状态查询路由: {task_id}")
+        # logger.info(f"👤 [NEW ROUTE] 用户: {user}")
 
         analysis_service = get_analysis_service()
-        logger.info(f"🔧 [NEW ROUTE] 获取分析服务实例: {id(analysis_service)}")
+        # logger.info(f"🔧 [NEW ROUTE] 获取分析服务实例: {id(analysis_service)}")
 
         result = await analysis_service.get_task_status(task_id)
-        logger.info(f"📊 [NEW ROUTE] 查询结果: {result is not None}")
+        # logger.info(f"📊 [NEW ROUTE] 查询结果: {result is not None}")
 
         if result:
             return {

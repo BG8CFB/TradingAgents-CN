@@ -513,11 +513,11 @@ class AnalysisService:
                 config["enable_mcp"] = True
                 config["mcp_tool_loader"] = loader
                 config.setdefault("mcp_tool_ids", tool_ids)
-                logger.info(f"✅ 自动启用 MCP 工具: {len(mcp_tools)} 个 (外部)")
+                logger.info(f"自动启用MCP工具: {len(mcp_tools)}个")
             else:
-                logger.info("ℹ️ 已检测到 MCP 支持但当前无可用外部工具，保持禁用")
+                logger.info("MCP支持已检测，无可用外部工具")
         except Exception as exc:
-            logger.warning(f"⚠️ 自动注入 MCP 工具失败: {exc}")
+            logger.warning(f"自动注入MCP工具失败: {exc}")
 
     # -------------------------------------------------------------------------
     # Main Analysis Methods (Core Logic from simple_analysis_service.py)
@@ -700,7 +700,7 @@ class AnalysisService:
                     []
                 )
                 if selected_mcp_tools:
-                    logger.info(f"🔧 MCP工具已选择: {selected_mcp_tools}")
+                    logger.info(f"MCP工具选择: {selected_mcp_tools}")
 
             # 执行实际分析
             result = await self._execute_analysis_sync(
@@ -1002,7 +1002,7 @@ class AnalysisService:
 
             if selected_mcp_tools:
                 if not LANGCHAIN_MCP_AVAILABLE:
-                    logger.warning("⚠️ 选择了MCP工具，但未安装 langchain-mcp，已跳过")
+                    logger.warning("选择MCP工具但未安装langchain-mcp，已跳过")
                 else:
                     try:
                         factory = get_mcp_loader_factory()
@@ -1010,9 +1010,9 @@ class AnalysisService:
                         # 仅加载外部 MCP 工具，避免本地 MCP 工具重复注册
                         config["mcp_tool_loader"] = factory.create_loader(selected_mcp_tools, include_local=False)
                         config["mcp_tool_ids"] = selected_mcp_tools
-                        logger.info(f"✅ 已配置 MCP 工具加载器，共 {len(selected_mcp_tools)} 个")
+                        logger.info(f"配置MCP工具加载器: {len(selected_mcp_tools)}个")
                     except Exception as e:
-                        logger.error(f"❌ 配置 MCP 工具加载器失败: {e}")
+                        logger.error(f"配置MCP工具加载器失败: {e}")
 
             # 若未显式选择但外部 MCP 工具已配置，则自动启用（同步环境下启动新事件循环）
             asyncio.run(self._auto_enable_mcp(config, selected_mcp_tools))

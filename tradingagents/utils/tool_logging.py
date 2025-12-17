@@ -109,8 +109,18 @@ def log_tool_call(tool_name: Optional[str] = None, log_args: bool = True, log_re
                     exc_info=True
                 )
 
-                # 重新抛出异常
-                raise
+                # 🔥 [增强] 返回对 LLM 友好的错误提示，而不是直接抛出异常导致程序崩溃或重试循环
+                # 这种模式称为 "Graceful Error Handling for Agents"
+                error_feedback = (
+                    f"❌ 工具 {name} 调用失败\n"
+                    f"错误详情: {str(e)}\n\n"
+                    f"💡 建议操作:\n"
+                    f"1. 请检查输入参数是否符合要求。\n"
+                    f"2. 如果是数据源错误，请尝试跳过调用错误的工具。\n"
+                    f"3. ⚠️ 请不要用完全相同的参数立即重试，这通常无效。\n"
+                    f"4. 如果无法解决，请在报告中记录此错误并继续分析其他部分。"
+                )
+                return error_feedback
 
         return wrapper
     return decorator

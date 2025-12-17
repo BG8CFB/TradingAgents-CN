@@ -430,6 +430,83 @@ class TushareProvider(BaseStockDataProvider):
             self.logger.error(f"❌ 获取实时行情失败 symbol={symbol}: {e}")
             return None
 
+    async def get_stock_data_minutes(
+        self,
+        symbol: str,
+        start_datetime: str,
+        end_datetime: str,
+        freq: str = "1min"
+    ) -> Optional[pd.DataFrame]:
+        """
+        获取分钟级K线数据
+        
+        Args:
+            symbol: 股票代码 (e.g. "600000.SH")
+            start_datetime: 开始时间 (YYYY-MM-DD HH:MM:SS)
+            end_datetime: 结束时间 (YYYY-MM-DD HH:MM:SS)
+            freq: 频率 (1min, 5min, 15min, 30min, 60min)
+            
+        Returns:
+            pd.DataFrame or None
+        """
+        if not self.is_available():
+            return None
+
+        try:
+            ts_code = self._normalize_ts_code(symbol)
+            
+            # 映射频率参数
+            # ts.pro_bar 使用 freq='1min' 等格式
+            freq_map = {
+                '1m': '1min', '1min': '1min',
+                '5m': '5min', '5min': '5min',
+                '15m': '15min', '15min': '15min',
+                '30m': '30min', '30min': '30min',
+                '60m': '60min', '60min': '60min'
+            }
+            ts_freq = freq_map.get(freq.lower(), '1min')
+            
+            self.logger.info(f"🔄 Fetching {ts_freq} data for {ts_code} from {start_datetime} to {end_datetime}")
+
+            # 使用 ts.pro_bar 获取分钟数据
+            # ts.pro_bar 是同步函数，需要放到线程池中执行
+            # ts.pro_bar 需要 api 参数 (pro client)
+            # 并且需要 adj='qfq' (默认)
+            
+            df = await asyncio.to_thread(
+                ts.pro_bar,
+                ts_code=ts_code,
+                api=self.api,
+                start_date=start_datetime,
+                end_date=end_datetime,
+                freq=ts_freq,
+                adj='qfq',
+                ma=[] # 不需要均线
+            )
+            
+            if df is not None and not df.empty:
+                # 统一列名
+                # ts.pro_bar 返回: ts_code, trade_time, open, high, low, close, vol, amount
+                rename_map = {
+                    'trade_time': 'trade_time',
+                    'vol': 'volume'
+                }
+                df = df.rename(columns=rename_map)
+                
+                # 确保时间排序
+                if 'trade_time' in df.columns:
+                    df = df.sort_values('trade_time').reset_index(drop=True)
+                    
+                self.logger.info(f"✅ 成功获取 {len(df)} 条分钟数据")
+                return df
+            else:
+                self.logger.warning(f"⚠️ 分钟数据为空: {ts_code}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ 获取分钟数据失败: {e}")
+            return None
+
     async def get_realtime_quotes_batch(self) -> Optional[Dict[str, Dict[str, Any]]]:
         """
         批量获取全市场实时行情

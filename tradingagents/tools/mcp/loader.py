@@ -485,7 +485,7 @@ class MCPToolLoaderFactory:
                         ]
 
                         self._mcp_tools.extend(annotated_tools)
-                        logger.info(f"[MCP] 服务器 {name} 连接成功，加载了 {len(annotated_tools)} 个工具")
+                        logger.info(f"MCP服务器连接成功: {name} (工具: {len(annotated_tools)}个)")
                         
                         # 更新健康状态为健康
                         self._health_monitor._update_status(
@@ -495,7 +495,7 @@ class MCPToolLoaderFactory:
                         )
                         
                     except Exception as e:
-                        logger.warning(f"[MCP] 服务器 {name} 连接失败: {e}")
+                        logger.warning(f"MCP服务器连接失败: {name} - {e}")
                         # 尝试清理失败的连接
                         if name in self._mcp_clients:
                             del self._mcp_clients[name]
@@ -507,7 +507,7 @@ class MCPToolLoaderFactory:
                             error=str(e)
                         )
                 
-                logger.info(f"[MCP] 共加载了 {len(self._mcp_tools)} 个工具")
+                logger.info(f"MCP工具加载完成: {len(self._mcp_tools)}个")
         
         # 启动配置文件监视
         await self._start_config_watching()

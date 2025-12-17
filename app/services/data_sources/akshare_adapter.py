@@ -397,6 +397,34 @@ class AKShareAdapter(DataSourceAdapter):
             logger.error(f"Error fetching EM news custom: {e}")
             return None
 
+    def _get_market_prefix(self, ts_code: str) -> str:
+        """
+        Get market prefix for AKShare (sh/sz/bj)
+        """
+        if not ts_code:
+            return ""
+        # Remove any existing prefix like sh600000
+        if ts_code.startswith(('sh', 'sz', 'bj', 'SH', 'SZ', 'BJ')):
+             ts_code = ts_code[2:]
+             
+        # If has suffix
+        if ts_code.endswith('.SH'):
+            return "sh"
+        elif ts_code.endswith('.SZ'):
+            return "sz"
+        elif ts_code.endswith('.BJ'):
+            return "bj"
+            
+        # Try to guess from code
+        code = ts_code.split('.')[0]
+        if code.startswith('6'):
+            return "sh"
+        elif code.startswith(('0', '3')):
+            return "sz"
+        elif code.startswith(('8', '4')):
+            return "bj"
+        return "sz" # Default
+
     def query(self, api_name: str, **kwargs) -> Optional[pd.DataFrame]:
         """
         通用查询接口，模拟 Tushare 的 pro.query 接口
@@ -741,15 +769,26 @@ class AKShareAdapter(DataSourceAdapter):
                 # 个股资金流
                 if not symbol: return None
                 try:
-                    # ak.stock_individual_fund_flow 可能需要 market 参数
+                    # ak.stock_individual_fund_flow 需要 market 参数
                     market = self._get_market_prefix(ts_code)
                     logger.info(f"Fetching moneyflow for {symbol} market={market}")
                     
-                    # AKShare 资金流向接口通常返回最近120天左右的数据，不支持直接传日期范围过滤 API 调用
-                    # 只能获取后在内存过滤
-                    df = ak.stock_individual_fund_flow(stock=symbol, market=market)
+                    # 增加重试机制，应对网络抖动或IP限制
+                    df = None
+                    for attempt in range(3):
+                        try:
+                            df = ak.stock_individual_fund_flow(stock=symbol, market=market)
+                            if df is not None and not df.empty:
+                                break
+                            import time
+                            time.sleep(1) # 简单的避让
+                        except Exception as e_retry:
+                            logger.warning(f"Moneyflow attempt {attempt+1} failed: {e_retry}")
+                            import time
+                            time.sleep(1)
+
                     if df is None or df.empty:
-                        logger.warning(f"Moneyflow returned empty for {symbol}")
+                        logger.warning(f"Moneyflow returned empty for {symbol} after retries")
                         return None
                         
                     # 适配 Tushare 字段
@@ -999,6 +1038,173 @@ class AKShareAdapter(DataSourceAdapter):
                 except Exception as e:
                      logger.warning(f"Dragon tiger error: {e}")
                      return None
+
+            # --- 融资融券 ---
+            elif api_name == 'margin':
+                # 融资融券交易汇总 (市场总计)
+                # Tushare: trade_date, exchange_id, balance, ...
+                # AKShare: stock_margin_sse, stock_margin_szse
+                try:
+                    exchange = kwargs.get('exchange_id', '')
+                    start_dt = start_date.replace('-', '') if start_date else ''
+                    end_dt = end_date.replace('-', '') if end_date else ''
+                    
+                    frames = []
+                    
+                    # 上交所
+                    if not exchange or exchange == 'SSE':
+                        try:
+                            # stock_margin_sse 支持时间范围
+                            df_sh = ak.stock_margin_sse(start_date=start_dt, end_date=end_dt)
+                            if df_sh is not None and not df_sh.empty:
+                                df_sh['exchange_id'] = 'SSE'
+                                df_sh = df_sh.rename(columns={
+                                    '信用交易日期': 'trade_date',
+                                    '融资余额': 'rzye',
+                                    '融资买入额': 'rzmre',
+                                    '融券余额': 'rqye',
+                                    '融券卖出量': 'rqmcl',
+                                    '融券余量': 'rqyl'
+                                })
+                                frames.append(df_sh)
+                        except Exception as e:
+                            logger.warning(f"AKShare margin SSE error: {e}")
+
+                    # 深交所
+                    if not exchange or exchange == 'SZSE':
+                        try:
+                            # stock_margin_szse 只支持单日? 或者是时间范围?
+                            # 文档显示 stock_margin_szse(date='20220210')
+                            # 如果是范围，可能需要循环。这里简化，只获取 start_date 或 end_date
+                            target_date = end_dt if end_dt else start_dt
+                            if target_date:
+                                df_sz = ak.stock_margin_szse(date=target_date)
+                                if df_sz is not None and not df_sz.empty:
+                                    df_sz['exchange_id'] = 'SZSE'
+                                    df_sz = df_sz.rename(columns={
+                                        '融资融券交易日期': 'trade_date',
+                                        '融资余额': 'rzye',
+                                        '融资买入额': 'rzmre',
+                                        '融券余额': 'rqye',
+                                        '融券卖出量': 'rqmcl',
+                                        '融券余量': 'rqyl'
+                                    })
+                                    frames.append(df_sz)
+                        except Exception as e:
+                            logger.warning(f"AKShare margin SZSE error: {e}")
+                            
+                    if frames:
+                        df_res = pd.concat(frames)
+                        return df_res
+                    return None
+                except Exception as e:
+                    logger.error(f"AKShare margin error: {e}")
+                    return None
+
+            elif api_name == 'margin_detail':
+                # 融资融券交易明细 (个股)
+                # Tushare: trade_date, ts_code, rzye, ...
+                # AKShare: stock_margin_detail_sse(date=...), stock_margin_detail_szse(date=...)
+                try:
+                    # 只能按日期查询，如果提供了 ts_code 和 range，效率很低
+                    # 这里简化：只查询 end_date (或 start_date)
+                    query_date = end_date.replace('-', '') if end_date else (start_date.replace('-', '') if start_date else '')
+                    if not query_date:
+                        query_date = self.find_latest_trade_date()
+                    
+                    frames = []
+                    
+                    # 上交所
+                    try:
+                        df_sh = ak.stock_margin_detail_sse(date=query_date)
+                        if df_sh is not None and not df_sh.empty:
+                            df_sh = df_sh.rename(columns={
+                                '信用交易日期': 'trade_date',
+                                '标的证券代码': 'symbol',
+                                '标的证券简称': 'name',
+                                '融资余额': 'rzye',
+                                '融资买入额': 'rzmre',
+                                '融资偿还额': 'rzche',
+                                '融券余额': 'rqye',
+                                '融券卖出量': 'rqmcl',
+                                '融券偿还量': 'rqchl',
+                                '融券余量': 'rqyl'
+                            })
+                            # 添加 ts_code
+                            df_sh['ts_code'] = df_sh['symbol'].apply(lambda x: f"{str(x).zfill(6)}.SH")
+                            frames.append(df_sh)
+                    except Exception:
+                        pass
+                        
+                    # 深交所
+                    try:
+                        df_sz = ak.stock_margin_detail_szse(date=query_date)
+                        if df_sz is not None and not df_sz.empty:
+                             df_sz = df_sz.rename(columns={
+                                '证券代码': 'symbol',
+                                '证券简称': 'name',
+                                '融资余额': 'rzye',
+                                '融资买入额': 'rzmre',
+                                '融资偿还额': 'rzche',
+                                '融券余额': 'rqye',
+                                '融券卖出量': 'rqmcl',
+                                '融券偿还量': 'rqchl',
+                                '融券余量': 'rqyl',
+                                '交易日期': 'trade_date' # 有些接口可能没有日期列
+                            })
+                             # 深交所接口可能不返回日期列，需手动添加
+                             if 'trade_date' not in df_sz.columns:
+                                 df_sz['trade_date'] = query_date
+                                 
+                             df_sz['ts_code'] = df_sz['symbol'].apply(lambda x: f"{str(x).zfill(6)}.SZ")
+                             frames.append(df_sz)
+                    except Exception:
+                        pass
+                        
+                    if frames:
+                        df_all = pd.concat(frames)
+                        # 如果指定了 ts_code，过滤
+                        if ts_code:
+                            df_all = df_all[df_all['ts_code'] == ts_code]
+                        return df_all
+                    return None
+                except Exception as e:
+                    logger.error(f"AKShare margin detail error: {e}")
+                    return None
+
+            # --- 指数成分股权重 ---
+            elif api_name == 'index_weight':
+                # 中证指数成分股权重
+                # index_code: 399300.SZ -> 000300
+                index_code = kwargs.get('index_code', '')
+                if not index_code: return None
+                
+                try:
+                    # 映射代码
+                    symbol = index_code.split('.')[0]
+                    # Tushare 399300.SZ 是沪深300，AKShare 中证指数用 000300
+                    if index_code == '399300.SZ': symbol = '000300'
+                    if index_code == '000300.SH': symbol = '000300'
+                    
+                    logger.info(f"Fetching index weight for {symbol}")
+                    df = ak.index_stock_cons_weight_csindex(symbol=symbol)
+                    
+                    if df is not None and not df.empty:
+                        # 字段: 成分券代码, 成分券名称, 权重(%)
+                        df = df.rename(columns={
+                            '成分券代码': 'member_code',
+                            '成分券名称': 'member_name',
+                            '权重(%)': 'weight'
+                        })
+                        # 补充 ts_code (index code)
+                        df['index_code'] = index_code
+                        # 补充 date (AKShare 接口不返回日期，假设是最新)
+                        df['trade_date'] = end_date if end_date else datetime.now().strftime('%Y%m%d')
+                        
+                        return df
+                except Exception as e:
+                    logger.error(f"AKShare index weight error: {e}")
+                    return None
 
             elif api_name == 'block_trade':
                 # 大宗交易

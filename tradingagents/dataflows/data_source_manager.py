@@ -908,6 +908,47 @@ class DataSourceManager:
             volume_value = self._get_volume_safely(display_data)
             result += f"   平均成交量: {volume_value:,.0f}股\n"
 
+            # ---------------------------------------------------------
+            # 添加历史数据明细表 (响应用户需求：不要截断数据)
+            # ---------------------------------------------------------
+            result += "\n## 历史数据明细\n"
+            
+            # 选择展示列
+            cols_to_show = ['date', 'open', 'high', 'low', 'close', 'vol', 'pct_change']
+            cols = [c for c in cols_to_show if c in data.columns]
+            
+            # 限制显示行数 (防止超出上下文限制，300行约等于1年)
+            max_table_rows = 300
+            if len(data) > max_table_rows:
+                 result += f"(数据过多，仅显示最近{max_table_rows}条，共{len(data)}条)\n"
+                 table_data = data.tail(max_table_rows)
+            else:
+                 table_data = data
+            
+            # 简单的 Markdown 表格生成
+            # 表头
+            header = "| " + " | ".join(cols) + " |"
+            sep = "| " + " | ".join(["---"] * len(cols)) + " |"
+            
+            rows = []
+            for _, row in table_data.iterrows():
+                # 格式化每一行
+                row_vals = []
+                for c in cols:
+                    val = row.get(c, '')
+                    if isinstance(val, (float, int)):
+                        if c in ['vol', 'amount']:
+                            row_vals.append(f"{val:.0f}")
+                        elif c == 'pct_change':
+                            row_vals.append(f"{val:.2f}%")
+                        else:
+                            row_vals.append(f"{val:.2f}")
+                    else:
+                        row_vals.append(str(val))
+                rows.append("| " + " | ".join(row_vals) + " |")
+            
+            result += f"{header}\n{sep}\n" + "\n".join(rows)
+
             return result
 
         except Exception as e:

@@ -176,8 +176,8 @@ class GenericAgent:
             f"4. **禁止死循环**：\n"
             f"   - 每次调用工具前，请仔细检查上方对话历史。\n"
             f"   - **严禁**使用完全相同的参数连续两次调用同一个工具。\n"
-            f"   - 如果连续 3 次调用工具未获得有效信息，请立即停止尝试，基于现有信息生成报告。\n"
-            f"5. 最终输出必须包含具体的分析结论，不要只列出数据。"
+            f"   - 如果连续 3 次尝试均未获得有效信息，请立即停止尝试。\n"
+            f"4. **最终输出**：必须包含具体的分析结论，不要只列出数据。"
         )
         system_msg_content += context_info
 
@@ -200,7 +200,7 @@ class GenericAgent:
                 logger.info(f"[{self.name}] 🚀 启动 LangGraph ReAct Agent...")
 
                 # 🔥 显式设置递归限制，防止模型陷入死循环
-                # 默认 100 太高，单个分析师通常 15 步足够
+                # 恢复为全局默认的 100 步，避免复杂分析任务被过早中断
                 # 捕获 RecursionError 需要在外部进行，但设置 limit 可以避免无限等待
                 
                 # 🔄 改用 stream 模式以捕获中间步骤，实现 Graceful Exit
@@ -212,7 +212,7 @@ class GenericAgent:
                 # stream_mode="values" 会返回状态字典的更新
                 iterator = self.agent_executor.stream(
                     {"messages": input_messages},
-                    config={"recursion_limit": 25},
+                    config={"recursion_limit": 50},
                     stream_mode="values"
                 )
                 
@@ -228,26 +228,7 @@ class GenericAgent:
                 result_state = final_state
                 result_messages = result_state.get("messages", [])
 
-                # --- 增强调试日志 ---
-                logger.info(f"[{self.name}] 🔍 系统提示词预览 (前500字符):\n{system_msg_content[:500]}...")
-
-                tool_calls_log = []
-                # 只分析本轮新增的消息（排除 input_messages）
-                # 简单起见，我们分析所有返回的消息，因为 input_messages 也在其中
-                for msg in result_messages:
-                    if isinstance(msg, ToolMessage):
-                        tool_calls_log.append(f"🛠️ 工具返回: {msg.name} (ID: {msg.tool_call_id}) -> {str(msg.content)[:200]}...")
-                    elif isinstance(msg, AIMessage) and msg.tool_calls:
-                        for tc in msg.tool_calls:
-                            tool_calls_log.append(f"📞 工具调用: {tc.get('name')} -> 参数: {tc.get('args')}")
-
-                if tool_calls_log:
-                    logger.info(f"[{self.name}] 📋 工具调用追踪:\n" + "\n".join(tool_calls_log))
-                else:
-                    logger.info(f"[{self.name}] ⚠️ 未检测到工具调用")
-                # -------------------
-
-                # 统计工具调用次数 (估算)
+                # --- 简化调试日志 ---
                 executed_tool_calls = sum(1 for msg in result_messages if isinstance(msg, ToolMessage))
 
                 if result_messages and isinstance(result_messages[-1], AIMessage):
@@ -264,11 +245,29 @@ class GenericAgent:
             except Exception as e:
                 import traceback
                 error_msg = str(e)
-                logger.error(f"[{self.name}] ❌ Agent 执行异常: {e}")
+                logger.error(f"[{self.name}] 分析失败: {type(e).__name__} - {str(e)}")
+
+                # --- Debug: 打印死循环时的最后几条消息 ---
+                try:
+                    debug_messages = final_state.get("messages", [])
+                    if debug_messages:
+                        logger.error(f"[{self.name}] 🔍 异常现场回溯 (最后 5 条消息):")
+                        for i, msg in enumerate(debug_messages[-5:]):
+                            content_preview = str(msg.content)[:500]
+                            if isinstance(msg, ToolMessage):
+                                logger.error(f"   {i+1}. [ToolMessage] {msg.name}: {content_preview}")
+                            elif isinstance(msg, AIMessage):
+                                tool_calls = getattr(msg, 'tool_calls', [])
+                                logger.error(f"   {i+1}. [AIMessage] ToolCalls={tool_calls} Content={content_preview}")
+                            else:
+                                logger.error(f"   {i+1}. [{type(msg).__name__}] {content_preview}")
+                except Exception as debug_err:
+                    logger.error(f"[{self.name}] 无法打印调试信息: {debug_err}")
+                # ----------------------------------------
                 
                 # 🛡️ 智能死循环恢复 (Graceful Exit)
                 if "recursion limit" in error_msg.lower() or "need more steps" in error_msg.lower():
-                     logger.warning(f"[{self.name}] ⚠️ 触发递归限制 (死循环保护)。尝试基于已有的中间步骤生成总结报告...")
+                     logger.warning(f"[{self.name}] 递归限制触发，正在生成总结报告...")
                      
                      try:
                          # 1. 获取目前为止收集到的所有消息（即使 invoke 失败，我们可能从之前的 stream 中拿不到，
@@ -302,19 +301,19 @@ class GenericAgent:
                          logger.info(f"[{self.name}] ✅ 紧急总结成功，报告长度: {len(final_report)}")
                          
                      except Exception as recovery_error:
-                         logger.error(f"[{self.name}] ❌ 紧急总结失败: {recovery_error}")
+                         logger.error(f"[{self.name}] 紧急总结失败: {recovery_error}")
                          final_report = f"# ⚠️ 分析中断\n\n由于任务过于复杂或工具调用陷入循环，智能体已达到最大执行步数限制，且无法生成总结。\n\n错误详情: {error_msg}"
                 else:
-                     logger.error(f"[{self.name}] ❌ 非递归错误: {traceback.format_exc()}")
+                     logger.error(f"[{self.name}] 分析异常: {traceback.format_exc()}")
                      final_report = f"# ❌ 分析失败\n\n智能体执行过程中发生严重错误，无法完成分析。\n\n**错误详情**:\n```\n{error_msg}\n```\n\n请检查日志获取更多信息。"
         else:
              # 无工具模式：直接调用 LLM
              try:
-                 logger.info(f"[{self.name}] ⚠️ 无工具/Agent初始化失败，直接调用 LLM")
+                 logger.info(f"[{self.name}] 无工具模式，直接调用 LLM")
                  response = self.llm.invoke(input_messages)
                  final_report = response.content
              except Exception as e:
-                 logger.error(f"[{self.name}] ❌ LLM 直接调用失败: {e}")
+                 logger.error(f"[{self.name}] LLM 调用失败: {e}")
                  final_report = f"# ❌ 分析失败\n\nLLM 调用失败。\n\n**错误详情**:\n{str(e)}"
 
         total_time = (datetime.now() - start_time).total_seconds()
