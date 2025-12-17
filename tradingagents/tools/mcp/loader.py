@@ -71,7 +71,6 @@ def load_local_mcp_tools(toolkit: Optional[Dict] = None) -> List[Any]:
     logger.info("[MCP Loader] 开始加载本地 MCP 工具...")
     
     try:
-        from tradingagents.tools.mcp.tools import news, market, fundamentals, sentiment, china
         try:
             from tradingagents.tools.mcp.tools import finance
             HAS_FINANCE_TOOLS = True
@@ -82,11 +81,6 @@ def load_local_mcp_tools(toolkit: Optional[Dict] = None) -> List[Any]:
         
         # 设置工具配置
         config = toolkit or {}
-        news.set_toolkit_config(config)
-        market.set_toolkit_config(config)
-        fundamentals.set_toolkit_config(config)
-        sentiment.set_toolkit_config(config)
-        china.set_toolkit_config(config)
         # finance module doesn't have set_toolkit_config yet, using global manager
         
         tools = []

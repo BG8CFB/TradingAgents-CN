@@ -53,13 +53,8 @@ class LocalMCPServer:
             return
         
         # 设置工具配置
-        from tradingagents.tools.mcp.tools import news, market, fundamentals, sentiment, china, finance
+        from tradingagents.tools.mcp.tools import finance
         
-        news.set_toolkit_config(self.toolkit)
-        market.set_toolkit_config(self.toolkit)
-        fundamentals.set_toolkit_config(self.toolkit)
-        sentiment.set_toolkit_config(self.toolkit)
-        china.set_toolkit_config(self.toolkit)
         # finance module configuration if needed in future
 
         # 注册 Finance Tools (17 tools)
@@ -107,7 +102,7 @@ class LocalMCPServer:
             Returns:
                 格式化的新闻内容
             """
-            return news.get_stock_news(stock_code, max_news)
+            return finance.get_stock_news(stock_code, max_news)
         
         self._tools['get_stock_news'] = get_stock_news
         
@@ -127,7 +122,7 @@ class LocalMCPServer:
             Returns:
                 格式化的市场数据
             """
-            return market.get_stock_market_data(ticker, start_date, end_date)
+            return finance.get_stock_market_data(ticker, start_date, end_date)
         
         self._tools['get_stock_market_data'] = get_stock_market_data
         
@@ -153,7 +148,7 @@ class LocalMCPServer:
             Returns:
                 格式化的基本面分析数据
             """
-            return fundamentals.get_stock_fundamentals(ticker, curr_date, start_date, end_date)
+            return finance.get_stock_fundamentals(ticker, curr_date, start_date, end_date)
         
         self._tools['get_stock_fundamentals'] = get_stock_fundamentals
         
@@ -181,7 +176,7 @@ class LocalMCPServer:
             Returns:
                 格式化的情绪分析数据
             """
-            return sentiment.get_stock_sentiment(ticker, curr_date, start_date, end_date, source_name)
+            return finance.get_stock_sentiment(ticker, curr_date, start_date, end_date, source_name)
         
         self._tools['get_stock_sentiment'] = get_stock_sentiment
         
@@ -205,7 +200,7 @@ class LocalMCPServer:
             Returns:
                 格式化的市场概览数据
             """
-            return china.get_china_market_overview(date, include_indices, include_sectors)
+            return finance.get_china_market_overview(date, include_indices, include_sectors)
         
         self._tools['get_china_market_overview'] = get_china_market_overview
         
