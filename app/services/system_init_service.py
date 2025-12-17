@@ -167,7 +167,9 @@ class SystemInitService:
                 
                 # 批量插入
                 collection = db[col_name]
+                
                 # 再次检查集合是否为空，避免重复插入
+                # 只有当集合完全为空时才导入，确保不会覆盖现有数据
                 if await collection.count_documents({}) == 0:
                     result = await collection.insert_many(converted_docs)
                     inserted_count = len(result.inserted_ids)
