@@ -553,8 +553,15 @@ class ConfigManager:
     def save_settings(self, settings: Dict[str, Any]):
         """保存设置"""
         try:
+            # 创建副本以避免修改原始字典
+            settings_to_save = settings.copy()
+            
+            # 移除不可序列化的对象
+            if "mcp_tool_loader" in settings_to_save:
+                settings_to_save["mcp_tool_loader"] = None
+                
             with open(self.settings_file, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, ensure_ascii=False, indent=2)
+                json.dump(settings_to_save, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"保存设置失败: {e}")
     

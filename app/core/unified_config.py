@@ -181,12 +181,16 @@ class UnifiedConfigManager:
             if "deep_analysis_model" in settings:
                 merged_settings["deep_think_llm"] = settings["deep_analysis_model"]
 
+            # 移除不可序列化的对象
+            if "mcp_tool_loader" in merged_settings:
+                merged_settings["mcp_tool_loader"] = None
+
             # 保存合并后的配置
             self._save_json_file(self.paths.settings_json, merged_settings, "settings")
 
             return True
         except Exception as e:
-            logger.warning(f"保存系统设置失败: {e}")
+            print(f"保存系统设置失败: {e}")
             return False
     
     def get_default_model(self) -> str:

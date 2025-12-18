@@ -23,6 +23,13 @@ class InvestDebateState(TypedDict):
     current_response: Annotated[str, "Latest response"]  # Last response
     judge_decision: Annotated[str, "Final judge decision"]  # Last response
     count: Annotated[int, "Length of the current conversation"]  # Conversation length
+    
+    # 🆕 新增：多轮辩论结构化状态
+    rounds: Annotated[list[dict[str, str]], "Structured debate rounds content (plain text)"]
+    bull_report_content: Annotated[str, "Accumulated Bull Report (Markdown)"]
+    bear_report_content: Annotated[str, "Accumulated Bear Report (Markdown)"]
+    current_round_index: Annotated[int, "Current debate round index (0-based)"]
+    max_rounds: Annotated[int, "Max debate rounds (default 2)"]
 
 
 # Risk management team state

@@ -200,7 +200,7 @@ class GraphSetup:
         )
 
         # 导入 Summary Agent
-        from tradingagents.agents.summary.summary_agent import create_summary_agent
+        from tradingagents.agents.stage_4.summary_agent import create_summary_agent
         summary_node = create_summary_agent(self.quick_thinking_llm)
 
         # Create workflow
@@ -214,18 +214,19 @@ class GraphSetup:
             )
             workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
 
-        # Add other nodes
+        # Create other nodes
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
-        # workflow.add_node("Research Manager", research_manager_node) # 移除原 Research Manager
+        workflow.add_node("Research Manager", research_manager_node)
         workflow.add_node("Trader", trader_node)
         workflow.add_node("Risky Analyst", risky_analyst)
         workflow.add_node("Neutral Analyst", neutral_analyst)
         workflow.add_node("Safe Analyst", safe_analyst)
         workflow.add_node("Risk Judge", risk_manager_node)
-        workflow.add_node("Summary Agent", summary_node) # 新增 Summary Agent
+        workflow.add_node("Summary Agent", summary_node)
 
-        # Define edges（阶段开关不再级联，完全由前端传入控制）
+        # Define edges（阶段开关完全由前端传入控制）
+        # 顺序: Phase 2 (Research) -> Phase 3 (Risk) -> Phase 4 (Trader) -> Summary
         enable_phase2 = bool(self.config.get("phase2_enabled", False))
         enable_phase3 = bool(self.config.get("phase3_enabled", False))
         enable_phase4 = bool(self.config.get("phase4_enabled", False))
@@ -234,17 +235,15 @@ class GraphSetup:
         first_analyst = selected_analysts[0]
         workflow.add_edge(START, f"{self._format_analyst_name(first_analyst)} Analyst")
 
-        # Connect analysts in sequence
+        # 确定 Phase 1 结束后的下一个节点
         if enable_phase2:
             next_entry_node = "Bull Researcher"
-        elif enable_phase4:
-            # 开启交易员阶段时直接进入交易员
-            next_entry_node = "Trader"
         elif enable_phase3:
-            # 仅开启风险辩论时直接进入风险团队
             next_entry_node = "Risky Analyst"
+        elif enable_phase4:
+            next_entry_node = "Trader"
         else:
-            next_entry_node = "Summary Agent" # 所有阶段关闭时，直接进入总结
+            next_entry_node = "Summary Agent"
 
         for i, analyst_type in enumerate(selected_analysts):
             current_analyst = f"{self._format_analyst_name(analyst_type)} Analyst"
@@ -259,21 +258,29 @@ class GraphSetup:
             )
             workflow.add_edge(current_tools, current_analyst)
 
-            # Connect to next analyst or to Bull Researcher if this is the last analyst
+            # Connect to next analyst or to next phase entry node
             if i < len(selected_analysts) - 1:
                 next_analyst = f"{self._format_analyst_name(selected_analysts[i+1])} Analyst"
                 workflow.add_edge(current_clear, next_analyst)
             else:
                 workflow.add_edge(current_clear, next_entry_node)
 
-        # Add remaining edges（按阶段开关控制后续阶段是否参与，阶段顺序：研究辩论 -> 交易员 -> 风险辩论/组合管理）
+        # Phase 2: Research Debate
         if enable_phase2:
+            # 确定 Research Manager 之后的去向
+            if enable_phase3:
+                post_research_target = "Risky Analyst"
+            elif enable_phase4:
+                post_research_target = "Trader"
+            else:
+                post_research_target = "Summary Agent"
+
             workflow.add_conditional_edges(
                 "Bull Researcher",
                 self.conditional_logic.should_continue_debate,
                 {
                     "Bear Researcher": "Bear Researcher",
-                    "Trader": "Trader" if enable_phase4 else ("Risky Analyst" if enable_phase3 else "Summary Agent"), # 辩论结束直接进 Trader
+                    "Research Manager": "Research Manager",
                 },
             )
             workflow.add_conditional_edges(
@@ -281,18 +288,20 @@ class GraphSetup:
                 self.conditional_logic.should_continue_debate,
                 {
                     "Bull Researcher": "Bull Researcher",
-                    "Trader": "Trader" if enable_phase4 else ("Risky Analyst" if enable_phase3 else "Summary Agent"),
+                    "Research Manager": "Research Manager",
                 },
             )
+            # Research Manager 结束后进入下一阶段
+            workflow.add_edge("Research Manager", post_research_target)
 
-        # 最终交易阶段 (Trader) - 移至风险管理之前
-        if enable_phase4:
-            # 如果开启风险管理，则 Trader -> Risky Analyst，否则 -> Summary Agent
-            trader_target = "Risky Analyst" if enable_phase3 else "Summary Agent"
-            workflow.add_edge("Trader", trader_target)
-
-        # 投资组合/风险团队（第三阶段）
+        # Phase 3: Risk Management
         if enable_phase3:
+            # 确定 Risk Manager 之后的去向
+            if enable_phase4:
+                post_risk_target = "Trader"
+            else:
+                post_risk_target = "Summary Agent"
+
             workflow.add_conditional_edges(
                 "Risky Analyst",
                 self.conditional_logic.should_continue_risk_analysis,
@@ -317,8 +326,12 @@ class GraphSetup:
                     "Risk Judge": "Risk Judge",
                 },
             )
-            # 风险管理 -> Summary Agent
-            workflow.add_edge("Risk Judge", "Summary Agent")
+            # Risk Judge 结束后进入下一阶段
+            workflow.add_edge("Risk Judge", post_risk_target)
+
+        # Phase 4: Trader
+        if enable_phase4:
+            workflow.add_edge("Trader", "Summary Agent")
 
         # Summary Agent -> END
         workflow.add_edge("Summary Agent", END)

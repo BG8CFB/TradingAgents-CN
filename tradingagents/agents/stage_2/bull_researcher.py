@@ -1,0 +1,264 @@
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+import time
+import json
+import os
+
+# 导入统一日志系统
+from tradingagents.utils.logging_init import get_logger
+logger = get_logger("default")
+
+
+def create_bull_researcher(llm, memory):
+    def bull_node(state) -> dict:
+        logger.debug(f"🐂 [DEBUG] ===== 看涨研究员节点开始 =====")
+        
+        investment_debate_state = state["investment_debate_state"]
+        
+        # 初始化多轮状态（如果是第一次进入）
+        rounds = investment_debate_state.get("rounds", [])
+        current_round_index = investment_debate_state.get("current_round_index", 0)
+        max_rounds = investment_debate_state.get("max_rounds", 2)
+        bull_report_content = investment_debate_state.get("bull_report_content", "")
+        
+        # 核心报告直读 - 动态获取所有第一阶段基础报告
+        all_reports = {}
+        
+        # 优先从 reports 字典获取（这是最可靠的源，由 reducer 合并）
+        if "reports" in state and isinstance(state["reports"], dict):
+            all_reports.update(state["reports"])
+            
+        # 兼容性补充：检查顶层 state 中的 _report 字段
+        for key, value in state.items():
+            if key.endswith("_report") and value and key not in all_reports:
+                all_reports[key] = value
+        
+        # 获取报告显示名称映射
+        report_display_names = {}
+        try:
+            from tradingagents.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+            for agent in DynamicAnalystFactory.get_all_agents():
+                slug = agent.get('slug', '')
+                name = agent.get('name', '')
+                if slug and name:
+                    internal_key = slug.replace("-analyst", "").replace("-", "_")
+                    report_key = f"{internal_key}_report"
+                    report_display_names[report_key] = f"{name}报告"
+        except Exception as e:
+            logger.warning(f"⚠️ 无法从配置文件加载报告显示名称: {e}")
+        
+        # 使用统一的股票类型检测
+        ticker = state.get('company_of_interest', 'Unknown')
+        from tradingagents.utils.stock_utils import StockUtils
+        market_info = StockUtils.get_market_info(ticker)
+        is_china = market_info['is_china']
+
+        # 获取公司名称
+        def _get_company_name(ticker_code: str, market_info_dict: dict) -> str:
+            """根据股票代码获取公司名称"""
+            try:
+                if market_info_dict['is_china']:
+                    from tradingagents.dataflows.interface import get_china_stock_info_unified
+                    stock_info = get_china_stock_info_unified(ticker_code)
+                    if stock_info and "股票名称:" in stock_info:
+                        name = stock_info.split("股票名称:")[1].split("\n")[0].strip()
+                        return name
+                    else:
+                        # 降级方案
+                        try:
+                            from tradingagents.dataflows.data_source_manager import get_china_stock_info_unified as get_info_dict
+                            info_dict = get_info_dict(ticker_code)
+                            if info_dict and info_dict.get('name'):
+                                name = info_dict['name']
+                                return name
+                        except Exception:
+                            pass
+                elif market_info_dict['is_hk']:
+                    try:
+                        from tradingagents.dataflows.providers.hk.improved_hk import get_hk_company_name_improved
+                        name = get_hk_company_name_improved(ticker_code)
+                        return name
+                    except Exception:
+                        clean_ticker = ticker_code.replace('.HK', '').replace('.hk', '')
+                        return f"港股{clean_ticker}"
+                elif market_info_dict['is_us']:
+                    us_stock_names = {
+                        'AAPL': '苹果公司', 'TSLA': '特斯拉', 'NVDA': '英伟达',
+                        'MSFT': '微软', 'GOOGL': '谷歌', 'AMZN': '亚马逊',
+                        'META': 'Meta', 'NFLX': '奈飞'
+                    }
+                    return us_stock_names.get(ticker_code.upper(), f"美股{ticker_code}")
+            except Exception as e:
+                logger.error(f"❌ [多头研究员] 获取公司名称失败: {e}")
+            return f"股票代码{ticker_code}"
+
+        company_name = _get_company_name(ticker, market_info)
+        currency = market_info['currency_name']
+        currency_symbol = market_info['currency_symbol']
+
+        logger.info(f"🐂 [多头研究员] 当前轮次: {current_round_index}/{max_rounds}, 股票: {company_name}")
+
+        # --- 1. 构建基础 Context (分批发送报告) ---
+        system_prompt = f"""你是一位专业的看涨分析师，负责为股票 {company_name}（股票代码：{ticker}）的投资建立强有力的论证。
+当前分析的是 {'中国A股' if is_china else '海外股票'}，所有价格和估值请使用 {currency}（{currency_symbol}）作为单位。
+请始终使用公司名称"{company_name}"而不是股票代码"{ticker}"来称呼这家公司。
+
+你的目标是：
+1. 基于证据构建强有力的看涨案例。
+2. 针对看跌观点进行有力的反驳和辩护。
+3. 产出结构清晰、逻辑严密的分析报告章节。
+"""
+        
+        messages = [SystemMessage(content=system_prompt)]
+        
+        # 分批注入 Stage 1 报告
+        for key, content in all_reports.items():
+            if content:
+                # 使用映射获取显示名称，如果没有则格式化 key
+                display_name = report_display_names.get(key, key.replace("_report", "").replace("_", " ").title() + "报告")
+                messages.append(HumanMessage(content=f"这是【{display_name}】：\n{content}"))
+
+        # --- 2. 注入辩论历史上下文 (Context Injection) ---
+        # 关键修复：让 LLM 看到自己和对手之前的完整发言，防止逻辑断层
+        if current_round_index > 0:
+            logger.info(f"🐂 [多头研究员] 注入历史辩论上下文 (Rounds 0 to {current_round_index-1})")
+            for i in range(current_round_index):
+                if i < len(rounds):
+                    round_data = rounds[i]
+                    
+                    # 1. 注入己方之前的观点 (Memory)
+                    if "bull" in round_data:
+                        prev_bull_content = round_data["bull"]
+                        # 使用 AIMessage 表示这是"我"之前说的话
+                        messages.append(AIMessage(content=f"【回顾】这是我在第 {i+1} 轮建立的论点：\n{prev_bull_content}"))
+                    
+                    # 2. 注入对手之前的观点 (Counter-argument)
+                    if "bear" in round_data:
+                        prev_bear_content = round_data["bear"]
+                        # 使用 HumanMessage 表示这是对手说的话
+                        messages.append(HumanMessage(content=f"【回顾】这是对手（看跌分析师）在第 {i+1} 轮提出的观点：\n{prev_bear_content}"))
+
+        # --- 3. 轮次逻辑分支 ---
+        instruction = ""
+        
+        if current_round_index == 0:
+            # Round 0: 初始立论
+            instruction = f"""请基于上述提供的所有分析报告，撰写【看涨分析报告】的**第一部分：核心投资论点**。
+
+要求：
+1. 深入挖掘增长潜力、竞争优势和积极的市场指标。
+2. 引用报告中的具体数据作为支撑。
+3. **不要**写反驳内容（因为还没看到看跌观点），只专注于构建正面的投资逻辑。
+4. 使用 Markdown 格式，**不要使用一级标题（#），章节标题请使用三级标题（###）**。
+5. **不要**在开头重复报告标题，直接开始写内容。
+6. **不要**包含“总结”章节，因为这只是报告的第一部分。
+"""
+        else:
+            # Round N: 反驳与辩护
+            # 获取对手最新一轮的观点（如果存在）
+            # 注意：上面的循环已经注入了历史观点，这里重点提示最新一轮
+            latest_opponent_arg = ""
+            prev_round_idx = current_round_index - 1
+            if prev_round_idx < len(rounds) and "bear" in rounds[prev_round_idx]:
+                latest_opponent_arg = rounds[prev_round_idx]["bear"]
+                # 再次强调这是需要反驳的目标
+                messages.append(HumanMessage(content=f"🔥 **当前任务目标**：请针对对手（看跌分析师）刚刚提出的上述最新观点（第 {current_round_index} 轮）进行重点反驳！"))
+            else:
+                logger.warning(f"🐂 [WARNING] 未找到 Round {prev_round_idx} 的看跌观点，将进行通用辩护。")
+            
+            instruction = f"""请撰写【看涨分析报告】的**第 {current_round_index + 1} 部分：深度辩护与反驳**。
+
+要求：
+1. 紧扣对手刚刚提出的质疑（如风险、高估值等）进行逐点反驳。
+2. 结合你自己在第一轮建立的核心论点（已在上下文中）和基础报告数据，证明对手的担忧是过度的。
+3. 强调公司的应对策略和长期价值。
+4. 如果这是最后一轮（第 {max_rounds} 轮），请在最后包含一个强有力的**结语**。
+5. 使用 Markdown 格式，**不要使用一级标题（#），章节标题请使用三级标题（###）**。
+6. **不要**在开头重复报告标题。
+"""
+
+        messages.append(HumanMessage(content=instruction))
+
+        # --- 4. 执行推理 ---
+        response = llm.invoke(messages)
+        content = response.content
+        
+        # 清洗内容：去除可能存在的报告大标题（如 "# 看涨分析报告"）
+        lines = content.strip().split('\n')
+        cleaned_lines = []
+        for line in lines:
+            # 去除以 # 开头但不是 ## 或 ### 的行（即一级标题）
+            # 同时也去除包含 "看涨分析报告" 字样的标题行
+            if line.strip().startswith("# ") or (line.strip().startswith("## ") and "分析报告" in line):
+                continue
+            cleaned_lines.append(line)
+        content = '\n'.join(cleaned_lines).strip()
+        
+        # --- 4. 状态更新与报告累积 ---
+        # 确保当前轮次的字典存在
+        if current_round_index >= len(rounds):
+            rounds.append({})
+            
+        # 存入纯文本供对手下一轮读取
+        rounds[current_round_index]["bull"] = content
+        
+        # 累积到最终报告
+        section_title = f"## 第 {current_round_index + 1} 部分：核心投资论点" if current_round_index == 0 else f"## 第 {current_round_index + 1} 部分：针对空方观点的反驳与辩护"
+        
+        # 防重检查：如果报告中已包含当前章节标题，则不再重复添加
+        if section_title in bull_report_content:
+            logger.warning(f"🐂 [WARNING] 报告中已包含 Round {current_round_index} 内容，跳过追加。")
+        else:
+            new_report_section = f"\n\n{section_title}\n\n{content}"
+            bull_report_content += new_report_section
+
+        # --- 5. 文件保存 (如果需要) ---
+        # 只有在最后一轮，或者每一轮都实时更新文件
+        # 这里选择实时覆盖更新文件，保证用户随时能看到最新进度
+        try:
+            filename = "看涨分析报告.md"
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(f"# {company_name} ({ticker}) 看涨投资分析报告\n\n")
+                f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"> 货币单位：{currency}\n\n")
+                f.write(bull_report_content)
+            logger.info(f"🐂 [多头研究员] 已更新报告文件: {filename}")
+        except Exception as e:
+            logger.error(f"🐂 [ERROR] 保存报告文件失败: {e}")
+
+        # 保持对旧 state 字段的兼容（防止其他节点报错）
+        argument_prefix = f"Bull Analyst (Round {current_round_index}):"
+        # 修复：移除内容截断，确保前端展示和历史记录完整
+        argument = f"{argument_prefix}\n{content}"
+        
+        history = state["investment_debate_state"].get("history", "")
+        bull_history = state["investment_debate_state"].get("bull_history", "")
+
+        # 防重检查：如果历史记录中已包含当前轮次前缀，则不再重复添加
+        if argument_prefix in bull_history:
+            logger.warning(f"🐂 [WARNING] 历史记录中已包含 Round {current_round_index}，跳过追加。")
+        else:
+            history = history + "\n" + argument
+            bull_history = bull_history + "\n" + argument
+
+        new_investment_debate_state = {
+            "history": history,
+            "bull_history": bull_history,
+            "bear_history": investment_debate_state.get("bear_history", ""),
+            "current_response": argument,
+            "count": investment_debate_state.get("count", 0) + 1,
+            # 新字段更新
+            "rounds": rounds,
+            "bull_report_content": bull_report_content,
+            "bear_report_content": investment_debate_state.get("bear_report_content", ""), # 保持不变
+            "current_round_index": (investment_debate_state.get("count", 0) + 1) // 2, # 修复：根据 count 自动计算轮次
+        }
+
+        return {
+            "investment_debate_state": new_investment_debate_state,
+            # 显式保存为报告，供前端展示
+            "reports": {
+                "bull_researcher": bull_report_content
+            }
+        }
+
+    return bull_node

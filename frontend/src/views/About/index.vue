@@ -345,6 +345,57 @@
             </p>
           </div>
         </div>
+
+        <!-- 新增：当前维护仓库 -->
+        <div class="origin-card" style="margin-top: 24px;">
+          <div class="origin-header">
+            <div class="origin-icon" style="background: linear-gradient(135deg, #07c160, #00d4aa);">
+              <el-icon><Star /></el-icon>
+            </div>
+            <div class="origin-info">
+              <h3>TradingAgents-CN (当前维护版)</h3>
+              <a href="https://github.com/BG8CFB/TradingAgents-CN"
+                 target="_blank"
+                 rel="noopener noreferrer"
+                 class="origin-link">
+                <el-icon><Link /></el-icon>
+                github.com/BG8CFB/TradingAgents-CN
+              </a>
+            </div>
+          </div>
+
+          <div class="origin-description">
+            <p>
+              <strong>当前维护版本</strong> 由 <strong>BG8CFB</strong> 个人维护，致力于为中文用户提供更好的使用体验。
+            </p>
+            <p>
+              <el-icon style="color: var(--el-color-success); margin-right: 4px;"><CircleCheck /></el-icon>
+              <strong>仓库特色：</strong>
+            </p>
+            <ul class="origin-improvements">
+              <li>
+                <el-icon class="check-icon"><CircleCheck /></el-icon>
+                <span><strong>定期更新维护：</strong>每周定期更新，重大问题实时修复</span>
+              </li>
+              <li>
+                <el-icon class="check-icon"><CircleCheck /></el-icon>
+                <span><strong>社区支持：</strong>欢迎提交 Issue 和 PR，共同完善项目</span>
+              </li>
+              <li>
+                <el-icon class="check-icon"><CircleCheck /></el-icon>
+                <span><strong>中文交流群：</strong>提供微信群和 QQ 群交流支持</span>
+              </li>
+              <li>
+                <el-icon class="check-icon"><CircleCheck /></el-icon>
+                <span><strong>完整文档：</strong>详细的使用教程和部署指南</span>
+              </li>
+            </ul>
+            <p class="origin-thanks">
+              <el-icon style="color: #ffd700;"><Star /></el-icon>
+              <strong>感谢使用</strong> 本项目，您的 Star 是对我们最大的支持！
+            </p>
+          </div>
+        </div>
       </div>
     </div>
 

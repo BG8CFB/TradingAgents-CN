@@ -156,10 +156,9 @@ def get_progress_log_handler() -> ProgressLogHandler:
                 "agents",
                 "tradingagents",
                 "agents.analysts",
-                "agents.researchers",
-                "agents.traders",
-                "agents.managers",
-                "agents.risk_mgmt",
+                "agents.stage_2",  # 原 researchers & managers (ResearchManager)
+                "agents.stage_3",  # 原 risk_mgmt & managers (RiskManager)
+                "agents.stage_4",  # 原 trader & summary
             ]
 
             for logger_name in loggers_to_monitor:

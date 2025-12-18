@@ -34,7 +34,20 @@ class Propagator:
             "company_of_interest": company_name,
             "trade_date": str(trade_date),
             "investment_debate_state": InvestDebateState(
-                {"history": "", "current_response": "", "count": 0}
+                {
+                    "history": "",
+                    "current_response": "",
+                    "count": 0,
+                    # 修复：初始化完整的 InvestDebateState 字段
+                    "current_round_index": 0,
+                    "max_rounds": 2,  # 默认值，会被 ConditionalLogic 覆盖或使用
+                    "rounds": [],
+                    "bull_report_content": "",
+                    "bear_report_content": "",
+                    "bull_history": "",
+                    "bear_history": "",
+                    "judge_decision": ""
+                }
             ),
             "risk_debate_state": RiskDebateState(
                 {
