@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "Sequential Thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "env": {},
+      "fromGalleryId": "byted-mcp-volcengine.3rd_party_mcp_server_sequential_thinking",
+      "alwaysAllow": [
+        "sequentialthinking"
+      ]
+    }
+  }
+}

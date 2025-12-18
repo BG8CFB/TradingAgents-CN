@@ -203,6 +203,14 @@ async def init_database():
 
         logger.info("🎉 所有数据库连接初始化完成")
 
+        # 🔥 初始化配置文件（在数据库视图和索引之前）
+        try:
+            from app.core.config_initializer import ensure_config_files
+            ensure_config_files()
+        except Exception as e:
+            logger.warning(f"⚠️ 配置文件初始化失败: {e}")
+            # 不抛出异常，允许应用继续启动
+
         # 🔥 初始化数据库视图和索引
         await init_database_views_and_indexes()
 
