@@ -4,6 +4,10 @@ export interface PhaseAgentMode {
   slug: string
   name: string
   roleDefinition: string
+  description?: string
+  whenToUse?: string
+  groups?: string[]
+  source?: string
   tools?: string[]
 }
 

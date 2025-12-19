@@ -34,7 +34,7 @@ def load_agent_config(slug: str) -> str:
                 agents_dirs.append(config_agents_dir)
 
         # 定义可能的配置文件列表
-        config_files = ["phase1_agents_config.yaml", "stock_analysis_agents_config.yaml"]
+        config_files = ["phase1_agents_config.yaml", "phase2_agents_config.yaml"]
 
         for agents_dir in agents_dirs:
             for config_file in config_files:

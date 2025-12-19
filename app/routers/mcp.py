@@ -137,7 +137,7 @@ async def toggle_connector(
         # 通知加载器切换服务器状态
         if LANGCHAIN_MCP_AVAILABLE:
             factory = get_mcp_loader_factory()
-            factory.toggle_server(name, enabled)
+            await factory.toggle_server(name, enabled)
         
         return {
             "success": True, 

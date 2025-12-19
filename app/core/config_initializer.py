@@ -20,8 +20,9 @@ def ensure_config_files():
     """
     try:
         # 获取配置目录路径
-        config_dir = Path("/app/config")
-        install_dir = Path("/app/install/default-config")
+        project_root = Path(__file__).resolve().parents[2]
+        config_dir = project_root / "config"
+        install_dir = project_root / "install" / "default-config"
 
         # 记录初始化开始
         logger.info("=" * 60)
@@ -35,14 +36,18 @@ def ensure_config_files():
         initialized_count = 0
         skipped_count = 0
 
-        # 1. 处理Agent配置文件
-        agent_config_src = install_dir / "agents" / "phase1_agents_config.yaml"
-        agent_config_dst = config_dir / "agents" / "phase1_agents_config.yaml"
-
-        if _handle_config_file(agent_config_src, agent_config_dst, "Agent配置"):
-            initialized_count += 1
-        else:
-            skipped_count += 1
+        # 1. 处理Agent配置文件 (Phase1-4)
+        for phase in range(1, 5):
+            filename = f"phase{phase}_agents_config.yaml"
+            agent_config_src = install_dir / "agents" / filename
+            agent_config_dst = config_dir / "agents" / filename
+            
+            # 只有当源文件存在时才尝试初始化
+            if agent_config_src.exists():
+                if _handle_config_file(agent_config_src, agent_config_dst, f"Agent配置(Phase{phase})"):
+                    initialized_count += 1
+                else:
+                    skipped_count += 1
 
         # 2. 处理MCP配置文件
         mcp_config_src = install_dir / "mcp.json"
@@ -108,16 +113,29 @@ def get_config_status() -> dict:
     Returns:
         dict: 包含各配置文件状态的字典
     """
-    config_dir = Path("/app/config")
+    project_root = Path(__file__).resolve().parents[2]
+    config_dir = project_root / "config"
     status = {}
 
-    # 检查Agent配置
-    agent_config = config_dir / "agents" / "phase1_agents_config.yaml"
-    status["agent_config"] = {
-        "path": str(agent_config),
-        "exists": agent_config.exists(),
-        "is_custom": agent_config.exists() and _is_custom_config(agent_config)
-    }
+    # 检查Agent配置 (Phase1-4)
+    for phase in range(1, 5):
+        filename = f"phase{phase}_agents_config.yaml"
+        agent_config = config_dir / "agents" / filename
+        # 只在返回中包含存在的或者应该是存在的（即模板存在的）
+        # 这里简单起见，如果文件存在就返回状态
+        if agent_config.exists():
+            status[f"agent_config_phase{phase}"] = {
+                "path": str(agent_config),
+                "exists": True,
+                "is_custom": _is_custom_config(agent_config)
+            }
+        elif (Path("/app/install/default-config/agents") / filename).exists():
+             # 模板存在但配置不存在
+             status[f"agent_config_phase{phase}"] = {
+                "path": str(agent_config),
+                "exists": False,
+                "is_custom": False
+            }
 
     # 检查MCP配置
     mcp_config = config_dir / "mcp.json"
@@ -170,15 +188,18 @@ def reset_config_to_default() -> bool:
         bool: 是否成功重置
     """
     try:
-        config_dir = Path("/app/config")
+        project_root = Path(__file__).resolve().parents[2]
+        config_dir = project_root / "config"
         reset_count = 0
 
-        # 删除Agent配置
-        agent_config = config_dir / "agents" / "phase1_agents_config.yaml"
-        if agent_config.exists():
-            agent_config.unlink()
-            reset_count += 1
-            logger.info(f"🗑️ 已删除Agent配置: {agent_config}")
+        # 删除Agent配置 (Phase1-4)
+        for phase in range(1, 5):
+            filename = f"phase{phase}_agents_config.yaml"
+            agent_config = config_dir / "agents" / filename
+            if agent_config.exists():
+                agent_config.unlink()
+                reset_count += 1
+                logger.info(f"🗑️ 已删除Agent配置(Phase{phase}): {agent_config}")
 
         # 删除MCP配置
         mcp_config = config_dir / "mcp.json"

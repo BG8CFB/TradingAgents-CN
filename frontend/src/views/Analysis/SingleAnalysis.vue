@@ -896,8 +896,7 @@ const analysisForm = reactive<AnalysisForm>({
   phases: {
     phase2: { enabled: false, debateRounds: 2 },
     phase3: { enabled: false, debateRounds: 1 },
-    phase4: { enabled: true, debateRounds: 1 },
-    summary: { enabled: true, debateRounds: 1 }
+    phase4: { enabled: true, debateRounds: 1 }
   }
 })
 
@@ -949,6 +948,21 @@ const onMarketChange = () => {
   } else {
     // 显示新市场的格式提示
     stockCodeHelp.value = getStockCodeFormatHelp(analysisForm.market)
+  }
+}
+
+// 获取股票信息
+const fetchStockInfo = async () => {
+  const code = analysisForm.stockCode.trim()
+  if (!code) return
+
+  try {
+    const res = await stocksApi.getQuote(code)
+    if (res.success && res.data) {
+      console.log('股票信息获取成功:', res.data)
+    }
+  } catch (error) {
+    console.error('获取股票信息失败:', error)
   }
 }
 
@@ -1453,7 +1467,7 @@ const getAnalysisReports = (data: any) => {
   })
 
   // 合并映射（动态映射优先）
-  const allMappings = { ...fixedReportMappings, ...dynamicReportMappings }
+  const allMappings = { ...dynamicReportMappings, ...fixedReportMappings }
 
   // 已处理的报告键集合
   const processedKeys = new Set<string>()

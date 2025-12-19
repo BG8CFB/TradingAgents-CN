@@ -5,7 +5,10 @@
       "Bash(find:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(echo:*)",
+      "Bash(docker info:*)",
+      "Bash(docker system prune:*)"
     ],
     "deny": [],
     "ask": []

@@ -93,26 +93,24 @@ def create_research_manager(llm, memory):
         currency = market_info['currency_name']
 
         # 4. 构建 Prompt
-        system_prompt = f"""你是一位资深的研究部主管 (Head of Research)，负责对 {company_name} ({ticker}) 的投资价值进行最终裁决。
-
-你的面前有来自第一阶段的基础分析报告，以及经过多轮深度辩论的看涨/看跌分析报告。
-
-【基础资料】
-我们将提供多份不同维度的分析报告（如市场、基本面、新闻等）。
-
-【辩论报告】
-1. 看涨分析报告（代表多头观点）
-2. 看跌分析报告（代表空头观点）
-
-你的任务是：
-1. 综合所有基础资料和辩论观点，全面评估公司的投资价值。
-2. 仔细权衡多空双方的论点力度、证据可靠性和逻辑严密性。
-3. 做出一个明确的投资方向判断（强烈买入 / 买入 / 观望 / 卖出 / 强烈卖出）。
-4. 制定一份详细的【投资行动计划】，供交易员执行。
-5. 预测目标价格区间。
-
-请确保输出为结构清晰的 Markdown 格式。
+        from tradingagents.agents.utils.generic_agent import load_agent_config
+        base_prompt = load_agent_config("research-manager")
+        
+        if base_prompt:
+            # 动态构建环境上下文（KV 格式）
+            context_prefix = f"""
+股票代码：{ticker}
+公司名称：{company_name}
+价格单位：{currency}
+通用规则：请始终使用公司名称而不是股票代码来称呼这家公司
 """
+            # 将动态上下文拼接到配置指令前
+            system_prompt = context_prefix + "\n" + base_prompt
+
+        if not base_prompt:
+             error_msg = "❌ 未找到 research-manager 智能体配置，请检查 phase2_agents_config.yaml 文件。"
+             logger.error(error_msg)
+             raise ValueError(error_msg)
 
         messages = [SystemMessage(content=system_prompt)]
 

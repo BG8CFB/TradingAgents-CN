@@ -421,6 +421,113 @@ class MCPToolLoaderFactory:
         
         return server_params
 
+    def _build_single_server_param(self, name: str) -> Optional[Dict[str, Any]]:
+        """构建单个服务器的参数"""
+        if name not in self._server_configs:
+            return None
+            
+        config = self._server_configs[name]
+        if not config.enabled:
+            return None
+            
+        server_param = {}
+        if config.is_stdio():
+            server_param = {
+                "command": config.command,
+                "args": config.args or [],
+                "env": {**os.environ, **config.env} if config.env else None,
+                "transport": "stdio",
+            }
+        elif config.is_http():
+            if config.is_streamable_http():
+                transport = "streamable_http"
+            else:
+                transport = "sse"
+            
+            server_param = {
+                "url": config.url,
+                "transport": transport,
+            }
+            if config.headers:
+                server_param["headers"] = config.headers
+                
+        return server_param
+
+    async def _connect_server(self, name: str) -> bool:
+        """连接单个服务器"""
+        if not LANGCHAIN_MCP_AVAILABLE:
+            return False
+            
+        try:
+            # 防止重复连接
+            if name in self._mcp_clients:
+                await self._disconnect_server(name)
+            
+            params = self._build_single_server_param(name)
+            if not params:
+                return False
+                
+            logger.info(f"[MCP] 正在连接服务器 {name}...")
+            single_client = MultiServerMCPClient({name: params})
+            
+            self._mcp_clients[name] = single_client
+            
+            raw_tools = await single_client.get_tools()
+
+            annotated_tools = [
+                self._attach_server_metadata(tool, name)
+                for tool in raw_tools
+            ]
+
+            # 移除旧的工具（如果存在）
+            self._mcp_tools = [t for t in self._mcp_tools if getattr(t, 'server_name', getattr(t, 'metadata', {}).get('server_name')) != name]
+            self._mcp_tools.extend(annotated_tools)
+            
+            logger.info(f"MCP服务器连接成功: {name} (工具: {len(annotated_tools)}个)")
+            
+            self._health_monitor._update_status(
+                name,
+                ServerStatus.HEALTHY,
+                latency_ms=0
+            )
+            return True
+            
+        except Exception as e:
+            logger.warning(f"MCP服务器连接失败: {name} - {e}")
+            await self._disconnect_server(name)
+            
+            self._health_monitor._update_status(
+                name,
+                ServerStatus.UNREACHABLE,
+                error=str(e)
+            )
+            return False
+
+    async def _disconnect_server(self, name: str):
+        """断开单个服务器连接"""
+        # 清理工具列表
+        self._mcp_tools = [t for t in self._mcp_tools if getattr(t, 'server_name', getattr(t, 'metadata', {}).get('server_name')) != name]
+        
+        if name in self._mcp_clients:
+            client = self._mcp_clients[name]
+            try:
+                if hasattr(client, "aclose"):
+                    await client.aclose()
+                elif hasattr(client, "close"):
+                    c = client.close()
+                    if asyncio.iscoroutine(c):
+                        await c
+            except Exception as e:
+                # 处理可能的 TaskGroup 错误或其他异常
+                error_msg = str(e)
+                if "TaskGroup" in error_msg or "ExceptionGroup" in type(e).__name__:
+                    logger.warning(f"[MCP] 关闭服务器 {name} 时捕获 TaskGroup 错误 (已忽略): {e}")
+                else:
+                    logger.warning(f"[MCP] 关闭服务器 {name} 连接失败: {e}")
+            finally:
+                if name in self._mcp_clients:
+                    del self._mcp_clients[name]
+
     async def initialize_connections(self):
         """
         使用官方 MultiServerMCPClient 初始化所有 MCP 服务器连接。
@@ -604,11 +711,9 @@ class MCPToolLoaderFactory:
         """获取所有服务器状态。"""
         return self._health_monitor.get_all_server_status()
 
-    def toggle_server(self, server_name: str, enabled: bool) -> bool:
+    async def toggle_server(self, server_name: str, enabled: bool) -> bool:
         """
-        切换服务器启用状态。
-        
-        注意：使用官方 MultiServerMCPClient 时，需要重新初始化连接。
+        切换服务器启用状态，并实时更新连接。
         """
         if server_name not in self._server_configs:
             logger.warning(f"[MCP] 服务器 {server_name} 不存在")
@@ -623,10 +728,12 @@ class MCPToolLoaderFactory:
                 lambda: True,
                 initial_status=ServerStatus.UNKNOWN
             )
-            logger.info(f"[MCP] 服务器 {server_name} 已启用（需要重新初始化连接）")
+            # 尝试连接
+            await self._connect_server(server_name)
         else:
             self._health_monitor.mark_server_stopped(server_name)
-            logger.info(f"[MCP] 服务器 {server_name} 已禁用")
+            # 断开连接
+            await self._disconnect_server(server_name)
         
         return True
 

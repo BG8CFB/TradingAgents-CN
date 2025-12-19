@@ -18,7 +18,7 @@
             <el-button size="small" @click="fetchPhaseConfig" :loading="phaseLoading">
               <el-icon><Refresh /></el-icon>刷新
             </el-button>
-            <el-button size="small" type="primary" @click="addPhaseAgent">
+            <el-button size="small" type="primary" @click="addPhaseAgent" v-if="activePhase === 1">
               <el-icon><Plus /></el-icon>新增智能体
             </el-button>
           </div>
@@ -61,17 +61,21 @@
               <el-row :gutter="16">
                 <el-col :span="12">
                   <el-form-item label="slug" required>
-                    <el-input v-model="mode.slug" placeholder="唯一标识，必填" />
+                    <el-input v-model="mode.slug" placeholder="唯一标识，必填" :disabled="!mode.isNew" />
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
                   <el-form-item label="名称" required>
-                    <el-input v-model="mode.name" placeholder="显示名称，必填" />
+                    <el-input v-model="mode.name" placeholder="显示名称，必填" :disabled="!mode.isNew" />
                   </el-form-item>
                 </el-col>
               </el-row>
 
-              <el-form-item label="工具权限">
+              <el-form-item label="描述">
+                <el-input v-model="mode.description" placeholder="简要描述（可选），默认使用 slug" />
+              </el-form-item>
+
+              <el-form-item label="工具权限" v-if="activePhase === 1">
                 <div class="tool-inline">
                   <div class="tool-selector__header">
                     <el-input
@@ -189,12 +193,14 @@
                   :rows="12"
                   class="prompt-editor"
                   placeholder="系统提示词，必填"
+                  maxlength="20000"
+                  show-word-limit
                 />
               </el-form-item>
 
               <div class="mode-actions">
                 <el-button type="primary" text @click.stop="savePhaseConfig" :loading="phaseSaving">保存</el-button>
-                <el-button type="danger" text @click.stop="removePhaseAgent(index)">删除</el-button>
+                <el-button type="danger" text @click.stop="removePhaseAgent(index)" v-if="activePhase === 1">删除</el-button>
               </div>
             </el-form>
           </el-collapse-item>
@@ -207,12 +213,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Refresh, Plus, Search } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { agentConfigApi, type PhaseAgentMode } from '@/api/agentConfigs'
 import { toolsApi, type AvailableTool } from '@/api/tools'
 import { mcpApi, type MCPTool } from '@/api/mcp'
 
-type UiPhaseAgentMode = PhaseAgentMode & { uiKey: string; tools: string[] }
+type UiPhaseAgentMode = PhaseAgentMode & { uiKey: string; tools: string[]; isNew?: boolean }
 type ToolOption = { label: string; value: string; description?: string; source?: string }
 
 const createUiKey = () => `agent-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -232,12 +238,17 @@ const toolsLoading = ref(false)
 const toolSearch = ref('')
 const toolSourceFilter = ref<'all' | 'project' | 'mcp'>('all')
 
-const normalizeMode = (mode?: PhaseAgentMode): UiPhaseAgentMode => ({
+const normalizeMode = (mode?: PhaseAgentMode, isNew = false): UiPhaseAgentMode => ({
   uiKey: (mode as UiPhaseAgentMode)?.uiKey || createUiKey(),
   slug: mode?.slug || '',
   name: mode?.name || '',
   roleDefinition: mode?.roleDefinition || '',
-  tools: Array.isArray(mode?.tools) ? [...mode.tools] : []
+  description: mode?.description || '',
+  whenToUse: mode?.whenToUse || '',
+  groups: Array.isArray(mode?.groups) ? [...mode.groups] : [],
+  source: mode?.source || '',
+  tools: Array.isArray(mode?.tools) ? [...mode.tools] : [],
+  isNew
 })
 
 const fetchToolOptions = async () => {
@@ -323,7 +334,7 @@ const fetchPhaseConfig = async () => {
     const data = res.data
     phaseFileExists.value = data?.exists ?? false
     phaseConfigPath.value = data?.path || ''
-    phaseModes.value = (data?.customModes || []).map((item) => normalizeMode(item))
+    phaseModes.value = (data?.customModes || []).map((item) => normalizeMode(item, false))
     openedPanels.value = [] // 默认收起
     if (data && data.exists === false) {
       ElMessage.info(`phase${activePhase.value} 配置文件不存在，保存后将自动创建`)
@@ -337,13 +348,25 @@ const fetchPhaseConfig = async () => {
 }
 
 const addPhaseAgent = () => {
-  const item = normalizeMode()
+  const item = normalizeMode(undefined, true)
   phaseModes.value.push(item)
   openedPanels.value = [item.uiKey]
 }
 
-const removePhaseAgent = (index: number) => {
-  phaseModes.value.splice(index, 1)
+const removePhaseAgent = async (index: number) => {
+  try {
+    await ElMessageBox.confirm('确定要删除该智能体吗？此操作将立即保存配置。', '删除确认', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    phaseModes.value.splice(index, 1)
+    await savePhaseConfig()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error(error)
+    }
+  }
 }
 
 const validatePhaseModes = () => {
@@ -384,6 +407,10 @@ const savePhaseConfig = async () => {
         slug: mode.slug.trim(),
         name: mode.name.trim(),
         roleDefinition: mode.roleDefinition,
+        description: mode.description || mode.slug,
+        whenToUse: mode.whenToUse,
+        groups: mode.groups,
+        source: mode.source,
         tools: mode.tools && mode.tools.length ? Array.from(new Set(mode.tools)) : undefined
       }))
     }

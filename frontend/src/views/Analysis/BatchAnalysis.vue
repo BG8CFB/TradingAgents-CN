@@ -249,6 +249,7 @@
                 v-model:quick-analysis-model="modelSettings.quickAnalysisModel"
                 v-model:deep-analysis-model="modelSettings.deepAnalysisModel"
                 :available-models="availableModels"
+                analysis-depth="标准"
               />
 
               <!-- 分析选项 -->
