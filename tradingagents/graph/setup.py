@@ -179,7 +179,7 @@ class GraphSetup:
         # 🔍 调试日志：打印规范化后的分析师列表
         logger.info(f"📋 [GraphSetup] 规范化后的分析师列表: {selected_analysts}")
 
-        # Create researcher and manager nodes
+        # Create researcher and manager nodes (Phase 2)
         bull_researcher_node = create_bull_researcher(
             self.quick_thinking_llm, self.bull_memory
         )
@@ -189,9 +189,10 @@ class GraphSetup:
         research_manager_node = create_research_manager(
             self.deep_thinking_llm, self.invest_judge_memory
         )
+        # 交易员节点现在属于 Phase 2 的最后一步
         trader_node = create_trader(self.quick_thinking_llm, self.trader_memory)
 
-        # Create risk analysis nodes
+        # Create risk analysis nodes (Phase 3)
         risky_analyst = create_risky_debator(self.quick_thinking_llm)
         neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
         safe_analyst = create_safe_debator(self.quick_thinking_llm)
@@ -226,10 +227,11 @@ class GraphSetup:
         workflow.add_node("Summary Agent", summary_node)
 
         # Define edges（阶段开关完全由前端传入控制）
-        # 顺序: Phase 2 (Research) -> Phase 3 (Risk) -> Phase 4 (Trader) -> Summary
+        # 顺序: Phase 2 (Research & Trader) -> Phase 3 (Risk) -> Summary
         enable_phase2 = bool(self.config.get("phase2_enabled", False))
         enable_phase3 = bool(self.config.get("phase3_enabled", False))
-        enable_phase4 = bool(self.config.get("phase4_enabled", False))
+        # Phase 4 flag might still be passed but effectively redundant for flow control now
+        # enable_phase4 = bool(self.config.get("phase4_enabled", False)) 
 
         # Start with the first analyst
         first_analyst = selected_analysts[0]
@@ -239,9 +241,8 @@ class GraphSetup:
         if enable_phase2:
             next_entry_node = "Bull Researcher"
         elif enable_phase3:
+            # 如果跳过 Phase 2，尝试直接进入 Phase 3（注意：可能缺少 Trader 计划）
             next_entry_node = "Risky Analyst"
-        elif enable_phase4:
-            next_entry_node = "Trader"
         else:
             next_entry_node = "Summary Agent"
 
@@ -265,16 +266,8 @@ class GraphSetup:
             else:
                 workflow.add_edge(current_clear, next_entry_node)
 
-        # Phase 2: Research Debate
+        # Phase 2: Research Debate & Trader Plan
         if enable_phase2:
-            # 确定 Research Manager 之后的去向
-            if enable_phase3:
-                post_research_target = "Risky Analyst"
-            elif enable_phase4:
-                post_research_target = "Trader"
-            else:
-                post_research_target = "Summary Agent"
-
             workflow.add_conditional_edges(
                 "Bull Researcher",
                 self.conditional_logic.should_continue_debate,
@@ -291,17 +284,18 @@ class GraphSetup:
                     "Research Manager": "Research Manager",
                 },
             )
-            # Research Manager 结束后进入下一阶段
-            workflow.add_edge("Research Manager", post_research_target)
+            
+            # Research Manager 结束后 -> Trader (生成原始计划)
+            workflow.add_edge("Research Manager", "Trader")
+            
+            # Trader -> Phase 3 (如果启用) 或 Summary
+            if enable_phase3:
+                workflow.add_edge("Trader", "Risky Analyst")
+            else:
+                workflow.add_edge("Trader", "Summary Agent")
 
         # Phase 3: Risk Management
         if enable_phase3:
-            # 确定 Risk Manager 之后的去向
-            if enable_phase4:
-                post_risk_target = "Trader"
-            else:
-                post_risk_target = "Summary Agent"
-
             workflow.add_conditional_edges(
                 "Risky Analyst",
                 self.conditional_logic.should_continue_risk_analysis,
@@ -326,12 +320,8 @@ class GraphSetup:
                     "Risk Judge": "Risk Judge",
                 },
             )
-            # Risk Judge 结束后进入下一阶段
-            workflow.add_edge("Risk Judge", post_risk_target)
-
-        # Phase 4: Trader
-        if enable_phase4:
-            workflow.add_edge("Trader", "Summary Agent")
+            # Risk Judge 结束后 -> Summary
+            workflow.add_edge("Risk Judge", "Summary Agent")
 
         # Summary Agent -> END
         workflow.add_edge("Summary Agent", END)

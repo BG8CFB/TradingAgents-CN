@@ -1,147 +1,163 @@
 import time
 import json
+import os
 
 # 导入统一日志系统
 from tradingagents.utils.logging_init import get_logger
 logger = get_logger("default")
 
-# 导入报告工具
-from tradingagents.tools.mcp.tools.reports import (
-    list_reports, 
-    get_report_content, 
-    get_reports_batch, 
-    set_state
-)
-from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 def create_risk_manager(llm, memory):
     def risk_manager_node(state) -> dict:
-        # 1. 设置工具状态，使其能访问当前 State
-        set_state(state)
+        logger.debug(f"👔 [DEBUG] ===== 首席风控官 (Risk Manager) 节点开始 =====")
         
-        company_name = state["company_of_interest"]
-        history = state["risk_debate_state"]["history"]
         risk_debate_state = state["risk_debate_state"]
         
-        # 优先读取交易员的投资计划
+        # 1. 获取所有基础报告
+        all_reports = {}
+        if "reports" in state and isinstance(state["reports"], dict):
+            all_reports.update(state["reports"])
+            
+        for key, value in state.items():
+            if key.endswith("_report") and value and key not in all_reports:
+                all_reports[key] = value
+
+        # 2. 获取累积的辩论报告 (Markdown)
+        risky_report = risk_debate_state.get("risky_report_content", "（无激进报告）")
+        safe_report = risk_debate_state.get("safe_report_content", "（无保守报告）")
+        neutral_report = risk_debate_state.get("neutral_report_content", "（无中性报告）")
+        
+        # 获取交易员计划 (Target)
         trader_plan = state.get("trader_investment_plan")
         if not trader_plan:
-            trader_plan = state.get("investment_plan", "")
-            logger.info("ℹ️ [Portfolio Manager] 未找到交易员计划，使用研究团队计划作为基础")
-        else:
-            logger.info("ℹ️ [Portfolio Manager] 已获取交易员计划作为风险评估基础")
+             trader_plan = state.get("investment_plan", "")
+             if not trader_plan:
+                 trader_plan = all_reports.get("research_team_decision", "（未找到交易员计划）")
 
-        # 绑定工具
-        tools = [list_reports, get_report_content, get_reports_batch]
-        llm_with_tools = llm.bind_tools(tools)
+        # 3. 获取股票信息
+        ticker = state.get('company_of_interest', 'Unknown')
+        from tradingagents.utils.stock_utils import StockUtils
+        market_info = StockUtils.get_market_info(ticker)
+        
+        # 获取公司名称
+        def _get_company_name(ticker_code: str, market_info_dict: dict) -> str:
+            try:
+                if market_info_dict['is_china']:
+                    from tradingagents.dataflows.interface import get_china_stock_info_unified
+                    stock_info = get_china_stock_info_unified(ticker_code)
+                    if stock_info and "股票名称:" in stock_info:
+                        return stock_info.split("股票名称:")[1].split("\n")[0].strip()
+                    try:
+                        from tradingagents.dataflows.data_source_manager import get_china_stock_info_unified as get_info_dict
+                        info = get_info_dict(ticker_code)
+                        if info and info.get('name'): return info['name']
+                    except: pass
+                elif market_info_dict['is_hk']:
+                    try:
+                        from tradingagents.dataflows.providers.hk.improved_hk import get_hk_company_name_improved
+                        return get_hk_company_name_improved(ticker_code)
+                    except: return f"港股{ticker_code.replace('.HK','')}"
+                elif market_info_dict['is_us']:
+                    us_names = {'AAPL': '苹果', 'TSLA': '特斯拉', 'NVDA': '英伟达', 'MSFT': '微软', 'GOOGL': '谷歌'}
+                    return us_names.get(ticker_code.upper(), f"美股{ticker_code}")
+            except: pass
+            return f"股票代码{ticker_code}"
 
-        # 构建 Prompt，移除硬编码报告，指示使用工具
-        prompt = f"""作为首席投资组合经理(Portfolio Manager)和风险管理委员会主席，您的职责是基于全面的风险评估做出最终投资决策。
+        company_name = _get_company_name(ticker, market_info)
+        currency = market_info['currency_name']
 
-您必须**主动查阅**相关的分析报告（如市场分析、新闻分析、基本面分析、情绪分析等）来做出明智的决策。请使用提供的工具来获取这些报告的内容。如果调用工具获取报告失败，请在最终报告中明确说明缺失了哪些信息。
+        # 4. 构建 Prompt
+        from tradingagents.agents.utils.generic_agent import load_agent_config
+        base_prompt = load_agent_config("risk-manager")
+        
+        if not base_prompt:
+             error_msg = "❌ 未找到 risk-manager 智能体配置，请检查 phase3_agents_config.yaml 文件。"
+             logger.error(error_msg)
+             raise ValueError(error_msg)
 
-**当前任务：**
-1. 查阅相关分析报告，了解市场、新闻、基本面和情绪状况。具体是 fundamentals_report 还是 news_report 请通过工具 list_reports 查看。
-2. 听取激进、中性和保守三位风险分析师的辩论。
-3. 权衡这些观点，并决定最终的执行方案。
+        context_prefix = f"""
+股票代码：{ticker}
+公司名称：{company_name}
+价格单位：{currency}
+通用规则：请始终使用公司名称而不是股票代码来称呼这家公司
+"""
+        system_prompt = context_prefix + "\n\n" + base_prompt
+        messages = [SystemMessage(content=system_prompt)]
 
-**决策指导原则：**
-1. **综合风险辩论**：评估激进派的机会主义与保守派的风险规避，结合中性派的平衡观点，找到最佳风险收益比。
-2. **最终决策**：明确给出买入、卖出或持有的指令。
-3. **完善执行计划**：基于交易员的原始计划**{trader_plan}**，结合风险分析师的反馈进行必要的修正或优化（例如调整仓位、设置更严格的止损、改变入场时机等）。
+        # 注入基础报告 (Stage 1)
+        for key, content in all_reports.items():
+            if content and "report" in key:
+                # 排除掉 Stage 3 自己的报告，避免冗余，或者选择性包含
+                if any(x in key for x in ["risky_", "safe_", "neutral_"]): continue
+                display_name = key.replace("_report", "").replace("_", " ").title() + "报告"
+                messages.append(HumanMessage(content=f"=== 基础资料：{display_name} ===\n{content}"))
 
-**交付成果：**
-- 明确且可操作的建议：买入、卖出或持有。
-- 详细的推理过程：解释为什么采纳或拒绝了某些风险分析师的观点，引用您查阅的报告内容作为支持。
-- 最终调整后的交易计划。
-
----
-
-**风险分析师辩论历史：**
-{history}
-
----
-
-**原始交易计划：**
+        # 注入完整辩论卷宗
+        user_content = f"""
+=== 原始交易计划 ===
 {trader_plan}
 
-请用中文撰写所有分析内容和建议，展现专业基金经理的决策能力。"""
+=== 激进风险分析报告 (Risky Case) ===
+{risky_report}
 
-        logger.info(f"🔄 [Risk Manager] 开始执行决策流程 (Agent模式)")
-        
-        messages = [HumanMessage(content=prompt)]
-        final_content = ""
-        
-        # 简单的 Agent Loop
-        max_steps = 10
-        step = 0
-        
-        while step < max_steps:
-            try:
-                logger.info(f"🔄 [Risk Manager] Step {step+1}: 调用 LLM")
-                response = llm_with_tools.invoke(messages)
-                messages.append(response)
-                
-                if response.tool_calls:
-                    logger.info(f"🛠️ [Risk Manager] LLM 请求调用 {len(response.tool_calls)} 个工具")
-                    for tool_call in response.tool_calls:
-                        tool_name = tool_call["name"]
-                        tool_args = tool_call["args"]
-                        tool_id = tool_call["id"]
-                        
-                        logger.info(f"  - 调用工具: {tool_name} 参数: {tool_args}")
-                        
-                        # 执行工具
-                        tool_result = "工具调用失败"
-                        try:
-                            if tool_name == "list_reports":
-                                tool_result = list_reports()
-                            elif tool_name == "get_report_content":
-                                tool_result = get_report_content(**tool_args)
-                            elif tool_name == "get_reports_batch":
-                                tool_result = get_reports_batch(**tool_args)
-                            else:
-                                tool_result = f"未知工具: {tool_name}"
-                        except Exception as e:
-                            tool_result = f"工具执行出错: {str(e)}"
-                            logger.error(f"❌ 工具 {tool_name} 执行失败: {e}")
-                            
-                        # 添加工具结果到消息历史
-                        messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_id))
-                    
-                    # 继续循环，让 LLM 处理工具结果
-                    step += 1
-                    continue
-                else:
-                    # 没有工具调用，说明是最终回复
-                    final_content = response.content
-                    logger.info(f"✅ [Risk Manager] 获得最终回复")
-                    break
-                    
-            except Exception as e:
-                logger.error(f"❌ [Risk Manager] 执行出错: {e}")
-                final_content = f"执行过程中发生错误: {str(e)}。基于现有信息，建议采取保守策略（持有或观望）。"
-                break
-                
-        if not final_content:
-            final_content = "由于技术原因无法生成详细分析，建议暂时观望。"
+=== 保守风险分析报告 (Safe Case) ===
+{safe_report}
 
+=== 中性风险分析报告 (Neutral Case) ===
+{neutral_report}
+
+请基于以上所有资料（基础报告 + 三方辩论 + 原始计划），生成一份【最终风控裁决报告】。
+报告应包含以下章节：
+1. **风控裁决摘要**：明确的投资评级（买入/持有/卖出/观望）和核心风控理由。
+2. **风险-收益权衡**：评估激进派的机会主义与保守派的风险规避，结合中性派的平衡观点，说明最终决策的依据。
+3. **关键风险提示**：列出必须要关注的尾部风险。
+4. **最终执行指令**：给交易员的具体指令（如修正后的建仓比例、严格的止损位、对冲策略等）。
+
+请直接生成报告内容。
+"""
+        messages.append(HumanMessage(content=user_content))
+        
+        logger.info(f"👔 [Risk Manager] 开始生成最终风控裁决报告...")
+        
+        # 5. 执行推理
+        response = llm.invoke(messages)
+        final_content = response.content
+        
+        # 6. 保存报告文件
+        try:
+            filename = "投资组合风控报告.md"
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(f"# {company_name} ({ticker}) 投资组合风控裁决报告\n\n")
+                f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"> 决策人：首席风控官\n\n")
+                f.write(final_content)
+            logger.info(f"👔 [Risk Manager] 已生成裁决报告: {filename}")
+        except Exception as e:
+            logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")
+
+        # 7. 更新状态
         new_risk_debate_state = {
             "judge_decision": final_content,
-            "history": risk_debate_state["history"],
-            "risky_history": risk_debate_state["risky_history"],
-            "safe_history": risk_debate_state["safe_history"],
-            "neutral_history": risk_debate_state["neutral_history"],
-            "latest_speaker": "Judge",
-            "current_risky_response": risk_debate_state["current_risky_response"],
-            "current_safe_response": risk_debate_state["current_safe_response"],
-            "current_neutral_response": risk_debate_state["current_neutral_response"],
+            "history": risk_debate_state.get("history", ""),
+            "risky_history": risk_debate_state.get("risky_history", ""),
+            "safe_history": risk_debate_state.get("safe_history", ""),
+            "neutral_history": risk_debate_state.get("neutral_history", ""),
+            "current_response": final_content,
             "count": risk_debate_state["count"],
+            "rounds": risk_debate_state.get("rounds", []),
+            "risky_report_content": risky_report,
+            "safe_report_content": safe_report,
+            "neutral_report_content": neutral_report,
+            "current_round_index": risk_debate_state.get("current_round_index", 0),
         }
         
         return {
             "risk_debate_state": new_risk_debate_state,
             "final_trade_decision": final_content,
+            "reports": {
+                "risk_manager_decision": final_content
+            }
         }
 
     return risk_manager_node

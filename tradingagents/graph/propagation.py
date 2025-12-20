@@ -56,6 +56,19 @@ class Propagator:
                     "current_safe_response": "",
                     "current_neutral_response": "",
                     "count": 0,
+                    # 修复：初始化完整的 RiskDebateState 字段
+                    "latest_speaker": "",
+                    "risky_history": "",
+                    "safe_history": "",
+                    "neutral_history": "",
+                    "judge_decision": "",
+                    # 多轮辩论字段
+                    "rounds": [],
+                    "current_round_index": 0,
+                    "max_rounds": 3,
+                    "risky_report_content": "",
+                    "safe_report_content": "",
+                    "neutral_report_content": ""
                 }
             ),
             # 报告字段和工具调用计数器由下方动态初始化逻辑根据配置文件生成

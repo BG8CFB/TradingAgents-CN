@@ -8,6 +8,7 @@ from .analysts.dynamic_analyst import create_dynamic_analyst
 from .stage_2.bear_researcher import create_bear_researcher
 from .stage_2.bull_researcher import create_bull_researcher
 from .stage_2.research_manager import create_research_manager
+from .stage_2.trader import create_trader
 
 # Stage 3
 from .stage_3.aggresive_debator import create_risky_debator
@@ -16,7 +17,6 @@ from .stage_3.neutral_debator import create_neutral_debator
 from .stage_3.risk_manager import create_risk_manager
 
 # Stage 4
-from .stage_4.trader import create_trader
 
 # 导入统一日志系统
 from tradingagents.utils.logging_init import get_logger
