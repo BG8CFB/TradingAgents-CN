@@ -21,6 +21,7 @@ from app.models.config import (
 from app.services.config_service import config_service
 from datetime import datetime
 from app.utils.timezone import now_tz
+from app.utils.api_key_utils import is_valid_api_key, should_skip_api_key_update
 
 from app.services.operation_log_service import log_operation
 from app.models.operation_log import ActionType
@@ -106,27 +107,27 @@ def _sanitize_datasource_configs(items):
         for item in items:
             data = item.model_dump()
 
-            # 处理 API Key
+            # 处理 API Key - 为了支持本地AI模型，不再验证有效性
             db_key = data.get("api_key")
-            if is_valid_api_key(db_key):
-                # 数据库中有有效的 API Key，返回缩略版本
+            if db_key:
+                # 数据库中有 API Key，返回缩略版本
                 data["api_key"] = truncate_api_key(db_key)
             else:
-                # 数据库中没有有效的 API Key，尝试从环境变量读取
+                # 数据库中没有 API Key，尝试从环境变量读取
                 ds_type = data.get("type")
                 if isinstance(ds_type, str):
                     env_key = get_env_api_key_for_datasource(ds_type)
                     if env_key:
-                        # 环境变量中有有效的 API Key，返回缩略版本
+                        # 环境变量中有 API Key，返回缩略版本
                         data["api_key"] = truncate_api_key(env_key)
                     else:
                         data["api_key"] = None
                 else:
                     data["api_key"] = None
 
-            # 处理 API Secret（同样的逻辑）
+            # 处理 API Secret - 为了支持本地AI模型，不再验证有效性
             db_secret = data.get("api_secret")
-            if is_valid_api_key(db_secret):
+            if db_secret:
                 data["api_secret"] = truncate_api_key(db_secret)
             else:
                 data["api_secret"] = None
@@ -220,23 +221,21 @@ async def get_llm_providers(
         result = []
 
         for provider in providers:
-            # 处理 API Key：优先使用数据库配置，如果数据库没有则检查环境变量
-            db_key_valid = is_valid_api_key(provider.api_key)
-            if db_key_valid:
-                # 数据库中有有效的 API Key，返回缩略版本
+            # 处理 API Key - 为了支持本地AI模型，不再验证有效性
+            if provider.api_key:
+                # 数据库中有 API Key，返回缩略版本
                 api_key_display = truncate_api_key(provider.api_key)
             else:
-                # 数据库中没有有效的 API Key，尝试从环境变量读取
+                # 数据库中没有 API Key，尝试从环境变量读取
                 env_key = get_env_api_key_for_provider(provider.name)
                 if env_key:
-                    # 环境变量中有有效的 API Key，返回缩略版本
+                    # 环境变量中有 API Key，返回缩略版本
                     api_key_display = truncate_api_key(env_key)
                 else:
                     api_key_display = None
 
-            # 处理 API Secret（同样的逻辑）
-            db_secret_valid = is_valid_api_key(provider.api_secret)
-            if db_secret_valid:
+            # 处理 API Secret - 为了支持本地AI模型，不再验证有效性
+            if provider.api_secret:
                 api_secret_display = truncate_api_key(provider.api_secret)
             else:
                 # 注意：API Secret 通常不在环境变量中，所以这里只检查数据库
@@ -622,13 +621,11 @@ async def add_llm_config(
             logger.info(f"🔑 使用提供的API密钥 (长度: {len(llm_config_data.get('api_key', ''))})")
 
         logger.info(f"📋 最终配置数据: {llm_config_data}")
-        # 🔥 修改：允许通过 REST 写入密钥，但如果是无效的密钥则清空
-        # 无效的密钥：空字符串、占位符（your_xxx）、长度不够
+        # 🔥 修改：为了支持本地AI模型，允许任何API Key（包括空值）
         if 'api_key' in llm_config_data:
             api_key = llm_config_data.get('api_key', '')
-            # 如果是无效的 Key，则清空（让系统使用环境变量）
-            if not api_key or api_key.startswith('your_') or api_key.startswith('your-') or len(api_key) <= 10:
-                llm_config_data['api_key'] = ""
+            # 为了支持本地AI模型，保留用户输入的任何值（包括空值）
+            llm_config_data['api_key'] = api_key
 
 
         # 尝试创建LLMConfig对象
@@ -707,41 +704,20 @@ async def add_data_source_config(
 
         # 添加新的数据源配置
         # 🔥 修改：支持保存 API Key（与大模型厂家管理逻辑一致）
-        from app.utils.api_key_utils import should_skip_api_key_update, is_valid_api_key
-
+        
         _req = request.model_dump()
 
-        # 处理 API Key
+        # 处理 API Key - 为了支持本地AI模型，不再验证
         if 'api_key' in _req:
             api_key = _req.get('api_key', '')
-            # 如果是占位符或截断的密钥，清空该字段
-            if should_skip_api_key_update(api_key):
-                _req['api_key'] = ""
-            # 如果是空字符串，保留（表示使用环境变量）
-            elif api_key == '':
-                _req['api_key'] = ''
-            # 如果是新输入的密钥，必须验证有效性
-            elif not is_valid_api_key(api_key):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="API Key 无效：长度必须大于 10 个字符，且不能是占位符"
-                )
-            # 有效的完整密钥，保留
+            # 为了支持本地AI模型，保留用户输入的任何值
+            _req['api_key'] = api_key
 
-        # 处理 API Secret
+        # 处理 API Secret - 为了支持本地AI模型，不再验证
         if 'api_secret' in _req:
             api_secret = _req.get('api_secret', '')
-            if should_skip_api_key_update(api_secret):
-                _req['api_secret'] = ""
-            # 如果是空字符串，保留
-            elif api_secret == '':
-                _req['api_secret'] = ''
-            # 如果是新输入的密钥，必须验证有效性
-            elif not is_valid_api_key(api_secret):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="API Secret 无效：长度必须大于 10 个字符，且不能是占位符"
-                )
+            # 为了支持本地AI模型，保留用户输入的任何值
+            _req['api_secret'] = api_secret
 
         ds_config = DataSourceConfig(**_req)
         config.data_source_configs.append(ds_config)
@@ -1087,8 +1063,7 @@ async def update_data_source_config(
             )
 
         # 查找并更新数据源配置
-        from app.utils.api_key_utils import should_skip_api_key_update, is_valid_api_key
-
+        
         def _truncate_api_key(api_key: str, prefix_len: int = 6, suffix_len: int = 6) -> str:
             """截断 API Key 用于显示"""
             if not api_key or len(api_key) <= prefix_len + suffix_len:
@@ -1101,114 +1076,21 @@ async def update_data_source_config(
                 # 🔥 修改：处理 API Key 的更新逻辑（与大模型厂家管理逻辑一致）
                 _req = request.model_dump()
 
-                # 处理 API Key
+                # 处理 API Key - 为了支持本地AI模型，简化验证逻辑
                 if 'api_key' in _req:
                     api_key = _req.get('api_key')
-                    logger.info(f"🔍 [API Key 验证] 收到的 API Key: {repr(api_key)} (类型: {type(api_key).__name__}, 长度: {len(api_key) if api_key else 0})")
+                    logger.info(f"🔍 [API Key 更新] 收到的 API Key: (长度: {len(api_key) if api_key else 0})")
+                    
+                    # 为了支持本地AI模型，直接使用用户输入的值
+                    _req['api_key'] = api_key if api_key is not None else ds_config.api_key
 
-                    # 如果是 None 或空字符串，保留原值（不更新）
-                    if api_key is None or api_key == '':
-                        logger.info(f"⏭️  [API Key 验证] None 或空字符串，保留原值")
-                        _req['api_key'] = ds_config.api_key or ""
-                    # 🔥 如果包含 "..."（截断标记），需要验证是否是未修改的原值
-                    elif api_key and "..." in api_key:
-                        logger.info(f"🔍 [API Key 验证] 检测到截断标记，验证是否与数据库原值匹配")
-
-                        # 对数据库中的完整 API Key 进行相同的截断处理
-                        if ds_config.api_key:
-                            truncated_db_key = _truncate_api_key(ds_config.api_key)
-                            logger.info(f"🔍 [API Key 验证] 数据库原值截断后: {truncated_db_key}")
-                            logger.info(f"🔍 [API Key 验证] 收到的值: {api_key}")
-
-                            # 比较截断后的值
-                            if api_key == truncated_db_key:
-                                # 相同，说明用户没有修改，保留数据库中的完整值
-                                logger.info(f"✅ [API Key 验证] 截断值匹配，保留数据库原值")
-                                _req['api_key'] = ds_config.api_key
-                            else:
-                                # 不同，说明用户修改了但修改得不完整
-                                logger.error(f"❌ [API Key 验证] 截断值不匹配，用户可能修改了不完整的密钥")
-                                raise HTTPException(
-                                    status_code=status.HTTP_400_BAD_REQUEST,
-                                    detail=f"API Key 格式错误：检测到截断标记但与数据库中的值不匹配，请输入完整的 API Key"
-                                )
-                        else:
-                            # 数据库中没有原值，但前端发送了截断值，这是不合理的
-                            logger.error(f"❌ [API Key 验证] 数据库中没有原值，但收到了截断值")
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail=f"API Key 格式错误：请输入完整的 API Key"
-                            )
-                    # 如果是占位符，则不更新（保留原值）
-                    elif should_skip_api_key_update(api_key):
-                        logger.info(f"⏭️  [API Key 验证] 跳过更新（占位符），保留原值")
-                        _req['api_key'] = ds_config.api_key or ""
-                    # 如果是新输入的密钥，必须验证有效性
-                    elif not is_valid_api_key(api_key):
-                        logger.error(f"❌ [API Key 验证] 验证失败: '{api_key}' (长度: {len(api_key)})")
-                        logger.error(f"   - 长度检查: {len(api_key)} > 10? {len(api_key) > 10}")
-                        logger.error(f"   - 占位符前缀检查: startswith('your_')? {api_key.startswith('your_')}, startswith('your-')? {api_key.startswith('your-')}")
-                        logger.error(f"   - 占位符后缀检查: endswith('_here')? {api_key.endswith('_here')}, endswith('-here')? {api_key.endswith('-here')}")
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"API Key 无效：长度必须大于 10 个字符，且不能是占位符（当前长度: {len(api_key)}）"
-                        )
-                    else:
-                        logger.info(f"✅ [API Key 验证] 验证通过，将更新密钥 (长度: {len(api_key)})")
-                    # 有效的完整密钥，保留（表示更新）
-
-                # 处理 API Secret
+                # 处理 API Secret - 为了支持本地AI模型，简化验证逻辑
                 if 'api_secret' in _req:
                     api_secret = _req.get('api_secret')
-                    logger.info(f"🔍 [API Secret 验证] 收到的 API Secret: {repr(api_secret)} (类型: {type(api_secret).__name__}, 长度: {len(api_secret) if api_secret else 0})")
-
-                    # 如果是 None 或空字符串，保留原值（不更新）
-                    if api_secret is None or api_secret == '':
-                        logger.info(f"⏭️  [API Secret 验证] None 或空字符串，保留原值")
-                        _req['api_secret'] = ds_config.api_secret or ""
-                    # 🔥 如果包含 "..."（截断标记），需要验证是否是未修改的原值
-                    elif api_secret and "..." in api_secret:
-                        logger.info(f"🔍 [API Secret 验证] 检测到截断标记，验证是否与数据库原值匹配")
-
-                        # 对数据库中的完整 API Secret 进行相同的截断处理
-                        if ds_config.api_secret:
-                            truncated_db_secret = _truncate_api_key(ds_config.api_secret)
-                            logger.info(f"🔍 [API Secret 验证] 数据库原值截断后: {truncated_db_secret}")
-                            logger.info(f"🔍 [API Secret 验证] 收到的值: {api_secret}")
-
-                            # 比较截断后的值
-                            if api_secret == truncated_db_secret:
-                                # 相同，说明用户没有修改，保留数据库中的完整值
-                                logger.info(f"✅ [API Secret 验证] 截断值匹配，保留数据库原值")
-                                _req['api_secret'] = ds_config.api_secret
-                            else:
-                                # 不同，说明用户修改了但修改得不完整
-                                logger.error(f"❌ [API Secret 验证] 截断值不匹配，用户可能修改了不完整的密钥")
-                                raise HTTPException(
-                                    status_code=status.HTTP_400_BAD_REQUEST,
-                                    detail=f"API Secret 格式错误：检测到截断标记但与数据库中的值不匹配，请输入完整的 API Secret"
-                                )
-                        else:
-                            # 数据库中没有原值，但前端发送了截断值，这是不合理的
-                            logger.error(f"❌ [API Secret 验证] 数据库中没有原值，但收到了截断值")
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail=f"API Secret 格式错误：请输入完整的 API Secret"
-                            )
-                    # 如果是占位符，则不更新（保留原值）
-                    elif should_skip_api_key_update(api_secret):
-                        logger.info(f"⏭️  [API Secret 验证] 跳过更新（占位符），保留原值")
-                        _req['api_secret'] = ds_config.api_secret or ""
-                    # 如果是新输入的密钥，必须验证有效性
-                    elif not is_valid_api_key(api_secret):
-                        logger.error(f"❌ [API Secret 验证] 验证失败: '{api_secret}' (长度: {len(api_secret)})")
-                        logger.error(f"   - 长度检查: {len(api_secret)} > 10? {len(api_secret) > 10}")
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"API Secret 无效：长度必须大于 10 个字符，且不能是占位符（当前长度: {len(api_secret)}）"
-                        )
-                    else:
-                        logger.info(f"✅ [API Secret 验证] 验证通过，将更新密钥 (长度: {len(api_secret)})")
+                    logger.info(f"🔍 [API Secret 更新] 收到的 API Secret: (长度: {len(api_secret) if api_secret else 0})")
+                    
+                    # 为了支持本地AI模型，直接使用用户输入的值
+                    _req['api_secret'] = api_secret if api_secret is not None else ds_config.api_secret
 
                 updated_config = DataSourceConfig(**_req)
                 config.data_source_configs[i] = updated_config

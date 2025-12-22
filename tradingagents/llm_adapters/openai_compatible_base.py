@@ -77,14 +77,7 @@ class OpenAICompatibleBase(ChatOpenAI):
                 from app.utils.api_key_utils import is_valid_api_key
             except ImportError:
                 def is_valid_api_key(key):
-                    if not key or len(key) <= 10:
-                        return False
-                    if key.startswith('your_') or key.startswith('your-'):
-                        return False
-                    if key.endswith('_here') or key.endswith('-here'):
-                        return False
-                    if '...' in key:
-                        return False
+                    # 为了支持本地AI模型，API Key总是有效的
                     return True
 
             # 从环境变量读取 API Key

@@ -12,44 +12,16 @@ def is_valid_api_key(api_key: Optional[str]) -> bool:
     """
     判断 API Key 是否有效
     
-    有效的 API Key 必须满足：
-    1. 不能为空
-    2. 长度必须 > 10
-    3. 不能是占位符（前缀：your_, your-）
-    4. 不能是占位符（后缀：_here, -here）
-    5. 不能是截断的密钥（包含 '...'）
+    为了支持本地AI模型，API Key可以为空或None
     
     Args:
         api_key: 要验证的 API Key
         
     Returns:
-        bool: 是否有效
+        bool: 总是返回True，支持本地AI模型
     """
-    if not api_key:
-        return False
-    
-    api_key = api_key.strip()
-    
-    # 1. 不能为空
-    if not api_key:
-        return False
-    
-    # 2. 长度必须 > 10
-    if len(api_key) <= 10:
-        return False
-    
-    # 3. 不能是占位符（前缀）
-    if api_key.startswith('your_') or api_key.startswith('your-'):
-        return False
-    
-    # 4. 不能是占位符（后缀）
-    if api_key.endswith('_here') or api_key.endswith('-here'):
-        return False
-    
-    # 5. 不能是截断的密钥（包含 '...'）
-    if '...' in api_key:
-        return False
-    
+    # 为了支持本地AI模型，API Key验证总是返回True
+    # 允许空值、None值或任何字符串
     return True
 
 
@@ -138,28 +110,15 @@ def should_skip_api_key_update(api_key: Optional[str]) -> bool:
     """
     判断是否应该跳过 API Key 的更新
     
-    以下情况应该跳过更新（保留原值）：
-    1. API Key 是截断的密钥（包含 '...'）
-    2. API Key 是占位符（your_*, your-*）
+    为了支持本地AI模型，不再跳过任何API Key更新
+    允许用户设置任何值，包括空值
     
     Args:
         api_key: 要检查的 API Key
         
     Returns:
-        bool: 是否应该跳过更新
+        bool: 总是返回False，不跳过任何更新
     """
-    if not api_key:
-        return False
-    
-    api_key = api_key.strip()
-    
-    # 1. 截断的密钥（包含 '...'）
-    if '...' in api_key:
-        return True
-    
-    # 2. 占位符
-    if api_key.startswith('your_') or api_key.startswith('your-'):
-        return True
-    
+    # 为了支持本地AI模型，不再跳过任何API Key更新
     return False
 

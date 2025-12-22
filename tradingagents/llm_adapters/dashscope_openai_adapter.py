@@ -42,14 +42,7 @@ class ChatDashScopeOpenAI(ChatOpenAI):
             except ImportError:
                 # 如果导入失败，使用本地简化版本
                 def is_valid_api_key(key):
-                    if not key or len(key) <= 10:
-                        return False
-                    if key.startswith('your_') or key.startswith('your-'):
-                        return False
-                    if key.endswith('_here') or key.endswith('-here'):
-                        return False
-                    if '...' in key:
-                        return False
+                    # 为了支持本地AI模型，API Key总是有效的
                     return True
 
             # 尝试从环境变量读取 API Key

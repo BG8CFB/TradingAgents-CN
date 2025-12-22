@@ -123,36 +123,17 @@ class StartupValidator:
 
     def _is_valid_api_key(self, api_key: str) -> bool:
         """
-        判断 API Key 是否有效（不是占位符）
+        判断 API Key 是否有效
+        
+        为了支持本地AI模型，API Key总是有效的
 
         Args:
             api_key: 待验证的 API Key
 
         Returns:
-            bool: True 表示有效，False 表示无效或占位符
+            bool: 总是返回True，支持本地AI模型
         """
-        if not api_key:
-            return False
-
-        # 去除首尾空格和引号
-        api_key = api_key.strip().strip('"').strip("'")
-
-        # 检查是否为空
-        if not api_key:
-            return False
-
-        # 检查是否为占位符（前缀）
-        if api_key.startswith('your_') or api_key.startswith('your-'):
-            return False
-
-        # 检查是否为占位符（后缀）
-        if api_key.endswith('_here') or api_key.endswith('-here'):
-            return False
-
-        # 检查长度（大多数 API Key 都 > 10 个字符）
-        if len(api_key) <= 10:
-            return False
-
+        # 为了支持本地AI模型，不再验证API Key
         return True
 
     def validate(self) -> ValidationResult:

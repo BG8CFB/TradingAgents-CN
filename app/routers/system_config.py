@@ -137,17 +137,17 @@ async def validate_config():
                     "env_configured": False  # 环境变量是否配置
                 }
 
-                # 🔥 关键：检查数据库中的原始 API Key 是否有效
-                db_key_valid = is_valid_api_key(provider.api_key)
+                # 为了支持本地AI模型，不再验证API Key有效性
+                db_key_valid = bool(provider.api_key)  # 检查是否非空
                 validation_item["mongodb_configured"] = db_key_valid
 
-                # 检查环境变量中的 API Key 是否有效
+                # 检查环境变量中的 API Key
                 env_key = get_env_api_key_for_provider(provider.name)
                 env_key_valid = env_key is not None
                 validation_item["env_configured"] = env_key_valid
 
                 if db_key_valid:
-                    # MongoDB 中有有效的 API Key（优先级最高）
+                    # MongoDB 中有 API Key（优先级最高）
                     validation_item["has_api_key"] = True
                     validation_item["status"] = "已配置"
                     validation_item["source"] = "database"
@@ -203,18 +203,18 @@ async def validate_config():
                         validation_item["mongodb_configured"] = True
                         validation_item["env_configured"] = True
                     else:
-                        # 检查数据库中的 API Key 是否有效
-                        db_key_valid = is_valid_api_key(ds_config.api_key)
+                        # 为了支持本地AI模型，不再验证API Key有效性
+                        db_key_valid = bool(ds_config.api_key)  # 检查是否非空
                         validation_item["mongodb_configured"] = db_key_valid
 
-                        # 检查环境变量中的 API Key 是否有效
+                        # 检查环境变量中的 API Key
                         ds_type = ds_config.type.value if hasattr(ds_config.type, 'value') else ds_config.type
                         env_key = get_env_api_key_for_datasource(ds_type)
                         env_key_valid = env_key is not None
                         validation_item["env_configured"] = env_key_valid
 
                         if db_key_valid:
-                            # MongoDB 中有有效的 API Key（优先级最高）
+                            # MongoDB 中有 API Key（优先级最高）
                             validation_item["has_api_key"] = True
                             validation_item["status"] = "已配置"
                             validation_item["source"] = "database"
