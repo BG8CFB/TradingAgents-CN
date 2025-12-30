@@ -1113,27 +1113,36 @@ class MCPToolLoaderFactory:
     async def toggle_server(self, server_name: str, enabled: bool) -> bool:
         """
         切换服务器启用状态，并实时更新连接。
+
+        使用锁保护配置读写，避免与 reload_config 等操作产生竞态条件。
         """
-        if server_name not in self._server_configs:
-            logger.warning(f"[MCP] 服务器 {server_name} 不存在")
+        # 锁保护：只保护配置读写，不阻塞耗时操作
+        async with self._lock:
+            if server_name not in self._server_configs:
+                logger.warning(f"[MCP] 服务器 {server_name} 不存在")
+                return False
+
+            self._server_configs[server_name].enabled = enabled
+
+            if enabled:
+                self._health_monitor.register_server(
+                    server_name,
+                    lambda: True,
+                    initial_status=ServerStatus.UNKNOWN
+                )
+            else:
+                self._health_monitor.mark_server_stopped(server_name)
+
+        # 连接操作在锁外执行，避免阻塞其他服务器的操作
+        try:
+            if enabled:
+                await self._connect_server(server_name)
+            else:
+                await self._disconnect_server(server_name)
+            return True
+        except Exception as e:
+            logger.error(f"[MCP] 服务器 {server_name} 连接操作失败: {e}")
             return False
-
-        self._server_configs[server_name].enabled = enabled
-
-        if enabled:
-            self._health_monitor.register_server(
-                server_name,
-                lambda: True,
-                initial_status=ServerStatus.UNKNOWN
-            )
-            # 尝试连接
-            await self._connect_server(server_name)
-        else:
-            self._health_monitor.mark_server_stopped(server_name)
-            # 断开连接
-            await self._disconnect_server(server_name)
-
-        return True
 
     async def reload_config(self) -> None:
         """
