@@ -1162,6 +1162,13 @@ class MCPToolLoaderFactory:
             self._mcp_tools.clear()
             self._server_configs.clear()
 
+            # 清理子进程跟踪信息
+            for server_name in list(self._tracked_pids.keys()):
+                self._terminate_server_subprocesses(server_name)
+            self._tracked_pids.clear()
+            self._restart_counts.clear()
+            self._last_restart_time.clear()
+
             # 重置状态
             self._initialized = False
 

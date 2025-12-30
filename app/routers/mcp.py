@@ -136,8 +136,7 @@ async def toggle_connector(
     """
     切换 MCP 连接器的启用状态
 
-    注意：此操作只更新配置标记，不立即重建连接。
-    需要调用 /api/mcp/reload 或 /api/mcp/servers/{name}/restart 来应用更改。
+    注意：此操作会实时更新配置并立即连接/断开服务器。
     """
     config = load_mcp_config(CONFIG_FILE)
     if "mcpServers" not in config or name not in config["mcpServers"]:
@@ -150,16 +149,24 @@ async def toggle_connector(
         config["mcpServers"][name]["_enabled"] = enabled
         write_mcp_config(config, CONFIG_FILE)
 
-        # 通知加载器切换服务器状态（只更新标记）
+        # 通知加载器切换服务器状态（实时连接/断开）
         if LANGCHAIN_MCP_AVAILABLE:
             factory = get_mcp_loader_factory()
             await factory.toggle_server(name, enabled)
+
+        # 获取实际状态
+        actual_status = "stopped"
+        if enabled and LANGCHAIN_MCP_AVAILABLE:
+            factory = get_mcp_loader_factory()
+            actual_status_obj = factory.get_server_status(name)
+            actual_status = actual_status_obj.value if hasattr(actual_status_obj, 'value') else str(actual_status_obj)
+
         return {
             "success": True,
             "data": {
                 "enabled": enabled,
-                "status": "healthy" if enabled else "stopped",
-                "message": "配置已更新，需要手动重载才能生效"
+                "status": actual_status,
+                "message": f"服务器已{'启用并连接' if enabled else '禁用并断开'}"
             }
         }
     except Exception as e:
