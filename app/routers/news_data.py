@@ -12,6 +12,7 @@ from app.routers.auth_db import get_current_user
 from app.core.response import ok
 from app.services.news_data_service import get_news_data_service, NewsQueryParams
 from app.worker.news_data_sync_service import get_news_data_sync_service
+from app.utils.timezone import now_utc, format_iso
 
 router = APIRouter(prefix="/api/news-data", tags=["新闻数据"])
 logger = logging.getLogger("webapi")
@@ -66,7 +67,7 @@ async def query_stock_news(
         service = await get_news_data_service()
 
         # 构建查询参数
-        start_time = datetime.utcnow() - timedelta(hours=hours_back)
+        start_time = now_utc() - timedelta(hours=hours_back)
 
         params = NewsQueryParams(
             symbol=symbol,
@@ -289,7 +290,7 @@ async def get_news_statistics(
         service = await get_news_data_service()
         
         # 计算时间范围
-        start_time = datetime.utcnow() - timedelta(days=days_back)
+        start_time = now_utc() - timedelta(days=days_back)
         
         # 获取统计信息
         stats = await service.get_news_statistics(
@@ -474,7 +475,7 @@ async def health_check():
         
         return ok(data={
                 "service_status": "healthy",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": format_iso(now_utc())
             },
             message="新闻数据服务运行正常"
         )

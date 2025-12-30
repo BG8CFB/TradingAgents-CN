@@ -27,8 +27,10 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from tradingagents.dataflows.providers.us.yfinance import YFinanceUtils
+from tradingagents.utils.time_utils import now_utc
 from app.core.database import get_mongo_db
 from app.core.config import settings
+from app.utils.timezone import now_config_tz, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +89,7 @@ class USSyncService:
 
             # 检查缓存是否有效
             if (self.us_stock_list and self._stock_list_cache_time and
-                datetime.now() - self._stock_list_cache_time < timedelta(seconds=self._stock_list_cache_ttl)):
+                now_config_tz() - self._stock_list_cache_time < timedelta(seconds=self._stock_list_cache_ttl)):
                 logger.debug(f"📦 使用缓存的美股列表: {len(self.us_stock_list)} 只")
                 return self.us_stock_list
 
@@ -120,7 +122,7 @@ class USSyncService:
 
             # 更新缓存
             self.us_stock_list = stock_codes
-            self._stock_list_cache_time = datetime.now()
+            self._stock_list_cache_time = now_config_tz()
 
             return stock_codes
 
@@ -221,7 +223,7 @@ class USSyncService:
                 normalized_info = self._normalize_stock_info(stock_info, source)
                 normalized_info["code"] = stock_code.upper()
                 normalized_info["source"] = source
-                normalized_info["updated_at"] = datetime.now()
+                normalized_info["updated_at"] = now_config_tz()
                 
                 # 批量更新操作
                 operations.append(
@@ -338,7 +340,7 @@ class USSyncService:
                     "low": float(latest['Low']),
                     "volume": int(latest['Volume']),
                     "currency": "USD",
-                    "updated_at": datetime.now()
+                    "updated_at": now_utc()
                 }
                 
                 # 计算涨跌幅
@@ -433,7 +435,7 @@ async def run_us_status_check():
             "status": "ok",
             "stock_count": len(stock_list),
             "data_source": "yfinance + finnhub",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": format_iso(now_config_tz())
         }
         logger.info(f"✅ 美股状态检查完成: {result}")
         return result

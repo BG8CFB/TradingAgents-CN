@@ -14,6 +14,7 @@ from .usage_models import UsageRecord
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 from tradingagents.config.runtime_settings import get_timezone_name
+from tradingagents.utils.time_utils import now_utc, now_config_tz
 logger = get_logger('agents')
 
 try:
@@ -122,7 +123,7 @@ class MongoDBStorage:
             record_dict = asdict(record)
 
             # 添加MongoDB特有的字段
-            record_dict['_created_at'] = datetime.now(ZoneInfo(get_timezone_name()))
+            record_dict['_created_at'] = now_config_tz()
 
             # 🔍 详细日志
             logger.debug(f"📊 [MongoDB存储] 准备插入记录: {record.provider}/{record.model_name}, session={record.session_id}")
@@ -154,7 +155,7 @@ class MongoDBStorage:
             query = {}
             if days:
                 from datetime import timedelta
-                cutoff_date = datetime.now(ZoneInfo(get_timezone_name())) - timedelta(days=days)
+                cutoff_date = now_config_tz() - timedelta(days=days)
                 query['timestamp'] = {'$gte': cutoff_date.isoformat()}
             
             # 查询记录，按时间倒序
@@ -187,7 +188,7 @@ class MongoDBStorage:
         
         try:
             from datetime import timedelta
-            cutoff_date = datetime.now() - timedelta(days=days)
+            cutoff_date = now_utc() - timedelta(days=days)
             
             # 聚合查询
             pipeline = [
@@ -238,7 +239,7 @@ class MongoDBStorage:
         
         try:
             from datetime import timedelta
-            cutoff_date = datetime.now() - timedelta(days=days)
+            cutoff_date = now_utc() - timedelta(days=days)
             
             # 按供应商聚合
             pipeline = [
@@ -284,7 +285,7 @@ class MongoDBStorage:
         try:
             from datetime import timedelta
 
-            cutoff_date = datetime.now() - timedelta(days=days)
+            cutoff_date = now_utc() - timedelta(days=days)
             
             result = self.collection.delete_many({
                 'timestamp': {'$lt': cutoff_date.isoformat()}

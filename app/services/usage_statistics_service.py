@@ -5,6 +5,7 @@
 
 import logging
 from datetime import datetime, timedelta
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 
@@ -88,7 +89,7 @@ class UsageStatisticsService:
             collection = db[self.collection_name]
             
             # 计算时间范围
-            end_date = datetime.now()
+            end_date = now_utc()
             start_date = end_date - timedelta(days=days)
             
             # 构建查询条件
@@ -217,7 +218,7 @@ class UsageStatisticsService:
             collection = db[self.collection_name]
             
             # 计算截止日期
-            cutoff_date = datetime.now() - timedelta(days=days)
+            cutoff_date = now_utc() - timedelta(days=days)
             
             # 删除旧记录
             result = await collection.delete_many({

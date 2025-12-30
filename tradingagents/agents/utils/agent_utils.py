@@ -17,6 +17,7 @@ from langchain_core.messages import HumanMessage
 # 导入统一日志系统和工具日志装饰器
 from tradingagents.utils.logging_init import get_logger
 from tradingagents.utils.tool_logging import log_tool_call, log_analysis_step
+from tradingagents.utils.time_utils import now_utc, get_current_date
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
@@ -504,7 +505,7 @@ class Toolkit:
         Returns:
             str: 包含实时新闻分析、紧急程度评估、时效性说明的格式化报告
         """
-        from tradingagents.dataflows.realtime_news_utils import get_realtime_stock_news
+        from tradingagents.dataflows.news.realtime_news import get_realtime_stock_news
         return get_realtime_stock_news(ticker, curr_date, hours_back=6)
 
     @staticmethod
@@ -754,8 +755,8 @@ class Toolkit:
 
             # 设置默认日期
             if not curr_date:
-                curr_date = datetime.now().strftime('%Y-%m-%d')
-        
+                curr_date = get_current_date()
+
             # 基本面分析优化：不需要大量历史数据，只需要当前价格和财务数据
             # 根据数据深度级别设置不同的分析模块数量，而非历史数据范围
             # 🔧 修正映射关系：analysis_modules 应该与 data_depth 保持一致
@@ -774,7 +775,7 @@ class Toolkit:
             else:
                 analysis_modules = "standard"  # 默认标准分析
                 logger.info(f"📊 [基本面策略] 默认模式：获取标准基本面分析")
-            
+
             # 基本面分析策略：
             # 1. 获取10天数据（保证能拿到数据，处理周末/节假日）
             # 2. 只使用最近2天数据参与分析（仅需当前价格）
@@ -784,7 +785,7 @@ class Toolkit:
             logger.info(f"📅 [基本面策略] 获取{days_to_fetch}天数据，分析最近{days_to_analyze}天")
 
             if not start_date:
-                start_date = (datetime.now() - timedelta(days=days_to_fetch)).strftime('%Y-%m-%d')
+                start_date = (now_utc() - timedelta(days=days_to_fetch)).strftime('%Y-%m-%d')
 
             if not end_date:
                 end_date = curr_date

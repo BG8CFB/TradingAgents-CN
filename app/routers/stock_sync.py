@@ -16,6 +16,7 @@ from app.worker.financial_data_sync_service import get_financial_sync_service
 import logging
 import asyncio
 from datetime import datetime, timedelta
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_iso
 
 logger = logging.getLogger("webapi")
 
@@ -81,7 +82,7 @@ async def _sync_latest_to_market_quotes(symbol: str) -> None:
         "pct_chg": latest_doc.get("pct_chg"),
         "pre_close": latest_doc.get("pre_close"),
         "trade_date": latest_doc.get("trade_date"),
-        "updated_at": datetime.utcnow()
+        "updated_at": now_utc()
     }
 
     # 🔥 日志：记录同步的成交量
@@ -217,8 +218,8 @@ async def sync_single_stock(
                     raise ValueError(f"不支持的数据源: {request.data_source}")
 
                 # 计算日期范围
-                end_date = datetime.now().strftime('%Y-%m-%d')
-                start_date = (datetime.now() - timedelta(days=request.days)).strftime('%Y-%m-%d')
+                end_date = format_date_short(now_config_tz())
+                start_date = format_date_short(now_config_tz() - timedelta(days=request.days))
 
                 # 同步历史数据
                 hist_result = await service.sync_historical_data(
@@ -340,7 +341,7 @@ async def sync_single_stock(
 
                             # Step 3: 构建文档（参考 basics_sync_service 的逻辑）
                             # 🔥 先获取当前时间，避免作用域问题
-                            now_iso = datetime.utcnow().isoformat()
+                            now_iso = format_iso(now_utc())
 
                             name = stock_row.get("name") or ""
                             area = stock_row.get("area") or ""
@@ -470,7 +471,7 @@ async def sync_single_stock(
                         basic_data["code"] = symbol6
                         basic_data["symbol"] = symbol6
                         basic_data["source"] = "akshare"
-                        basic_data["updated_at"] = datetime.utcnow().isoformat()
+                        basic_data["updated_at"] = format_iso(now_utc())
 
                         # 更新到数据库
                         await db.stock_basic_info.update_one(
@@ -560,8 +561,8 @@ async def sync_batch_stocks(
                     raise ValueError(f"不支持的数据源: {request.data_source}")
 
                 # 计算日期范围
-                end_date = datetime.now().strftime('%Y-%m-%d')
-                start_date = (datetime.now() - timedelta(days=request.days)).strftime('%Y-%m-%d')
+                end_date = format_date_short(now_config_tz())
+                start_date = format_date_short(now_config_tz() - timedelta(days=request.days))
                 
                 # 批量同步历史数据
                 hist_result = await service.sync_historical_data(
@@ -649,7 +650,7 @@ async def sync_batch_stocks(
                                     # 添加必要字段
                                     basic_info["code"] = symbol6
                                     basic_info["source"] = "tushare"
-                                    basic_info["updated_at"] = datetime.utcnow()
+                                    basic_info["updated_at"] = now_utc()
 
                                     await db.stock_basic_info.update_one(
                                         {"code": symbol6, "source": "tushare"},

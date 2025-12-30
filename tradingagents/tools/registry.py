@@ -29,15 +29,51 @@ def _tool_names(tools: Iterable) -> set:
 
 
 def _run_coroutine_sync(coro):
-    """在同步环境中安全运行协程，内部使用单独线程避免事件循环冲突。"""
+    """
+    在同步环境中安全运行协程，避免事件循环冲突。
+
+    根据2024年最佳实践：
+    1. 检测是否已有运行中的事件循环
+    2. 如果没有，直接使用 asyncio.run()
+    3. 如果有，使用 asyncio.run_coroutine_threadsafe() 而非 asyncio.run()
+       避免创建新事件循环导致冲突（特别是在uvloop环境下）
+    """
     try:
         loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
+        # 已经有运行中的事件循环，使用线程安全的方式
+        import concurrent.futures
+        import threading
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(asyncio.run, coro)
-        return future.result()
+        # 在新线程中运行协程，避免与当前事件循环冲突
+        result_container = []
+        exception_container = []
+
+        def run_in_new_loop():
+            try:
+                # 创建新的事件循环（在新线程中）
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    result = new_loop.run_until_complete(coro)
+                    result_container.append(result)
+                finally:
+                    new_loop.close()
+            except Exception as e:
+                exception_container.append(e)
+
+        thread = threading.Thread(target=run_in_new_loop, daemon=True)
+        thread.start()
+        thread.join(timeout=120)  # 2分钟超时
+
+        if exception_container:
+            raise exception_container[0]
+        if result_container:
+            return result_container[0]
+        raise TimeoutError("Async operation timed out after 120 seconds")
+
+    except RuntimeError:
+        # 没有运行中的事件循环，直接运行
+        return asyncio.run(coro)
 
 
 def _wrap_async_tool(tool):

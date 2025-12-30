@@ -6,6 +6,7 @@ import logging
 import requests
 import json
 from datetime import datetime, timedelta
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 import pandas as pd
 
 from .base import DataSourceAdapter
@@ -350,7 +351,7 @@ class AKShareAdapter(DataSourceAdapter):
             items = sel.css(".listitem")
             
             data = []
-            current_year = datetime.now().year
+            current_year = now_utc().year
             
             for item in items:
                 try:
@@ -371,12 +372,12 @@ class AKShareAdapter(DataSourceAdapter):
                         try:
                             dt = datetime.strptime(full_time_str, "%Y-%m-%d %H:%M")
                             # 如果生成的时间比当前时间晚很多（比如当前1月，解析出12月），可能是去年
-                            if dt > datetime.now() + timedelta(days=30):
+                            if dt > now_utc() + timedelta(days=30):
                                 full_time_str = f"{current_year - 1}-{update_time}"
                         except:
                             pass
                     else:
-                        full_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        full_time_str = now_utc().strftime("%Y-%m-%d %H:%M:%S")
                         
                     data.append({
                         "title": title,
@@ -1199,7 +1200,7 @@ class AKShareAdapter(DataSourceAdapter):
                         # 补充 ts_code (index code)
                         df['index_code'] = index_code
                         # 补充 date (AKShare 接口不返回日期，假设是最新)
-                        df['trade_date'] = end_date if end_date else datetime.now().strftime('%Y%m%d')
+                        df['trade_date'] = end_date if end_date else format_date_compact(now_config_tz())
                         
                         return df
                 except Exception as e:
@@ -1347,7 +1348,7 @@ class AKShareAdapter(DataSourceAdapter):
                     df = df.rename(columns={'代码': 'con_code', '名称': 'con_name'})
                     df['index_code'] = symbol
                     df['weight'] = 0  # 新浪接口无权重数据
-                    df['trade_date'] = datetime.now().strftime("%Y%m%d")
+                    df['trade_date'] = now_utc().strftime("%Y%m%d")
                     return df
                 except Exception as e:
                     logger.warning(f"AKShare index_weight (sina) failed: {e}")
@@ -1362,7 +1363,7 @@ class AKShareAdapter(DataSourceAdapter):
                      df = ak.stock_hk_daily(symbol=symbol, adjust="qfq")
                 else:
                      s_date = start_date.replace('-','') if start_date else "19900101"
-                     e_date = end_date.replace('-','') if end_date else datetime.now().strftime("%Y%m%d")
+                     e_date = end_date.replace('-','') if end_date else now_utc().strftime("%Y%m%d")
                      df = ak.stock_zh_a_hist(symbol=symbol, start_date=s_date, end_date=e_date, adjust="qfq")
                 
                 if df is not None and not df.empty:
@@ -1515,7 +1516,7 @@ class AKShareAdapter(DataSourceAdapter):
             return None
 
     def find_latest_trade_date(self) -> Optional[str]:
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+        yesterday = (now_utc() - timedelta(days=1)).strftime("%Y%m%d")
         logger.info(f"AKShare: Using yesterday as trade date: {yesterday}")
         return yesterday
 

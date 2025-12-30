@@ -68,6 +68,7 @@ def create_unified_fundamentals_tool(toolkit):
         try:
             from tradingagents.utils.stock_utils import StockUtils
             from datetime import datetime, timedelta
+            from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
             # 自动识别股票类型
             market_info = StockUtils.get_market_info(ticker)
@@ -84,7 +85,7 @@ def create_unified_fundamentals_tool(toolkit):
 
             # 设置默认日期
             if not curr_date:
-                curr_date = datetime.now().strftime('%Y-%m-%d')
+                curr_date = format_date_short(now_config_tz())
         
             if data_depth == "basic":
                 analysis_modules = "basic"
@@ -108,7 +109,7 @@ def create_unified_fundamentals_tool(toolkit):
             logger.info(f"📅 [基本面策略] 获取{days_to_fetch}天数据，分析最近{days_to_analyze}天")
 
             if not start_date:
-                start_date = (datetime.now() - timedelta(days=days_to_fetch)).strftime('%Y-%m-%d')
+                start_date = (now_utc() - timedelta(days=days_to_fetch)).strftime('%Y-%m-%d')
 
             if not end_date:
                 end_date = curr_date

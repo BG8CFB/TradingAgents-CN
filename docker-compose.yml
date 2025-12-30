@@ -71,8 +71,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
-    # 使用 latest 标签以获取最新版本
-    image: ghcr.1ms.run/bg8cfb/tradingagents-backend:latest
+    # 使用 latest 标签以获取最新版本（已注释，强制使用本地构建）
+    # image: ghcr.1ms.run/bg8cfb/tradingagents-backend:latest
     container_name: tradingagents-backend
     restart: unless-stopped
     expose:
@@ -161,8 +161,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
-    # 使用 latest 标签
-    image: ghcr.1ms.run/bg8cfb/tradingagents-frontend:latest
+    # 使用 latest 标签（已注释，强制使用本地构建）
+    # image: ghcr.1ms.run/bg8cfb/tradingagents-frontend:latest
     container_name: tradingagents-frontend
     restart: unless-stopped
     expose:
@@ -214,3 +214,4 @@ volumes:
 networks:
   tradingagents-network:
     driver: bridge
+

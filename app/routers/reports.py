@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from .auth_db import get_current_user
 from ..core.database import get_mongo_db
-from ..utils.timezone import to_config_tz
+from ..utils.timezone import to_config_tz, now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 import logging
 
 logger = logging.getLogger("webapi")
@@ -193,7 +193,7 @@ async def get_reports_list(
                 market_type = market_type_map.get(market_info.get("market", "unknown"), "A股")
 
             # 获取创建时间（数据库中是 UTC 时间，需要转换为 UTC+8）
-            created_at = doc.get("created_at", datetime.utcnow())
+            created_at = doc.get("created_at", now_utc())
             created_at_tz = to_config_tz(created_at)  # 转换为 UTC+8 并添加时区信息
 
             report = {
@@ -362,8 +362,8 @@ async def get_report_detail(
                 stock_name = get_stock_name(stock_symbol)
 
             # 获取时间（数据库中是 UTC 时间，需要转换为 UTC+8）
-            created_at = doc.get("created_at", datetime.utcnow())
-            updated_at = doc.get("updated_at", datetime.utcnow())
+            created_at = doc.get("created_at", now_utc())
+            updated_at = doc.get("updated_at", now_utc())
 
             # 转换时区：数据库中是 UTC 时间，转换为 UTC+8
             created_at_tz = to_config_tz(created_at)
@@ -567,7 +567,7 @@ async def download_report(
             raise HTTPException(status_code=404, detail="报告不存在")
 
         stock_symbol = doc.get("stock_symbol", "unknown")
-        analysis_date = doc.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))
+        analysis_date = doc.get("analysis_date", format_date_short(now_config_tz()))
 
         if format == "json":
             # JSON格式下载

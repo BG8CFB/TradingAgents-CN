@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 # 导入日志模块
 from tradingagents.config.runtime_settings import get_timezone_name
+from tradingagents.utils.time_utils import now_config_tz
 
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
@@ -58,14 +59,14 @@ class RealtimeNewsAggregator:
             max_news: 最大新闻数量，默认10条
         """
         logger.info(f"[新闻聚合器] 开始获取 {ticker} 的实时新闻，回溯时间: {hours_back}小时")
-        start_time = datetime.now(ZoneInfo(get_timezone_name()))
+        start_time = now_config_tz()
         all_news = []
 
         # 1. FinnHub实时新闻 (最高优先级)
         logger.info(f"[新闻聚合器] 尝试从 FinnHub 获取 {ticker} 的新闻")
-        finnhub_start = datetime.now(ZoneInfo(get_timezone_name()))
+        finnhub_start = now_config_tz()
         finnhub_news = self._get_finnhub_realtime_news(ticker, hours_back)
-        finnhub_time = (datetime.now(ZoneInfo(get_timezone_name())) - finnhub_start).total_seconds()
+        finnhub_time = (now_config_tz() - finnhub_start).total_seconds()
 
         if finnhub_news:
             logger.info(f"[新闻聚合器] 成功从 FinnHub 获取 {len(finnhub_news)} 条新闻，耗时: {finnhub_time:.2f}秒")
@@ -76,9 +77,9 @@ class RealtimeNewsAggregator:
 
         # 2. Alpha Vantage新闻
         logger.info(f"[新闻聚合器] 尝试从 Alpha Vantage 获取 {ticker} 的新闻")
-        av_start = datetime.now(ZoneInfo(get_timezone_name()))
+        av_start = now_config_tz()
         av_news = self._get_alpha_vantage_news(ticker, hours_back)
-        av_time = (datetime.now(ZoneInfo(get_timezone_name())) - av_start).total_seconds()
+        av_time = (now_config_tz() - av_start).total_seconds()
 
         if av_news:
             logger.info(f"[新闻聚合器] 成功从 Alpha Vantage 获取 {len(av_news)} 条新闻，耗时: {av_time:.2f}秒")
@@ -90,9 +91,9 @@ class RealtimeNewsAggregator:
         # 3. NewsAPI (如果配置了)
         if self.newsapi_key:
             logger.info(f"[新闻聚合器] 尝试从 NewsAPI 获取 {ticker} 的新闻")
-            newsapi_start = datetime.now(ZoneInfo(get_timezone_name()))
+            newsapi_start = now_config_tz()
             newsapi_news = self._get_newsapi_news(ticker, hours_back)
-            newsapi_time = (datetime.now(ZoneInfo(get_timezone_name())) - newsapi_start).total_seconds()
+            newsapi_time = (now_config_tz() - newsapi_start).total_seconds()
 
             if newsapi_news:
                 logger.info(f"[新闻聚合器] 成功从 NewsAPI 获取 {len(newsapi_news)} 条新闻，耗时: {newsapi_time:.2f}秒")
@@ -105,9 +106,9 @@ class RealtimeNewsAggregator:
 
         # 4. 中文财经新闻源
         logger.info(f"[新闻聚合器] 尝试获取 {ticker} 的中文财经新闻")
-        chinese_start = datetime.now(ZoneInfo(get_timezone_name()))
+        chinese_start = now_config_tz()
         chinese_news = self._get_chinese_finance_news(ticker, hours_back)
-        chinese_time = (datetime.now(ZoneInfo(get_timezone_name())) - chinese_start).total_seconds()
+        chinese_time = (now_config_tz() - chinese_start).total_seconds()
 
         if chinese_news:
             logger.info(f"[新闻聚合器] 成功获取 {len(chinese_news)} 条中文财经新闻，耗时: {chinese_time:.2f}秒")
@@ -118,17 +119,17 @@ class RealtimeNewsAggregator:
 
         # 去重和排序
         logger.info(f"[新闻聚合器] 开始对 {len(all_news)} 条新闻进行去重和排序")
-        dedup_start = datetime.now(ZoneInfo(get_timezone_name()))
+        dedup_start = now_config_tz()
         unique_news = self._deduplicate_news(all_news)
         sorted_news = sorted(unique_news, key=lambda x: x.publish_time, reverse=True)
-        dedup_time = (datetime.now(ZoneInfo(get_timezone_name())) - dedup_start).total_seconds()
+        dedup_time = (now_config_tz() - dedup_start).total_seconds()
 
         # 记录去重结果
         removed_count = len(all_news) - len(unique_news)
         logger.info(f"[新闻聚合器] 新闻去重完成，移除了 {removed_count} 条重复新闻，剩余 {len(sorted_news)} 条，耗时: {dedup_time:.2f}秒")
 
         # 记录总体情况
-        total_time = (datetime.now(ZoneInfo(get_timezone_name())) - start_time).total_seconds()
+        total_time = (now_config_tz() - start_time).total_seconds()
         logger.info(f"[新闻聚合器] {ticker} 的新闻聚合完成，总共获取 {len(sorted_news)} 条新闻，总耗时: {total_time:.2f}秒")
 
         # 限制新闻数量为最新的max_news条
@@ -151,7 +152,7 @@ class RealtimeNewsAggregator:
 
         try:
             # 计算时间范围
-            end_time = datetime.now(ZoneInfo(get_timezone_name()))
+            end_time = now_config_tz()
             start_time = end_time - timedelta(hours=hours_back)
 
             # FinnHub API调用
@@ -224,7 +225,7 @@ class RealtimeNewsAggregator:
                         continue
 
                     # 检查时效性
-                    if publish_time < datetime.now(ZoneInfo(get_timezone_name())) - timedelta(hours=hours_back):
+                    if publish_time < now_config_tz() - timedelta(hours=hours_back):
                         continue
 
                     urgency = self._assess_news_urgency(item.get('title', ''), item.get('summary', ''))
@@ -264,7 +265,7 @@ class RealtimeNewsAggregator:
                 'q': query,
                 'language': 'en',
                 'sortBy': 'publishedAt',
-                'from': (datetime.now(ZoneInfo(get_timezone_name())) - timedelta(hours=hours_back)).isoformat(),
+                'from': (now_config_tz() - timedelta(hours=hours_back)).isoformat(),
                 'apiKey': self.newsapi_key
             }
 
@@ -304,7 +305,7 @@ class RealtimeNewsAggregator:
         """获取中文财经新闻"""
         # 集成中文财经新闻API：财联社、东方财富等
         logger.info(f"[中文财经新闻] 开始获取 {ticker} 的中文财经新闻，回溯时间: {hours_back}小时")
-        start_time = datetime.now(ZoneInfo(get_timezone_name()))
+        start_time = now_config_tz()
 
         try:
             news_items = []
@@ -327,7 +328,7 @@ class RealtimeNewsAggregator:
 
                     # 获取东方财富新闻
                     logger.info(f"[中文财经新闻] 开始获取 {clean_ticker} 的东方财富新闻")
-                    em_start_time = datetime.now(ZoneInfo(get_timezone_name()))
+                    em_start_time = now_config_tz()
                     news_df = provider.get_stock_news_sync(symbol=clean_ticker)
 
                     if not news_df.empty:
@@ -351,13 +352,13 @@ class RealtimeNewsAggregator:
                                             publish_time = datetime.strptime(time_str, '%Y-%m-%d').replace(tzinfo=ZoneInfo(get_timezone_name()))
                                         except:
                                             logger.warning(f"[中文财经新闻] 无法解析时间格式: {time_str}，使用当前时间")
-                                            publish_time = datetime.now(ZoneInfo(get_timezone_name()))
+                                            publish_time = now_config_tz()
                                 else:
                                     logger.warning(f"[中文财经新闻] 新闻时间为空，使用当前时间")
-                                    publish_time = datetime.now(ZoneInfo(get_timezone_name()))
+                                    publish_time = now_config_tz()
 
                                 # 检查时效性
-                                if publish_time < datetime.now(ZoneInfo(get_timezone_name())) - timedelta(hours=hours_back):
+                                if publish_time < now_config_tz() - timedelta(hours=hours_back):
                                     skipped_count += 1
                                     continue
 
@@ -381,14 +382,14 @@ class RealtimeNewsAggregator:
                                 error_count += 1
                                 continue
 
-                        em_time = (datetime.now(ZoneInfo(get_timezone_name())) - em_start_time).total_seconds()
+                        em_time = (now_config_tz() - em_start_time).total_seconds()
                         logger.info(f"[中文财经新闻] 东方财富新闻处理完成，成功: {processed_count}条，跳过: {skipped_count}条，错误: {error_count}条，耗时: {em_time:.2f}秒")
             except Exception as ak_e:
                 logger.error(f"[中文财经新闻] 获取东方财富新闻失败: {ak_e}")
 
             # 2. 财联社RSS (如果可用)
             logger.info(f"[中文财经新闻] 开始获取财联社RSS新闻")
-            rss_start_time = datetime.now(ZoneInfo(get_timezone_name()))
+            rss_start_time = now_config_tz()
             rss_sources = [
                 "https://www.cls.cn/api/sw?app=CailianpressWeb&os=web&sv=7.7.5",
                 # 可以添加更多RSS源
@@ -401,9 +402,9 @@ class RealtimeNewsAggregator:
             for rss_url in rss_sources:
                 try:
                     logger.info(f"[中文财经新闻] 尝试解析RSS源: {rss_url}")
-                    rss_item_start = datetime.now(ZoneInfo(get_timezone_name()))
+                    rss_item_start = now_config_tz()
                     items = self._parse_rss_feed(rss_url, ticker, hours_back)
-                    rss_item_time = (datetime.now(ZoneInfo(get_timezone_name())) - rss_item_start).total_seconds()
+                    rss_item_time = (now_config_tz() - rss_item_start).total_seconds()
 
                     if items:
                         logger.info(f"[中文财经新闻] 成功从RSS源获取 {len(items)} 条新闻，耗时: {rss_item_time:.2f}秒")
@@ -418,11 +419,11 @@ class RealtimeNewsAggregator:
                     continue
 
             # 记录RSS获取总结
-            rss_total_time = (datetime.now(ZoneInfo(get_timezone_name())) - rss_start_time).total_seconds()
+            rss_total_time = (now_config_tz() - rss_start_time).total_seconds()
             logger.info(f"[中文财经新闻] RSS新闻获取完成，成功源: {rss_success_count}个，失败源: {rss_error_count}个，获取新闻: {total_rss_items}条，总耗时: {rss_total_time:.2f}秒")
 
             # 记录中文财经新闻获取总结
-            total_time = (datetime.now(ZoneInfo(get_timezone_name())) - start_time).total_seconds()
+            total_time = (now_config_tz() - start_time).total_seconds()
             logger.info(f"[中文财经新闻] {ticker} 的中文财经新闻获取完成，总共获取 {len(news_items)} 条新闻，总耗时: {total_time:.2f}秒")
 
             return news_items
@@ -434,7 +435,7 @@ class RealtimeNewsAggregator:
     def _parse_rss_feed(self, rss_url: str, ticker: str, hours_back: int) -> List[NewsItem]:
         """解析RSS源"""
         logger.info(f"[RSS解析] 开始解析RSS源: {rss_url}，股票: {ticker}，回溯时间: {hours_back}小时")
-        start_time = datetime.now(ZoneInfo(get_timezone_name()))
+        start_time = now_config_tz()
 
         try:
             # 实际实现需要使用feedparser库
@@ -460,10 +461,10 @@ class RealtimeNewsAggregator:
                         publish_time = datetime.fromtimestamp(time.mktime(entry.published_parsed), tz=ZoneInfo(get_timezone_name()))
                     else:
                         logger.warning(f"[RSS解析] 条目缺少发布时间，使用当前时间")
-                        publish_time = datetime.now(ZoneInfo(get_timezone_name()))
+                        publish_time = now_config_tz()
 
                     # 检查时效性
-                    if publish_time < datetime.now(ZoneInfo(get_timezone_name())) - timedelta(hours=hours_back):
+                    if publish_time < now_config_tz() - timedelta(hours=hours_back):
                         skipped_count += 1
                         continue
 
@@ -492,7 +493,7 @@ class RealtimeNewsAggregator:
                     logger.error(f"[RSS解析] 处理RSS条目失败: {e}")
                     continue
 
-            total_time = (datetime.now(ZoneInfo(get_timezone_name())) - start_time).total_seconds()
+            total_time = (now_config_tz() - start_time).total_seconds()
             logger.info(f"[RSS解析] RSS源解析完成，成功: {processed_count}条，跳过: {skipped_count}条，耗时: {total_time:.2f}秒")
             return news_items
         except ImportError:
@@ -571,7 +572,7 @@ class RealtimeNewsAggregator:
     def _deduplicate_news(self, news_items: List[NewsItem]) -> List[NewsItem]:
         """去重新闻"""
         logger.info(f"[新闻去重] 开始对 {len(news_items)} 条新闻进行去重处理")
-        start_time = datetime.now(ZoneInfo(get_timezone_name()))
+        start_time = now_config_tz()
 
         seen_titles = set()
         unique_news = []
@@ -599,7 +600,7 @@ class RealtimeNewsAggregator:
             unique_news.append(item)
 
         # 记录去重结果
-        time_taken = (datetime.now(ZoneInfo(get_timezone_name())) - start_time).total_seconds()
+        time_taken = (now_config_tz() - start_time).total_seconds()
         logger.info(f"[新闻去重] 去重完成，原始新闻: {len(news_items)}条，去重后: {len(unique_news)}条，")
         logger.info(f"[新闻去重] 去除重复: {duplicate_count}条，标题过短: {short_title_count}条，耗时: {time_taken:.2f}秒")
 
@@ -608,7 +609,7 @@ class RealtimeNewsAggregator:
     def format_news_report(self, news_items: List[NewsItem], ticker: str) -> str:
         """格式化新闻报告"""
         logger.info(f"[新闻报告] 开始为 {ticker} 生成新闻报告")
-        start_time = datetime.now(ZoneInfo(get_timezone_name()))
+        start_time = now_config_tz()
 
         if not news_items:
             logger.warning(f"[新闻报告] 未获取到 {ticker} 的实时新闻数据")
@@ -635,7 +636,7 @@ class RealtimeNewsAggregator:
         logger.info(f"[新闻报告] {ticker} 新闻来源分布: {sources_info}")
 
         report = f"# {ticker} 实时新闻分析报告\n\n"
-        report += f"📅 生成时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        report += f"📅 生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}\n"
         report += f"📊 新闻总数: {len(news_items)}条\n\n"
 
         if high_urgency:
@@ -654,7 +655,7 @@ class RealtimeNewsAggregator:
 
         # 添加时效性说明
         latest_news = max(news_items, key=lambda x: x.publish_time)
-        time_diff = datetime.now(ZoneInfo(get_timezone_name())) - latest_news.publish_time
+        time_diff = now_config_tz() - latest_news.publish_time
 
         report += f"\n## ⏰ 数据时效性\n"
         report += f"最新新闻发布于: {time_diff.total_seconds() / 60:.0f}分钟前\n"
@@ -667,7 +668,7 @@ class RealtimeNewsAggregator:
             report += "🔴 数据时效性: 一般 (超过1小时)\n"
 
         # 记录报告生成完成信息
-        end_time = datetime.now(ZoneInfo(get_timezone_name()))
+        end_time = now_config_tz()
         time_taken = (end_time - start_time).total_seconds()
         report_length = len(report)
 
@@ -688,7 +689,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
     logger.info(f"[新闻分析] 函数: get_realtime_stock_news")
     logger.info(f"[新闻分析] 参数: ticker={ticker}, curr_date={curr_date}, hours_back={hours_back}")
     logger.info(f"[新闻分析] 开始获取 {ticker} 的实时新闻，日期: {curr_date}, 回溯时间: {hours_back}小时")
-    start_total_time = datetime.now(ZoneInfo(get_timezone_name()))
+    start_total_time = now_config_tz()
     logger.info(f"[新闻分析] 开始时间: {start_total_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
 
     # 判断股票类型
@@ -752,12 +753,12 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
 
             logger.info(f"[新闻分析] 准备调用 provider.get_stock_news_sync({clean_ticker})")
             logger.info(f"[新闻分析] 开始从东方财富获取 {clean_ticker} 的新闻数据")
-            start_time = datetime.now(ZoneInfo(get_timezone_name()))
+            start_time = now_config_tz()
             logger.info(f"[新闻分析] 东方财富API调用开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
 
             news_df = provider.get_stock_news_sync(symbol=clean_ticker, limit=10)
 
-            end_time = datetime.now(ZoneInfo(get_timezone_name()))
+            end_time = now_config_tz()
             time_taken = (end_time - start_time).total_seconds()
             logger.info(f"[新闻分析] 东方财富API调用结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
             logger.info(f"[新闻分析] 东方财富API调用耗时: {time_taken:.2f}秒")
@@ -777,7 +778,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
                 logger.info(f"[新闻分析] 成功获取 {news_count} 条东方财富新闻，耗时 {time_taken:.2f} 秒")
 
                 report = f"# {ticker} 东方财富新闻报告\n\n"
-                report += f"📅 生成时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                report += f"📅 生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 report += f"📊 新闻总数: {news_count}条\n"
                 report += f"🕒 获取耗时: {time_taken:.2f}秒\n\n"
 
@@ -794,7 +795,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
                     report += f"🔗 {row.get('新闻链接', '')}\n\n"
                     report += f"{row.get('新闻内容', '无内容')}\n\n"
 
-                total_time_taken = (datetime.now(ZoneInfo(get_timezone_name())) - start_total_time).total_seconds()
+                total_time_taken = (now_config_tz() - start_total_time).total_seconds()
                 logger.info(f"[新闻分析] 成功生成 {ticker} 的新闻报告，总耗时 {total_time_taken:.2f} 秒，新闻来源: 东方财富")
                 logger.info(f"[新闻分析] 报告长度: {len(report)} 字符")
                 logger.info(f"[新闻分析] ========== 东方财富新闻获取成功，函数即将返回 ==========")
@@ -816,13 +817,13 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
     logger.info(f"[新闻分析] 成功创建实时新闻聚合器实例")
     try:
         logger.info(f"[新闻分析] 尝试使用实时新闻聚合器获取 {ticker} 的新闻")
-        start_time = datetime.now(ZoneInfo(get_timezone_name()))
+        start_time = now_config_tz()
         logger.info(f"[新闻分析] 聚合器调用开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
 
         # 获取实时新闻
         news_items = aggregator.get_realtime_stock_news(ticker, hours_back, max_news=10)
 
-        end_time = datetime.now(ZoneInfo(get_timezone_name()))
+        end_time = now_config_tz()
         time_taken = (end_time - start_time).total_seconds()
         logger.info(f"[新闻分析] 聚合器调用结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
         logger.info(f"[新闻分析] 聚合器调用耗时: {time_taken:.2f}秒")
@@ -843,7 +844,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
             report = aggregator.format_news_report(news_items, ticker)
             logger.info(f"[新闻分析] 报告格式化完成，长度: {len(report)} 字符")
 
-            total_time_taken = (datetime.now(ZoneInfo(get_timezone_name())) - start_total_time).total_seconds()
+            total_time_taken = (now_config_tz() - start_total_time).total_seconds()
             logger.info(f"[新闻分析] 成功生成 {ticker} 的新闻报告，总耗时 {total_time_taken:.2f} 秒，新闻来源: 实时新闻聚合器")
             logger.info(f"[新闻分析] ========== 实时新闻聚合器获取成功，函数即将返回 ==========")
             return report
@@ -869,9 +870,9 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
             clean_ticker = ticker.replace('.HK', '')
 
             logger.info(f"[新闻分析] 开始从东方财富获取港股 {clean_ticker} 的新闻数据")
-            start_time = datetime.now(ZoneInfo(get_timezone_name()))
+            start_time = now_config_tz()
             news_df = provider.get_stock_news_sync(symbol=clean_ticker, limit=10)
-            end_time = datetime.now(ZoneInfo(get_timezone_name()))
+            end_time = now_config_tz()
             time_taken = (end_time - start_time).total_seconds()
 
             if not news_df.empty:
@@ -880,7 +881,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
                 logger.info(f"[新闻分析] 成功获取 {news_count} 条东方财富港股新闻，耗时 {time_taken:.2f} 秒")
 
                 report = f"# {ticker} 东方财富新闻报告\n\n"
-                report += f"📅 生成时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                report += f"📅 生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 report += f"📊 新闻总数: {news_count}条\n"
                 report += f"🕒 获取耗时: {time_taken:.2f}秒\n\n"
 
@@ -922,9 +923,9 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
             search_query = f"{ticker} stock news"
             logger.info(f"[新闻分析] 开始从Google获取 {ticker} 的新闻数据，查询: {search_query}")
 
-        start_time = datetime.now(ZoneInfo(get_timezone_name()))
+        start_time = now_config_tz()
         google_news = get_google_news(search_query, curr_date, 1)
-        end_time = datetime.now(ZoneInfo(get_timezone_name()))
+        end_time = now_config_tz()
         time_taken = (end_time - start_time).total_seconds()
 
         if google_news and len(google_news.strip()) > 0:
@@ -947,7 +948,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
         logger.error(f"[新闻分析] Google 新闻获取失败: {e}，所有备用方案均已尝试")
 
     # 所有方法都失败，返回错误信息
-    total_time_taken = (datetime.now(ZoneInfo(get_timezone_name())) - start_total_time).total_seconds()
+    total_time_taken = (now_config_tz() - start_total_time).total_seconds()
     logger.error(f"[新闻分析] {ticker} 的所有新闻获取方法均已失败，总耗时 {total_time_taken:.2f} 秒")
 
     # 记录详细的失败信息

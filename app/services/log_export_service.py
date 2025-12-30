@@ -7,6 +7,7 @@ import logging
 import os
 import zipfile
 from datetime import datetime, timedelta
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import re
@@ -250,7 +251,7 @@ class LogExportService:
             export_dir.mkdir(parents=True, exist_ok=True)
             
             # 生成导出文件名
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = now_utc().strftime("%Y%m%d_%H%M%S")
             
             if format == "zip":
                 export_path = export_dir / f"logs_export_{timestamp}.zip"
@@ -325,7 +326,7 @@ class LogExportService:
             日志统计信息
         """
         try:
-            cutoff_time = datetime.now() - timedelta(days=days)
+            cutoff_time = now_utc() - timedelta(days=days)
             
             stats = {
                 "total_files": 0,

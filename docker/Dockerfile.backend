@@ -45,9 +45,14 @@ RUN mkdir -p /app/logs /app/data /app/config && \
         fonts-noto-cjk \
         wget \
         xvfb \
+        # 时区数据包（确保时区正确配置）
+        tzdata \
         # 直接使用 apt 安装 pandoc 和 wkhtmltopdf，避免 GitHub 下载问题
         pandoc \
         wkhtmltopdf && \
+    # 配置时区符号链接（确保 TZ 环境变量生效）
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone && \
     # 更新字体缓存
     fc-cache -fv && \
     rm -rf /var/lib/apt/lists/*

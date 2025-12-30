@@ -10,6 +10,7 @@ from pandas import DataFrame
 import pandas as pd
 from functools import wraps
 from datetime import datetime
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from dateutil.relativedelta import relativedelta
 import os
 
@@ -203,7 +204,7 @@ def get_stock_data_with_indicators(
         # 添加头部信息
         header = f"# Stock data for {symbol.upper()} from {start_date} to {end_date}\n"
         header += f"# Total records: {len(data)}\n"
-        header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        header += f"# Data retrieved on: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
         return header + csv_string
 

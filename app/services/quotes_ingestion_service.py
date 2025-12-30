@@ -9,6 +9,7 @@ from pymongo import UpdateOne
 from app.core.config import settings
 from app.core.database import get_mongo_db
 from tradingagents.dataflows.manager import DataSourceManager
+from tradingagents.utils.time_utils import now_config_tz, format_date_compact
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ class QuotesIngestionService:
             db = get_mongo_db()
             status_coll = db[self.status_collection_name]
 
-            now = datetime.now(self.tz)
+            now = now_config_tz()
 
             status_doc = {
                 "job": "quotes_ingestion",
@@ -265,7 +266,7 @@ class QuotesIngestionService:
             return True
 
         # 免费用户：检查每小时调用次数
-        now = datetime.now(self.tz)
+        now = now_config_tz()
         one_hour_ago = now - timedelta(hours=1)
 
         # 清理1小时前的记录
@@ -284,7 +285,7 @@ class QuotesIngestionService:
 
     def _record_tushare_call(self) -> None:
         """记录 Tushare 调用时间"""
-        self._tushare_call_times.append(datetime.now(self.tz))
+        self._tushare_call_times.append(now_config_tz())
 
     def _get_next_source(self) -> Tuple[str, Optional[str]]:
         """
@@ -326,7 +327,7 @@ class QuotesIngestionService:
         - 假设6分钟一次，可以增加3次同步机会（15:06, 15:12, 15:18）
         - 大大降低错过收盘价的风险
         """
-        now = now or datetime.now(self.tz)
+        now = now or now_config_tz()
         # 工作日 Mon-Fri
         if now.weekday() > 4:
             return False
@@ -368,7 +369,7 @@ class QuotesIngestionService:
         db = get_mongo_db()
         coll = db[self.collection_name]
         ops = []
-        updated_at = datetime.now(self.tz)
+        updated_at = now_config_tz()
         for code, q in quotes_map.items():
             if not code:
                 continue
@@ -507,9 +508,9 @@ class QuotesIngestionService:
                 logger.warning("backfill: 未获取到行情数据，跳过")
                 return
             try:
-                trade_date = manager.find_latest_trade_date_with_fallback() or datetime.now(self.tz).strftime("%Y%m%d")
+                trade_date = manager.find_latest_trade_date_with_fallback() or format_date_compact(now_config_tz())
             except Exception:
-                trade_date = datetime.now(self.tz).strftime("%Y%m%d")
+                trade_date = format_date_compact(now_config_tz())
             await self._bulk_upsert(quotes_map, trade_date, source)
         except Exception as e:
             logger.error(f"❌ backfill 行情补数失败: {e}")
@@ -647,9 +648,9 @@ class QuotesIngestionService:
             # 获取交易日
             try:
                 manager = DataSourceManager()
-                trade_date = manager.find_latest_trade_date_with_fallback() or datetime.now(self.tz).strftime("%Y%m%d")
+                trade_date = manager.find_latest_trade_date_with_fallback() or format_date_compact(now_config_tz())
             except Exception:
-                trade_date = datetime.now(self.tz).strftime("%Y%m%d")
+                trade_date = format_date_compact(now_config_tz())
 
             # 入库
             await self._bulk_upsert(quotes_map, trade_date, source_name)

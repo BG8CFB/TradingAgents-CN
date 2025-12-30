@@ -29,6 +29,7 @@ from tradingagents.dataflows.providers.hk.hk_stock import HKStockProvider
 from tradingagents.dataflows.providers.hk.improved_hk import ImprovedHKStockProvider
 from app.core.database import get_mongo_db
 from app.core.config import settings
+from app.utils.timezone import now_config_tz
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class HKDataService:
             normalized_info = self._normalize_stock_info(stock_info, source)
             normalized_info["code"] = normalized_code
             normalized_info["source"] = source
-            normalized_info["updated_at"] = datetime.now()
+            normalized_info["updated_at"] = now_config_tz()
             
             await self._save_to_cache(normalized_info)
             
@@ -117,7 +118,7 @@ class HKDataService:
     async def _get_cached_info(self, code: str, source: str) -> Optional[Dict[str, Any]]:
         """从缓存获取股票信息"""
         try:
-            cache_expire_time = datetime.now() - timedelta(hours=self.cache_hours)
+            cache_expire_time = now_config_tz() - timedelta(hours=self.cache_hours)
             
             cached = await self.db.stock_basic_info_hk.find_one({
                 "code": code,

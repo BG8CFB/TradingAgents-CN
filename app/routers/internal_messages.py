@@ -13,6 +13,7 @@ from app.services.internal_message_service import (
     InternalMessageStats
 )
 from app.core.response import ok
+from app.utils.timezone import now_utc
 
 router = APIRouter(prefix="/api/internal-messages", tags=["internal-messages"])
 
@@ -250,7 +251,7 @@ async def get_statistics(
         service = await get_internal_message_service()
         
         # 计算时间范围
-        end_time = datetime.utcnow()
+        end_time = now_utc()
         start_time = end_time - timedelta(hours=hours_back)
         
         stats = await service.get_internal_statistics(symbol, start_time, end_time)

@@ -63,9 +63,7 @@ async def list_available_tools(
     if include_mcp and LANGCHAIN_MCP_AVAILABLE:
         try:
             factory = get_mcp_loader_factory()
-            # 确保 MCP 连接已初始化
-            if not factory._initialized:
-                await factory.initialize_connections()
+            # MCP 连接在应用启动时已建立，直接使用
             # 创建工具加载器（仅外部 MCP 工具，避免与本地重复）
             mcp_tool_loader = factory.create_loader([], include_local=False)
         except Exception as e:

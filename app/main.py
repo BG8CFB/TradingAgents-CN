@@ -26,6 +26,7 @@ import asyncio
 from pathlib import Path
 
 from app.core.config import settings
+from app.utils.timezone import now_utc
 from app.core.database import init_db, close_db
 from app.core.logging_config import setup_logging
 from app.routers import auth_db as auth, analysis, screening, queue, sse, health, favorites, config, reports, database, operation_logs, tags, tushare_init, akshare_init, baostock_init, historical_data, multi_period_sync, financial_data, news_data, social_media, internal_messages, usage_statistics, model_capabilities, cache, logs
@@ -231,12 +232,24 @@ async def lifespan(app: FastAPI):
 
     await init_db()
 
+    # 初始化 UserService 的数据库连接
+    try:
+        from app.services.user_service import user_service
+        from app.core.database import get_mongo_db
+        user_service.set_database(get_mongo_db())
+        logger.info("✅ UserService 数据库连接已初始化")
+    except Exception as e:
+        logger.error(f"❌ UserService 初始化失败: {e}")
+        raise
+
     # 系统初始化：导入默认配置和用户
     try:
         from app.services.system_init_service import SystemInitService
         await SystemInitService.initialize_system()
     except Exception as e:
         logger.error(f"❌ System initialization failed: {e}")
+        logger.error("❌ Application cannot start without proper initialization")
+        raise  # 必须抛出异常，防止系统在半初始化状态下运行
 
     #  配置桥接：将统一配置写入环境变量，供 TradingAgents 核心库使用
     try:
@@ -282,6 +295,34 @@ async def lifespan(app: FastAPI):
         from croniter import croniter
     except Exception:
         croniter = None  # 可选依赖
+
+    # 🔧 定时任务容错配置辅助函数
+    def add_resilient_job(sched, func, trigger, **kwargs):
+        """
+        添加具有容错能力的定时任务
+
+        参数:
+            id: 任务ID（必需）
+            name: 任务名称（必需）
+            max_instances: 最大并发实例数（防止任务重叠）
+            misfire_grace_time: 错过执行的宽限时间（秒）
+            coalesce: 多次misfire合并为一次执行
+            replace_existing: 替换已存在的同ID任务
+        """
+        defaults = {
+            'max_instances': 1,  # 防止同一任务的多个实例同时运行
+            'misfire_grace_time': 300,  # 5分钟宽限时间
+            'coalesce': True,  # 合并多次错过的执行
+            'replace_existing': True,  # 替换已存在的任务
+        }
+        defaults.update(kwargs)
+
+        sched.add_job(
+            func,
+            trigger,
+            **defaults
+        )
+
     try:
         scheduler = AsyncIOScheduler(timezone=settings.TIMEZONE)
 
@@ -311,7 +352,7 @@ async def lifespan(app: FastAPI):
         if settings.SYNC_STOCK_BASICS_ENABLED:
             if settings.SYNC_STOCK_BASICS_CRON:
                 # 如果提供了cron表达式
-                scheduler.add_job(
+                add_resilient_job(scheduler, 
                     lambda: multi_source_service.run_full_sync(force=False, preferred_sources=preferred_sources),
                     CronTrigger.from_crontab(settings.SYNC_STOCK_BASICS_CRON, timezone=settings.TIMEZONE),
                     id="basics_sync_service",
@@ -320,7 +361,7 @@ async def lifespan(app: FastAPI):
                 logger.info(f"📅 Stock basics sync scheduled by CRON: {settings.SYNC_STOCK_BASICS_CRON} ({settings.TIMEZONE})")
             else:
                 hh, mm = (settings.SYNC_STOCK_BASICS_TIME or "06:30").split(":")
-                scheduler.add_job(
+                add_resilient_job(scheduler, 
                     lambda: multi_source_service.run_full_sync(force=False, preferred_sources=preferred_sources),
                     CronTrigger(hour=int(hh), minute=int(mm), timezone=settings.TIMEZONE),
                     id="basics_sync_service",
@@ -332,7 +373,7 @@ async def lifespan(app: FastAPI):
         if settings.QUOTES_INGEST_ENABLED:
             quotes_ingestion = QuotesIngestionService()
             await quotes_ingestion.ensure_indexes()
-            scheduler.add_job(
+            add_resilient_job(scheduler, 
                 quotes_ingestion.run_once,  # coroutine function; AsyncIOScheduler will await it
                 IntervalTrigger(seconds=settings.QUOTES_INGEST_INTERVAL_SECONDS, timezone=settings.TIMEZONE),
                 id="quotes_ingestion_service",
@@ -344,7 +385,7 @@ async def lifespan(app: FastAPI):
         logger.info("🔄 配置Tushare统一数据同步任务...")
 
         # 基础信息同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_tushare_basic_info_sync,
             CronTrigger.from_crontab(settings.TUSHARE_BASIC_INFO_SYNC_CRON, timezone=settings.TIMEZONE),
             id="tushare_basic_info_sync",
@@ -358,7 +399,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📅 Tushare基础信息同步已配置: {settings.TUSHARE_BASIC_INFO_SYNC_CRON}")
 
         # 实时行情同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_tushare_quotes_sync,
             CronTrigger.from_crontab(settings.TUSHARE_QUOTES_SYNC_CRON, timezone=settings.TIMEZONE),
             id="tushare_quotes_sync",
@@ -371,7 +412,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📈 Tushare行情同步已配置: {settings.TUSHARE_QUOTES_SYNC_CRON}")
 
         # 历史数据同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_tushare_historical_sync,
             CronTrigger.from_crontab(settings.TUSHARE_HISTORICAL_SYNC_CRON, timezone=settings.TIMEZONE),
             id="tushare_historical_sync",
@@ -385,7 +426,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📊 Tushare历史数据同步已配置: {settings.TUSHARE_HISTORICAL_SYNC_CRON}")
 
         # 财务数据同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_tushare_financial_sync,
             CronTrigger.from_crontab(settings.TUSHARE_FINANCIAL_SYNC_CRON, timezone=settings.TIMEZONE),
             id="tushare_financial_sync",
@@ -398,7 +439,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"💰 Tushare财务数据同步已配置: {settings.TUSHARE_FINANCIAL_SYNC_CRON}")
 
         # 状态检查任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_tushare_status_check,
             CronTrigger.from_crontab(settings.TUSHARE_STATUS_CHECK_CRON, timezone=settings.TIMEZONE),
             id="tushare_status_check",
@@ -414,7 +455,7 @@ async def lifespan(app: FastAPI):
         logger.info("🔄 配置AKShare统一数据同步任务...")
 
         # 基础信息同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_akshare_basic_info_sync,
             CronTrigger.from_crontab(settings.AKSHARE_BASIC_INFO_SYNC_CRON, timezone=settings.TIMEZONE),
             id="akshare_basic_info_sync",
@@ -428,7 +469,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📅 AKShare基础信息同步已配置: {settings.AKSHARE_BASIC_INFO_SYNC_CRON}")
 
         # 实时行情同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_akshare_quotes_sync,
             CronTrigger.from_crontab(settings.AKSHARE_QUOTES_SYNC_CRON, timezone=settings.TIMEZONE),
             id="akshare_quotes_sync",
@@ -441,7 +482,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📈 AKShare行情同步已配置: {settings.AKSHARE_QUOTES_SYNC_CRON}")
 
         # 历史数据同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_akshare_historical_sync,
             CronTrigger.from_crontab(settings.AKSHARE_HISTORICAL_SYNC_CRON, timezone=settings.TIMEZONE),
             id="akshare_historical_sync",
@@ -455,7 +496,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📊 AKShare历史数据同步已配置: {settings.AKSHARE_HISTORICAL_SYNC_CRON}")
 
         # 财务数据同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_akshare_financial_sync,
             CronTrigger.from_crontab(settings.AKSHARE_FINANCIAL_SYNC_CRON, timezone=settings.TIMEZONE),
             id="akshare_financial_sync",
@@ -468,7 +509,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"💰 AKShare财务数据同步已配置: {settings.AKSHARE_FINANCIAL_SYNC_CRON}")
 
         # 状态检查任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_akshare_status_check,
             CronTrigger.from_crontab(settings.AKSHARE_STATUS_CHECK_CRON, timezone=settings.TIMEZONE),
             id="akshare_status_check",
@@ -484,7 +525,7 @@ async def lifespan(app: FastAPI):
         logger.info("🔄 配置BaoStock统一数据同步任务...")
 
         # 基础信息同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_baostock_basic_info_sync,
             CronTrigger.from_crontab(settings.BAOSTOCK_BASIC_INFO_SYNC_CRON, timezone=settings.TIMEZONE),
             id="baostock_basic_info_sync",
@@ -497,7 +538,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📋 BaoStock基础信息同步已配置: {settings.BAOSTOCK_BASIC_INFO_SYNC_CRON}")
 
         # 日K线同步任务（注意：BaoStock不支持实时行情）
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_baostock_daily_quotes_sync,
             CronTrigger.from_crontab(settings.BAOSTOCK_DAILY_QUOTES_SYNC_CRON, timezone=settings.TIMEZONE),
             id="baostock_daily_quotes_sync",
@@ -510,7 +551,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📈 BaoStock日K线同步已配置: {settings.BAOSTOCK_DAILY_QUOTES_SYNC_CRON} (注意：BaoStock不支持实时行情)")
 
         # 历史数据同步任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_baostock_historical_sync,
             CronTrigger.from_crontab(settings.BAOSTOCK_HISTORICAL_SYNC_CRON, timezone=settings.TIMEZONE),
             id="baostock_historical_sync",
@@ -523,7 +564,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📊 BaoStock历史数据同步已配置: {settings.BAOSTOCK_HISTORICAL_SYNC_CRON}")
 
         # 状态检查任务
-        scheduler.add_job(
+        add_resilient_job(scheduler, 
             run_baostock_status_check,
             CronTrigger.from_crontab(settings.BAOSTOCK_STATUS_CHECK_CRON, timezone=settings.TIMEZONE),
             id="baostock_status_check",
@@ -556,7 +597,7 @@ async def lifespan(app: FastAPI):
                     f"成功{result['success_count']}只, "
                     f"失败{result['error_count']}只, "
                     f"新闻总数{result['news_count']}条, "
-                    f"耗时{(datetime.utcnow() - result['start_time']).total_seconds():.2f}秒"
+                    f"耗时{(now_utc() - result['start_time']).total_seconds():.2f}秒"
                 )
             except Exception as e:
                 logger.error(f"❌ 新闻同步失败: {e}", exc_info=True)
@@ -566,7 +607,7 @@ async def lifespan(app: FastAPI):
         logger.info("🇭🇰 港股数据采用按需获取+缓存模式")
         logger.info("🇺🇸 美股数据采用按需获取+缓存模式")
 
-        scheduler.add_job(
+        add_resilient_job(scheduler,
             run_news_sync,
             CronTrigger.from_crontab(settings.NEWS_SYNC_CRON, timezone=settings.TIMEZONE),
             id="news_sync",
@@ -587,10 +628,67 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ 调度器启动失败: {e}", exc_info=True)
         raise  # 抛出异常，阻止应用启动
 
+    # ==================== MCP 连接初始化（应用级基础设施） ====================
+    # 在应用启动时建立所有 MCP 连接，在整个应用生命周期内保持活跃
+    mcp_health_check_task = None
+    try:
+        from tradingagents.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
+
+        if LANGCHAIN_MCP_AVAILABLE:
+            logger.info("🔧 初始化 MCP 连接管理器...")
+
+            factory = get_mcp_loader_factory()
+            await factory.initialize_connections()
+
+            # 启动健康检查后台任务
+            async def mcp_health_check_loop():
+                """MCP 服务器健康检查后台任务"""
+                while True:
+                    try:
+                        await factory.health_check_all()
+                        await asyncio.sleep(30)  # 每 30 秒检查一次
+                    except asyncio.CancelledError:
+                        logger.info("🛑 MCP 健康检查任务已停止")
+                        break
+                    except Exception as e:
+                        logger.error(f"MCP 健康检查失败: {e}")
+                        await asyncio.sleep(30)
+
+            mcp_health_check_task = asyncio.create_task(mcp_health_check_loop())
+            logger.info("✅ MCP 连接已初始化，健康检查任务已启动")
+        else:
+            logger.info("ℹ️  langchain-mcp-adapters 未安装，MCP 功能不可用")
+    except Exception as e:
+        logger.error(f"❌ MCP 初始化失败: {e}", exc_info=True)
+        # MCP 初始化失败不应阻止应用启动，记录警告并继续
+        logger.warning("⚠️  应用将在 MCP 功能不可用的情况下继续运行")
+
     try:
         yield
     finally:
         # 关闭时清理
+        # 1. 停止 MCP 健康检查任务
+        if mcp_health_check_task:
+            try:
+                mcp_health_check_task.cancel()
+                try:
+                    await mcp_health_check_task
+                except asyncio.CancelledError:
+                    pass
+                logger.info("🛑 MCP 健康检查任务已停止")
+            except Exception as e:
+                logger.warning(f"MCP 健康检查任务停止失败: {e}")
+
+        # 2. 关闭所有 MCP 连接
+        try:
+            from tradingagents.tools.mcp import get_mcp_loader_factory
+            factory = get_mcp_loader_factory()
+            await factory.close()
+            logger.info("🛑 MCP 连接已关闭")
+        except Exception as e:
+            logger.warning(f"MCP 连接关闭失败: {e}")
+
+        # 3. 停止调度器
         if scheduler:
             try:
                 scheduler.shutdown(wait=False)
@@ -598,13 +696,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning(f"Scheduler shutdown error: {e}")
 
-        # 关闭 UserService MongoDB 连接
-        try:
-            from app.services.user_service import user_service
-            user_service.close()
-        except Exception as e:
-            logger.warning(f"UserService cleanup error: {e}")
-
+        # 4. 关闭数据库连接
         await close_db()
         logger.info("TradingAgents FastAPI backend stopped")
 

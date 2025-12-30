@@ -9,6 +9,7 @@ Alpha Vantage 新闻数据提供者
 from typing import Annotated, Dict, Any
 import json
 from datetime import datetime
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
 from .alpha_vantage_common import _make_api_request, format_datetime_for_api, format_response_as_string
 
@@ -66,7 +67,7 @@ def get_news(
             result = f"# News and Sentiment for {ticker.upper()}\n"
             result += f"# Period: {start_date} to {end_date}\n"
             result += f"# Total articles: {len(feed)}\n"
-            result += f"# Retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            result += f"# Retrieved on: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             
             # 添加每条新闻
             for idx, article in enumerate(feed, 1):
@@ -146,7 +147,7 @@ def get_insider_transactions(
             # 构建格式化输出
             result = f"# Insider Transactions for {symbol.upper()}\n"
             result += f"# Total transactions: {len(transactions)}\n"
-            result += f"# Retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            result += f"# Retrieved on: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             
             # 添加每笔交易
             for idx, txn in enumerate(transactions[:20], 1):  # 限制显示前20笔
@@ -226,7 +227,7 @@ def get_market_news(
             if start_date and end_date:
                 result += f"# Period: {start_date} to {end_date}\n"
             result += f"# Total articles: {len(feed)}\n"
-            result += f"# Retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            result += f"# Retrieved on: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             
             for idx, article in enumerate(feed, 1):
                 result += f"## Article {idx}\n"

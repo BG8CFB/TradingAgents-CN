@@ -6,6 +6,7 @@
 
 import logging
 from datetime import datetime, timedelta
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from typing import Optional, Tuple, List
 import pandas as pd
 
@@ -206,7 +207,7 @@ class DataCompletenessChecker:
                         return latest_date
             
             # 备用方案：假设最新交易日是今天或昨天（如果今天是周末则往前推）
-            today = datetime.now()
+            today = now_utc()
             for delta in range(0, 5):  # 最多回溯5天
                 check_date = today - timedelta(days=delta)
                 # 跳过周末

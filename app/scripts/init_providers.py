@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from app.core.database import init_db, get_mongo_db
 from app.models.config import LLMProvider
+from tradingagents.utils.time_utils import now_utc
 
 async def init_providers():
     """初始化大模型厂家数据"""
@@ -113,9 +114,9 @@ async def init_providers():
     
     # 插入新数据
     for provider_data in providers_data:
-        provider_data["created_at"] = datetime.utcnow()
-        provider_data["updated_at"] = datetime.utcnow()
-        
+        provider_data["created_at"] = now_utc()
+        provider_data["updated_at"] = now_utc()
+
         result = await providers_collection.insert_one(provider_data)
         print(f"✅ 添加厂家: {provider_data['display_name']} (ID: {result.inserted_id})")
     

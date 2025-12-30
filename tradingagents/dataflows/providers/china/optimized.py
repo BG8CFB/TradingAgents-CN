@@ -15,6 +15,7 @@ from tradingagents.dataflows.cache import get_cache
 from tradingagents.config.config_manager import config_manager
 
 from tradingagents.config.runtime_settings import get_float, get_timezone_name
+from tradingagents.utils.time_utils import now_config_tz
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
@@ -92,7 +93,7 @@ class OptimizedChinaDataProvider:
 
 ## 📝 数据说明
 - 数据来源: MongoDB财务数据库
-- 更新时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+- 更新时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 - 数据类型: 同步财务数据
 """
             return fundamentals_report.strip()
@@ -455,7 +456,7 @@ class OptimizedChinaDataProvider:
 3. 结合技术分析进行综合判断
 
 ---
-**生成时间**: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+**生成时间**: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 **数据来源**: 基础市场数据
 """
             return simplified_report.strip()
@@ -487,7 +488,7 @@ class OptimizedChinaDataProvider:
 - **股票名称**: {company_name}
 - **当前股价**: {current_price}
 - **涨跌幅**: {change_pct}
-- **分析日期**: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y年%m月%d日')}{data_source_note}
+- **分析日期**: {now_config_tz().strftime('%Y年%m月%d日')}{data_source_note}
 
 ## 💰 核心财务指标
 - **总市值**: {financial_estimates.get('total_mv', 'N/A')}
@@ -504,7 +505,7 @@ class OptimizedChinaDataProvider:
 ---
 **重要声明**: 本报告基于公开数据和模型估算生成，仅供参考，不构成投资建议。
 **数据来源**: {data_source if data_source else "多源数据"}数据接口
-**生成时间**: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+**生成时间**: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """
         elif analysis_modules in ["standard", "full"]:
             # 标准/完整模式：包含详细分析
@@ -518,7 +519,7 @@ class OptimizedChinaDataProvider:
 - **当前股价**: {current_price}
 - **涨跌幅**: {change_pct}
 - **成交量**: {volume}
-- **分析日期**: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y年%m月%d日')}{data_source_note}
+- **分析日期**: {now_config_tz().strftime('%Y年%m月%d日')}{data_source_note}
 
 ## 💰 财务数据分析
 
@@ -563,7 +564,7 @@ class OptimizedChinaDataProvider:
 ---
 **重要声明**: 本报告基于公开数据和模型估算生成，仅供参考，不构成投资建议。
 **数据来源**: {data_source if data_source else "多源数据"}数据接口
-**生成时间**: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+**生成时间**: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """
         else:  # detailed, comprehensive
             # 详细/全面模式：包含最完整的分析
@@ -577,7 +578,7 @@ class OptimizedChinaDataProvider:
 - **当前股价**: {current_price}
 - **涨跌幅**: {change_pct}
 - **成交量**: {volume}
-- **分析日期**: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y年%m月%d日')}{data_source_note}
+- **分析日期**: {now_config_tz().strftime('%Y年%m月%d日')}{data_source_note}
 
 ## 💰 财务数据分析
 
@@ -673,7 +674,7 @@ class OptimizedChinaDataProvider:
 实际投资决策请结合最新财报数据和专业分析师意见。
 
 **数据来源**: {data_source if data_source else "多源数据"}数据接口 + 基本面分析模型
-**生成时间**: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+**生成时间**: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
         return report
@@ -2097,7 +2098,7 @@ class OptimizedChinaDataProvider:
 由于数据接口限制或网络问题，无法获取实时数据。
 建议稍后重试或检查网络连接。
 
-生成时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
     def _generate_fallback_fundamentals(self, symbol: str, error_msg: str) -> str:
@@ -2112,7 +2113,7 @@ class OptimizedChinaDataProvider:
 - 分析状态: 数据获取失败
 - 建议: 稍后重试或检查网络连接
 
-生成时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
 
@@ -2251,7 +2252,7 @@ def _add_financial_cache_methods():
                 # 检查缓存是否过期（24小时）
                 from datetime import datetime, timedelta
                 cache_time = cache_doc.get('updated_at')
-                if cache_time and datetime.now() - cache_time < timedelta(hours=24):
+                if cache_time and now_utc() - cache_time < timedelta(hours=24):
                     financial_data = cache_doc.get('financial_data', {})
                     if financial_data:
                         logger.info(f"✅ [财务缓存] 从 financial_data_cache 获取{symbol}原始财务数据")
@@ -2328,6 +2329,7 @@ def _add_financial_cache_methods():
             collection = db.financial_data_cache
 
             from datetime import datetime
+            from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
             # 将DataFrame转换为可序列化的格式
             serializable_data = {}
@@ -2342,7 +2344,7 @@ def _add_financial_cache_methods():
                 'cache_type': 'raw_financial_data',
                 'financial_data': serializable_data,
                 'stock_info': stock_info,
-                'updated_at': datetime.now()
+                'updated_at': now_utc()
             }
 
             # 使用upsert更新或插入

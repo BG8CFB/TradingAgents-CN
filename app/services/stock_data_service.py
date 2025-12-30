@@ -9,13 +9,14 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.database import get_mongo_db
 from app.models.stock_models import (
-    StockBasicInfoExtended, 
+    StockBasicInfoExtended,
     MarketQuotesExtended,
     MarketInfo,
     MarketType,
     ExchangeType,
     CurrencyType
 )
+from tradingagents.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +206,7 @@ class StockDataService:
             symbol6 = str(symbol).zfill(6)
 
             # 添加更新时间
-            update_data["updated_at"] = datetime.utcnow()
+            update_data["updated_at"] = now_utc()
 
             # 确保symbol字段存在
             if "symbol" not in update_data:
@@ -250,7 +251,7 @@ class StockDataService:
             symbol6 = str(symbol).zfill(6)
 
             # 添加更新时间
-            quote_data["updated_at"] = datetime.utcnow()
+            quote_data["updated_at"] = now_utc()
 
             # 🔥 确保 symbol 和 code 字段都存在（兼容旧索引）
             if "symbol" not in quote_data:
@@ -317,12 +318,13 @@ class StockDataService:
                 exchange_name = "深圳证券交易所"
             
             # 添加市场信息
+            from tradingagents.config.runtime_settings import get_timezone_name
             result["market_info"] = {
                 "market": "CN",
                 "exchange": exchange,
                 "exchange_name": exchange_name,
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai",
+                "timezone": get_timezone_name(),
                 "trading_hours": {
                     "open": "09:30",
                     "close": "15:00",

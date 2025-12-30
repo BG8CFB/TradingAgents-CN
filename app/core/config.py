@@ -5,7 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
 import warnings
 
-from tradingagents.utils.runtime_paths import get_runtime_base_dir, resolve_path
+# 🔧 延迟导入以避免循环导入：runtime_paths -> logging -> config
+# 将在属性方法中导入
+# from tradingagents.utils.runtime_paths import get_runtime_base_dir, resolve_path
 
 # Legacy env var aliases (deprecated): map API_HOST/PORT/DEBUG -> HOST/PORT/DEBUG
 _LEGACY_ENV_ALIASES = {
@@ -161,7 +163,7 @@ class Settings(BaseSettings):
     SYNC_STOCK_BASICS_CRON: str = Field(default="")
     # 若未提供 CRON，则使用简单时间字符串 "HH:MM"（24小时制）
     SYNC_STOCK_BASICS_TIME: str = Field(default="06:30")
-    # 时区
+    # 时区（默认值，实际运行时会从运行时配置获取）
     TIMEZONE: str = Field(default="Asia/Shanghai")
 
     # 实时行情入库任务
@@ -262,10 +264,14 @@ class Settings(BaseSettings):
     @property
     def runtime_dir(self) -> str:
         """运行时根目录（绝对路径，确保存在）"""
+        # 🔧 延迟导入以避免循环导入
+        from tradingagents.utils.runtime_paths import get_runtime_base_dir
         return str(get_runtime_base_dir(self.RUNTIME_BASE_DIR))
 
     def resolve_runtime_path(self, path_value: str) -> str:
         """将相对路径解析到运行时根目录下（并确保父目录存在）"""
+        # 🔧 延迟导入以避免循环导入
+        from tradingagents.utils.runtime_paths import resolve_path
         return str(resolve_path(path_value, self.RUNTIME_BASE_DIR))
 
     @property

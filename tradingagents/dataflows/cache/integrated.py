@@ -306,6 +306,7 @@ class IntegratedCacheManager:
                 from datetime import datetime, timedelta
                 from zoneinfo import ZoneInfo
                 from tradingagents.config.runtime_settings import get_timezone_name
+                from tradingagents.utils.time_utils import now_config_tz
 
                 mongodb_db = self.db_manager.get_mongodb_db()
 
@@ -317,7 +318,7 @@ class IntegratedCacheManager:
                         self.logger.info(f"🧹 MongoDB {collection_name} 清空了 {result.deleted_count} 条记录")
                 else:
                     # 清理过期数据
-                    cutoff_time = datetime.now(ZoneInfo(get_timezone_name())) - timedelta(days=max_age_days)
+                    cutoff_time = now_config_tz() - timedelta(days=max_age_days)
                     for collection_name in ["stock_data", "news_data", "fundamentals_data"]:
                         result = mongodb_db[collection_name].delete_many({"created_at": {"$lt": cutoff_time}})
                         cleared_count += result.deleted_count

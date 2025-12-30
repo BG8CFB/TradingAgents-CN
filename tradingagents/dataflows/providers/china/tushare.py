@@ -11,6 +11,7 @@ import logging
 from ..base_provider import BaseStockDataProvider
 from tradingagents.config.providers_config import get_provider_config
 from tradingagents.utils.stock_utils import StockUtils, StockMarket
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_compact
 
 # 尝试导入tushare
 try:
@@ -377,8 +378,8 @@ class TushareProvider(BaseStockDataProvider):
             from datetime import datetime, timedelta
 
             # 获取最近3天的数据（考虑周末和节假日）
-            end_date = datetime.now().strftime('%Y%m%d')
-            start_date = (datetime.now() - timedelta(days=3)).strftime('%Y%m%d')
+            end_date = format_date_compact(now_config_tz())
+            start_date = (now_utc() - timedelta(days=3)).strftime('%Y%m%d')
 
             # 判断市场并调用对应接口
             if '.HK' in ts_code:
@@ -533,11 +534,9 @@ class TushareProvider(BaseStockDataProvider):
 
             self.logger.info(f"✅ 获取到 {len(df)} 只股票的实时行情")
 
-            # 🔥 获取当前日期（UTC+8）
-            from datetime import datetime, timezone, timedelta
-            cn_tz = timezone(timedelta(hours=8))
-            now_cn = datetime.now(cn_tz)
-            trade_date = now_cn.strftime("%Y%m%d")  # 格式：20251114（与 Tushare 格式一致）
+            # 🔥 获取当前日期（配置时区）
+            now_cn = now_config_tz()
+            trade_date = format_date_compact(now_cn)  # 格式：20251114（与 Tushare 格式一致）
 
             # 转换为字典格式
             result = {}
@@ -627,7 +626,7 @@ class TushareProvider(BaseStockDataProvider):
 
             # 格式化日期
             start_str = self._format_date(start_date)
-            end_str = self._format_date(end_date) if end_date else datetime.now().strftime('%Y%m%d')
+            end_str = self._format_date(end_date) if end_date else format_date_compact(now_config_tz())
 
             # 🔧 使用 pro_bar 接口获取前复权数据（与同花顺一致）
             # 注意：Tushare 的 daily/weekly/monthly 接口不支持复权
@@ -733,7 +732,7 @@ class TushareProvider(BaseStockDataProvider):
             return None
         
         try:
-            today = datetime.now()
+            today = now_utc()
             for delta in range(0, 10):  # 最多回溯10天
                 check_date = (today - timedelta(days=delta)).strftime('%Y%m%d')
                 
@@ -894,9 +893,10 @@ class TushareProvider(BaseStockDataProvider):
 
         try:
             from datetime import datetime, timedelta
+            from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
             # 计算时间范围
-            end_time = datetime.now()
+            end_time = now_utc()
             start_time = end_time - timedelta(hours=hours_back)
 
             start_date = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -1119,14 +1119,14 @@ class TushareProvider(BaseStockDataProvider):
     def _parse_tushare_news_time(self, time_str: str) -> Optional[datetime]:
         """解析Tushare新闻时间"""
         if not time_str:
-            return datetime.utcnow()
+            return now_utc()
 
         try:
             # Tushare时间格式: 2018-11-21 09:30:00
             return datetime.strptime(str(time_str), '%Y-%m-%d %H:%M:%S')
         except Exception as e:
             self.logger.debug(f"解析Tushare新闻时间失败: {e}")
-            return datetime.utcnow()
+            return now_utc()
 
     def _classify_tushare_news(self, channels: str, content: str) -> str:
         """分类Tushare新闻"""
@@ -1242,7 +1242,7 @@ class TushareProvider(BaseStockDataProvider):
                     "ts_code": ts_code,
                     "financial_indicators": indicators,
                     "data_source": "tushare",
-                    "updated_at": datetime.utcnow()
+                    "updated_at": now_utc()
                 }
 
             return None
@@ -1284,7 +1284,7 @@ class TushareProvider(BaseStockDataProvider):
             # 元数据
             "data_source": "tushare",
             "data_version": 1,
-            "updated_at": datetime.utcnow()
+            "updated_at": now_utc()
         }
 
     def standardize_quotes(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1326,12 +1326,12 @@ class TushareProvider(BaseStockDataProvider):
 
             # 时间数据
             "trade_date": self._format_date_output(raw_data.get('trade_date')),
-            "timestamp": datetime.utcnow(),
+            "timestamp": now_utc(),
 
             # 元数据
             "data_source": "tushare",
             "data_version": 1,
-            "updated_at": datetime.utcnow()
+            "updated_at": now_utc()
         }
 
     # ==================== 辅助方法 ====================
@@ -1367,13 +1367,16 @@ class TushareProvider(BaseStockDataProvider):
 
     def _determine_market_info_from_ts_code(self, ts_code: str) -> Dict[str, Any]:
         """根据ts_code确定市场信息"""
+        from tradingagents.config.runtime_settings import get_timezone_name
+        cn_timezone = get_timezone_name()
+
         if '.SH' in ts_code:
             return {
                 "market": "CN",
                 "exchange": "SSE",
                 "exchange_name": "上海证券交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": cn_timezone
             }
         elif '.SZ' in ts_code:
             return {
@@ -1381,7 +1384,7 @@ class TushareProvider(BaseStockDataProvider):
                 "exchange": "SZSE",
                 "exchange_name": "深圳证券交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": cn_timezone
             }
         elif '.BJ' in ts_code:
             return {
@@ -1389,7 +1392,7 @@ class TushareProvider(BaseStockDataProvider):
                 "exchange": "BSE",
                 "exchange_name": "北京证券交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": cn_timezone
             }
         elif '.HK' in ts_code:
             return {
@@ -1405,7 +1408,7 @@ class TushareProvider(BaseStockDataProvider):
                 "exchange": "UNKNOWN",
                 "exchange_name": "未知交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": cn_timezone
             }
 
     def _determine_market(self, ts_code: str) -> str:
@@ -1546,7 +1549,7 @@ class TushareProvider(BaseStockDataProvider):
 
                 # 元数据
                 "data_source": "tushare",
-                "updated_at": datetime.utcnow()
+                "updated_at": now_utc()
             }
 
             return standardized_data
@@ -1556,7 +1559,7 @@ class TushareProvider(BaseStockDataProvider):
             return {
                 "symbol": ts_code.split('.')[0] if '.' in ts_code else ts_code,
                 "data_source": "tushare",
-                "updated_at": datetime.utcnow(),
+                "updated_at": now_utc(),
                 "error": str(e)
             }
 

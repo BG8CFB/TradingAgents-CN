@@ -506,7 +506,7 @@ class ConfigService:
                 "ta_us_min_api_interval_seconds": 1.0,
                 "ta_google_news_sleep_min_seconds": 2.0,
                 "ta_google_news_sleep_max_seconds": 6.0,
-                "app_timezone": "Asia/Shanghai"
+                "app_timezone": "Asia/Shanghai"  # 默认时区，可通过运行时配置覆盖
             }
         )
         

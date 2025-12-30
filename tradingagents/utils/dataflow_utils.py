@@ -8,6 +8,7 @@ import json
 import pandas as pd
 from datetime import date, timedelta, datetime
 from typing import Annotated
+from tradingagents.utils.time_utils import now_utc, get_current_date
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
@@ -30,14 +31,14 @@ def save_output(data: pd.DataFrame, tag: str, save_path: SavePathType = None) ->
         logger.info(f"{tag} saved to {save_path}")
 
 
-def get_current_date():
+def get_current_date_compat():
     """
-    获取当前日期（YYYY-MM-DD 格式）
-    
+    获取当前日期（YYYY-MM-DD 格式）- 保留向后兼容
+
     Returns:
         str: 当前日期字符串
     """
-    return date.today().strftime("%Y-%m-%d")
+    return get_current_date()
 
 
 def decorate_all_methods(decorator):
@@ -115,12 +116,12 @@ def get_trading_date_range(target_date=None, lookback_days=10):
 
     # 处理输入日期
     if target_date is None:
-        target_date = datetime.now()
+        target_date = now_utc()
     elif isinstance(target_date, str):
         target_date = datetime.strptime(target_date, "%Y-%m-%d")
 
     # 如果是未来日期，使用今天
-    today = datetime.now()
+    today = now_utc()
     if target_date.date() > today.date():
         target_date = today
 

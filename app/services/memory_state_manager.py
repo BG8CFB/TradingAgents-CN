@@ -13,6 +13,8 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+from app.utils.timezone import now_config_tz
+
 class TaskStatus(Enum):
     """任务状态枚举"""
     PENDING = "pending"
@@ -66,7 +68,7 @@ class TaskState:
             else:
                 # 任务进行中，实时计算已用时间
                 from datetime import datetime
-                elapsed_time = (datetime.now() - self.start_time).total_seconds()
+                elapsed_time = (now_config_tz() - self.start_time).total_seconds()
                 data['elapsed_time'] = elapsed_time
 
                 # 计算预计剩余时间和总时长
@@ -125,7 +127,7 @@ class MemoryStateManager:
                 stock_code=stock_code,
                 stock_name=stock_name,
                 status=TaskStatus.PENDING,
-                start_time=datetime.now(),
+                start_time=now_config_tz(),
                 parameters=parameters or {},
                 estimated_duration=estimated_duration,
                 message="任务已创建，等待执行..."
@@ -209,7 +211,7 @@ class MemoryStateManager:
                 
             # 如果任务完成或失败，设置结束时间
             if status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
-                task.end_time = datetime.now()
+                task.end_time = now_config_tz()
                 if task.start_time:
                     task.execution_time = (task.end_time - task.start_time).total_seconds()
             
@@ -255,7 +257,7 @@ class MemoryStateManager:
                 
             # 如果任务完成或失败，设置结束时间
             if status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
-                task.end_time = datetime.now()
+                task.end_time = now_config_tz()
                 if task.start_time:
                     task.execution_time = (task.end_time - task.start_time).total_seconds()
             
@@ -271,7 +273,7 @@ class MemoryStateManager:
                         "progress": task.progress,
                         "message": task.message,
                         "current_step": task.current_step,
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": now_config_tz().isoformat()
                     }
                     # 异步推送，不等待完成
                     asyncio.create_task(
@@ -378,7 +380,7 @@ class MemoryStateManager:
     async def cleanup_old_tasks(self, max_age_hours: int = 24) -> int:
         """清理旧任务"""
         with self._lock:
-            cutoff_time = datetime.now().timestamp() - (max_age_hours * 3600)
+            cutoff_time = now_config_tz().timestamp() - (max_age_hours * 3600)
             tasks_to_remove = []
 
             for task_id, task in self._tasks.items():
@@ -402,7 +404,7 @@ class MemoryStateManager:
             清理的任务数量
         """
         with self._lock:
-            cutoff_time = datetime.now().timestamp() - (max_running_hours * 3600)
+            cutoff_time = now_config_tz().timestamp() - (max_running_hours * 3600)
             zombie_tasks = []
 
             for task_id, task in self._tasks.items():
@@ -415,7 +417,7 @@ class MemoryStateManager:
             for task_id in zombie_tasks:
                 task = self._tasks[task_id]
                 task.status = TaskStatus.FAILED
-                task.end_time = datetime.now()
+                task.end_time = now_config_tz()
                 task.error_message = f"任务超时（运行时间超过 {max_running_hours} 小时）"
                 task.message = "任务已超时，自动标记为失败"
                 task.progress = 0

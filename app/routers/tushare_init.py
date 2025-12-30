@@ -12,6 +12,7 @@ from app.routers.auth_db import get_current_user
 from app.core.database import get_mongo_db
 from app.worker.tushare_init_service import get_tushare_init_service
 from app.core.response import ok
+from app.utils.timezone import now_utc
 
 router = APIRouter(prefix="/api/tushare-init", tags=["Tushare初始化"])
 
@@ -229,7 +230,7 @@ async def _run_basic_initialization():
         "is_running": True,
         "current_step": "基础信息初始化",
         "progress": "0/1",
-        "started_at": datetime.utcnow()
+        "started_at": now_utc()
     })
     
     try:
@@ -256,7 +257,7 @@ async def _run_full_initialization(historical_days: int, force_update: bool):
         "is_running": True,
         "current_step": "准备初始化",
         "progress": "0/6",
-        "started_at": datetime.utcnow()
+        "started_at": now_utc()
     })
     
     try:

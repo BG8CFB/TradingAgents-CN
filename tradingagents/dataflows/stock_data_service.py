@@ -8,6 +8,7 @@
 import pandas as pd
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 import logging
 
 # 导入日志模块
@@ -143,7 +144,7 @@ class StockDataService:
                             'market': row.get('market', self._get_market_name(stock_code)),
                             'category': row.get('category', self._get_stock_category(stock_code)),
                             'source': 'enhanced_fetcher',
-                            'updated_at': datetime.now().isoformat()
+                            'updated_at': format_iso(now_utc())
                         }
                     else:
                         # 如果没找到，返回基本信息
@@ -153,7 +154,7 @@ class StockDataService:
                             'market': self._get_market_name(stock_code),
                             'category': self._get_stock_category(stock_code),
                             'source': 'enhanced_fetcher',
-                            'updated_at': datetime.now().isoformat()
+                            'updated_at': format_iso(now_utc())
                         }
             else:
                 # 获取所有股票列表
@@ -173,7 +174,7 @@ class StockDataService:
                             'market': row.get('market', ''),
                             'category': row.get('category', ''),
                             'source': 'enhanced_fetcher',
-                            'updated_at': datetime.now().isoformat()
+                            'updated_at': format_iso(now_utc())
                         })
                     return results
                     
@@ -222,7 +223,7 @@ class StockDataService:
                 'market': self._get_market_name(stock_code),
                 'category': '未知',
                 'source': 'fallback',
-                'updated_at': datetime.now().isoformat(),
+                'updated_at': format_iso(now_utc()),
                 'error': '所有数据源都不可用'
             }
         else:

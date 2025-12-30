@@ -413,18 +413,34 @@ def get_mongo_db_sync() -> Database:
     if _sync_mongo_db is not None:
         return _sync_mongo_db
 
-    # 创建同步 MongoDB 客户端
+    # 创建同步 MongoDB 客户端（使用连接池配置）
     if _sync_mongo_client is None:
         _sync_mongo_client = MongoClient(
             settings.MONGO_URI,
-            maxPoolSize=settings.MONGO_MAX_CONNECTIONS,
-            minPoolSize=settings.MONGO_MIN_CONNECTIONS,
-            maxIdleTimeMS=30000,
+            maxPoolSize=10,  # 限制为较小的连接池
+            minPoolSize=1,
+            maxIdleTimeMS=30000,  # 30秒空闲超时
             serverSelectionTimeoutMS=5000
         )
 
     _sync_mongo_db = _sync_mongo_client[settings.MONGO_DB]
     return _sync_mongo_db
+
+
+def close_mongo_db_sync():
+    """
+    关闭同步 MongoDB 连接，防止资源泄漏
+    """
+    global _sync_mongo_client, _sync_mongo_db
+
+    try:
+        if _sync_mongo_client is not None:
+            _sync_mongo_client.close()
+            _sync_mongo_client = None
+            _sync_mongo_db = None
+            logger.info("✅ 同步MongoDB连接已关闭")
+    except Exception as exc:
+        logger.error(f"❌ 关闭同步MongoDB连接失败: {exc}")
 
 
 def get_redis_client() -> Redis:

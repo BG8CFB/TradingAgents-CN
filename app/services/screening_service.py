@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
 import pandas as pd
 import numpy as np
@@ -79,7 +80,7 @@ class ScreeningService:
         # 为控制时长，先限制样本规模（后续用批量/缓存优化）
         symbols = symbols[:120]
 
-        end_date = datetime.now()
+        end_date = now_utc()
         start_date = end_date - timedelta(days=220)
         end_s = end_date.strftime("%Y-%m-%d")
         start_s = start_date.strftime("%Y-%m-%d")

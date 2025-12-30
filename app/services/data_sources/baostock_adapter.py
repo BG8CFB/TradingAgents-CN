@@ -4,6 +4,7 @@ BaoStock data source adapter
 from typing import Optional
 import logging
 from datetime import datetime, timedelta
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 import pandas as pd
 
 from .base import DataSourceAdapter
@@ -253,7 +254,7 @@ class BaoStockAdapter(DataSourceAdapter):
         """
 
     def find_latest_trade_date(self) -> Optional[str]:
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+        yesterday = (now_utc() - timedelta(days=1)).strftime("%Y%m%d")
         logger.info(f"BaoStock: Using yesterday as trade date: {yesterday}")
         return yesterday
 

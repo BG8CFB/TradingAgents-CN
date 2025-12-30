@@ -12,6 +12,7 @@ Alpha Vantage 基本面数据提供者
 from typing import Annotated
 import json
 from datetime import datetime
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
 from .alpha_vantage_common import _make_api_request, format_response_as_string
 
@@ -57,7 +58,7 @@ def get_fundamentals(
         if isinstance(data, dict) and data:
             # 提取关键指标
             result = f"# Company Overview: {ticker.upper()}\n"
-            result += f"# Retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            result += f"# Retrieved on: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             
             # 基本信息
             result += "## Basic Information\n"

@@ -18,6 +18,7 @@ from bson import ObjectId
 from app.core.database import get_mongo_db
 from app.core.config import settings
 from .serialization import serialize_document
+from app.utils.timezone import now_utc, format_date_compact, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ async def create_backup_native(name: str, backup_dir: str, collections: Optional
     db = get_mongo_db()
 
     backup_id = str(ObjectId())
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = format_date_compact(now_utc()) + "_" + now_utc().strftime('%H%M%S')
     backup_dirname = f"backup_{name}_{timestamp}"
     backup_path = os.path.join(backup_dir, backup_dirname)
 
@@ -115,7 +116,7 @@ async def create_backup_native(name: str, backup_dir: str, collections: Optional
         "file_path": backup_path,
         "size": file_size,
         "collections": collections,
-        "created_at": datetime.utcnow(),
+        "created_at": now_utc(),
         "created_by": user_id,
         "backup_type": "mongodump",  # 标记备份类型
     }
@@ -143,7 +144,7 @@ async def create_backup(name: str, backup_dir: str, collections: Optional[List[s
     db = get_mongo_db()
 
     backup_id = str(ObjectId())
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = format_date_compact(now_utc()) + "_" + now_utc().strftime('%H%M%S')
     backup_filename = f"backup_{name}_{timestamp}.json.gz"
     backup_path = os.path.join(backup_dir, backup_filename)
 
@@ -153,7 +154,7 @@ async def create_backup(name: str, backup_dir: str, collections: Optional[List[s
     backup_data: Dict[str, Any] = {
         "backup_id": backup_id,
         "name": name,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": now_utc().isoformat(),
         "created_by": user_id,
         "collections": collections,
         "data": {},
@@ -183,7 +184,7 @@ async def create_backup(name: str, backup_dir: str, collections: Optional[List[s
         "file_path": backup_path,
         "size": file_size,
         "collections": collections,
-        "created_at": datetime.utcnow(),
+        "created_at": now_utc(),
         "created_by": user_id,
     }
 
@@ -450,7 +451,7 @@ async def export_data(collections: Optional[List[str]] = None, *, export_dir: st
 
     # 🔥 使用异步数据库连接
     db = get_mongo_db()
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = format_date_compact(now_utc()) + "_" + now_utc().strftime('%H%M%S')
 
     if not collections:
         # 🔥 异步调用 list_collection_names()
@@ -483,7 +484,7 @@ async def export_data(collections: Optional[List[str]] = None, *, export_dir: st
         file_path = os.path.join(export_dir, filename)
         export_data_dict = {
             "export_info": {
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": now_utc().isoformat(),
                 "collections": collections,
                 "format": format,
             },

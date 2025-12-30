@@ -9,6 +9,7 @@ from bson import ObjectId
 from app.core.database import get_mongo_db
 from app.models.user import FavoriteStock
 from app.services.quotes_service import get_quotes_service
+from app.utils.timezone import now_utc
 
 
 class FavoritesService:
@@ -176,7 +177,7 @@ class FavoritesService:
                 "stock_code": stock_code,
                 "stock_name": stock_name,
                 "market": market,
-                "added_at": datetime.utcnow(),
+                "added_at": now_utc(),
                 "tags": tags or [],
                 "notes": notes,
                 "alert_price_high": alert_price_high,
@@ -220,9 +221,9 @@ class FavoritesService:
                 result = await db.user_favorites.update_one(
                     {"user_id": user_id},
                     {
-                        "$setOnInsert": {"user_id": user_id, "created_at": datetime.utcnow()},
+                        "$setOnInsert": {"user_id": user_id, "created_at": now_utc()},
                         "$push": {"favorites": favorite_stock},
-                        "$set": {"updated_at": datetime.utcnow()}
+                        "$set": {"updated_at": now_utc()}
                     },
                     upsert=True
                 )
@@ -255,7 +256,7 @@ class FavoritesService:
                 {"user_id": user_id},
                 {
                     "$pull": {"favorites": {"stock_code": stock_code}},
-                    "$set": {"updated_at": datetime.utcnow()}
+                    "$set": {"updated_at": now_utc()}
                 }
             )
             return result.modified_count > 0
@@ -306,7 +307,7 @@ class FavoritesService:
                 {
                     "$set": {
                         **update_fields,
-                        "updated_at": datetime.utcnow()
+                        "updated_at": now_utc()
                     }
                 }
             )

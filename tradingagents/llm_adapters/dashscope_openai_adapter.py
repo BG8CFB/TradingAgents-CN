@@ -13,6 +13,7 @@ from ..config.config_manager import token_tracker
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
+from tradingagents.utils.time_utils import now_config_tz
 logger = get_logger('agents')
 
 
@@ -249,8 +250,7 @@ def test_dashscope_openai_function_calling(
         # 定义测试工具
         def get_current_time() -> str:
             """获取当前时间"""
-            import datetime
-            return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            return now_config_tz().strftime("%Y-%m-%d %H:%M:%S")
         
         # 创建 LangChain 工具
         from langchain_core.tools import tool

@@ -11,6 +11,7 @@ from pymongo.errors import BulkWriteError
 from bson import ObjectId
 
 from app.core.database import get_database
+from app.utils.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -121,8 +122,8 @@ class InternalMessageService:
             operations = []
             for message in messages:
                 # 添加时间戳
-                message["created_at"] = datetime.utcnow()
-                message["updated_at"] = datetime.utcnow()
+                message["created_at"] = now_utc()
+                message["updated_at"] = now_utc()
                 
                 # 使用message_id作为唯一标识
                 filter_dict = {

@@ -198,6 +198,22 @@
                 />
               </el-form-item>
 
+              <!-- 初始任务描述（仅1阶段显示） -->
+              <el-form-item v-if="activePhase === 1" label="初始任务描述">
+                <el-input
+                  v-model="mode.initial_task"
+                  type="textarea"
+                  :rows="3"
+                  placeholder="请输入初始任务描述，例如：请测试所有可用工具的功能"
+                />
+                <div class="form-hint">
+                  <p>💡 说明：系统会自动在后面拼接股票代码、公司名称、交易日期等信息</p>
+                  <p>示例：如果配置为"请测试所有可用工具的功能"，实际发送的消息将是：</p>
+                  <p class="example">"请测试所有可用工具的功能。股票代码：600519，公司名称：贵州茅台，交易日期：2025-01-01"</p>
+                  <p>留空则使用默认值："请对股票进行分析"</p>
+                </div>
+              </el-form-item>
+
               <div class="mode-actions">
                 <el-button type="primary" text @click.stop="savePhaseConfig" :loading="phaseSaving">保存</el-button>
                 <el-button type="danger" text @click.stop="removePhaseAgent(index)" v-if="activePhase === 1">删除</el-button>
@@ -211,7 +227,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Refresh, Plus, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { agentConfigApi, type PhaseAgentMode } from '@/api/agentConfigs'
@@ -248,6 +264,7 @@ const normalizeMode = (mode?: PhaseAgentMode, isNew = false): UiPhaseAgentMode =
   groups: Array.isArray(mode?.groups) ? [...mode.groups] : [],
   source: mode?.source || '',
   tools: Array.isArray(mode?.tools) ? [...mode.tools] : [],
+  initial_task: mode?.initial_task || '',
   isNew
 })
 
@@ -411,7 +428,8 @@ const savePhaseConfig = async () => {
         whenToUse: mode.whenToUse,
         groups: mode.groups,
         source: mode.source,
-        tools: mode.tools && mode.tools.length ? Array.from(new Set(mode.tools)) : undefined
+        tools: mode.tools && mode.tools.length ? Array.from(new Set(mode.tools)) : undefined,
+        initial_task: mode.initial_task?.trim() || undefined
       }))
     }
     await agentConfigApi.savePhase(activePhase.value, payload)
@@ -632,5 +650,13 @@ onMounted(() => {
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
   background-color: var(--el-fill-color-darker);
   line-height: 1.6;
+}
+
+.example {
+  background: var(--el-fill-color-light);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-family: monospace;
+  margin: 4px 0;
 }
 </style>

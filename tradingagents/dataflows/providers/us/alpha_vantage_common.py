@@ -16,6 +16,7 @@ import json
 import requests
 from typing import Dict, Any, Optional
 from datetime import datetime
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
@@ -281,7 +282,7 @@ def format_response_as_string(data: Dict[str, Any], title: str = "Alpha Vantage 
     try:
         # 添加头部信息
         header = f"# {title}\n"
-        header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        header += f"# Data retrieved on: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         
         # 转换为 JSON 字符串（格式化）
         json_str = json.dumps(data, indent=2, ensure_ascii=False)

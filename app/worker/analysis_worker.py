@@ -25,6 +25,7 @@ from app.core.config import settings
 from app.models.analysis import AnalysisTask, AnalysisParameters
 from app.services.config_provider import provider as config_provider
 from app.services.queue import DEFAULT_USER_CONCURRENT_LIMIT, GLOBAL_CONCURRENT_LIMIT, VISIBILITY_TIMEOUT_SECONDS
+from app.utils.timezone import now_utc, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,7 @@ class AnalysisWorker:
 
             heartbeat_data = {
                 "worker_id": self.worker_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": format_iso(now_utc()),
                 "current_task": self.current_task,
                 "status": "active" if self.running else "stopping"
             }

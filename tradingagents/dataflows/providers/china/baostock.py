@@ -6,10 +6,12 @@ BaoStock统一数据提供器
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from typing import Dict, Any, List, Optional, Union
 import pandas as pd
 
 from ..base_provider import BaseStockDataProvider
+from tradingagents.config.runtime_settings import get_timezone_name
 
 logger = logging.getLogger(__name__)
 
@@ -222,8 +224,8 @@ class BaoStockProvider(BaseStockDataProvider):
         try:
             # 如果没有指定日期，使用最近5天（确保能获取到最新交易日数据）
             if not trade_date:
-                end_date = datetime.now().strftime('%Y-%m-%d')
-                start_date = (datetime.now() - timedelta(days=5)).strftime('%Y-%m-%d')
+                end_date = format_date_short(now_config_tz())
+                start_date = (now_utc() - timedelta(days=5)).strftime('%Y-%m-%d')
             else:
                 start_date = trade_date
                 end_date = trade_date
@@ -378,8 +380,8 @@ class BaoStockProvider(BaseStockDataProvider):
                 
                 try:
                     # 获取最近5天的数据
-                    end_date = datetime.now().strftime('%Y-%m-%d')
-                    start_date = (datetime.now() - timedelta(days=5)).strftime('%Y-%m-%d')
+                    end_date = format_date_short(now_config_tz())
+                    start_date = (now_utc() - timedelta(days=5)).strftime('%Y-%m-%d')
                     
                     rs = self.bs.query_history_k_data_plus(
                         code=bs_code,
@@ -483,23 +485,23 @@ class BaoStockProvider(BaseStockDataProvider):
                 "exchange": "SSE",
                 "exchange_name": "上海证券交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": get_timezone_name()
             }
         elif code.startswith('0') or code.startswith('3'):
             return {
                 "market_type": "CN",
-                "exchange": "SZSE", 
+                "exchange": "SZSE",
                 "exchange_name": "深圳证券交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": get_timezone_name()
             }
         elif code.startswith('8'):
             return {
                 "market_type": "CN",
                 "exchange": "BSE",
-                "exchange_name": "北京证券交易所", 
+                "exchange_name": "北京证券交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": get_timezone_name()
             }
         else:
             return {
@@ -507,7 +509,7 @@ class BaoStockProvider(BaseStockDataProvider):
                 "exchange": "UNKNOWN",
                 "exchange_name": "未知交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": get_timezone_name()
             }
     
     def _safe_float(self, value: Any) -> float:
@@ -656,9 +658,9 @@ class BaoStockProvider(BaseStockDataProvider):
 
             # 如果没有指定年份和季度，使用当前年份的最新季度
             if year is None:
-                year = datetime.now().year
+                year = now_utc().year
             if quarter is None:
-                current_month = datetime.now().month
+                current_month = now_utc().month
                 quarter = (current_month - 1) // 3 + 1
 
             financial_data = {}

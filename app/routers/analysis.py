@@ -22,6 +22,7 @@ from app.models.analysis import (
 )
 from app.core.config import settings
 from tradingagents.utils.runtime_paths import get_analysis_results_dir, resolve_path
+from app.utils.timezone import now_utc
 
 router = APIRouter()
 logger = logging.getLogger("webapi")
@@ -145,7 +146,7 @@ async def get_task_status_new(
 
                 # 计算时间信息
                 start_time = task_result.get("started_at") or task_result.get("created_at")
-                current_time = datetime.utcnow()
+                current_time = now_utc()
                 elapsed_time = 0
                 if start_time:
                     elapsed_time = (current_time - start_time).total_seconds()
@@ -1178,8 +1179,8 @@ async def mark_task_as_failed(
                 "$set": {
                     "status": "failed",
                     "last_error": "用户手动标记为失败",
-                    "completed_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow()
+                    "completed_at": now_utc(),
+                    "updated_at": now_utc()
                 }
             }
         )

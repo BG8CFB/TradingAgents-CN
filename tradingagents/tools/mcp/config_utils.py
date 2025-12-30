@@ -28,11 +28,12 @@ class MCPServerType(str, Enum):
     HTTP = "http"
     STREAMABLE_HTTP = "streamable-http"  # MCP 官方新标准传输协议
 
-BASE_CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+# 项目根目录的 config/ 目录（而非 tradingagents/config/）
+BASE_CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 
 # 优先从环境变量获取默认配置路径
 _env_config_path = os.getenv("MCP_CONFIG_PATH")
-DEFAULT_CONFIG_FILE = Path(_env_config_path) if _env_config_path else BASE_CONFIG_DIR / "mcp_servers.json"
+DEFAULT_CONFIG_FILE = Path(_env_config_path) if _env_config_path else BASE_CONFIG_DIR / "mcp.json"
 
 
 def _safe_is_relative_to(path: Path, base: Path) -> bool:

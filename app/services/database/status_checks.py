@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 from app.core.database import get_mongo_db, get_redis_client
 from app.core.config import settings
+from app.utils.timezone import now_utc, format_iso
 
 
 async def get_mongodb_status() -> Dict[str, Any]:
@@ -25,7 +26,7 @@ async def get_mongodb_status() -> Dict[str, Any]:
             "uptime": server_status.get("uptime", 0),
             "connections": server_status.get("connections", {}),
             "memory": server_status.get("mem", {}),
-            "connected_at": datetime.utcnow().isoformat(),
+            "connected_at": format_iso(now_utc()),
         }
     except Exception as e:
         return {
@@ -73,9 +74,9 @@ async def get_database_status() -> Dict[str, Any]:
 async def test_mongodb_connection() -> Dict[str, Any]:
     try:
         db = get_mongo_db()
-        start = datetime.utcnow()
+        start = now_utc()
         await db.command("ping")
-        took_ms = (datetime.utcnow() - start).total_seconds() * 1000
+        took_ms = (now_utc() - start).total_seconds() * 1000
         return {"success": True, "response_time_ms": round(took_ms, 2), "message": "MongoDB连接正常"}
     except Exception as e:
         return {"success": False, "error": str(e), "message": "MongoDB连接失败"}
@@ -84,9 +85,9 @@ async def test_mongodb_connection() -> Dict[str, Any]:
 async def test_redis_connection() -> Dict[str, Any]:
     try:
         redis_client = get_redis_client()
-        start = datetime.utcnow()
+        start = now_utc()
         await redis_client.ping()
-        took_ms = (datetime.utcnow() - start).total_seconds() * 1000
+        took_ms = (now_utc() - start).total_seconds() * 1000
         return {"success": True, "response_time_ms": round(took_ms, 2), "message": "Redis连接正常"}
     except Exception as e:
         return {"success": False, "error": str(e), "message": "Redis连接失败"}

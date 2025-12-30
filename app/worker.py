@@ -21,6 +21,8 @@ sys.path.insert(0, str(project_root))
 from app.core.logging_config import setup_logging
 from app.core.database import init_db, close_db, get_redis_client
 from app.core.config import settings
+from app.utils.timezone import format_iso, get_current_date
+from tradingagents.utils.time_utils import now_utc
 
 # Redis keys (must match queue_service)
 READY_LIST = "qa:ready"
@@ -38,7 +40,7 @@ async def publish_progress(task_id: str, message: str, step: Optional[int] = Non
     progress_data = {
         "task_id": task_id,
         "message": message,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": format_iso(now_utc()),
     }
     if step is not None and total_steps is not None:
         progress_data["step"] = step
@@ -85,7 +87,7 @@ async def process_task(task_id: str) -> None:
         llm_provider = params.get("llm_provider", "dashscope")
         llm_model = params.get("llm_model", "qwen-plus")
         market_type = params.get("market_type", "美股")
-        analysis_date = params.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))
+        analysis_date = params.get("analysis_date", get_current_date())
 
         # Progress callback function
         async def progress_callback(message: str, step: Optional[int] = None, total_steps: Optional[int] = None):
@@ -127,7 +129,7 @@ async def process_task(task_id: str) -> None:
                 result = {
                     "symbol": symbol,
                     "analysis_result": analysis_result,
-                    "completed_at": datetime.now().isoformat(),
+                    "completed_at": format_iso(now_utc()),
                     "success": True
                 }
                 status = "completed"
@@ -137,7 +139,7 @@ async def process_task(task_id: str) -> None:
                 result = {
                     "symbol": symbol,
                     "error": error_msg,
-                    "completed_at": datetime.now().isoformat(),
+                    "completed_at": format_iso(now_utc()),
                     "success": False
                 }
                 status = "failed"
@@ -148,7 +150,7 @@ async def process_task(task_id: str) -> None:
             result = {
                 "symbol": symbol,
                 "error": f"分析执行异常: {str(analysis_error)}",
-                "completed_at": datetime.now().isoformat(),
+                "completed_at": format_iso(now_utc()),
                 "success": False
             }
             status = "failed"

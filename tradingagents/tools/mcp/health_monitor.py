@@ -7,6 +7,7 @@ MCP 健康监控系统
 import asyncio
 import logging
 from datetime import datetime
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
@@ -178,7 +179,7 @@ class HealthMonitor:
         old_status = self._server_health[server_name].status
         
         self._server_health[server_name].status = new_status
-        self._server_health[server_name].last_check = datetime.now()
+        self._server_health[server_name].last_check = now_utc()
         self._server_health[server_name].error = error
         self._server_health[server_name].latency_ms = latency_ms
         

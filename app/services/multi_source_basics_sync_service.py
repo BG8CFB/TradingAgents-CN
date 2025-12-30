@@ -12,6 +12,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
@@ -156,7 +157,7 @@ class MultiSourceBasicsSyncService:
 
         db = get_mongo_db()
         stats = SyncStats()
-        stats.started_at = datetime.now().isoformat()
+        stats.started_at = format_iso(now_utc())
         stats.status = "running"
         await self._persist_status(db, stats.__dict__.copy())
 
@@ -274,7 +275,7 @@ class MultiSourceBasicsSyncService:
                         "full_symbol": full_symbol,  # 添加 full_symbol 字段
                         "category": category,
                         "source": data_source,  # 🔥 使用实际数据源
-                        "updated_at": datetime.now(),
+                        "updated_at": now_utc(),
                     }
 
                     # 添加财务指标
@@ -311,7 +312,7 @@ class MultiSourceBasicsSyncService:
             stats.updated = updated
             stats.errors = errors
             stats.status = "success" if errors == 0 else "success_with_errors"
-            stats.finished_at = datetime.now().isoformat()
+            stats.finished_at = format_iso(now_utc())
 
             await self._persist_status(db, stats.__dict__.copy())
             logger.info(
@@ -323,7 +324,7 @@ class MultiSourceBasicsSyncService:
         except Exception as e:
             stats.status = "failed"
             stats.message = str(e)
-            stats.finished_at = datetime.now().isoformat()
+            stats.finished_at = format_iso(now_utc())
             await self._persist_status(db, stats.__dict__.copy())
             logger.exception(f"Multi-source sync failed: {e}")
             return stats.__dict__

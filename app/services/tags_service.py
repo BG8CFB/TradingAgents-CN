@@ -7,6 +7,7 @@ from datetime import datetime
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
+from tradingagents.utils.time_utils import now_utc
 
 
 class TagsService:
@@ -38,8 +39,8 @@ class TagsService:
             "name": doc.get("name"),
             "color": doc.get("color") or "#409EFF",
             "sort_order": doc.get("sort_order", 0),
-            "created_at": (doc.get("created_at") or datetime.utcnow()).isoformat(),
-            "updated_at": (doc.get("updated_at") or datetime.utcnow()).isoformat(),
+            "created_at": (doc.get("created_at") or now_utc()).isoformat(),
+            "updated_at": (doc.get("updated_at") or now_utc()).isoformat(),
         }
 
     async def list_tags(self, user_id: str) -> List[Dict[str, Any]]:
@@ -54,7 +55,7 @@ class TagsService:
     async def create_tag(self, user_id: str, name: str, color: Optional[str] = None, sort_order: int = 0) -> Dict[str, Any]:
         db = await self._get_db()
         await self.ensure_indexes()
-        now = datetime.utcnow()
+        now = now_utc()
         doc = {
             "user_id": self._normalize_user_id(user_id),
             "name": name.strip(),
@@ -70,7 +71,7 @@ class TagsService:
     async def update_tag(self, user_id: str, tag_id: str, *, name: Optional[str] = None, color: Optional[str] = None, sort_order: Optional[int] = None) -> bool:
         db = await self._get_db()
         await self.ensure_indexes()
-        update: Dict[str, Any] = {"updated_at": datetime.utcnow()}
+        update: Dict[str, Any] = {"updated_at": now_utc()}
         if name is not None:
             update["name"] = name.strip()
         if color is not None:

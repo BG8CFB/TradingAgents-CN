@@ -11,6 +11,8 @@ import pandas as pd
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.database import get_database
+from app.utils.timezone import now_config_tz
+from tradingagents.utils.time_utils import now_utc, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +99,12 @@ class HistoricalDataService:
                 return 0
 
             from datetime import datetime
-            total_start = datetime.now()
+            total_start = now_config_tz()
 
             logger.info(f"💾 开始保存 {symbol} 历史数据: {len(data)}条记录 (数据源: {data_source})")
 
             # ⏱️ 性能监控：单位转换
-            convert_start = datetime.now()
+            convert_start = now_config_tz()
             # 🔥 在 DataFrame 层面做单位转换（向量化操作，比逐行快得多）
             if data_source == "tushare":
                 # 成交额：千元 -> 元
@@ -123,10 +125,10 @@ class HistoricalDataService:
                 data['pre_close'] = data['close'].shift(1)
                 logger.debug(f"✅ {symbol} 添加 pre_close 字段（从前一天的 close 获取）")
 
-            convert_duration = (datetime.now() - convert_start).total_seconds()
+            convert_duration = (now_utc() - convert_start).total_seconds()
 
             # ⏱️ 性能监控：构建操作列表
-            prepare_start = datetime.now()
+            prepare_start = now_config_tz()
             # 准备批量操作
             operations = []
             saved_count = 0
@@ -154,9 +156,9 @@ class HistoricalDataService:
 
                     # 批量执行（每200条）
                     if len(operations) >= batch_size:
-                        batch_write_start = datetime.now()
+                        batch_write_start = now_config_tz()
                         batch_saved = await self._execute_bulk_write_with_retry(symbol, operations)
-                        batch_write_duration = (datetime.now() - batch_write_start).total_seconds()
+                        batch_write_duration = (now_utc() - batch_write_start).total_seconds()
                         logger.debug(f"   批量写入 {len(operations)} 条，耗时 {batch_write_duration:.2f}秒")
                         saved_count += batch_saved
                         operations = []
@@ -167,18 +169,18 @@ class HistoricalDataService:
                     logger.error(f"❌ 处理记录失败 {symbol} {date_str}: {e}")
                     continue
 
-            prepare_duration = (datetime.now() - prepare_start).total_seconds()
+            prepare_duration = (now_utc() - prepare_start).total_seconds()
 
             # ⏱️ 性能监控：最后一批写入
-            final_write_start = datetime.now()
+            final_write_start = now_config_tz()
             # 执行剩余操作
             if operations:
                 saved_count += await self._execute_bulk_write_with_retry(
                     symbol, operations
                 )
-            final_write_duration = (datetime.now() - final_write_start).total_seconds()
+            final_write_duration = (now_utc() - final_write_start).total_seconds()
 
-            total_duration = (datetime.now() - total_start).total_seconds()
+            total_duration = (now_utc() - total_start).total_seconds()
             logger.info(
                 f"✅ {symbol} 历史数据保存完成: {saved_count}条记录，"
                 f"总耗时 {total_duration:.2f}秒 "
@@ -255,7 +257,7 @@ class HistoricalDataService:
         date_index = None
     ) -> Dict[str, Any]:
         """标准化单条记录"""
-        now = datetime.utcnow()
+        now = now_utc()
 
         # 获取日期 - 优先从列中获取，如果索引是日期类型才使用索引
         trade_date = None
@@ -346,7 +348,7 @@ class HistoricalDataService:
     def _format_date(self, date_value) -> str:
         """格式化日期"""
         if date_value is None:
-            return datetime.now().strftime('%Y-%m-%d')
+            return format_date_short(now_config_tz())
         
         if isinstance(date_value, str):
             # 处理不同的日期格式
@@ -476,7 +478,7 @@ class HistoricalDataService:
             
             # 股票数量统计
             symbol_count = len(await self.collection.distinct("symbol"))
-            
+
             return {
                 "total_records": total_count,
                 "total_symbols": symbol_count,
@@ -485,7 +487,7 @@ class HistoricalDataService:
                     "latest_date": item.get("latest_date")
                 } for item in source_stats},
                 "by_market": {item["_id"]: item["count"] for item in market_stats},
-                "last_updated": datetime.utcnow().isoformat()
+                "last_updated": format_iso(now_utc())
             }
             
         except Exception as e:

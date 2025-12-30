@@ -20,11 +20,15 @@ from apscheduler.events import (
 from app.core.database import get_mongo_db
 from tradingagents.utils.logging_manager import get_logger
 from app.utils.timezone import now_tz
+from tradingagents.config.runtime_settings import get_zoneinfo
+from tradingagents.utils.time_utils import now_utc
 
 logger = get_logger(__name__)
 
-# UTC+8 时区
-UTC_8 = timezone(timedelta(hours=8))
+# 使用配置的时区（不再手动定义 UTC_8）
+def get_config_zoneinfo():
+    """获取配置的时区 ZoneInfo 对象"""
+    return get_zoneinfo()
 
 
 def get_utc8_now():
@@ -187,9 +191,8 @@ class SchedulerService:
                 job.modify(kwargs=merged_kwargs)
                 logger.info(f"📝 任务 {job_id} 参数已更新: {kwargs}")
 
-            # 手动触发任务 - 使用带时区的当前时间
-            from datetime import timezone
-            now = datetime.now(timezone.utc)
+            # 手动触发任务 - 使用 UTC 时间
+            now = now_utc()
             job.modify(next_run_time=now)
             logger.info(f"🚀 手动触发任务 {job_id} (next_run_time={now}, was_paused={was_paused}, kwargs={kwargs})")
 
@@ -888,8 +891,8 @@ class SchedulerService:
             scheduled_time_naive = None
             if scheduled_time:
                 if scheduled_time.tzinfo is not None:
-                    # 转换为本地时区，然后移除时区信息
-                    scheduled_time_naive = scheduled_time.astimezone(UTC_8).replace(tzinfo=None)
+                    # 转换为配置时区，然后移除时区信息
+                    scheduled_time_naive = scheduled_time.astimezone(get_config_zoneinfo()).replace(tzinfo=None)
                 else:
                     scheduled_time_naive = scheduled_time
 

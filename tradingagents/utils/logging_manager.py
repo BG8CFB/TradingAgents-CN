@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional, Union
 import json
 import toml
 from tradingagents.utils.runtime_paths import get_logs_dir, get_runtime_base_dir, resolve_path
+from tradingagents.utils.time_utils import now_config_tz
 
 # 注意：这里不能导入自己，会造成循环导入
 # 在日志系统初始化前，使用标准库自举日志器，避免未定义引用
@@ -343,7 +344,7 @@ class TradingAgentsLogger:
                 'analysis_type': analysis_type,
                 'session_id': session_id,
                 'event_type': 'analysis_start',
-                'timestamp': datetime.now().isoformat()
+                'timestamp': now_config_tz().isoformat()
             }
         )
 
@@ -359,7 +360,7 @@ class TradingAgentsLogger:
                 'duration': duration,
                 'cost': cost,
                 'event_type': 'analysis_complete',
-                'timestamp': datetime.now().isoformat()
+                'timestamp': now_config_tz().isoformat()
             }
         )
 
@@ -373,7 +374,7 @@ class TradingAgentsLogger:
                 'stock_symbol': stock_symbol,
                 'session_id': session_id,
                 'event_type': 'module_start',
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': now_config_tz().isoformat(),
                 **extra_data
             }
         )
@@ -393,7 +394,7 @@ class TradingAgentsLogger:
                 'success': success,
                 'result_length': result_length,
                 'event_type': 'module_complete',
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': now_config_tz().isoformat(),
                 **extra_data
             }
         )
@@ -410,7 +411,7 @@ class TradingAgentsLogger:
                 'duration': duration,
                 'error': error,
                 'event_type': 'module_error',
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': now_config_tz().isoformat(),
                 **extra_data
             },
             exc_info=True

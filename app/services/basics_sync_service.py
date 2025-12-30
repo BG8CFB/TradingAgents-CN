@@ -21,6 +21,7 @@ from pymongo import UpdateOne
 
 from app.core.database import get_mongo_db
 from app.core.config import settings
+from tradingagents.utils.time_utils import now_utc, format_iso
 
 from app.services.basics_sync import (
     fetch_stock_basic_df as _fetch_stock_basic_df_util,
@@ -186,7 +187,7 @@ class BasicsSyncService:
         await self._ensure_indexes(db)
 
         stats = SyncStats()
-        stats.started_at = datetime.utcnow().isoformat()
+        stats.started_at = format_iso(now_utc())
         stats.status = "running"
         await self._persist_status(db, stats.__dict__.copy())
 
@@ -218,7 +219,7 @@ class BasicsSyncService:
 
             # Step 3: Upsert into MongoDB (batched bulk writes)
             ops: List[UpdateOne] = []
-            now_iso = datetime.utcnow().isoformat()
+            now_iso = format_iso(now_utc())
             for _, row in stock_df.iterrows():  # type: ignore
                 name = row.get("name") or ""
                 area = row.get("area") or ""
@@ -339,7 +340,7 @@ class BasicsSyncService:
             stats.updated = updated
             stats.errors = errors
             stats.status = "success" if errors == 0 else "success_with_errors"
-            stats.finished_at = datetime.utcnow().isoformat()
+            stats.finished_at = format_iso(now_utc())
             await self._persist_status(db, stats.__dict__.copy())
             logger.info(
                 f"Stock basics sync finished: total={stats.total} inserted={inserted} updated={updated} errors={errors} trade_date={latest_trade_date}"
@@ -349,7 +350,7 @@ class BasicsSyncService:
         except Exception as e:
             stats.status = "failed"
             stats.message = str(e)
-            stats.finished_at = datetime.utcnow().isoformat()
+            stats.finished_at = format_iso(now_utc())
             await self._persist_status(db, stats.__dict__.copy())
             logger.exception(f"Stock basics sync failed: {e}")
             return stats.__dict__

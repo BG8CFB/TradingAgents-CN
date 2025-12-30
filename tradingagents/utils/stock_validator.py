@@ -7,6 +7,7 @@
 import re
 from typing import Dict, Tuple, Optional
 from datetime import datetime, timedelta
+from tradingagents.utils.time_utils import now_utc, get_current_date
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
@@ -76,7 +77,7 @@ class StockDataPreparer:
             period_days = self.default_period_days
 
         if analysis_date is None:
-            analysis_date = datetime.now().strftime('%Y-%m-%d')
+            analysis_date = get_current_date()
 
         logger.info(f"📊 [数据准备] 开始准备股票数据: {stock_code} (市场: {market_type}, 时长: {period_days}天)")
 
@@ -655,8 +656,8 @@ class StockDataPreparer:
                 latest_date = None
 
             # 检查是否包含最近的交易日
-            from datetime import datetime, timedelta
-            today = datetime.now()
+            from datetime import timedelta
+            today = now_utc()
 
             # 获取最近的交易日（考虑周末）
             recent_trade_date = today
@@ -1312,8 +1313,7 @@ async def prepare_stock_data_async(stock_code: str, market_type: str = "auto",
         period_days = preparer.default_period_days
 
     if analysis_date is None:
-        from datetime import datetime
-        analysis_date = datetime.now().strftime('%Y-%m-%d')
+        analysis_date = get_current_date()
 
     logger.info(f"📊 [数据准备-异步] 开始准备股票数据: {stock_code} (市场: {market_type}, 时长: {period_days}天)")
 

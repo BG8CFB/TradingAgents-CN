@@ -16,7 +16,7 @@ from app.models.operation_log import (
     convert_objectid_to_str,
     ActionType
 )
-from app.utils.timezone import now_tz
+from app.utils.timezone import now_tz, now_config_tz
 
 logger = logging.getLogger("webapi")
 
@@ -204,7 +204,7 @@ class OperationLogService:
             
             if days is not None:
                 # 只删除N天前的日志
-                cutoff_date = datetime.now() - timedelta(days=days)
+                cutoff_date = now_config_tz() - timedelta(days=days)
                 delete_filter["timestamp"] = {"$lt": cutoff_date}
             
             if action_type:

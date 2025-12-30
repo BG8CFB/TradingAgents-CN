@@ -28,9 +28,11 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from tradingagents.dataflows.providers.hk.hk_stock import HKStockProvider
+from tradingagents.utils.time_utils import now_utc
 from tradingagents.dataflows.providers.hk.improved_hk import ImprovedHKStockProvider
 from app.core.database import get_mongo_db
 from app.core.config import settings
+from app.utils.timezone import now_config_tz, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +76,7 @@ class HKDataService:
 
             # 检查缓存是否有效
             if (self.hk_stock_list and self._stock_list_cache_time and
-                datetime.now() - self._stock_list_cache_time < timedelta(seconds=self._stock_list_cache_ttl)):
+                now_config_tz() - self._stock_list_cache_time < timedelta(seconds=self._stock_list_cache_ttl)):
                 logger.debug(f"📦 使用缓存的港股列表: {len(self.hk_stock_list)} 只")
                 return self.hk_stock_list
 
@@ -98,7 +100,7 @@ class HKDataService:
 
             # 更新缓存
             self.hk_stock_list = stock_codes
-            self._stock_list_cache_time = datetime.now()
+            self._stock_list_cache_time = now_config_tz()
 
             return stock_codes
 
@@ -194,7 +196,7 @@ class HKDataService:
                 normalized_info = self._normalize_stock_info(stock_info, source)
                 normalized_info["code"] = stock_code.lstrip('0').zfill(5)  # 标准化为5位代码
                 normalized_info["source"] = source
-                normalized_info["updated_at"] = datetime.now()
+                normalized_info["updated_at"] = now_config_tz()
 
                 # 批量更新操作
                 operations.append(
@@ -284,7 +286,7 @@ class HKDataService:
                         "market": "香港交易所",
                         "area": "香港",
                         "source": "akshare",
-                        "updated_at": datetime.now()
+                        "updated_at": now_utc()
                     }
 
                     # 可选字段：提取行情数据中的其他信息
@@ -415,7 +417,7 @@ class HKDataService:
                     "low": float(quote.get('low', 0)),
                     "volume": int(quote.get('volume', 0)),
                     "currency": "HKD",
-                    "updated_at": datetime.now()
+                    "updated_at": now_utc()
                 }
                 
                 # 计算涨跌幅
@@ -522,7 +524,7 @@ async def run_hk_status_check():
             "status": "ok",
             "stock_count": len(stock_list),
             "data_sources": list(service.providers.keys()),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": format_iso(now_config_tz())
         }
         logger.info(f"✅ 港股状态检查完成: {result}")
         return result

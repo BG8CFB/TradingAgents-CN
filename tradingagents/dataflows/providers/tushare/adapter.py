@@ -254,7 +254,8 @@ class TushareAdapter(DataSourceAdapter):
             ts_code = code
         try:
             from datetime import datetime, timedelta
-            end = datetime.now()
+            from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
+            end = now_utc()
             start = end - timedelta(days=max(1, days))
             start_str = start.strftime('%Y%m%d')
             end_str = end.strftime('%Y%m%d')
@@ -297,7 +298,7 @@ class TushareAdapter(DataSourceAdapter):
         if not self.is_available():
             return None
         try:
-            today = datetime.now()
+            today = now_utc()
             for delta in range(0, 10):  # up to 10 days back
                 d = (today - timedelta(days=delta)).strftime("%Y%m%d")
                 try:

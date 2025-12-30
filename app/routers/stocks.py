@@ -12,6 +12,7 @@ import re
 from app.routers.auth_db import get_current_user
 from app.core.database import get_mongo_db
 from app.core.response import ok
+from tradingagents.utils.time_utils import now_config_tz, format_date_compact, format_date_short
 
 logger = logging.getLogger(__name__)
 
@@ -490,12 +491,10 @@ async def get_kline(
     }
     mongodb_period = period_map.get(period, "daily")
 
-    # 获取当前时间（北京时间）
-    from app.core.config import settings
-    tz = ZoneInfo(settings.TIMEZONE)
-    now = datetime.now(tz)
-    today_str_yyyymmdd = now.strftime("%Y%m%d")  # 格式：20251028（用于查询）
-    today_str_formatted = now.strftime("%Y-%m-%d")  # 格式：2025-10-28（用于返回）
+    # 获取当前时间（配置时区）
+    now = now_config_tz()
+    today_str_yyyymmdd = format_date_compact(now)  # 格式：20251028（用于查询）
+    today_str_formatted = format_date_short(now)  # 格式：2025-10-28（用于返回）
 
     # 1. 优先从 MongoDB 缓存获取
     try:

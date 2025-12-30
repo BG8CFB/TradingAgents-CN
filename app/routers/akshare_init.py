@@ -14,7 +14,7 @@ from app.core.database import get_mongo_db
 from app.worker.akshare_init_service import get_akshare_init_service
 from app.worker.akshare_sync_service import get_akshare_sync_service
 from app.routers.auth_db import get_current_user
-from app.utils.timezone import now_tz
+from app.utils.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -306,14 +306,14 @@ async def stop_initialization(current_user: dict = Depends(get_current_user)):
             "current_task": None,
             "start_time": None,
             "progress": None,
-            "result": {"stopped": True, "stop_time": datetime.utcnow()}
+            "result": {"stopped": True, "stop_time": now_utc()}
         })
         
         return {
             "success": True,
             "data": {
                 "stopped": True,
-                "stop_time": datetime.utcnow()
+                "stop_time": now_utc()
             },
             "message": "初始化任务已停止"
         }

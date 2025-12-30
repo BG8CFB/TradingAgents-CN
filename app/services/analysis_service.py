@@ -48,6 +48,7 @@ from app.services.progress_log_handler import register_analysis_tracker, unregis
 from app.services.websocket_manager import get_websocket_manager
 from app.core.config import settings
 from app.services.queue import DEFAULT_USER_CONCURRENT_LIMIT, GLOBAL_CONCURRENT_LIMIT, VISIBILITY_TIMEOUT_SECONDS
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from tradingagents.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
 
 # 设置日志
@@ -408,7 +409,7 @@ class AnalysisService:
                         "progress": progress,
                         "current_step": message,
                         "message": message,
-                        "updated_at": datetime.utcnow()
+                        "updated_at": now_utc()
                     }
                 }
             )
@@ -472,11 +473,30 @@ class AnalysisService:
         try:
             if self._sync_mongo_client is None:
                 from pymongo import MongoClient
-                self._sync_mongo_client = MongoClient(settings.MONGO_URI)
+                # 使用连接池配置，与主数据库保持一致
+                self._sync_mongo_client = MongoClient(
+                    settings.MONGO_URI,
+                    maxPoolSize=10,  # 限制连接池大小
+                    minPoolSize=1,
+                    maxIdleTimeMS=30000,  # 30秒空闲超时
+                    serverSelectionTimeoutMS=5000
+                )
             return self._sync_mongo_client[settings.MONGO_DB]
         except Exception as exc:
             logger.warning(f"⚠️ [Sync] 获取 Mongo 连接失败: {exc}")
             return None
+
+    def close_sync_mongo_connection(self):
+        """
+        关闭同步 MongoDB 连接，防止资源泄漏
+        """
+        try:
+            if self._sync_mongo_client is not None:
+                self._sync_mongo_client.close()
+                self._sync_mongo_client = None
+                logger.info("✅ [Sync] MongoDB同步连接已关闭")
+        except Exception as exc:
+            logger.error(f"❌ [Sync] 关闭MongoDB连接失败: {exc}")
 
     def _get_trading_graph(self, config: Dict[str, Any]) -> TradingAgentsGraph:
         """获取或创建TradingAgents实例 (每次创建新实例以保证线程安全)"""
@@ -489,11 +509,13 @@ class AnalysisService:
             config=config
         )
 
-    async def _auto_enable_mcp(self, config: Dict[str, Any], selected_tool_ids: Optional[List[str]] = None) -> None:
+    def _auto_enable_mcp(self, config: Dict[str, Any], selected_tool_ids: Optional[List[str]] = None) -> None:
         """
         自动为分析任务注入 MCP 工具加载器：
         - 若用户未显式开启 MCP，但外部 MCP 工具可用，则启用并绑定 loader
         - 仅加载外部 MCP 工具（include_local=False），避免与本地 MCP 工具重复
+
+        注意：MCP 连接在应用启动时已建立，此处直接使用已初始化的工厂
         """
         if config.get("enable_mcp"):
             return
@@ -502,8 +524,7 @@ class AnalysisService:
 
         try:
             factory = get_mcp_loader_factory()
-            if not factory._initialized:
-                await factory.initialize_connections()
+            # 不再检查 _initialized，因为连接在应用启动时已建立
 
             tool_ids = selected_tool_ids or []
             loader = factory.create_loader(tool_ids, include_local=False)
@@ -561,7 +582,7 @@ class AnalysisService:
                         "stock_name": name,
                         "status": "pending",
                         "progress": 0,
-                        "created_at": datetime.utcnow(),
+                        "created_at": now_utc(),
                     }},
                     upsert=True
                 )
@@ -602,7 +623,7 @@ class AnalysisService:
                     parsed_date = datetime.strptime(analysis_date, '%Y-%m-%d')
                     analysis_date = parsed_date.strftime('%Y-%m-%d')
                 except ValueError:
-                    analysis_date = datetime.now().strftime('%Y-%m-%d')
+                    analysis_date = format_date_short(now_config_tz())
 
             validation_result = await prepare_stock_data_async(
                 stock_code=stock_code,
@@ -878,28 +899,36 @@ class AnalysisService:
         mcp_tool_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """同步执行分析的具体实现"""
+        # 任务级 MCP 管理器（用于隔离和管理 MCP 工具状态）
+        task_mcp_manager = None
+
         try:
             from tradingagents.utils.logging_init import init_logging, get_logger
             from tradingagents.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+            from tradingagents.tools.mcp.task_manager import get_task_mcp_manager, remove_task_mcp_manager
             init_logging()
-            
+
+            # 创建任务级 MCP 管理器
+            task_mcp_manager = get_task_mcp_manager(task_id)
+            logger.info(f"🔧 [任务管理器] 创建任务级 MCP 管理器: {task_id}")
+
             # 进度更新回调
             def update_progress_sync(progress: int, message: str, step: str):
                 try:
                     if progress_tracker:
                         progress_tracker.update_progress({"progress_percentage": progress, "last_message": message})
-                    
+
                     # 1. 更新内存状态（同步）
                     self.memory_manager.update_task_status_sync(
                         task_id=task_id, status=TaskStatus.RUNNING, progress=progress, message=message, current_step=step
                     )
-                    
+
                     # 2. 更新MongoDB（同步复用连接，避免频繁创建）
                     sync_db = self._get_sync_mongo_db()
                     if sync_db is not None:
                         sync_db.analysis_tasks.update_one(
                             {"task_id": task_id},
-                            {"$set": {"progress": progress, "current_step": step, "message": message, "updated_at": datetime.utcnow()}}
+                            {"$set": {"progress": progress, "current_step": step, "message": message, "updated_at": now_utc()}}
                         )
                 except Exception as e:
                     logger.warning(f"⚠️ [Sync] 更新进度失败: {e}")
@@ -1014,8 +1043,8 @@ class AnalysisService:
                     except Exception as e:
                         logger.error(f"配置MCP工具加载器失败: {e}")
 
-            # 若未显式选择但外部 MCP 工具已配置，则自动启用（同步环境下启动新事件循环）
-            asyncio.run(self._auto_enable_mcp(config, selected_mcp_tools))
+            # 若未显式选择但外部 MCP 工具已配置，则自动启用
+            self._auto_enable_mcp(config, selected_mcp_tools)
                 
             if request.parameters:
                 config["phase2_enabled"] = getattr(request.parameters, "phase2_enabled", False)
@@ -1044,11 +1073,16 @@ class AnalysisService:
             config["deep_backend_url"] = deep_provider_info["backend_url"]
             config["backend_url"] = quick_provider_info["backend_url"]
 
+            # 注入任务级 MCP 管理器
+            config["task_mcp_manager"] = task_mcp_manager
+            config["task_id"] = task_id
+            logger.info(f"🔧 [任务管理器] 已将 MCP 管理器注入配置: task_id={task_id}")
+
             update_progress_sync(9, "🚀 初始化AI分析引擎", "engine_initialization")
             trading_graph = self._get_trading_graph(config)
             
-            start_time = datetime.now()
-            analysis_date = datetime.now().strftime("%Y-%m-%d")
+            start_time = now_config_tz()
+            analysis_date = format_date_short(now_config_tz())
             if request.parameters and request.parameters.analysis_date:
                 ad = request.parameters.analysis_date
                 if isinstance(ad, datetime): analysis_date = ad.strftime("%Y-%m-%d")
@@ -1088,7 +1122,7 @@ class AnalysisService:
             )
 
             update_progress_sync(90, "处理分析结果...", "result_processing")
-            execution_time = (datetime.now() - start_time).total_seconds()
+            execution_time = (now_config_tz() - start_time).total_seconds()
 
             # 提取 reports 从 state
             reports = {}
@@ -1224,6 +1258,16 @@ class AnalysisService:
         except Exception as e:
             logger.error(f"❌ 分析执行失败: {task_id} - {e}")
             raise
+
+        finally:
+            # 清理任务级 MCP 管理器
+            if task_mcp_manager is not None:
+                try:
+                    # 在同步环境中需要运行异步清理
+                    asyncio.run(remove_task_mcp_manager(task_id))
+                    logger.info(f"🔧 [任务管理器] 已清理任务级 MCP 管理器: {task_id}")
+                except Exception as e:
+                    logger.warning(f"⚠️ [任务管理器] 清理任务管理器失败: {e}")
 
     # -------------------------------------------------------------------------
     # Status & Saving Methods
@@ -1485,14 +1529,14 @@ class AnalysisService:
         """更新任务状态到MongoDB"""
         try:
             db = get_mongo_db()
-            update_data = {"status": status, "progress": progress, "updated_at": datetime.utcnow()}
+            update_data = {"status": status, "progress": progress, "updated_at": now_utc()}
             if status == AnalysisStatus.PROCESSING and progress == 10:
-                update_data["started_at"] = datetime.utcnow()
+                update_data["started_at"] = now_utc()
             elif status == AnalysisStatus.COMPLETED:
-                update_data["completed_at"] = datetime.utcnow()
+                update_data["completed_at"] = now_utc()
             elif status == AnalysisStatus.FAILED:
                 update_data["last_error"] = error_message
-                update_data["completed_at"] = datetime.utcnow()
+                update_data["completed_at"] = now_utc()
             await db.analysis_tasks.update_one({"task_id": task_id}, {"$set": update_data})
         except Exception as e:
             logger.error(f"❌ 更新任务状态失败: {task_id} - {e}")
@@ -1514,8 +1558,8 @@ class AnalysisService:
             # 使用统一的路径获取方式
             runtime_base = settings.RUNTIME_BASE_DIR
             results_dir = get_analysis_results_dir(runtime_base)
-            
-            analysis_date_raw = result.get('analysis_date', datetime.now())
+
+            analysis_date_raw = result.get('analysis_date', now_config_tz())
             
             # 确保 analysis_date 是字符串格式
             if isinstance(analysis_date_raw, datetime):
@@ -1528,10 +1572,10 @@ class AnalysisService:
                     analysis_date_str = analysis_date_raw
                 except ValueError:
                     # 如果格式不正确，使用当前日期
-                    analysis_date_str = datetime.now().strftime('%Y-%m-%d')
+                    analysis_date_str = format_date_short(now_config_tz())
             else:
                 # 其他类型，使用当前日期
-                analysis_date_str = datetime.now().strftime('%Y-%m-%d')
+                analysis_date_str = format_date_short(now_config_tz())
             
             stock_dir = results_dir / stock_symbol / analysis_date_str
             reports_dir = stock_dir / "reports"
@@ -1614,7 +1658,7 @@ class AnalysisService:
             metadata = {
                 'stock_symbol': stock_symbol,
                 'analysis_date': analysis_date_str,
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': format_iso(now_config_tz()),
                 'research_depth': result.get('research_depth', "不分级"),
                 'analysts': result.get('analysts', []),
                 'status': 'completed',
@@ -1639,7 +1683,7 @@ class AnalysisService:
         try:
             db = get_mongo_db()
             stock_symbol = result.get('stock_symbol') or result.get('stock_code', 'UNKNOWN')
-            timestamp = datetime.utcnow()
+            timestamp = now_utc()
             analysis_id = result.get('analysis_id') or f"{stock_symbol}_{timestamp.strftime('%Y%m%d_%H%M%S')}"
 
             # 处理 reports，确保为字符串内容，避免空值

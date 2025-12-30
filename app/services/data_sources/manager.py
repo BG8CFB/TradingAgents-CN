@@ -4,6 +4,7 @@ Data source manager that orchestrates multiple adapters with priority and option
 from typing import List, Optional, Tuple, Dict
 import logging
 from datetime import datetime, timedelta
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 import pandas as pd
 
 from .base import DataSourceAdapter
@@ -197,7 +198,7 @@ class DataSourceManager:
             except Exception as e:
                 logger.error(f"Failed to find trade date from {adapter.name}: {e}")
                 continue
-        return (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+        return (now_utc() - timedelta(days=1)).strftime("%Y%m%d")
 
     def get_realtime_quotes_with_fallback(self) -> Tuple[Optional[Dict], Optional[str]]:
         """

@@ -14,6 +14,7 @@ from app.services.financial_data_service import get_financial_data_service
 from tradingagents.dataflows.providers.china.tushare import get_tushare_provider
 from tradingagents.dataflows.providers.china.akshare import get_akshare_provider
 from tradingagents.dataflows.providers.china.baostock import get_baostock_provider
+from tradingagents.utils.time_utils import now_utc, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,7 @@ class FinancialDataSyncService:
         """同步单个数据源的财务数据"""
         stats = FinancialSyncStats()
         stats.total_symbols = len(symbols)
-        stats.start_time = datetime.now(timezone.utc)
+        stats.start_time = now_utc()
         
         provider = self.providers[data_source]
         
@@ -159,7 +160,7 @@ class FinancialDataSyncService:
         if not provider.is_available():
             logger.warning(f"⚠️ {data_source} 数据源不可用")
             stats.skipped_count = len(symbols)
-            stats.end_time = datetime.now(timezone.utc)
+            stats.end_time = now_utc()
             return stats
         
         # 批量处理股票
@@ -193,7 +194,7 @@ class FinancialDataSyncService:
                         "symbol": symbol,
                         "data_source": data_source,
                         "error": str(result),
-                        "timestamp": datetime.now(timezone.utc).isoformat()
+                        "timestamp": format_iso(now_utc())
                     })
                     logger.error(f"❌ {symbol} 财务数据同步失败 ({data_source}): {result}")
                 elif result:
@@ -207,7 +208,7 @@ class FinancialDataSyncService:
             if i + batch_size < len(symbols):
                 await asyncio.sleep(delay_seconds)
         
-        stats.end_time = datetime.now(timezone.utc)
+        stats.end_time = now_utc()
         stats.duration = (stats.end_time - stats.start_time).total_seconds()
         
         return stats

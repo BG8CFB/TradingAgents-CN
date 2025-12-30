@@ -790,7 +790,10 @@ class TradingAgentsGraph:
             self.risk_manager_memory = None
 
         # Create tool nodes
-        self.tool_nodes = self._create_tool_nodes()
+        # 🔥 子图模式：每个分析师子图内部处理工具调用，不再需要外部 ToolNode
+        # 以下代码已废弃，保留用于历史参考
+        # self.tool_nodes = self._create_tool_nodes()
+        self.tool_nodes = {}  # 兼容 GraphSetup 接口
 
         # Initialize components
         # 🔥 [修复] 从配置中读取辩论轮次参数 (优先使用阶段配置)
@@ -850,6 +853,9 @@ class TradingAgentsGraph:
 
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
         """Create tool nodes for different data sources.
+
+        🔥 [已废弃] 子图模式下，每个分析师子图内部通过 create_react_agent
+        自动处理工具调用循环（agent ↔ tools），不再需要外部 ToolNode。
 
         注意：ToolNode 包含所有可能的工具，但 LLM 只会调用它绑定的工具。
         ToolNode 的作用是执行 LLM 生成的 tool_calls，而不是限制 LLM 可以调用哪些工具。
@@ -969,10 +975,10 @@ class TradingAgentsGraph:
 
         def _merge_state_update(target: Dict[str, Any], update: Dict[str, Any]) -> None:
             """
-            Safely merge节点增量到最终状态，确保 reports 字典不会被后续节点覆盖。
+            Safely merge节点增量到最终状态，确保 reports 和 messages 字段不会被后续节点覆盖。
 
             在 stream_mode='updates' 下，chunk 只包含增量字段，直接 dict.update
-            会导致 reports 被最后一个节点覆盖，动态智能体的报告丢失。
+            会导致 reports 和 messages 被最后一个节点覆盖，动态智能体的报告丢失。
             """
             if target is None or not update:
                 return
@@ -982,9 +988,28 @@ class TradingAgentsGraph:
                 existing_reports = target.get("reports") or {}
                 target["reports"] = {**existing_reports, **update["reports"]}
 
+            # 🔧 修复：合并 messages 列表（追加而非覆盖）
+            if "messages" in update and isinstance(update.get("messages"), list):
+                existing_messages = target.get("messages") or []
+                # 去重后再追加
+                existing_ids = {id(msg) for msg in existing_messages}
+                new_messages = [msg for msg in update["messages"] if id(msg) not in existing_ids]
+                target["messages"] = existing_messages + new_messages
+
+            # 🔧 修复：合并 errors 列表
+            if "error" in update and update["error"]:
+                existing_errors = target.get("error") or []
+                if isinstance(existing_errors, str):
+                    existing_errors = [existing_errors]
+                if isinstance(update["error"], str):
+                    update_errors = [update["error"]]
+                else:
+                    update_errors = update["error"]
+                target["error"] = existing_errors + update_errors
+
             # 处理其它字段（保持增量覆盖语义）
             for k, v in update.items():
-                if k == "reports":
+                if k in ("reports", "messages", "error"):
                     continue
                 target[k] = v
 

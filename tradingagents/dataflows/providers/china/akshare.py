@@ -10,6 +10,7 @@ import pandas as pd
 
 from tradingagents.config.runtime_settings import get_int
 from tradingagents.utils.stock_utils import StockUtils, StockMarket
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_iso
 from ..base_provider import BaseStockDataProvider
 
 logger = logging.getLogger(__name__)
@@ -602,7 +603,7 @@ class AKShareProvider(BaseStockDataProvider):
 
         # 如果缓存存在且未过期（1小时），直接返回
         if self._stock_list_cache is not None and self._cache_time is not None:
-            if datetime.now() - self._cache_time < timedelta(hours=1):
+            if now_utc() - self._cache_time < timedelta(hours=1):
                 return self._stock_list_cache
 
         # 否则重新获取
@@ -613,7 +614,7 @@ class AKShareProvider(BaseStockDataProvider):
             stock_list = await asyncio.to_thread(fetch_stock_list)
             if stock_list is not None and not stock_list.empty:
                 self._stock_list_cache = stock_list
-                self._cache_time = datetime.now()
+                self._cache_time = now_utc()
                 logger.info(f"✅ 股票列表缓存更新: {len(stock_list)} 只股票")
                 return stock_list
         except Exception as e:
@@ -790,29 +791,32 @@ class AKShareProvider(BaseStockDataProvider):
             }
         
         # A股判断保持原有逻辑或优化
+        from tradingagents.config.runtime_settings import get_timezone_name
+        cn_timezone = get_timezone_name()
+
         if code.startswith(('60', '68')):
             return {
                 "market_type": "CN",
                 "exchange": "SSE",
                 "exchange_name": "上海证券交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": cn_timezone
             }
         elif code.startswith(('00', '30')):
             return {
                 "market_type": "CN",
-                "exchange": "SZSE", 
+                "exchange": "SZSE",
                 "exchange_name": "深圳证券交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": cn_timezone
             }
         elif code.startswith('8'):
             return {
                 "market_type": "CN",
                 "exchange": "BSE",
-                "exchange_name": "北京证券交易所", 
+                "exchange_name": "北京证券交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": cn_timezone
             }
         else:
             return {
@@ -820,7 +824,7 @@ class AKShareProvider(BaseStockDataProvider):
                 "exchange": "UNKNOWN",
                 "exchange_name": "未知交易所",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": cn_timezone
             }
     
     async def get_batch_stock_quotes(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -1000,8 +1004,8 @@ class AKShareProvider(BaseStockDataProvider):
                 # 使用 stock_hk_hist 获取日线数据作为行情 (因为没有单只港股实时接口)
                 # 获取最近3天的数据
                 from datetime import datetime, timedelta, timezone
-                end_date = datetime.now().strftime('%Y%m%d')
-                start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
+                end_date = format_date_compact(now_config_tz())
+                start_date = (now_utc() - timedelta(days=5)).strftime('%Y%m%d')
                 
                 def fetch_hk_hist():
                     return self.ak.stock_hk_hist(
@@ -1107,11 +1111,9 @@ class AKShareProvider(BaseStockDataProvider):
                     
                     if not target_row.empty:
                         row = target_row.iloc[0]
-                        
-                        from datetime import datetime, timezone, timedelta
-                        cn_tz = timezone(timedelta(hours=8))
-                        now_cn = datetime.now(cn_tz)
-                        
+
+                        now_cn = now_config_tz()
+
                         quotes = {
                             "code": code,
                             "symbol": code[:6],
@@ -1128,8 +1130,8 @@ class AKShareProvider(BaseStockDataProvider):
                             "pre_close": self._safe_float(row.get("昨收", 0)),
                             "market_info": self._get_market_info(code),
                             "data_source": "akshare",
-                            "last_sync": datetime.now(timezone.utc),
-                            "updated_at": now_cn.isoformat()
+                            "last_sync": now_utc(),
+                            "updated_at": format_iso(now_cn)
                         }
                         return quotes
                     else:
@@ -1168,11 +1170,10 @@ class AKShareProvider(BaseStockDataProvider):
             # 🔥 注意：字段名必须与 app/routers/stocks.py 中的查询字段一致
             # 前端查询使用的是 high/low/open，不是 high_price/low_price/open_price
 
-            # 🔥 获取当前日期（UTC+8）
-            from datetime import datetime, timezone, timedelta
-            cn_tz = timezone(timedelta(hours=8))
-            now_cn = datetime.now(cn_tz)
-            trade_date = now_cn.strftime("%Y-%m-%d")  # 格式：2025-11-05
+            # 🔥 获取当前日期（配置时区）
+            from tradingagents.utils.time_utils import now_config_tz, format_date_short
+            now_cn = now_config_tz()
+            trade_date = format_date_short(now_cn)  # 格式：2025-11-05
 
             # 🔥 成交量单位转换：手 → 股（1手 = 100股）
             volume_in_lots = int(data_dict.get("总手", 0))  # 单位：手
@@ -1308,10 +1309,8 @@ class AKShareProvider(BaseStockDataProvider):
             if df is not None and not df.empty:
                 row = df.iloc[-1]
                 # date, open, high, low, close, volume
-                
-                from datetime import datetime, timezone, timedelta
-                cn_tz = timezone(timedelta(hours=8))
-                now_cn = datetime.now(cn_tz)
+
+                now_cn = now_config_tz()
 
                 quotes = {
                     "code": code,
@@ -1328,8 +1327,8 @@ class AKShareProvider(BaseStockDataProvider):
                     "change_percent": 0.0,
                     "market_info": self._get_market_info(code),
                     "data_source": "akshare",
-                    "last_sync": datetime.now(timezone.utc),
-                    "updated_at": now_cn.isoformat(),
+                    "last_sync": now_utc(),
+                    "updated_at": format_iso(now_cn),
                     "trade_date": str(row.get("date", ""))
                 }
                 return quotes
@@ -1601,7 +1600,7 @@ class AKShareProvider(BaseStockDataProvider):
         """
         try:
             # AKShare没有直接的市场状态API，返回基本信息
-            now = datetime.now()
+            now = now_utc()
 
             # 简单的交易时间判断
             is_trading_time = (
@@ -1620,7 +1619,7 @@ class AKShareProvider(BaseStockDataProvider):
             logger.error(f"❌ 获取市场状态失败: {e}")
             return {
                 "market_status": "unknown",
-                "current_time": datetime.now().isoformat(),
+                "current_time": format_iso(now_utc()),
                 "data_source": "akshare",
                 "error": str(e)
             }
@@ -1882,7 +1881,7 @@ class AKShareProvider(BaseStockDataProvider):
     def _parse_news_time(self, time_str: str) -> Optional[datetime]:
         """解析新闻时间"""
         if not time_str:
-            return datetime.utcnow()
+            return now_utc()
 
         try:
             # 尝试多种时间格式
@@ -1903,7 +1902,7 @@ class AKShareProvider(BaseStockDataProvider):
 
                     # 如果只有月日，补充年份
                     if fmt in ["%m-%d %H:%M", "%m/%d %H:%M"]:
-                        current_year = datetime.now().year
+                        current_year = now_utc().year
                         parsed_time = parsed_time.replace(year=current_year)
 
                     return parsed_time
@@ -1912,11 +1911,11 @@ class AKShareProvider(BaseStockDataProvider):
 
             # 如果都失败了，返回当前时间
             self.logger.debug(f"⚠️ 无法解析新闻时间: {time_str}")
-            return datetime.utcnow()
+            return now_utc()
 
         except Exception as e:
             self.logger.debug(f"解析新闻时间异常: {e}")
-            return datetime.utcnow()
+            return now_utc()
 
     def _analyze_news_sentiment(self, content: str, title: str) -> str:
         """

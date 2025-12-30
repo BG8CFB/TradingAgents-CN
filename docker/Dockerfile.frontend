@@ -28,6 +28,14 @@ RUN yarn vite build
 # 使用 1ms.run 镜像源加速下载
 FROM docker.1ms.run/nginx:alpine AS runtime
 
+# 设置时区环境变量
+ENV TZ=Asia/Shanghai
+
+# 安装时区数据并配置
+RUN apk add --no-cache tzdata && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone
+
 WORKDIR /usr/share/nginx/html
 
 # 从构建阶段复制构建产物

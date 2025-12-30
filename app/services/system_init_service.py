@@ -10,6 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.database import db_manager
 from app.core.config import settings
+from tradingagents.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -204,8 +205,8 @@ class SystemInitService:
             "is_active": True,
             "is_verified": True,
             "is_admin": True,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": now_utc(),
+            "updated_at": now_utc(),
             "last_login": None,
             "preferences": {
                 "default_market": "A股",

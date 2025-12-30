@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Dict
 
+from tradingagents.utils.time_utils import now_config_tz, format_date_compact
+
 
 def fetch_stock_basic_df():
     """
@@ -103,16 +105,16 @@ def find_latest_trade_date() -> str:
     if api is None:
         raise RuntimeError("Tushare API unavailable")
 
-    today = datetime.now()
+    today = now_config_tz()
     for delta in range(0, 6):
-        d = (today - timedelta(days=delta)).strftime("%Y%m%d")
+        d = format_date_compact(today - timedelta(days=delta))
         try:
             db = api.daily_basic(trade_date=d, fields="ts_code,total_mv")
             if db is not None and not db.empty:
                 return d
         except Exception:
             continue
-    return (today - timedelta(days=1)).strftime("%Y%m%d")
+    return format_date_compact(today - timedelta(days=1))
 
 
 def fetch_daily_basic_mv_map(trade_date: str) -> Dict[str, Dict[str, float]]:
@@ -198,7 +200,7 @@ def fetch_latest_roe_map() -> Dict[str, Dict[str, float]]:
         # 近6期即可
         return q_dates_prev + q_dates
 
-    candidates = quarter_ends(datetime.now())
+    candidates = quarter_ends(now_config_tz())
     data_map: Dict[str, Dict[str, float]] = {}
 
     for end_date in candidates:

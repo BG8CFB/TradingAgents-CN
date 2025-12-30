@@ -272,7 +272,7 @@ class MongoDBCacheAdapter:
             
             # 时间范围
             if hours_back:
-                start_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+                start_time = now_utc() - timedelta(hours=hours_back)
                 query["publish_time"] = {"$gte": start_time}
             
             # 查询数据
@@ -306,7 +306,7 @@ class MongoDBCacheAdapter:
             
             # 时间范围
             if hours_back:
-                start_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+                start_time = now_utc() - timedelta(hours=hours_back)
                 query["publish_time"] = {"$gte": start_time}
             
             # 查询数据

@@ -9,6 +9,7 @@ export interface PhaseAgentMode {
   groups?: string[]
   source?: string
   tools?: string[]
+  initial_task?: string  // 初始任务描述（1阶段专用，系统会自动拼接股票信息）
 }
 
 export interface PhaseAgentConfig {

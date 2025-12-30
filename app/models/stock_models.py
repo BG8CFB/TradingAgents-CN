@@ -137,12 +137,13 @@ class StockBasicInfoExtended(BaseModel):
                 "pb": 0.8,
 
                 # 扩展字段
+                # 注意：timezone 应从运行时配置获取，这里是示例
                 "market_info": {
                     "market": "CN",
                     "exchange": "SZSE",
                     "exchange_name": "深圳证券交易所",
                     "currency": "CNY",
-                    "timezone": "Asia/Shanghai"
+                    "timezone": "Asia/Shanghai"  # 示例值，实际应从运行时配置获取
                 },
                 "status": "L",
                 "data_version": 1

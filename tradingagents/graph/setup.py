@@ -5,7 +5,10 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
 
-from tradingagents.agents.analysts.dynamic_analyst import create_dynamic_analyst
+from tradingagents.agents.analysts.dynamic_analyst import (
+    create_dynamic_analyst,
+    create_react_agent_subgraph  # 新增：子图工厂函数
+)
 from tradingagents.agents import *
 from tradingagents.agents.utils.agent_states import AgentState
 from tradingagents.agents.utils.agent_utils import Toolkit
@@ -25,7 +28,7 @@ class GraphSetup:
         quick_thinking_llm: ChatOpenAI,
         deep_thinking_llm: ChatOpenAI,
         toolkit: Toolkit,
-        tool_nodes: Dict[str, ToolNode],
+        tool_nodes: Dict[str, ToolNode],  # 🔥 [已废弃] 子图模式不再使用，保留参数用于向后兼容
         bull_memory,
         bear_memory,
         trader_memory,
@@ -39,7 +42,7 @@ class GraphSetup:
         self.quick_thinking_llm = quick_thinking_llm
         self.deep_thinking_llm = deep_thinking_llm
         self.toolkit = toolkit
-        self.tool_nodes = tool_nodes
+        self.tool_nodes = tool_nodes  # 🔥 [已废弃] 不再使用，但保留以兼容接口
         self.bull_memory = bull_memory
         self.bear_memory = bear_memory
         self.trader_memory = trader_memory
@@ -87,7 +90,8 @@ class GraphSetup:
         # Create analyst nodes
         analyst_nodes = {}
         delete_nodes = {}
-        tool_nodes = {}
+        # 🔥 [已废弃] 子图模式不再需要外部工具节点，保留变量用于兼容
+        # tool_nodes = {}
 
         # 用于存储规范化后的分析师列表（使用internal_key，保持顺序且去重）
         normalized_analysts = []
@@ -110,20 +114,16 @@ class GraphSetup:
                 seen_internal_keys.add(internal_key)
                 
                 logger.debug(f"📈 [DEBUG] Creating dynamic analyst: {input_key} -> {config_slug} (internal: {internal_key})")
-                
-                analyst_nodes[internal_key] = create_dynamic_analyst(
+
+                # 使用子图模式创建分析师（LangGraph官方推荐）
+                analyst_nodes[internal_key] = create_react_agent_subgraph(
                     config_slug, self.quick_thinking_llm, self.toolkit
                 )
                 delete_nodes[internal_key] = create_msg_delete()
-                
-                # 分配工具节点
-                if tool_key in self.tool_nodes:
-                    tool_nodes[internal_key] = self.tool_nodes[tool_key]
-                    logger.debug(f"🛠️ [DEBUG] Assigned '{tool_key}' tools to {internal_key}")
-                else:
-                    logger.warning(f"⚠️ No specific tool node found for {internal_key}, using default 'market'")
-                    if "market" in self.tool_nodes:
-                        tool_nodes[internal_key] = self.tool_nodes["market"]
+
+                # 子图模式：不再需要外部工具节点
+                # 子图内部控制工具调用流程
+                logger.debug(f"🛠️ [DEBUG] 子图模式: {internal_key} 将使用内部 ToolNode")
                 
                 normalized_analysts.append(internal_key)
             else:
@@ -150,24 +150,18 @@ class GraphSetup:
                 seen_internal_keys.add(internal_key)
                 
                 logger.debug(f"📈 [DEBUG] Creating custom dynamic analyst: {input_key} -> {config_slug}")
-                
+
                 try:
-                    analyst_nodes[internal_key] = create_dynamic_analyst(
+                    # 使用子图模式创建分析师（LangGraph官方推荐）
+                    analyst_nodes[internal_key] = create_react_agent_subgraph(
                         config_slug, self.quick_thinking_llm, self.toolkit
                     )
                     delete_nodes[internal_key] = create_msg_delete()
-                    
-                    # 使用工厂方法推断工具类型
-                    tool_key = DynamicAnalystFactory._infer_tool_key(config_slug, agent_name)
-                    
-                    if tool_key in self.tool_nodes:
-                        tool_nodes[internal_key] = self.tool_nodes[tool_key]
-                        logger.debug(f"🛠️ [DEBUG] Assigned '{tool_key}' tools to {internal_key}")
-                    else:
-                        logger.warning(f"⚠️ No tools assigned for {internal_key}, using default 'market'")
-                        if "market" in self.tool_nodes:
-                            tool_nodes[internal_key] = self.tool_nodes["market"]
-                    
+
+                    # 子图模式：不再需要外部工具节点
+                    # 子图内部控制工具调用流程
+                    logger.debug(f"🛠️ [DEBUG] 子图模式: {internal_key} 将使用内部 ToolNode")
+
                     normalized_analysts.append(internal_key)
                 except ValueError as e:
                     logger.error(f"❌ 创建动态分析师失败: {input_key} -> {e}")
@@ -213,7 +207,8 @@ class GraphSetup:
             workflow.add_node(
                 f"Msg Clear {self._format_analyst_name(analyst_type)}", delete_nodes[analyst_type]
             )
-            workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
+            # 子图模式：不再添加外部工具节点
+            # 子图内部控制工具调用流程
 
         # Create other nodes
         workflow.add_node("Bull Researcher", bull_researcher_node)
@@ -248,16 +243,11 @@ class GraphSetup:
 
         for i, analyst_type in enumerate(selected_analysts):
             current_analyst = f"{self._format_analyst_name(analyst_type)} Analyst"
-            current_tools = f"tools_{analyst_type}"
             current_clear = f"Msg Clear {self._format_analyst_name(analyst_type)}"
 
-            # Add conditional edges for current analyst
-            workflow.add_conditional_edges(
-                current_analyst,
-                getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
-                [current_tools, current_clear],
-            )
-            workflow.add_edge(current_tools, current_analyst)
+            # 子图模式：分析师子图完成后，直接进入Msg Clear节点
+            # 不需要条件边，子图内部控制工具调用流程
+            workflow.add_edge(current_analyst, current_clear)
 
             # Connect to next analyst or to next phase entry node
             if i < len(selected_analysts) - 1:

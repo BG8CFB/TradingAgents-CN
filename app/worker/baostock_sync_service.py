@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.database import get_database
 from app.services.historical_data_service import get_historical_data_service
 from tradingagents.dataflows.providers.china.baostock import BaoStockProvider
+from app.utils.timezone import now_config_tz, format_date_short, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -364,7 +365,7 @@ class BaoStockSyncService:
             period_name = {"daily": "日线", "weekly": "周线", "monthly": "月线"}.get(period, "日线")
 
             # 计算日期范围
-            end_date = datetime.now().strftime('%Y-%m-%d')
+            end_date = format_date_short(now_config_tz())
 
             # 确定同步模式
             use_incremental = incremental or days < 0
@@ -433,7 +434,7 @@ class BaoStockSyncService:
                     start_date = "1990-01-01"
                 else:
                     # 固定天数同步
-                    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+                    start_date = format_date_short(now_config_tz() - timedelta(days=days))
 
                 hist_data = await self.provider.get_historical_data(code, start_date, end_date, period)
 
@@ -477,7 +478,7 @@ class BaoStockSyncService:
                 await collection.update_one(
                     {"code": code},
                     {"$set": {
-                        "historical_data_updated": datetime.now(),
+                        "historical_data_updated": now_config_tz(),
                         "latest_historical_date": latest_record.get('date') if latest_record is not None else None,
                         "historical_records_count": saved_count
                     }},
@@ -518,12 +519,12 @@ class BaoStockSyncService:
                         return latest_date
 
             # 默认返回30天前（确保不漏数据）
-            return (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            return format_date_short(now_config_tz() - timedelta(days=30))
 
         except Exception as e:
             logger.error(f"❌ 获取最后同步日期失败 {symbol}: {e}")
             # 出错时返回30天前，确保不漏数据
-            return (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            return format_date_short(now_config_tz() - timedelta(days=30))
 
     async def check_service_status(self) -> Dict[str, Any]:
         """检查服务状态"""
@@ -549,7 +550,7 @@ class BaoStockSyncService:
                 "basic_info_count": basic_info_count,
                 "quotes_count": quotes_count,
                 "status": "healthy" if connection_ok and db_ok else "unhealthy",
-                "last_check": datetime.now().isoformat()
+                "last_check": format_iso(now_config_tz())
             }
             
         except Exception as e:
@@ -558,7 +559,7 @@ class BaoStockSyncService:
                 "service": "BaoStock同步服务",
                 "status": "error",
                 "error": str(e),
-                "last_check": datetime.now().isoformat()
+                "last_check": format_iso(now_config_tz())
             }
 
 

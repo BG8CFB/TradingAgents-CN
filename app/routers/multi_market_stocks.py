@@ -27,7 +27,7 @@ router = APIRouter(prefix="/markets", tags=["multi-market"])
 async def get_supported_markets(current_user: dict = Depends(get_current_user)):
     """
     获取支持的市场列表
-    
+
     Returns:
         {
             "success": true,
@@ -45,13 +45,15 @@ async def get_supported_markets(current_user: dict = Depends(get_current_user)):
             }
         }
     """
+    from tradingagents.config.runtime_settings import get_timezone_name
+
     markets = [
         {
             "code": "CN",
             "name": "A股",
             "name_en": "China A-Shares",
             "currency": "CNY",
-            "timezone": "Asia/Shanghai",
+            "timezone": get_timezone_name(),
             "trading_hours": "09:30-15:00"
         },
         {

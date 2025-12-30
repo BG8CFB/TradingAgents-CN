@@ -8,6 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 from typing import Callable, Dict, Optional
 from core.redis_client import get_redis_service, RedisKeys
+from tradingagents.utils.time_utils import get_current_date
 
 logger = logging.getLogger(__name__)
 
@@ -133,12 +134,10 @@ class QuotaMiddleware(BaseHTTPMiddleware):
     
     async def check_daily_quota(self, user_id: str):
         """检查每日配额"""
-        import datetime
-        
         redis_service = get_redis_service()
-        
-        # 获取今天的日期
-        today = datetime.date.today().isoformat()
+
+        # 获取今天的日期（配置时区）
+        today = get_current_date()
         
         # 构建Redis键
         quota_key = RedisKeys.USER_DAILY_QUOTA.format(

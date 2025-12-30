@@ -15,6 +15,7 @@ import pandas as pd
 
 import os
 from ..base_provider import BaseStockDataProvider
+from tradingagents.utils.time_utils import now_utc
 
 
 class ExampleSDKProvider(BaseStockDataProvider):
@@ -330,7 +331,7 @@ class ExampleSDKProvider(BaseStockDataProvider):
             "total_equity": self._convert_to_float(raw_data.get("shareholders_equity")),
             "cash_flow": self._convert_to_float(raw_data.get("operating_cash_flow")),
             "data_source": self.name.lower(),
-            "updated_at": datetime.utcnow()
+            "updated_at": now_utc()
         }
     
     def _standardize_news(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -344,7 +345,7 @@ class ExampleSDKProvider(BaseStockDataProvider):
             "sentiment": raw_data.get("sentiment"),
             "symbols": raw_data.get("related_symbols", []),
             "data_source": self.name.lower(),
-            "created_at": datetime.utcnow()
+            "created_at": now_utc()
         }
     
     # ==================== 清理资源 ====================

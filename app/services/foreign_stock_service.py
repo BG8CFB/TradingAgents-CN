@@ -161,7 +161,7 @@ class ForeignStockService:
                         updated_at = data_dict.get('updated_at', '')
                         if updated_at:
                             cache_time = datetime.fromisoformat(updated_at)
-                            time_diff = (datetime.now() - cache_time).total_seconds()
+                            time_diff = (now_utc() - cache_time).total_seconds()
                             if time_diff < 1:  # 1秒内的缓存，说明是并发请求刚刚完成的
                                 logger.info(f"⚡ [去重] 使用并发请求的结果: {code} (缓存时间: {time_diff:.2f}秒前)")
                                 return self._parse_cached_data(cached_data, 'HK', code)
@@ -331,7 +331,7 @@ class ForeignStockService:
                         updated_at = data_dict.get('updated_at', '')
                         if updated_at:
                             cache_time = datetime.fromisoformat(updated_at)
-                            time_diff = (datetime.now() - cache_time).total_seconds()
+                            time_diff = (now_utc() - cache_time).total_seconds()
                             if time_diff < 1:  # 1秒内的缓存，说明是并发请求刚刚完成的
                                 logger.info(f"⚡ [去重] 使用并发请求的结果: {code} (缓存时间: {time_diff:.2f}秒前)")
                                 return self._parse_cached_data(cached_data, 'US', code)
@@ -408,7 +408,7 @@ class ForeignStockService:
                 'trade_date': quote_data.get('trade_date'),
                 'currency': quote_data.get('currency', 'USD'),
                 'source': data_source,
-                'updated_at': datetime.now().isoformat()
+                'updated_at': format_iso(now_utc())
             }
 
             # 6. 保存到缓存
@@ -695,7 +695,7 @@ class ForeignStockService:
             'dividend_yield': info_data.get('dividend_yield'),
             'currency': info_data.get('currency', 'USD'),
             'source': data_source,
-            'updated_at': datetime.now().isoformat()
+            'updated_at': format_iso(now_utc())
         }
 
         # 5. 保存到缓存
@@ -875,8 +875,8 @@ class ForeignStockService:
             'volume': data.get('volume'),
             'currency': data.get('currency', 'HKD'),
             'source': source,
-            'trade_date': data.get('timestamp', datetime.now().strftime('%Y-%m-%d')),
-            'updated_at': datetime.now().isoformat()
+            'trade_date': data.get('timestamp', format_date_short(now_config_tz())),
+            'updated_at': format_iso(now_utc())
         }
 
     def _format_hk_info(self, data: Dict, code: str, source: str) -> Dict:
@@ -904,7 +904,7 @@ class ForeignStockService:
             'dividend_yield': data.get('dividend_yield'),
             'currency': data.get('currency', 'HKD'),
             'source': source,
-            'updated_at': datetime.now().isoformat()
+            'updated_at': format_iso(now_utc())
         }
 
     def _parse_cached_data(self, cached_data: str, market: str, code: str) -> Dict:
@@ -1146,7 +1146,7 @@ class ForeignStockService:
         client = finnhub.Client(api_key=api_key)
 
         # 计算日期范围
-        end_date = datetime.now()
+        end_date = now_utc()
 
         # 根据周期计算开始日期
         if period == 'day':
@@ -1404,7 +1404,7 @@ class ForeignStockService:
             raise Exception("Alpha Vantage API Key 未配置")
 
         # 计算时间范围
-        end_date = datetime.now()
+        end_date = now_utc()
         start_date = end_date - timedelta(days=days)
 
         # 调用 NEWS_SENTIMENT API
@@ -1471,7 +1471,7 @@ class ForeignStockService:
         client = finnhub.Client(api_key=api_key)
 
         # 计算时间范围
-        end_date = datetime.now()
+        end_date = now_utc()
         start_date = end_date - timedelta(days=days)
 
         # 获取公司新闻
@@ -1518,7 +1518,7 @@ class ForeignStockService:
         client = finnhub.Client(api_key=api_key)
 
         # 计算时间范围
-        end_date = datetime.now()
+        end_date = now_utc()
         start_date = end_date - timedelta(days=days)
 
         # 港股代码需要添加 .HK 后缀
@@ -1771,8 +1771,8 @@ class ForeignStockService:
         resolution = resolution_map.get(period, 'D')
 
         # 计算时间范围
-        end_time = int(datetime.now().timestamp())
-        start_time = int((datetime.now() - timedelta(days=limit * 2)).timestamp())
+        end_time = int(now_utc().timestamp())
+        start_time = int((now_utc() - timedelta(days=limit * 2)).timestamp())
 
         # 获取K线数据
         candles = client.stock_candles(hk_symbol, resolution, start_time, end_time)
@@ -1801,6 +1801,7 @@ class ForeignStockService:
         try:
             import akshare as ak
             from datetime import datetime, timedelta
+            from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
             # AKShare 的港股新闻接口
             # 注意：AKShare 可能没有专门的港股新闻接口，这里使用通用新闻接口
@@ -1815,7 +1816,7 @@ class ForeignStockService:
                 # 格式化新闻数据
                 news_list = []
                 for _, row in df.head(limit).iterrows():
-                    pub_time = row['发布时间'] if '发布时间' in row else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    pub_time = row['发布时间'] if '发布时间' in row else now_utc().strftime('%Y-%m-%d %H:%M:%S')
                     news_list.append({
                         'title': row['新闻标题'] if '新闻标题' in row else '',
                         'summary': row['新闻内容'] if '新闻内容' in row else '',

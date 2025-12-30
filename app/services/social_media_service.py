@@ -10,6 +10,7 @@ from pymongo import ReplaceOne
 from pymongo.errors import BulkWriteError
 
 from app.core.database import get_database
+from tradingagents.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +101,8 @@ class SocialMediaService:
             operations = []
             for message in messages:
                 # 添加时间戳
-                message["created_at"] = datetime.utcnow()
-                message["updated_at"] = datetime.utcnow()
+                message["created_at"] = now_utc()
+                message["updated_at"] = now_utc()
                 
                 # 使用message_id和platform作为唯一标识
                 filter_dict = {

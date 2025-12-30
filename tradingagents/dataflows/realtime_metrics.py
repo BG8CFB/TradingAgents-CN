@@ -125,16 +125,17 @@ def calculate_realtime_pe_pb(
         # 如果 stock_basic_info 的更新时间在今天收盘后（15:00之后），说明数据已经是最新的
         from datetime import datetime, time as dtime
         from zoneinfo import ZoneInfo
+        from tradingagents.config.runtime_settings import get_zoneinfo
 
         need_recalculate = True
         if basic_info_updated_at:
             # 确保时间带有时区信息
             if isinstance(basic_info_updated_at, datetime):
                 if basic_info_updated_at.tzinfo is None:
-                    basic_info_updated_at = basic_info_updated_at.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+                    basic_info_updated_at = basic_info_updated_at.replace(tzinfo=get_zoneinfo())
 
                 # 获取今天的日期
-                today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+                today = now_config_tz().date()
                 update_date = basic_info_updated_at.date()
                 update_time = basic_info_updated_at.time()
 
@@ -194,8 +195,8 @@ def calculate_realtime_pe_pb(
             is_yesterday_data = True
             if basic_info_updated_at and isinstance(basic_info_updated_at, datetime):
                 if basic_info_updated_at.tzinfo is None:
-                    basic_info_updated_at = basic_info_updated_at.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
-                today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+                    basic_info_updated_at = basic_info_updated_at.replace(tzinfo=get_zoneinfo())
+                today = now_config_tz().date()
                 update_date = basic_info_updated_at.date()
                 update_time = basic_info_updated_at.time()
                 # 如果更新日期是今天，且更新时间在15:00之后，说明是今天的数据

@@ -30,6 +30,7 @@ except ImportError:
         return {}
 
 from tradingagents.config.runtime_settings import get_float, get_timezone_name
+from tradingagents.utils.time_utils import now_config_tz, format_datetime
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
@@ -315,7 +316,7 @@ class OptimizedUSDataProvider:
 {data[['Open', 'High', 'Low', 'Close', 'Volume']].tail().to_string()}
 
 数据来源: Yahoo Finance API
-更新时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+更新时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
         return result
@@ -385,7 +386,7 @@ class OptimizedUSDataProvider:
 - 最高价: ${quote.get('h', 0):.2f}
 - 最低价: ${quote.get('l', 0):.2f}
 - 前收盘: ${quote.get('pc', 0):.2f}
-- 更新时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+- 更新时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 
 ## 📈 数据概览
 - 数据期间: {start_date} 至 {end_date}
@@ -393,7 +394,7 @@ class OptimizedUSDataProvider:
 - 当前价位相对位置: {((current_price - quote.get('l', current_price)) / max(quote.get('h', current_price) - quote.get('l', current_price), 0.01) * 100):.1f}%
 - 日内振幅: {((quote.get('h', 0) - quote.get('l', 0)) / max(quote.get('pc', 1), 0.01) * 100):.2f}%
 
-生成时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
             return formatted_data
@@ -504,7 +505,7 @@ class OptimizedUSDataProvider:
 由于API限制或网络问题，无法获取实时数据。
 建议稍后重试或检查网络连接。
 
-生成时间: {datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d %H:%M:%S')}
+生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
 

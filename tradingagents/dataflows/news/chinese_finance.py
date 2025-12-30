@@ -9,6 +9,7 @@ import json
 import time
 import random
 from datetime import datetime, timedelta
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from typing import List, Dict, Optional
 import re
 from bs4 import BeautifulSoup
@@ -53,7 +54,7 @@ class ChineseFinanceDataAggregator:
                 'forum_sentiment': forum_sentiment,
                 'media_sentiment': media_sentiment,
                 'summary': self._generate_sentiment_summary(overall_sentiment),
-                'timestamp': datetime.now().isoformat()
+                'timestamp': format_iso(now_utc())
             }
             
         except Exception as e:
@@ -61,7 +62,7 @@ class ChineseFinanceDataAggregator:
                 'ticker': ticker,
                 'error': f'数据获取失败: {str(e)}',
                 'fallback_message': '由于中国社交媒体API限制，建议使用财经新闻和基本面分析作为主要参考',
-                'timestamp': datetime.now().isoformat()
+                'timestamp': format_iso(now_utc())
             }
     
     def _get_finance_news_sentiment(self, ticker: str, days: int) -> Dict:
@@ -159,7 +160,7 @@ class ChineseFinanceDataAggregator:
                 'title': f'{search_term}相关财经新闻标题',
                 'content': '新闻内容摘要...',
                 'source': '财联社',
-                'publish_time': datetime.now().isoformat(),
+                'publish_time': format_iso(now_utc()),
                 'url': 'https://example.com/news/1'
             }
         ]
@@ -311,7 +312,7 @@ def get_chinese_social_sentiment(ticker: str, curr_date: str) -> str:
 由于中国社交媒体平台API获取限制，本分析主要基于公开财经新闻数据。
 建议结合其他分析维度进行综合判断。
 
-生成时间: {sentiment_data.get('timestamp', datetime.now().isoformat())}
+生成时间: {sentiment_data.get('timestamp', format_iso(now_utc()))}
 """
         
     except Exception as e:

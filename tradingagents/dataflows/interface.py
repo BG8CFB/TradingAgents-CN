@@ -3,6 +3,9 @@ import time
 import os
 from datetime import datetime
 
+# 导入时间工具函数
+from tradingagents.utils.time_utils import now_utc
+
 # 导入新闻模块（支持新旧路径）
 try:
     from .news import fetch_top_from_category
@@ -906,7 +909,7 @@ def get_YFin_data_online(
     # Add header information
     header = f"# Stock data for {symbol.upper()} from {start_date} to {end_date}\n"
     header += f"# Total records: {len(data)}\n"
-    header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    header += f"# Data retrieved on: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
     return header + csv_string
 

@@ -256,17 +256,19 @@ class UnifiedStockService:
     async def get_supported_markets(self) -> List[Dict]:
         """
         获取支持的市场列表
-        
+
         Returns:
             市场列表
         """
+        from tradingagents.config.runtime_settings import get_timezone_name
+
         return [
             {
                 "code": "CN",
                 "name": "A股",
                 "name_en": "China A-Share",
                 "currency": "CNY",
-                "timezone": "Asia/Shanghai"
+                "timezone": get_timezone_name()
             },
             {
                 "code": "HK",

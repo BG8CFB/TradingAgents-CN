@@ -73,6 +73,10 @@ class AgentMode(BaseModel):
         default=None,
         description="允许使用的工具名称列表；为空或缺省表示全量可用",
     )
+    initial_task: Optional[str] = Field(
+        default=None,
+        description="初始任务描述（1阶段专用，系统会自动拼接股票信息）",
+    )
 
     @validator("slug", "name", "roleDefinition")
     def _not_blank(cls, value: str) -> str:

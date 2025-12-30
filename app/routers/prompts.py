@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from app.routers.auth_db import get_current_user
+from tradingagents.utils.time_utils import now_utc
 
 
 class PromptTemplate(BaseModel):
@@ -16,7 +17,7 @@ class PromptTemplate(BaseModel):
     system_prompt: str = Field(..., description="System Prompt 模板")
     user_prompt: Optional[str] = Field(None, description="可选的用户提示模板")
     variables: List[str] = Field(default_factory=list, description="可用占位符列表")
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=now_utc)
 
 
 router = APIRouter(prefix="/api/prompts", tags=["prompts"])
@@ -59,7 +60,7 @@ async def update_template(
     payload: PromptTemplate,
     user: dict = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    _templates[agent] = payload.model_copy(update={"agent": agent, "updated_at": datetime.utcnow()})
+    _templates[agent] = payload.model_copy(update={"agent": agent, "updated_at": now_utc()})
     return {"success": True, "data": _templates[agent], "message": "updated"}
 
 
@@ -68,5 +69,5 @@ async def reset_template(agent: str, user: dict = Depends(get_current_user)) -> 
     tpl = _default_templates.get(agent)
     if not tpl:
         raise HTTPException(status_code=404, detail="template not found")
-    _templates[agent] = tpl.model_copy(update={"updated_at": datetime.utcnow()})
+    _templates[agent] = tpl.model_copy(update={"updated_at": now_utc()})
     return {"success": True, "data": _templates[agent], "message": "reset"}

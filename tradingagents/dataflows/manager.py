@@ -14,6 +14,8 @@ from .providers.tushare.adapter import TushareAdapter
 from app.services.data_sources.akshare_adapter import AKShareAdapter
 from app.services.data_sources.baostock_adapter import BaoStockAdapter
 
+from tradingagents.utils.time_utils import now_utc, get_current_date_compact
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,7 +155,7 @@ class DataSourceManager:
                     "close": item.get('close'),
                     "volume": item.get('volume'),
                     "amount": item.get('amount'),
-                    "updated_at": datetime.utcnow()
+                    "updated_at": now_utc()
                 }
 
                 # 构建唯一索引查询条件
@@ -263,7 +265,7 @@ class DataSourceManager:
             except Exception as e:
                 logger.error(f"Failed to find trade date from {adapter.name}: {e}")
                 continue
-        return (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+        return (now_utc() - timedelta(days=1)).strftime("%Y%m%d")
 
     def get_realtime_quotes_with_fallback(self) -> Tuple[Optional[Dict], Optional[str]]:
         """
@@ -541,7 +543,7 @@ class DataSourceManager:
         # Tushare 'news' interface needs src, start_date, end_date.
         # But 'major_news' or 'cctv_news' might be better for 7x24.
         # Actually 'news' with src='sina' is often used for 7x24 rolling news.
-        now = datetime.now()
+        now = now_utc()
         start = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         end = now.strftime("%Y-%m-%d %H:%M:%S")
         return self._query_with_fallback("news", src="sina", start_date=start, end_date=end, limit=limit)

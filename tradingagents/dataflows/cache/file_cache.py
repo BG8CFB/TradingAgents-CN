@@ -9,6 +9,7 @@ import json
 import pickle
 import pandas as pd
 from datetime import datetime, timedelta
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from pathlib import Path
 from typing import Optional, Dict, Any, Union, List
 import hashlib
@@ -211,7 +212,7 @@ class StockDataCache:
         """保存元数据"""
         metadata_path = self._get_metadata_path(cache_key)
         metadata_path.parent.mkdir(parents=True, exist_ok=True)  # 确保目录存在
-        metadata['cached_at'] = datetime.now().isoformat()
+        metadata['cached_at'] = format_iso(now_utc())
         
         with open(metadata_path, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
@@ -250,7 +251,7 @@ class StockDataCache:
                 max_age_hours = self.cache_config.get(cache_type, {}).get('ttl_hours', 24)
 
         cached_at = datetime.fromisoformat(metadata['cached_at'])
-        age = datetime.now() - cached_at
+        age = now_utc() - cached_at
 
         is_valid = age.total_seconds() < max_age_hours * 3600
 
@@ -459,7 +460,7 @@ class StockDataCache:
             cache_key = self._generate_cache_key("fundamentals", symbol,
                                                source=data_source,
                                                market=market_type,
-                                               date=datetime.now().strftime("%Y-%m-%d"),
+                                               date=now_utc().strftime("%Y-%m-%d"),
                                                skipped=True)
             logger.info(f"🚫 基本面数据因内容过长被跳过缓存: {symbol} -> {cache_key}")
             return cache_key
@@ -468,7 +469,7 @@ class StockDataCache:
         cache_key = self._generate_cache_key("fundamentals", symbol,
                                            source=data_source,
                                            market=market_type,
-                                           date=datetime.now().strftime("%Y-%m-%d"))
+                                           date=now_utc().strftime("%Y-%m-%d"))
         
         cache_path = self._get_cache_path("fundamentals", cache_key, "txt", symbol)
         cache_path.parent.mkdir(parents=True, exist_ok=True)  # 确保目录存在
@@ -552,7 +553,7 @@ class StockDataCache:
     
     def clear_old_cache(self, max_age_days: int = 7):
         """清理过期缓存"""
-        cutoff_time = datetime.now() - timedelta(days=max_age_days)
+        cutoff_time = now_utc() - timedelta(days=max_age_days)
         cleared_count = 0
         
         for metadata_file in self.metadata_dir.glob("*_meta.json"):

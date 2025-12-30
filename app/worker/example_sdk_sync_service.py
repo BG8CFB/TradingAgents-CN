@@ -16,6 +16,7 @@ import os
 from app.services.stock_data_service import get_stock_data_service
 from app.core.database import get_mongo_db
 from tradingagents.dataflows.providers.examples.example_sdk import ExampleSDKProvider
+from app.utils.timezone import now_utc, now_config_tz
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class ExampleSDKSyncService:
         """同步所有数据"""
         logger.info("🚀 开始ExampleSDK全量数据同步...")
         
-        start_time = datetime.now()
+        start_time = now_config_tz()
         
         try:
             # 连接数据源
@@ -246,7 +247,7 @@ class ExampleSDKSyncService:
                 update_data = {
                     "code": code,
                     "financial_data": financial_data,
-                    "updated_at": datetime.utcnow()
+                    "updated_at": now_utc()
                 }
                 
                 # 更新或插入财务数据
@@ -274,11 +275,11 @@ class ExampleSDKSyncService:
                 "job": "example_sdk_sync",
                 "status": status,
                 "started_at": start_time,
-                "finished_at": datetime.now(),
-                "duration": (datetime.now() - start_time).total_seconds(),
+                "finished_at": now_config_tz(),
+                "duration": (now_config_tz() - start_time).total_seconds(),
                 "stats": self.sync_stats.copy(),
                 "error_message": error_msg,
-                "created_at": datetime.now()
+                "created_at": now_config_tz()
             }
             
             await db.sync_status.update_one(

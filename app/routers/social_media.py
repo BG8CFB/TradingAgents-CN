@@ -13,6 +13,7 @@ from app.services.social_media_service import (
     SocialMediaStats
 )
 from app.core.response import ok
+from tradingagents.utils.time_utils import now_utc
 
 router = APIRouter(prefix="/api/social-media", tags=["social-media"])
 
@@ -190,9 +191,9 @@ async def get_statistics(
     """获取社媒消息统计信息"""
     try:
         service = await get_social_media_service()
-        
+
         # 计算时间范围
-        end_time = datetime.utcnow()
+        end_time = now_utc()
         start_time = end_time - timedelta(hours=hours_back)
         
         stats = await service.get_social_media_statistics(symbol, start_time, end_time)
@@ -271,9 +272,9 @@ async def get_sentiment_analysis(
     """获取股票的社媒情绪分析"""
     try:
         service = await get_social_media_service()
-        
+
         # 计算时间范围
-        end_time = datetime.utcnow()
+        end_time = now_utc()
         start_time = end_time - timedelta(hours=hours_back)
         
         # 查询消息

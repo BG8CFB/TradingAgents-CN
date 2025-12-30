@@ -10,6 +10,7 @@ from langchain_core.runnables import Runnable
 
 from tradingagents.utils.logging_init import get_logger
 from tradingagents.utils.stock_utils import StockUtils
+from tradingagents.utils.time_utils import now_utc
 
 logger = get_logger("agents.generic")
 
@@ -87,13 +88,56 @@ class GenericAgent:
                 # 直接从 langgraph.prebuilt 导入，因为 GenericAgent 基于 LangGraph 构建
                 from langgraph.prebuilt import create_react_agent
 
+                # 🔥 修复：创建动态系统提示词函数
+                # LangGraph 的 create_react_agent 会在每次调用时自动调用这个函数来生成系统提示词
+                def create_dynamic_prompt(state):
+                    """动态生成系统提示词"""
+                    current_date = state.get("trade_date", "")
+                    ticker = state.get("company_of_interest", "")
+
+                    # 获取公司名称
+                    try:
+                        from tradingagents.utils.stock_utils import StockUtils
+                        market_info = StockUtils.get_market_info(ticker)
+                        company_name = self._get_company_name(ticker, market_info)
+                    except Exception:
+                        company_name = ticker
+
+                    # 替换占位符
+                    system_msg_content = self.system_message_template
+                    system_msg_content = system_msg_content.replace("{current_date}", str(current_date))
+                    system_msg_content = system_msg_content.replace("{ticker}", str(ticker))
+                    system_msg_content = system_msg_content.replace("{company_name}", str(company_name))
+
+                    # 补充上下文
+                    context_info = (
+                        f"\n\n当前上下文信息:\n"
+                        f"当前日期: {current_date}\n"
+                        f"股票代码: {ticker}\n"
+                        f"公司名称: {company_name}\n"
+                        f"请用中文回答。\n\n"
+                        f"⚠️ 重要指令：\n"
+                        f"1. 如果工具调用失败（返回错误信息），请在报告中如实记录失败原因，**严禁编造**虚假数据。\n"
+                        f"2. 即使没有获取到完整数据，也请根据已知信息生成一份包含【错误说明】的报告。\n"
+                        f"3. 你的报告将被用于最终汇总，请确保信息的真实性和准确性。\n"
+                        f"4. **禁止死循环**：\n"
+                        f"   - 每次调用工具前，请仔细检查上方对话历史。\n"
+                        f"   - **严禁**使用完全相同的参数连续两次调用同一个工具。\n"
+                        f"   - 如果连续 3 次尝试均未获得有效信息，请立即停止尝试。\n"
+                        f"5. **最终输出**：必须包含具体的分析结论，不要只列出数据。"
+                    )
+                    system_msg_content += context_info
+
+                    return system_msg_content
+
                 # 使用官方 create_react_agent 创建标准执行器
-                # 不在此处传递 state_modifier，而在 run 中通过 messages 传递动态系统提示词
+                # 传递 prompt 函数，LangGraph 会自动将其包装为 SystemMessage
                 self.agent_executor = create_react_agent(
                     model=llm,
-                    tools=tools
+                    tools=tools,
+                    prompt=create_dynamic_prompt  # 🔥 添加动态提示词函数
                 )
-                logger.info(f"[{name}] ✅ LangGraph ReAct Agent Executor 初始化成功")
+                logger.info(f"[{name}] ✅ LangGraph ReAct Agent Executor 初始化成功（支持动态系统提示词）")
             except Exception as e:
                 logger.error(f"[{name}] ❌ Agent Executor 初始化失败: {e}")
                 self.agent_executor = None
@@ -137,7 +181,7 @@ class GenericAgent:
             return f"股票{ticker}"
 
     def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        start_time = datetime.now()
+        start_time = now_utc()
 
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
@@ -153,40 +197,13 @@ class GenericAgent:
         final_report = ""
         executed_tool_calls = 0
 
-        # 动态构建系统提示词
-        if not self.system_message_template:
-            raise ValueError(f"智能体 [{self.name}] ({self.slug}) 缺少系统提示词配置(system_message_template)。请检查配置文件。")
-        
-        system_msg_content = self.system_message_template
-        # 简单替换常用占位符
-        system_msg_content = system_msg_content.replace("{current_date}", str(current_date))
-        system_msg_content = system_msg_content.replace("{ticker}", str(ticker))
-        system_msg_content = system_msg_content.replace("{company_name}", str(company_name))
-
-        # 补充上下文
-        context_info = (
-            f"\n\n当前上下文信息:\n"
-            f"当前日期: {current_date}\n"
-            f"股票代码: {ticker}\n"
-            f"请用中文回答。\n\n"
-            f"⚠️ 重要指令：\n"
-            f"1. 如果工具调用失败（返回错误信息），请在报告中如实记录失败原因，**严禁编造**虚假数据。\n"
-            f"2. 即使没有获取到完整数据，也请根据已知信息生成一份包含“错误说明”的报告。\n"
-            f"3. 你的报告将被用于最终汇总，请确保信息的真实性和准确性。\n"
-            f"4. **禁止死循环**：\n"
-            f"   - 每次调用工具前，请仔细检查上方对话历史。\n"
-            f"   - **严禁**使用完全相同的参数连续两次调用同一个工具。\n"
-            f"   - 如果连续 3 次尝试均未获得有效信息，请立即停止尝试。\n"
-            f"4. **最终输出**：必须包含具体的分析结论，不要只列出数据。"
-        )
-        system_msg_content += context_info
+        # 🔥 修复：系统提示词现在由 create_dynamic_prompt 函数在初始化时处理
+        # 这里只需要准备输入消息（不含 SystemMessage）
 
         # 构造输入消息列表
         input_messages = []
-        # 1. 添加系统消息
-        input_messages.append(SystemMessage(content=system_msg_content))
 
-        # 2. 添加历史消息
+        # 1. 添加历史消息
         history_messages = list(state.get("messages", []))
         if history_messages:
             input_messages.extend(history_messages)
@@ -316,7 +333,7 @@ class GenericAgent:
                  logger.error(f"[{self.name}] LLM 调用失败: {e}")
                  final_report = f"# ❌ 分析失败\n\nLLM 调用失败。\n\n**错误详情**:\n{str(e)}"
 
-        total_time = (datetime.now() - start_time).total_seconds()
+        total_time = (now_utc() - start_time).total_seconds()
         logger.info(f"[{self.name}] 完成，耗时 {total_time:.2f}s")
 
         # 构造返回字典

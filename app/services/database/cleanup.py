@@ -7,11 +7,12 @@ from datetime import datetime, timedelta
 from typing import Any, Dict
 
 from app.core.database import get_mongo_db
+from app.utils.timezone import now_utc
 
 
 async def cleanup_old_data(days: int) -> Dict[str, Any]:
     db = get_mongo_db()
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = now_utc() - timedelta(days=days)
 
     deleted_count = 0
     cleaned_collections = []
@@ -43,7 +44,7 @@ async def cleanup_old_data(days: int) -> Dict[str, Any]:
 
 async def cleanup_analysis_results(days: int) -> Dict[str, Any]:
     db = get_mongo_db()
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = now_utc() - timedelta(days=days)
 
     deleted_count = 0
     cleaned_collections = []
@@ -70,7 +71,7 @@ async def cleanup_analysis_results(days: int) -> Dict[str, Any]:
 
 async def cleanup_operation_logs(days: int) -> Dict[str, Any]:
     db = get_mongo_db()
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = now_utc() - timedelta(days=days)
 
     deleted_count = 0
     cleaned_collections = []

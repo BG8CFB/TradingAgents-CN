@@ -7,6 +7,8 @@ from datetime import datetime, date
 import logging
 import pandas as pd
 
+from tradingagents.utils.time_utils import now_utc
+
 
 class BaseStockDataProvider(ABC):
     """
@@ -152,7 +154,7 @@ class BaseStockDataProvider(ABC):
             # 元数据
             "data_source": self.provider_name.lower(),
             "data_version": 1,
-            "updated_at": datetime.utcnow()
+            "updated_at": now_utc()
         }
     
     def standardize_quotes(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -192,12 +194,12 @@ class BaseStockDataProvider(ABC):
             
             # 时间数据
             "trade_date": self._format_date_output(raw_data.get("trade_date")),
-            "timestamp": datetime.utcnow(),
-            
+            "timestamp": now_utc(),
+
             # 元数据
             "data_source": self.provider_name.lower(),
             "data_version": 1,
-            "updated_at": datetime.utcnow()
+            "updated_at": now_utc()
         }
     
     # ==================== 辅助方法 ====================
@@ -205,12 +207,13 @@ class BaseStockDataProvider(ABC):
     def _determine_market_info(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """确定市场信息"""
         # 默认实现，子类可以重写
+        from tradingagents.config.runtime_settings import get_timezone_name
         return {
             "market": "CN",
             "exchange": "UNKNOWN",
             "exchange_name": "未知交易所",
             "currency": "CNY",
-            "timezone": "Asia/Shanghai"
+            "timezone": get_timezone_name()
         }
     
     def _determine_market(self, raw_data: Dict[str, Any]) -> str:

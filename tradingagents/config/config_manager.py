@@ -43,6 +43,7 @@ from tradingagents.utils.logging_init import get_logger
 from tradingagents.utils.logging_manager import get_logger
 # 运行时设置：读取系统时区
 from tradingagents.config.runtime_settings import get_timezone_name
+from tradingagents.utils.time_utils import now_config_tz, format_iso
 logger = get_logger('agents')
 
 # 导入数据模型（避免循环导入）
@@ -405,7 +406,7 @@ class ConfigManager:
         cost, currency = self.calculate_cost(provider, model_name, input_tokens, output_tokens)
 
         record = UsageRecord(
-            timestamp=datetime.now(ZoneInfo(get_timezone_name())).isoformat(),
+            timestamp=now_config_tz().isoformat(),
             provider=provider,
             model_name=model_name,
             input_tokens=input_tokens,
@@ -601,7 +602,7 @@ class ConfigManager:
         # 过滤最近N天的记录
         from datetime import datetime, timedelta
 
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = now_utc() - timedelta(days=days)
         
         recent_records = []
         for record in records:
@@ -721,7 +722,7 @@ class TokenTracker:
                    output_tokens: int, session_id: str = None, analysis_type: str = "stock_analysis"):
         """跟踪Token使用"""
         if session_id is None:
-            session_id = f"session_{datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y%m%d_%H%M%S')}"
+            session_id = f"session_{now_config_tz().strftime('%Y%m%d_%H%M%S')}"
 
         # 检查是否启用成本跟踪
         settings = self.config_manager.load_settings()

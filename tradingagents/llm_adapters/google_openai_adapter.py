@@ -15,6 +15,7 @@ from ..config.config_manager import token_tracker
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
+from tradingagents.utils.time_utils import get_current_date
 logger = get_logger('agents')
 
 
@@ -225,10 +226,10 @@ class ChatGoogleOpenAI(ChatGoogleGenerativeAI):
     
     def _enhance_news_content(self, content: str) -> str:
         """增强新闻内容，添加必要的格式化信息"""
-        
+
         import datetime
-        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
-        
+        current_date = get_current_date()
+
         # 如果内容缺少必要的新闻特征，添加它们
         enhanced_content = content
         

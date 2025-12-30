@@ -10,6 +10,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, HTTPExcept
 from datetime import datetime
 
 from app.services.auth_service import AuthService
+from tradingagents.utils.time_utils import now_utc, format_iso
 
 router = APIRouter()
 logger = logging.getLogger("webapi.websocket")
@@ -147,11 +148,11 @@ async def websocket_notifications_endpoint(
         "type": "connected",
         "data": {
             "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": format_iso(now_utc()),
             "message": "WebSocket 连接成功"
         }
     })
-    
+
     try:
         # 心跳任务
         async def send_heartbeat():
@@ -161,7 +162,7 @@ async def websocket_notifications_endpoint(
                     await websocket.send_json({
                         "type": "heartbeat",
                         "data": {
-                            "timestamp": datetime.utcnow().isoformat()
+                            "timestamp": format_iso(now_utc())
                         }
                     })
                 except Exception as e:
@@ -239,7 +240,7 @@ async def websocket_task_progress_endpoint(
         "type": "connected",
         "data": {
             "task_id": task_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": format_iso(now_utc()),
             "message": "已连接任务进度流"
         }
     })

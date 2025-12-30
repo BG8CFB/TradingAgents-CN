@@ -15,6 +15,7 @@ from tradingagents.config.runtime_settings import get_timezone_name
 import os
 
 from tradingagents.config.runtime_settings import get_float, get_int
+from tradingagents.utils.time_utils import now_config_tz
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
@@ -63,9 +64,9 @@ class HKStockProvider:
 
             # 设置默认日期
             if not end_date:
-                end_date = datetime.now(ZoneInfo(get_timezone_name())).strftime('%Y-%m-%d')
+                end_date = now_config_tz().strftime('%Y-%m-%d')
             if not start_date:
-                start_date = (datetime.now(ZoneInfo(get_timezone_name())) - timedelta(days=365)).strftime('%Y-%m-%d')
+                start_date = (now_config_tz() - timedelta(days=365)).strftime('%Y-%m-%d')
 
             logger.info(f"🇭🇰 获取港股数据: {symbol} ({start_date} 到 {end_date})")
 

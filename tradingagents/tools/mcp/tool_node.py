@@ -8,6 +8,7 @@ ToolNode 错误处理和工厂函数
 import logging
 import traceback
 from datetime import datetime
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from typing import List, Any, Callable, Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def create_error_handler(
         Returns:
             格式化的中文错误消息
         """
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = now_utc().strftime("%Y-%m-%d %H:%M:%S")
         error_type = type(e).__name__
         error_msg = str(e)
         

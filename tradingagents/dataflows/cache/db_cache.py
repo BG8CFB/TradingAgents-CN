@@ -11,6 +11,7 @@ import hashlib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from tradingagents.config.runtime_settings import get_timezone_name
+from tradingagents.utils.time_utils import now_config_tz, format_date_short
 
 from typing import Optional, Dict, Any, List, Union
 import pandas as pd
@@ -222,8 +223,8 @@ class DatabaseCacheManager:
             "start_date": start_date,
             "end_date": end_date,
             "data_source": data_source,
-            "created_at": datetime.now(ZoneInfo(get_timezone_name())),
-            "updated_at": datetime.now(ZoneInfo(get_timezone_name()))
+            "created_at": now_config_tz(),
+            "updated_at": now_config_tz()
         }
 
         # 处理数据格式
@@ -340,7 +341,7 @@ class DatabaseCacheManager:
         if self.mongodb_db is not None:
             try:
                 collection = self.mongodb_db.stock_data
-                cutoff_time = datetime.now(ZoneInfo(get_timezone_name())) - timedelta(hours=max_age_hours)
+                cutoff_time = now_config_tz() - timedelta(hours=max_age_hours)
 
                 query = {
                     "symbol": symbol,
@@ -385,8 +386,8 @@ class DatabaseCacheManager:
             "end_date": end_date,
             "data_source": data_source,
             "data": news_data,
-            "created_at": datetime.now(ZoneInfo(get_timezone_name())),
-            "updated_at": datetime.now(ZoneInfo(get_timezone_name()))
+            "created_at": now_config_tz(),
+            "updated_at": now_config_tz()
         }
 
         # 保存到MongoDB
@@ -423,7 +424,7 @@ class DatabaseCacheManager:
                               data_source: str = "unknown") -> str:
         """保存基本面数据到MongoDB和Redis"""
         if not analysis_date:
-            analysis_date = datetime.now(ZoneInfo(get_timezone_name())).strftime("%Y-%m-%d")
+            analysis_date = now_config_tz().strftime("%Y-%m-%d")
 
         cache_key = self._generate_cache_key("fundamentals", symbol,
                                            date=analysis_date,
@@ -436,8 +437,8 @@ class DatabaseCacheManager:
             "analysis_date": analysis_date,
             "data_source": data_source,
             "data": fundamentals_data,
-            "created_at": datetime.now(ZoneInfo(get_timezone_name())),
-            "updated_at": datetime.now(ZoneInfo(get_timezone_name()))
+            "created_at": now_config_tz(),
+            "updated_at": now_config_tz()
         }
 
         # 保存到MongoDB
@@ -537,7 +538,7 @@ class DatabaseCacheManager:
 
     def clear_old_cache(self, max_age_days: int = 7):
         """清理过期缓存"""
-        cutoff_time = datetime.now(ZoneInfo(get_timezone_name())) - timedelta(days=max_age_days)
+        cutoff_time = now_config_tz() - timedelta(days=max_age_days)
         cleared_count = 0
 
         # 清理MongoDB

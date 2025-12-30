@@ -14,12 +14,16 @@ from app.services.news_data_service import get_news_data_service
 from app.core.database import get_mongo_db
 from app.core.config import settings
 from app.core.rate_limiter import get_tushare_rate_limiter
-from app.utils.timezone import now_tz
+from app.utils.timezone import now_tz, now_utc, now_config_tz, format_date_short
+from tradingagents.utils.time_utils import now_utc as time_now_utc
+from tradingagents.config.runtime_settings import get_zoneinfo
 
 logger = logging.getLogger(__name__)
 
-# UTC+8 时区
-UTC_8 = timezone(timedelta(hours=8))
+# 使用配置的时区函数（替代手动定义的 UTC_8）
+def get_config_zoneinfo():
+    """获取配置的时区 ZoneInfo 对象"""
+    return get_zoneinfo()
 
 
 def get_utc8_now():
@@ -90,7 +94,7 @@ class TushareSyncService:
             "success_count": 0,
             "error_count": 0,
             "skipped_count": 0,
-            "start_time": datetime.utcnow(),
+            "start_time": now_utc(),
             "errors": []
         }
         
@@ -140,7 +144,7 @@ class TushareSyncService:
                     await asyncio.sleep(self.rate_limit_delay)
             
             # 3. 完成统计
-            stats["end_time"] = datetime.utcnow()
+            stats["end_time"] = now_utc()
             stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
             
             logger.info(f"✅ 股票基础信息同步完成: "
@@ -244,7 +248,7 @@ class TushareSyncService:
             "total_processed": 0,
             "success_count": 0,
             "error_count": 0,
-            "start_time": datetime.utcnow(),
+            "start_time": now_utc(),
             "errors": [],
             "stopped_by_rate_limit": False,
             "skipped_non_trading_time": False,
@@ -290,7 +294,7 @@ class TushareSyncService:
                     stats["error_count"] = akshare_result.get("error_count", 0)
                     stats["total_processed"] = akshare_result.get("total_processed", 0)
                     stats["errors"] = akshare_result.get("errors", [])
-                    stats["end_time"] = datetime.utcnow()
+                    stats["end_time"] = now_utc()
                     stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
 
                     logger.info(
@@ -365,7 +369,7 @@ class TushareSyncService:
             stats["error_count"] = error_count
 
             # 完成统计
-            stats["end_time"] = datetime.utcnow()
+            stats["end_time"] = now_utc()
             stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
 
             logger.info(f"✅ 实时行情同步完成: "
@@ -486,12 +490,10 @@ class TushareSyncService:
 
         注意：此方法不检查节假日，仅检查时间段
         """
-        from datetime import datetime
-        import pytz
+        from tradingagents.utils.time_utils import now_config_tz
 
-        # 使用上海时区
-        tz = pytz.timezone('Asia/Shanghai')
-        now = datetime.now(tz)
+        # 使用配置的时区
+        now = now_config_tz()
 
         # 检查是否是周末
         if now.weekday() >= 5:  # 5=周六, 6=周日
@@ -573,7 +575,7 @@ class TushareSyncService:
             "success_count": 0,
             "error_count": 0,
             "total_records": 0,
-            "start_time": datetime.utcnow(),
+            "start_time": now_utc(),
             "errors": []
         }
 
@@ -610,7 +612,7 @@ class TushareSyncService:
 
             # 2. 确定全局结束日期
             if not end_date:
-                end_date = datetime.now().strftime('%Y-%m-%d')
+                end_date = format_date_short(now_config_tz())
 
             # 3. 确定全局起始日期（仅用于日志显示）
             global_start_date = start_date
@@ -620,14 +622,14 @@ class TushareSyncService:
                 elif incremental:
                     global_start_date = "各股票最后日期"
                 else:
-                    global_start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+                    global_start_date = format_date_short(now_config_tz() - timedelta(days=365))
 
             logger.info(f"📊 历史数据同步: 结束日期={end_date}, 股票数量={len(symbols)}, 模式={'增量' if incremental else '全量'}")
 
             # 4. 批量处理
             for i, symbol in enumerate(symbols):
                 # 记录单个股票开始时间
-                stock_start_time = datetime.now()
+                stock_start_time = time_now_utc()
 
                 try:
                     # 检查是否需要退出
@@ -649,7 +651,7 @@ class TushareSyncService:
                             symbol_start_date = await self._get_last_sync_date(symbol)
                             logger.debug(f"📅 {symbol}: 从 {symbol_start_date} 开始同步")
                         else:
-                            symbol_start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+                            symbol_start_date = format_date_short(now_config_tz() - timedelta(days=365))
 
                     # 记录请求参数
                     logger.debug(
@@ -658,28 +660,28 @@ class TushareSyncService:
                     )
 
                     # ⏱️ 性能监控：API 调用
-                    api_start = datetime.now()
+                    api_start = time_now_utc()
                     df = await self.provider.get_historical_data(symbol, symbol_start_date, end_date, period=period)
-                    api_duration = (datetime.now() - api_start).total_seconds()
+                    api_duration = (time_now_utc() - api_start).total_seconds()
 
                     if df is not None and not df.empty:
                         # ⏱️ 性能监控：数据保存
-                        save_start = datetime.now()
+                        save_start = time_now_utc()
                         records_saved = await self._save_historical_data(symbol, df, period=period)
-                        save_duration = (datetime.now() - save_start).total_seconds()
+                        save_duration = (time_now_utc() - save_start).total_seconds()
 
                         stats["success_count"] += 1
                         stats["total_records"] += records_saved
 
                         # 计算单个股票耗时
-                        stock_duration = (datetime.now() - stock_start_time).total_seconds()
+                        stock_duration = (time_now_utc() - stock_start_time).total_seconds()
                         logger.info(
                             f"✅ {symbol}: 保存 {records_saved} 条{period_name}记录，"
                             f"总耗时 {stock_duration:.2f}秒 "
                             f"(API: {api_duration:.2f}秒, 保存: {save_duration:.2f}秒)"
                         )
                     else:
-                        stock_duration = (datetime.now() - stock_start_time).total_seconds()
+                        stock_duration = (time_now_utc() - stock_start_time).total_seconds()
                         logger.warning(
                             f"⚠️ {symbol}: 无{period_name}数据 "
                             f"(start={symbol_start_date}, end={end_date})，耗时 {stock_duration:.2f}秒"
@@ -728,7 +730,7 @@ class TushareSyncService:
                     )
 
             # 4. 完成统计
-            stats["end_time"] = datetime.utcnow()
+            stats["end_time"] = now_utc()
             stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
 
             logger.info(f"✅ {period_name}数据同步完成: "
@@ -826,12 +828,12 @@ class TushareSyncService:
                     return "1990-01-01"
 
             # 默认返回30天前（确保不漏数据）
-            return (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            return format_date_short(now_config_tz() - timedelta(days=30))
 
         except Exception as e:
             logger.error(f"❌ 获取最后同步日期失败 {symbol}: {e}")
             # 出错时返回30天前，确保不漏数据
-            return (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            return format_date_short(now_config_tz() - timedelta(days=30))
 
     # ==================== 财务数据同步 ====================
 
@@ -850,7 +852,7 @@ class TushareSyncService:
             "total_processed": 0,
             "success_count": 0,
             "error_count": 0,
-            "start_time": datetime.utcnow(),
+            "start_time": now_utc(),
             "errors": []
         }
 
@@ -916,7 +918,7 @@ class TushareSyncService:
                             except TaskCancelledException:
                                 # 任务被取消，记录并退出
                                 logger.warning(f"⚠️ 财务数据同步任务被用户取消 (已处理 {i + 1}/{len(symbols)})")
-                                stats["end_time"] = datetime.utcnow()
+                                stats["end_time"] = now_utc()
                                 stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
                                 stats["cancelled"] = True
                                 raise
@@ -931,7 +933,7 @@ class TushareSyncService:
                     logger.error(f"❌ {symbol} 财务数据同步失败: {e}")
 
             # 完成统计
-            stats["end_time"] = datetime.utcnow()
+            stats["end_time"] = now_utc()
             stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
 
             logger.info(f"✅ 财务数据同步完成: "
@@ -977,7 +979,7 @@ class TushareSyncService:
         if not updated_at:
             return False
 
-        threshold = datetime.utcnow() - timedelta(hours=hours)
+        threshold = now_utc() - timedelta(hours=hours)
         return updated_at > threshold
 
     async def get_sync_status(self) -> Dict[str, Any]:
@@ -1009,7 +1011,7 @@ class TushareSyncService:
                         "latest_update": latest_quotes.get("updated_at") if (latest_quotes and isinstance(latest_quotes, dict)) else None
                     }
                 },
-                "status_time": datetime.utcnow()
+                "status_time": now_utc()
             }
 
         except Exception as e:
@@ -1046,7 +1048,7 @@ class TushareSyncService:
             "success_count": 0,
             "error_count": 0,
             "news_count": 0,
-            "start_time": datetime.utcnow(),
+            "start_time": now_utc(),
             "errors": []
         }
 
@@ -1101,7 +1103,7 @@ class TushareSyncService:
                     await asyncio.sleep(self.rate_limit_delay)
 
             # 3. 完成统计
-            stats["end_time"] = datetime.utcnow()
+            stats["end_time"] = now_utc()
             stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
 
             logger.info(f"✅ 新闻数据同步完成: "

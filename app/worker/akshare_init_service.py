@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from app.core.database import get_mongo_db
 from app.worker.akshare_sync_service import get_akshare_sync_service
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ class AKShareInitService:
         total_steps = 1 + len(sync_items) + 1
 
         self.stats = AKShareInitializationStats(
-            started_at=datetime.utcnow(),
+            started_at=now_utc(),
             total_steps=total_steps
         )
 
@@ -163,7 +164,7 @@ class AKShareInitService:
             # 最后: 验证数据完整性
             await self._step_verify_data_integrity()
             
-            self.stats.finished_at = datetime.utcnow()
+            self.stats.finished_at = now_utc()
             duration = (self.stats.finished_at - self.stats.started_at).total_seconds()
             
             logger.info(f"🎉 AKShare数据初始化完成！耗时: {duration:.2f}秒")
@@ -175,7 +176,7 @@ class AKShareInitService:
             self.stats.errors.append({
                 "step": self.stats.current_step,
                 "error": str(e),
-                "timestamp": datetime.utcnow()
+                "timestamp": now_utc()
             })
             return self._get_initialization_summary()
     
@@ -221,14 +222,14 @@ class AKShareInitService:
         logger.info(f"📊 {self.stats.current_step}...")
 
         # 计算日期范围
-        end_date = datetime.now().strftime('%Y-%m-%d')
+        end_date = format_date_short(now_config_tz())
 
         # 如果 historical_days 大于等于10年（3650天），则同步全历史
         if historical_days >= 3650:
             start_date = "1990-01-01"  # 全历史同步
             logger.info(f"  历史数据范围: 全历史（从1990-01-01到{end_date}）")
         else:
-            start_date = (datetime.now() - timedelta(days=historical_days)).strftime('%Y-%m-%d')
+            start_date = format_date_short(now_config_tz() - timedelta(days=historical_days))
             logger.info(f"  历史数据范围: {start_date} 到 {end_date}")
 
         # 同步历史数据
@@ -252,14 +253,14 @@ class AKShareInitService:
         logger.info(f"📊 {self.stats.current_step}...")
 
         # 计算日期范围
-        end_date = datetime.now().strftime('%Y-%m-%d')
+        end_date = format_date_short(now_config_tz())
 
         # 如果 historical_days 大于等于10年（3650天），则同步全历史
         if historical_days >= 3650:
             start_date = "1990-01-01"  # 全历史同步
             logger.info(f"  周线数据范围: 全历史（从1990-01-01到{end_date}）")
         else:
-            start_date = (datetime.now() - timedelta(days=historical_days)).strftime('%Y-%m-%d')
+            start_date = format_date_short(now_config_tz() - timedelta(days=historical_days))
             logger.info(f"  周线数据范围: {start_date} 到 {end_date}")
 
         try:
@@ -288,14 +289,14 @@ class AKShareInitService:
         logger.info(f"📊 {self.stats.current_step}...")
 
         # 计算日期范围
-        end_date = datetime.now().strftime('%Y-%m-%d')
+        end_date = format_date_short(now_config_tz())
 
         # 如果 historical_days 大于等于10年（3650天），则同步全历史
         if historical_days >= 3650:
             start_date = "1990-01-01"  # 全历史同步
             logger.info(f"  月线数据范围: 全历史（从1990-01-01到{end_date}）")
         else:
-            start_date = (datetime.now() - timedelta(days=historical_days)).strftime('%Y-%m-%d')
+            start_date = format_date_short(now_config_tz() - timedelta(days=historical_days))
             logger.info(f"  月线数据范围: {start_date} 到 {end_date}")
 
         try:

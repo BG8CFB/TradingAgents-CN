@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from app.routers.auth_db import get_current_user
 from app.services.operation_log_service import get_operation_log_service
+from app.utils.timezone import now_config_tz, format_date_compact
 from app.models.operation_log import (
     OperationLogQuery,
     OperationLogListResponse,
@@ -254,7 +255,7 @@ async def export_logs_csv(
         
         # 返回CSV文件
         from datetime import datetime
-        filename = f"operation_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = f"operation_logs_{format_date_compact(now_config_tz())}_{now_config_tz().strftime('%H%M%S')}.csv"
         
         return StreamingResponse(
             io.BytesIO(output.getvalue().encode('utf-8-sig')),

@@ -507,9 +507,9 @@ def get_hk_stock_data_akshare(symbol: str, start_date: str = None, end_date: str
 
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y-%m-%d')
+            end_date = format_date_short(now_config_tz())
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+            start_date = (now_utc() - timedelta(days=365)).strftime('%Y-%m-%d')
 
         logger.info(f"🔄 [AKShare-新浪] 获取港股历史数据: {symbol} ({start_date} ~ {end_date})")
 
@@ -680,6 +680,7 @@ def get_hk_stock_info_akshare(symbol: str) -> Dict[str, Any]:
     try:
         import akshare as ak
         from datetime import datetime
+        from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
         # 标准化代码
         provider = get_improved_hk_provider()
@@ -708,7 +709,7 @@ def get_hk_stock_info_akshare(symbol: str) -> Dict[str, Any]:
                 logger.info(f"✅ [AKShare锁-{thread_id}] 已获取锁")
 
                 # 获取锁后，检查缓存是否已被其他线程更新
-                now = datetime.now()
+                now = now_utc()
                 cache = _akshare_hk_spot_cache
 
                 if cache['data'] is not None and cache['timestamp'] is not None:

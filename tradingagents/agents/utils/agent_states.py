@@ -1,10 +1,11 @@
 from typing import Annotated, Sequence
 from datetime import date, timedelta, datetime
-from typing_extensions import TypedDict, Optional
+from typing_extensions import TypedDict, Optional, NotRequired
 from langchain_openai import ChatOpenAI
 from tradingagents.agents import *
 from langgraph.prebuilt import ToolNode
 from langgraph.graph import END, StateGraph, START, MessagesState
+from langgraph.managed import RemainingSteps  # 🔥 新增：用于防止无限循环
 
 # 导入统一日志系统
 from tradingagents.utils.logging_init import get_logger
@@ -77,6 +78,11 @@ def update_reports(existing: dict, new: dict) -> dict:
 
 
 class AgentState(MessagesState):
+    # 🔥 新增：LangGraph ReAct Agent 要求的 remaining_steps 字段
+    # 使用 NotRequired[RemainingSteps] annotation 自动管理剩余步数，防止无限循环
+    # 参考：LangGraph 默认 AgentState 定义（chat_agent_executor.py:62）
+    remaining_steps: NotRequired[RemainingSteps]
+
     company_of_interest: Annotated[str, "Company that we are interested in trading"]
     trade_date: Annotated[str, "What date we are trading at"]
 

@@ -8,9 +8,8 @@ import time
 import functools
 from typing import Any, Dict, Optional, Callable
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from tradingagents.config.runtime_settings import get_timezone_name
-
+from tradingagents.utils.time_utils import now_config_tz
 
 from tradingagents.utils.logging_init import get_logger
 
@@ -60,7 +59,7 @@ def log_tool_call(tool_name: Optional[str] = None, log_args: bool = True, log_re
                 extra={
                     'tool_name': name,
                     'event_type': 'tool_call_start',
-                    'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat(),
+                    'timestamp': now_config_tz().isoformat(),
                     'args_info': args_info if log_args else None
                 }
             )
@@ -86,7 +85,7 @@ def log_tool_call(tool_name: Optional[str] = None, log_args: bool = True, log_re
                         'event_type': 'tool_call_success',
                         'duration': duration,
                         'result_info': result_info if log_result else None,
-                        'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+                        'timestamp': now_config_tz().isoformat()
                     }
                 )
 
@@ -104,7 +103,7 @@ def log_tool_call(tool_name: Optional[str] = None, log_args: bool = True, log_re
                         'event_type': 'tool_call_error',
                         'duration': duration,
                         'error': str(e),
-                        'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+                        'timestamp': now_config_tz().isoformat()
                     },
                     exc_info=True
                 )
@@ -148,7 +147,7 @@ def log_data_source_call(source_name: str):
                     'data_source': source_name,
                     'symbol': symbol,
                     'event_type': 'data_source_call',
-                    'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+                    'timestamp': now_config_tz().isoformat()
                 }
             )
 
@@ -168,7 +167,7 @@ def log_data_source_call(source_name: str):
                             'event_type': 'data_source_success',
                             'duration': duration,
                             'data_size': len(str(result)) if result else 0,
-                            'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+                            'timestamp': now_config_tz().isoformat()
                         }
                     )
                 else:
@@ -179,7 +178,7 @@ def log_data_source_call(source_name: str):
                             'symbol': symbol,
                             'event_type': 'data_source_failure',
                             'duration': duration,
-                            'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+                            'timestamp': now_config_tz().isoformat()
                         }
                     )
 
@@ -196,7 +195,7 @@ def log_data_source_call(source_name: str):
                         'event_type': 'data_source_error',
                         'duration': duration,
                         'error': str(e),
-                        'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+                        'timestamp': now_config_tz().isoformat()
                     },
                     exc_info=True
                 )
@@ -227,7 +226,7 @@ def log_llm_call(provider: str, model: str):
                     'llm_provider': provider,
                     'llm_model': model,
                     'event_type': 'llm_call_start',
-                    'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+                    'timestamp': now_config_tz().isoformat()
                 }
             )
 
@@ -242,7 +241,7 @@ def log_llm_call(provider: str, model: str):
                         'llm_model': model,
                         'event_type': 'llm_call_success',
                         'duration': duration,
-                        'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+                        'timestamp': now_config_tz().isoformat()
                     }
                 )
 
@@ -259,7 +258,7 @@ def log_llm_call(provider: str, model: str):
                         'event_type': 'llm_call_error',
                         'duration': duration,
                         'error': str(e),
-                        'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+                        'timestamp': now_config_tz().isoformat()
                     },
                     exc_info=True
                 )
@@ -283,7 +282,7 @@ def log_tool_usage(tool_name: str, symbol: str = None, **extra_data):
     extra = {
         'tool_name': tool_name,
         'event_type': 'tool_usage',
-        'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat(),
+        'timestamp': now_config_tz().isoformat(),
         **extra_data
     }
 
@@ -306,7 +305,7 @@ def log_analysis_step(step_name: str, symbol: str, **extra_data):
         'step_name': step_name,
         'symbol': symbol,
         'event_type': 'analysis_step',
-        'timestamp': datetime.now(ZoneInfo(get_timezone_name())).isoformat(),
+        'timestamp': now_config_tz().isoformat(),
         **extra_data
     }
 

@@ -5,11 +5,13 @@
 """
 import logging
 from datetime import datetime, timezone
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from typing import Dict, Any, List, Optional
 import pandas as pd
 from pymongo import ReplaceOne
 
 from app.core.database import get_mongo_db
+from tradingagents.utils.time_utils import now_utc, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -279,7 +281,7 @@ class FinancialDataService:
                 "total_records": total_records,
                 "total_symbols": len(total_symbols),
                 "by_source": stats,
-                "last_updated": datetime.utcnow().isoformat()
+                "last_updated": format_iso(now_utc())
             }
             
         except Exception as e:
@@ -297,7 +299,7 @@ class FinancialDataService:
     ) -> Optional[Dict[str, Any]]:
         """标准化财务数据"""
         try:
-            now = datetime.now(timezone.utc)
+            now = now_utc()
             
             # 根据数据源进行不同的标准化处理
             if data_source == "tushare":
@@ -480,7 +482,7 @@ class FinancialDataService:
     
     def _generate_current_period(self) -> str:
         """生成当前报告期"""
-        now = datetime.now()
+        now = now_utc()
         year = now.year
         month = now.month
         

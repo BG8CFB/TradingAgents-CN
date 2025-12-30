@@ -12,6 +12,7 @@ from app.services.news_data_service import get_news_data_service
 from tradingagents.dataflows.providers.china.tushare import get_tushare_provider
 from tradingagents.dataflows.providers.china.akshare import get_akshare_provider
 from tradingagents.dataflows.news.realtime_news import RealtimeNewsAggregator
+from app.utils.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class NewsSyncStats:
     failed_saves: int = 0
     duplicate_skipped: int = 0
     sources_used: List[str] = field(default_factory=list)
-    start_time: datetime = field(default_factory=datetime.utcnow)
+    start_time: datetime = field(default_factory=now_utc)
     end_time: Optional[datetime] = None
     
     @property
@@ -172,12 +173,12 @@ class NewsDataSyncService:
                 
                 self.logger.info(f"💾 {symbol} 新闻同步完成: {saved_count}条保存成功")
             
-            stats.end_time = datetime.utcnow()
+            stats.end_time = now_utc()
             return stats
             
         except Exception as e:
             self.logger.error(f"❌ 同步股票新闻失败 {symbol}: {e}")
-            stats.end_time = datetime.utcnow()
+            stats.end_time = now_utc()
             return stats
     
     async def _sync_tushare_news(
@@ -497,12 +498,12 @@ class NewsDataSyncService:
                 
                 self.logger.info(f"💾 市场新闻同步完成: {saved_count}条保存成功")
             
-            stats.end_time = datetime.utcnow()
+            stats.end_time = now_utc()
             return stats
             
         except Exception as e:
             self.logger.error(f"❌ 同步市场新闻失败: {e}")
-            stats.end_time = datetime.utcnow()
+            stats.end_time = now_utc()
             return stats
 
 

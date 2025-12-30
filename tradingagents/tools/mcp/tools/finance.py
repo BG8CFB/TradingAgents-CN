@@ -2,18 +2,34 @@
 MCP Finance Tools
 
 Implements the 17 finance tools defined in FinanceMCP_Tools_Reference.md.
+
+并发安全：使用线程本地存储，每个线程有独立的 DataSourceManager 实例
 """
 import logging
 import json
 import re
+import threading
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from tradingagents.dataflows.manager import DataSourceManager
+from tradingagents.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 
 logger = logging.getLogger(__name__)
 
-# Global manager instance (lazy loaded or initialized here)
-_manager = DataSourceManager()
+# 线程本地存储，每个线程有独立的 manager 实例
+_thread_local = threading.local()
+
+def get_manager() -> DataSourceManager:
+    """获取当前线程的 DataSourceManager 实例（线程安全）"""
+    if not hasattr(_thread_local, 'manager'):
+        _thread_local.manager = DataSourceManager()
+        logger.debug(f"创建新的 DataSourceManager 实例 (线程: {threading.current_thread().name})")
+    return _thread_local.manager
+
+# 向后兼容的全局引用（实际上调用线程安全版本）
+def _get_global_manager():
+    """向后兼容：获取全局 manager（已废弃，建议使用 get_manager()）"""
+    return get_manager()
 
 # --- 1. Stock Data ---
 
@@ -57,9 +73,9 @@ def get_stock_data(
 
         # 2. 设置默认日期
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            start_date = (now_utc() - timedelta(days=30)).strftime('%Y-%m-%d')
         if not end_date:
-            end_date = datetime.now().strftime('%Y-%m-%d')
+            end_date = get_current_date()
             
         # 3. 调用统一数据接口 (包含 Write-Through 逻辑)
         if is_china:
@@ -77,7 +93,7 @@ def get_stock_data(
             # from tradingagents.dataflows.providers.us.optimized import get_us_stock_data_cached
             # data = get_us_stock_data_cached(code, start_date, end_date)
             # Use manager to support AKShare fallback
-            data = _manager.get_stock_data(code, "us", start_date, end_date)
+            data = get_manager().get_stock_data(code, "us", start_date, end_date)
             return f"## 美股行情数据 ({code})\n{data}"
             
         return "Error: Unknown market type"
@@ -116,8 +132,8 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
             
             clean_code = stock_code.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
                                    .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
-            
-            thirty_days_ago = datetime.now() - timedelta(days=30)
+
+            thirty_days_ago = now_utc() - timedelta(days=30)
             query_list = [
                 {'symbol': clean_code, 'publish_time': {'$gte': thirty_days_ago}},
                 {'symbol': stock_code, 'publish_time': {'$gte': thirty_days_ago}},
@@ -133,7 +149,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
                             'title': item.get('title', '无标题'),
                             'content': item.get('content', '') or item.get('summary', ''),
                             'source': f"{item.get('source', '未知')} (DB)",
-                            'publish_time': item.get('publish_time', datetime.now()),
+                            'publish_time': item.get('publish_time', now_utc()),
                             'sentiment': item.get('sentiment', 'neutral'),
                             'url': item.get('url', '')
                         })
@@ -159,8 +175,8 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
                 # TushareProvider 需要确保初始化了 pro 接口
                 if hasattr(ts_provider, 'pro') and ts_provider.pro:
                     # 获取最近30天的新闻
-                    start_dt = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
-                    end_dt = datetime.now().strftime('%Y%m%d')
+                    start_dt = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
+                    end_dt = get_current_date_compact()
                     
                     df = ts_provider.pro.news(src='sina', symbol=clean_code, start_date=start_dt, end_date=end_dt)
                     if df is not None and not df.empty:
@@ -172,7 +188,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
                                  'title': row.get('title', '无标题'),
                                  'content': row.get('content', ''),
                                  'source': 'Tushare (Sina)',
-                                 'publish_time': row.get('datetime', datetime.now()),
+                                 'publish_time': row.get('datetime', now_utc()),
                                  'sentiment': 'neutral', # Tushare news doesn't provide sentiment
                                  'url': ''
                              })
@@ -207,7 +223,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
                         'title': item.get('title', ''),
                         'content': item.get('content', '') or item.get('summary', ''),
                         'source': f"{item.get('source', 'AKShare')}",
-                        'publish_time': item.get('publish_time', datetime.now()),
+                        'publish_time': item.get('publish_time', now_utc()),
                         'sentiment': item.get('sentiment', 'neutral'), # AKShare provider returns sentiment
                         'url': item.get('url', '')
                     })
@@ -221,7 +237,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
         try:
             from tradingagents.dataflows.interface import get_finnhub_news
             logger.info(f"🔄 尝试 Finnhub 新闻: {stock_code}")
-            current_date_str = datetime.now().strftime('%Y-%m-%d')
+            current_date_str = get_current_date()
             # get_finnhub_news(ticker, curr_date, look_back_days)
             finnhub_news_str = get_finnhub_news(stock_code, current_date_str, 7)
             
@@ -234,7 +250,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
                      'title': 'Finnhub News Summary',
                      'content': finnhub_news_str,
                      'source': 'Finnhub',
-                     'publish_time': datetime.now(),
+                     'publish_time': now_utc(),
                      'sentiment': 'neutral'
                  })
                  return news_list
@@ -245,7 +261,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
         try:
             from tradingagents.dataflows.interface import get_google_news
             logger.info(f"🔄 尝试 Google News: {stock_code}")
-            current_date_str = datetime.now().strftime('%Y-%m-%d')
+            current_date_str = get_current_date()
             # get_google_news(query, curr_date, look_back_days=7)
             google_news_str = get_google_news(stock_code, current_date_str, 7)
             
@@ -254,7 +270,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
                      'title': 'Google News Summary',
                      'content': google_news_str,
                      'source': 'Google News',
-                     'publish_time': datetime.now(),
+                     'publish_time': now_utc(),
                      'sentiment': 'neutral'
                  })
                  return news_list
@@ -267,9 +283,9 @@ def _format_news_list(news_list: list, source_label: str = None) -> str:
     """格式化新闻列表为 Markdown"""
     if not news_list:
         return "暂无新闻数据"
-        
+
     report = f"# 最新新闻 {'(' + source_label + ')' if source_label else ''}\n\n"
-    report += f"📅 查询时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    report += f"📅 查询时间: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n"
     report += f"📊 新闻数量: {len(news_list)} 条\n\n"
 
     for i, news in enumerate(news_list, 1):
@@ -277,7 +293,7 @@ def _format_news_list(news_list: list, source_label: str = None) -> str:
         content = news.get('content', '')
         source = news.get('source', '未知来源')
         # Handle datetime object or string
-        pub_time = news.get('publish_time', datetime.now())
+        pub_time = news.get('publish_time', now_utc())
         if isinstance(pub_time, datetime):
             pub_time_str = pub_time.strftime('%Y-%m-%d %H:%M')
         else:
@@ -346,7 +362,7 @@ def get_stock_news(
     # 返回无数据提示
     return f"""
 === 📰 新闻数据来源: 无可用数据源 ===
-获取时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+获取时间: {now_utc().strftime("%Y-%m-%d %H:%M:%S")}
 
 === ⚠️ 提示 ===
 无法获取 {stock_code} 的新闻数据。
@@ -376,14 +392,14 @@ def get_stock_fundamentals(
         格式化的基本面分析数据
     """
     logger.info(f"📊 [MCP基本面工具] 分析股票: {ticker}")
-    start_time = datetime.now()
+    start_time = now_utc()
 
     # 设置默认日期
     if not curr_date:
-        curr_date = datetime.now().strftime('%Y-%m-%d')
-    
+        curr_date = get_current_date()
+
     if not start_date:
-        start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+        start_date = (now_utc() - timedelta(days=10)).strftime('%Y-%m-%d')
     
     if not end_date:
         end_date = curr_date
@@ -481,7 +497,7 @@ def get_stock_fundamentals(
                 result_data.append(f"## 美股基本面信息\n⚠️ 获取失败: {e}")
 
         # 计算执行时间
-        execution_time = (datetime.now() - start_time).total_seconds()
+        execution_time = (now_utc() - start_time).total_seconds()
 
         # 组合所有数据
         combined_result = f"""# {ticker} 基本面分析
@@ -522,7 +538,7 @@ def get_stock_sentiment(
         格式化的情绪分析数据，包含情绪指数和社交媒体热度
     """
     logger.info(f"😊 [MCP情绪工具] 分析股票: {ticker}")
-    start_time = datetime.now()
+    start_time = now_utc()
 
     try:
         from tradingagents.utils.stock_utils import StockUtils
@@ -623,7 +639,7 @@ def get_stock_sentiment(
                 result_data.append(f"## 市场情绪分析\n暂无数据 (数据源访问异常)")
 
         # 计算执行时间
-        execution_time = (datetime.now() - start_time).total_seconds()
+        execution_time = (now_utc() - start_time).total_seconds()
 
         # 组合所有数据
         combined_result = f"""# {ticker} 市场情绪分析
@@ -665,10 +681,10 @@ def get_china_market_overview(
         格式化的市场概览数据，包含指数、板块和资金流向信息
     """
     logger.info(f"🇨🇳 [MCP中国市场工具] 获取市场概览")
-    start_time = datetime.now()
+    start_time = now_utc()
 
     if not date:
-        date = datetime.now().strftime('%Y-%m-%d')
+        date = get_current_date()
 
     result_sections = []
 
@@ -684,14 +700,14 @@ def get_china_market_overview(
             ('399006.SZ', 'sz399006', '创业板指')
         ]
 
-        # 1. 尝试使用 _manager.get_index_data (支持 DB -> Tushare -> AKShare)
+        # 1. 尝试使用 get_manager().get_index_data (支持 DB -> Tushare -> AKShare)
         # 注意：这里我们逐个获取，虽然效率略低但能复用现有的健壮逻辑
         try:
             for ts_code, ak_code, name in indices_to_fetch:
                 # 优先尝试 Tushare 格式代码
                 try:
                     # 使用 DataSourceManager 的逻辑
-                    index_result = _manager.get_index_data(code=ts_code, start_date=date, end_date=date)
+                    index_result = get_manager().get_index_data(code=ts_code, start_date=date, end_date=date)
                     
                     # 简单解析返回的 Markdown 表格获取收盘价
                     if index_result and "|" in index_result:
@@ -770,7 +786,7 @@ def get_china_market_overview(
             result_sections.append(f"## 板块表现\n\n⚠️ 获取失败: {e}")
 
     # 计算执行时间
-    execution_time = (datetime.now() - start_time).total_seconds()
+    execution_time = (now_utc() - start_time).total_seconds()
 
     # 组合结果
     combined_result = f"""# 中国A股市场概览
@@ -820,11 +836,11 @@ def get_stock_data_minutes(
     try:
         # 设置默认时间
         if not end_datetime:
-            end_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            end_datetime = now_utc().strftime('%Y-%m-%d %H:%M:%S')
         if not start_datetime:
-            start_datetime = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+            start_datetime = (now_utc() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
 
-        data = _manager.get_stock_data_minutes(
+        data = get_manager().get_stock_data_minutes(
             market_type=market_type,
             code=code,
             start_datetime=start_datetime,
@@ -861,11 +877,11 @@ def get_company_performance(
     try:
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = get_current_date_compact()
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=360)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=360)).strftime('%Y%m%d')
 
-        data = _manager.get_company_performance(
+        data = get_manager().get_company_performance(
             ts_code=ts_code,
             data_type=data_type,
             start_date=start_date,
@@ -903,11 +919,11 @@ def get_company_performance_hk(
     try:
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = get_current_date_compact()
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=360)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=360)).strftime('%Y%m%d')
 
-        data = _manager.get_company_performance(
+        data = get_manager().get_company_performance(
             ts_code=ts_code,
             data_type=data_type,
             start_date=start_date,
@@ -944,11 +960,11 @@ def get_company_performance_us(
     try:
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = get_current_date_compact()
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=360)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=360)).strftime('%Y%m%d')
 
-        data = _manager.get_company_performance(
+        data = get_manager().get_company_performance(
             ts_code=ts_code,
             data_type=data_type,
             start_date=start_date,
@@ -982,11 +998,11 @@ def get_macro_econ(
     try:
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = get_current_date_compact()
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
 
-        data = _manager.get_macro_econ(indicator=indicator, start_date=start_date, end_date=end_date)
+        data = get_manager().get_macro_econ(indicator=indicator, start_date=start_date, end_date=end_date)
         return _format_result(data, f"Macro: {indicator}")
     except Exception as e:
         logger.error(f"get_macro_econ failed: {e}")
@@ -1018,11 +1034,11 @@ def get_money_flow(
         # 设置默认日期 (如果未提供 trade_date)
         if not trade_date:
             if not end_date:
-                end_date = datetime.now().strftime('%Y%m%d')
+                end_date = get_current_date_compact()
             if not start_date:
-                start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+                start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
-        data = _manager.get_money_flow(
+        data = get_manager().get_money_flow(
             start_date=start_date,
             end_date=end_date,
             query_type=query_type,
@@ -1058,11 +1074,11 @@ def get_margin_trade(
     try:
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = get_current_date_compact()
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
-        data = _manager.get_margin_trade(
+        data = get_manager().get_margin_trade(
             data_type=data_type,
             start_date=start_date,
             end_date=end_date,
@@ -1099,11 +1115,11 @@ def get_fund_data(
     try:
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = get_current_date_compact()
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
 
-        data = _manager.get_fund_data(
+        data = get_manager().get_fund_data(
             ts_code=ts_code,
             data_type=data_type,
             start_date=start_date,
@@ -1121,16 +1137,16 @@ def get_fund_manager_by_name(
 ) -> str:
     """
     根据姓名获取基金经理信息。
-    
+
     Args:
         name: 基金经理姓名。
         ann_date: 公告日期 (YYYYMMDD)。
-        
+
     Returns:
         Markdown 格式的表格数据。
     """
     try:
-        data = _manager.get_fund_manager_by_name(name=name, ann_date=ann_date)
+        data = get_manager().get_fund_manager_by_name(name=name, ann_date=ann_date)
         return _format_result(data, f"Manager: {name}")
     except Exception as e:
         logger.error(f"get_fund_manager_by_name failed: {e}")
@@ -1157,11 +1173,11 @@ def get_index_data(
     try:
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = get_current_date_compact()
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
 
-        data = _manager.get_index_data(code=code, start_date=start_date, end_date=end_date)
+        data = get_manager().get_index_data(code=code, start_date=start_date, end_date=end_date)
         return _format_result(data, f"Index: {code}")
     except Exception as e:
         logger.error(f"get_index_data failed: {e}")
@@ -1186,11 +1202,11 @@ def get_csi_index_constituents(
     try:
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = get_current_date_compact()
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
-        data = _manager.get_csi_index_constituents(index_code=index_code, start_date=start_date, end_date=end_date)
+        data = get_manager().get_csi_index_constituents(index_code=index_code, start_date=start_date, end_date=end_date)
         return _format_result(data, f"CSI Constituents: {index_code}")
     except Exception as e:
         logger.error(f"get_csi_index_constituents failed: {e}")
@@ -1215,7 +1231,7 @@ def get_convertible_bond(
         Markdown 格式的表格数据。
     """
     try:
-        data = _manager.get_convertible_bond(
+        data = get_manager().get_convertible_bond(
             data_type=data_type,
             ts_code=ts_code,
             start_date=start_date,
@@ -1245,11 +1261,11 @@ def get_block_trade(
     try:
         # 设置默认日期
         if not end_date:
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = get_current_date_compact()
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=7)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=7)).strftime('%Y%m%d')
 
-        data = _manager.get_block_trade(start_date=start_date, end_date=end_date, code=code)
+        data = get_manager().get_block_trade(start_date=start_date, end_date=end_date, code=code)
         return _format_result(data, f"Block Trade: {code or 'All'}")
     except Exception as e:
         logger.error(f"get_block_trade failed: {e}")
@@ -1272,9 +1288,9 @@ def get_dragon_tiger_inst(
     try:
         # 设置默认日期
         if not trade_date:
-            trade_date = datetime.now().strftime('%Y%m%d')
+            trade_date = get_current_date_compact()
 
-        data = _manager.get_dragon_tiger_inst(trade_date=trade_date, ts_code=ts_code)
+        data = get_manager().get_dragon_tiger_inst(trade_date=trade_date, ts_code=ts_code)
         return _format_result(data, f"Dragon Tiger: {trade_date}")
     except Exception as e:
         logger.error(f"get_dragon_tiger_inst failed: {e}")
@@ -1295,7 +1311,7 @@ def get_finance_news(
         Markdown 格式的表格数据。
     """
     try:
-        data = _manager.get_finance_news(query=query)
+        data = get_manager().get_finance_news(query=query)
         return _format_result(data, f"News: {query}")
     except Exception as e:
         logger.error(f"get_finance_news failed: {e}")
@@ -1314,7 +1330,7 @@ def get_hot_news_7x24(
         Markdown 格式的表格数据。
     """
     try:
-        data = _manager.get_hot_news_7x24(limit=limit)
+        data = get_manager().get_hot_news_7x24(limit=limit)
         return _format_result(data, "Hot News 7x24")
     except Exception as e:
         logger.error(f"get_hot_news_7x24 failed: {e}")
@@ -1332,7 +1348,7 @@ def get_current_timestamp(
     Returns:
         当前时间戳。
     """
-    return datetime.now().strftime(format)
+    return now_utc().strftime(format)
 
 # --- Helpers ---
 

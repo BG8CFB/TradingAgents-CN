@@ -10,6 +10,7 @@ import pickle
 import hashlib
 import logging
 from datetime import datetime, timedelta
+from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 import pandas as pd
@@ -67,7 +68,7 @@ class AdaptiveCacheSystem:
             return False
         
         expiry_time = cache_time + timedelta(seconds=ttl_seconds)
-        return datetime.now() < expiry_time
+        return now_utc() < expiry_time
     
     def _save_to_file(self, cache_key: str, data: Any, metadata: Dict) -> bool:
         """保存到文件缓存"""
@@ -76,7 +77,7 @@ class AdaptiveCacheSystem:
             cache_data = {
                 'data': data,
                 'metadata': metadata,
-                'timestamp': datetime.now(),
+                'timestamp': now_utc(),
                 'backend': 'file'
             }
             
@@ -117,7 +118,7 @@ class AdaptiveCacheSystem:
             cache_data = {
                 'data': data,
                 'metadata': metadata,
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': format_iso(now_utc()),
                 'backend': 'redis'
             }
             
@@ -178,8 +179,8 @@ class AdaptiveCacheSystem:
                 'data': serialized_data,
                 'data_type': data_type,
                 'metadata': metadata,
-                'timestamp': datetime.now(),
-                'expires_at': datetime.now() + timedelta(seconds=ttl_seconds),
+                'timestamp': now_utc(),
+                'expires_at': now_utc() + timedelta(seconds=ttl_seconds),
                 'backend': 'mongodb'
             }
             
@@ -207,7 +208,7 @@ class AdaptiveCacheSystem:
                 return None
             
             # 检查是否过期
-            if doc.get('expires_at') and doc['expires_at'] < datetime.now():
+            if doc.get('expires_at') and doc['expires_at'] < now_utc():
                 collection.delete_one({'_id': cache_key})
                 return None
             
@@ -293,7 +294,7 @@ class AdaptiveCacheSystem:
             
         # 检查自定义过期时间 (适用于所有后端)
         if max_age_hours is not None:
-            age = datetime.now() - cache_data['timestamp']
+            age = now_utc() - cache_data['timestamp']
             if age.total_seconds() > max_age_hours * 3600:
                 self.logger.debug(f"缓存数据已超过自定义过期时间({max_age_hours}小时): {cache_key}")
                 return None

@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 import os
 
 from app.services.config_service import config_service
+from tradingagents.utils.time_utils import now_utc
 
 
 class ConfigProvider:
@@ -13,27 +14,41 @@ class ConfigProvider:
     - Priority: ENV > DB
     - Cache TTL: configurable (default 60s)
     - Invalidate on writes: caller should invoke `invalidate()` after writes
+    - Version tracking: each config update increments version to detect changes
     """
 
     def __init__(self, ttl_seconds: int = 60) -> None:
         self._ttl = timedelta(seconds=ttl_seconds)
         self._cache_settings: Optional[Dict[str, Any]] = None
         self._cache_time: Optional[datetime] = None
+        self._cache_version: int = 0  # 🔧 添加版本号追踪配置变更
 
     def invalidate(self) -> None:
+        """失效缓存并递增版本号"""
         self._cache_settings = None
         self._cache_time = None
+        self._cache_version += 1  # 🔧 版本号递增，确保所有服务感知到变更
+
+    @property
+    def current_version(self) -> int:
+        """获取当前配置版本号"""
+        return self._cache_version
 
     def _is_cache_valid(self) -> bool:
         return (
             self._cache_settings is not None
             and self._cache_time is not None
-            and __import__("datetime").datetime.now(__import__("datetime").timezone.utc) - self._cache_time < self._ttl
+            and now_utc() - self._cache_time < self._ttl
         )
 
     async def get_effective_system_settings(self) -> Dict[str, Any]:
         if self._is_cache_valid():
-            return dict(self._cache_settings or {})
+            # 🔧 返回配置的副本，避免外部修改缓存
+            return {
+                "config": dict(self._cache_settings or {}),
+                "version": self._cache_version,
+                "cached_at": self._cache_time.isoformat() if self._cache_time else None
+            }
 
         # Load DB settings
         cfg = await config_service.get_system_config()
@@ -62,13 +77,16 @@ class ConfigProvider:
             if found is not None:
                 merged[k] = found
 
-        # Optionally: allow whitelisting additional env-only keys via prefix
-        # For now, keep minimal behavior to avoid surprising surfaces.
-
         # Cache
         self._cache_settings = dict(merged)
-        self._cache_time = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
-        return dict(merged)
+        self._cache_time = now_utc()
+
+        # 🔧 返回配置和版本号
+        return {
+            "config": dict(merged),
+            "version": self._cache_version,
+            "cached_at": self._cache_time.isoformat()
+        }
     async def get_system_settings_meta(self) -> Dict[str, Dict[str, Any]]:
         """Return metadata for system settings keys including sensitivity, editability and source.
         Fields per key:

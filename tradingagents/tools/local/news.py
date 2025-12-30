@@ -108,6 +108,7 @@ class UnifiedNewsAnalyzer:
         try:
             from tradingagents.dataflows.cache.app_adapter import get_mongodb_client
             from datetime import timedelta
+            from tradingagents.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 
             # 🔧 确保 max_news 是整数（防止传入浮点数）
             max_news = int(max_news)
@@ -125,7 +126,7 @@ class UnifiedNewsAnalyzer:
                                    .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
 
             # 查询最近30天的新闻（扩大时间范围）
-            thirty_days_ago = datetime.now() - timedelta(days=30)
+            thirty_days_ago = now_utc() - timedelta(days=30)
 
             # 尝试多种查询方式（使用 symbol 字段）
             query_list = [
@@ -151,14 +152,14 @@ class UnifiedNewsAnalyzer:
 
             # 格式化新闻
             report = f"# {stock_code} 最新新闻 (数据库缓存)\n\n"
-            report += f"📅 查询时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            report += f"📅 查询时间: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n"
             report += f"📊 新闻数量: {len(news_items)} 条\n\n"
 
             for i, news in enumerate(news_items, 1):
                 title = news.get('title', '无标题')
                 content = news.get('content', '') or news.get('summary', '')
                 source = news.get('source', '未知来源')
-                publish_time = news.get('publish_time', datetime.now())
+                publish_time = news.get('publish_time', now_config_tz())
                 sentiment = news.get('sentiment', 'neutral')
 
                 # 情绪图标
@@ -288,7 +289,7 @@ class UnifiedNewsAnalyzer:
         logger.info(f"[统一新闻工具] 获取A股 {stock_code} 新闻")
 
         # 获取当前日期
-        curr_date = datetime.now().strftime("%Y-%m-%d")
+        curr_date = now_utc().strftime("%Y-%m-%d")
 
         # 优先级0: 从数据库获取新闻（最高优先级）
         try:
@@ -373,7 +374,7 @@ class UnifiedNewsAnalyzer:
         logger.info(f"[统一新闻工具] 获取港股 {stock_code} 新闻")
         
         # 获取当前日期
-        curr_date = datetime.now().strftime("%Y-%m-%d")
+        curr_date = now_utc().strftime("%Y-%m-%d")
         
         # 优先级1: Google新闻（港股搜索）
         try:
@@ -419,7 +420,7 @@ class UnifiedNewsAnalyzer:
         logger.info(f"[统一新闻工具] 获取美股 {stock_code} 新闻")
         
         # 获取当前日期
-        curr_date = datetime.now().strftime("%Y-%m-%d")
+        curr_date = now_utc().strftime("%Y-%m-%d")
         
         # 优先级1: OpenAI全球新闻
         try:
@@ -462,7 +463,7 @@ class UnifiedNewsAnalyzer:
     
     def _format_news_result(self, news_content: str, source: str, model_info: str = "") -> str:
         """格式化新闻结果"""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = now_utc().strftime("%Y-%m-%d %H:%M:%S")
         
         # 🔍 添加调试日志：打印原始新闻内容
         logger.info(f"[统一新闻工具] 📋 原始新闻内容预览 (前500字符): {news_content[:500]}")

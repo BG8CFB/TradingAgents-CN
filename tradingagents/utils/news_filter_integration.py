@@ -7,6 +7,7 @@ import pandas as pd
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
+from tradingagents.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +37,12 @@ def integrate_news_filtering(original_get_stock_news_em):
             pd.DataFrame: 过滤后的新闻数据
         """
         logger.info(f"[新闻过滤集成] 开始获取 {symbol} 的新闻，过滤开关: {enable_filter}")
-        
+
         # 调用原始函数获取新闻
-        start_time = datetime.now()
+        start_time = now_utc()
         try:
             news_df = original_get_stock_news_em(symbol)
-            fetch_time = (datetime.now() - start_time).total_seconds()
+            fetch_time = (now_utc() - start_time).total_seconds()
             
             if news_df.empty:
                 logger.warning(f"[新闻过滤集成] 原始函数未获取到 {symbol} 的新闻数据")
@@ -55,8 +56,8 @@ def integrate_news_filtering(original_get_stock_news_em):
                 return news_df
             
             # 启用新闻过滤
-            filter_start_time = datetime.now()
-            
+            filter_start_time = now_utc()
+
             try:
                 # 导入过滤器
                 from tradingagents.utils.enhanced_news_filter import create_enhanced_news_filter
@@ -67,12 +68,12 @@ def integrate_news_filtering(original_get_stock_news_em):
                     use_semantic=use_semantic, 
                     use_local_model=use_local_model
                 )
-                
+
                 # 执行过滤
                 filtered_df = news_filter.filter_news_enhanced(news_df, min_score=min_score)
-                
-                filter_time = (datetime.now() - filter_start_time).total_seconds()
-                
+
+                filter_time = (now_utc() - filter_start_time).total_seconds()
+
                 # 记录过滤统计
                 original_count = len(news_df)
                 filtered_count = len(filtered_df)

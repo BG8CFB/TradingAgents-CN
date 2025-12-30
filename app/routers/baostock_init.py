@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 
 from app.worker.baostock_init_service import BaoStockInitService
 from app.worker.baostock_sync_service import BaoStockSyncService
+from app.utils.timezone import now_config_tz, format_date_compact, format_iso
+from tradingagents.utils.time_utils import now_config_tz as now_tz
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +72,7 @@ async def test_baostock_connection():
             "success": connected,
             "data": {
                 "connected": connected,
-                "test_time": datetime.now().isoformat()
+                "test_time": format_iso(now_config_tz())
             },
             "message": "BaoStock连接正常" if connected else "BaoStock连接失败"
         }
@@ -96,15 +98,15 @@ async def start_full_initialization(
     
     try:
         # 生成任务ID
-        task_id = f"baostock_full_init_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        task_id = f"baostock_full_init_{format_date_compact(now_config_tz())}_{now_config_tz().strftime('%H%M%S')}"
         
         # 更新状态
         _initialization_status.update({
             "is_running": True,
             "current_task": "full_initialization",
             "stats": None,
-            "start_time": datetime.now(),
-            "last_update": datetime.now()
+            "start_time": now_config_tz(),
+            "last_update": now_config_tz()
         })
         
         # 启动后台任务
@@ -145,15 +147,15 @@ async def start_basic_initialization(background_tasks: BackgroundTasks):
     
     try:
         # 生成任务ID
-        task_id = f"baostock_basic_init_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        task_id = f"baostock_basic_init_{format_date_compact(now_config_tz())}_{now_config_tz().strftime('%H%M%S')}"
         
         # 更新状态
         _initialization_status.update({
             "is_running": True,
             "current_task": "basic_initialization",
             "stats": None,
-            "start_time": datetime.now(),
-            "last_update": datetime.now()
+            "start_time": now_config_tz(),
+            "last_update": now_config_tz()
         })
         
         # 启动后台任务
@@ -185,7 +187,7 @@ async def get_initialization_status():
         # 计算运行时间
         if status["start_time"]:
             if status["is_running"]:
-                duration = (datetime.now() - status["start_time"]).total_seconds()
+                duration = (now_config_tz() - status["start_time"]).total_seconds()
             else:
                 duration = (status["last_update"] - status["start_time"]).total_seconds() if status["last_update"] else 0
             status["duration"] = duration
@@ -235,7 +237,7 @@ async def stop_initialization():
         _initialization_status.update({
             "is_running": False,
             "current_task": None,
-            "last_update": datetime.now()
+            "last_update": now_config_tz()
         })
         
         return {
@@ -266,7 +268,7 @@ async def _run_full_initialization_task(historical_days: int, force: bool, task_
         _initialization_status.update({
             "is_running": False,
             "stats": stats,
-            "last_update": datetime.now()
+            "last_update": now_config_tz()
         })
         
         if stats.completed_steps == stats.total_steps:
@@ -278,7 +280,7 @@ async def _run_full_initialization_task(historical_days: int, force: bool, task_
         logger.error(f"❌ BaoStock完整初始化任务失败: {task_id}, 错误: {e}")
         _initialization_status.update({
             "is_running": False,
-            "last_update": datetime.now()
+            "last_update": now_config_tz()
         })
 
 
@@ -296,7 +298,7 @@ async def _run_basic_initialization_task(task_id: str):
         _initialization_status.update({
             "is_running": False,
             "stats": stats,
-            "last_update": datetime.now()
+            "last_update": now_config_tz()
         })
         
         if stats.completed_steps == stats.total_steps:
@@ -308,7 +310,7 @@ async def _run_basic_initialization_task(task_id: str):
         logger.error(f"❌ BaoStock基础初始化任务失败: {task_id}, 错误: {e}")
         _initialization_status.update({
             "is_running": False,
-            "last_update": datetime.now()
+            "last_update": now_config_tz()
         })
 
 

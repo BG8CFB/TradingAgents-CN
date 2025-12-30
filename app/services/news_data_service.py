@@ -11,6 +11,7 @@ from pymongo.errors import BulkWriteError
 from bson import ObjectId
 
 from app.core.database import get_database
+from app.utils.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,7 @@ class NewsDataService:
             await self._ensure_indexes()
 
             collection = self._get_collection()
-            now = datetime.utcnow()
+            now = now_utc()
             
             # 标准化数据
             if isinstance(news_data, dict):
@@ -265,7 +266,7 @@ class NewsDataService:
             # 获取同步数据库连接
             db = get_mongo_db_sync()
             collection = db.stock_news
-            now = datetime.utcnow()
+            now = now_utc()
 
             # 标准化数据
             if isinstance(news_data, dict):
@@ -437,12 +438,12 @@ class NewsDataService:
                 
                 # 如果都失败了，返回当前时间
                 self.logger.warning(f"⚠️ 无法解析日期时间: {dt_value}")
-                return datetime.utcnow()
+                return now_utc()
                 
             except Exception:
-                return datetime.utcnow()
+                return now_utc()
         
-        return datetime.utcnow()
+        return now_utc()
     
     def _safe_float(self, value) -> Optional[float]:
         """安全转换为浮点数"""
@@ -566,7 +567,7 @@ class NewsDataService:
         Returns:
             最新新闻列表
         """
-        start_time = datetime.utcnow() - timedelta(hours=hours_back)
+        start_time = now_utc() - timedelta(hours=hours_back)
         
         params = NewsQueryParams(
             symbol=symbol,
@@ -693,7 +694,7 @@ class NewsDataService:
         try:
             collection = self._get_collection()
             
-            cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+            cutoff_date = now_utc() - timedelta(days=days_to_keep)
             
             result = await collection.delete_many({
                 "publish_time": {"$lt": cutoff_date}

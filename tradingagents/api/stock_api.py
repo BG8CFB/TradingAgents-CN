@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
+from tradingagents.utils.time_utils import now_config_tz, format_date_short, format_iso
 logger = get_logger('agents')
 
 # 添加dataflows目录到路径
@@ -112,10 +113,10 @@ def get_stock_data(stock_code: str, start_date: str = None, end_date: str = None
     
     # 设置默认日期
     if end_date is None:
-        end_date = datetime.now().strftime('%Y-%m-%d')
-    
+        end_date = format_date_short(now_config_tz())
+
     if start_date is None:
-        start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        start_date = format_date_short(now_config_tz() - timedelta(days=30))
     
     service = get_stock_data_service()
     return service.get_stock_data_with_fallback(stock_code, start_date, end_date)
@@ -200,7 +201,7 @@ def get_market_summary() -> Dict[str, Any]:
         'shenzhen_count': shenzhen_count,
         'category_stats': category_stats,
         'data_source': all_stocks[0].get('source', 'unknown') if all_stocks else 'unknown',
-        'updated_at': datetime.now().isoformat()
+        'updated_at': format_iso(now_config_tz())
     }
 
 def check_service_status() -> Dict[str, Any]:
@@ -257,7 +258,7 @@ def check_service_status() -> Dict[str, Any]:
         'unified_api_status': unified_api_status,
         'data_sources_available': ['tushare', 'akshare', 'baostock'],
         'fallback_available': True,
-        'checked_at': datetime.now().isoformat()
+        'checked_at': format_iso(now_config_tz())
     }
 
 # 便捷的别名函数
