@@ -243,54 +243,60 @@ async def create_stock_screening_view(db):
         # 检查视图是否已存在
         collections = await db.list_collection_names()
         if "stock_screening_view" in collections:
-            logger.info("📋 视图 stock_screening_view 已存在，跳过创建")
-            return
+            logger.info("📋 视图 stock_screening_view 已存在，删除重建")
+            await db.stock_screening_view.drop()
 
-        # 创建视图：将 stock_basic_info、market_quotes 和 stock_financial_data 关联
+        # 创建视图：优先选择有 PE/PB 数据的数据源
         pipeline = [
-            # 第一步：关联实时行情数据 (market_quotes)
+            # 第一步：添加数据源优先级（有 PE 数据的优先级更高）
             {
-                "$lookup": {
-                    "from": "market_quotes",
-                    "localField": "code",
-                    "foreignField": "code",
-                    "as": "quote_data"
-                }
-            },
-            # 第二步：展开 quote_data 数组
-            {
-                "$unwind": {
-                    "path": "$quote_data",
-                    "preserveNullAndEmptyArrays": True
-                }
-            },
-            # 第三步：关联财务数据 (stock_financial_data)
-            {
-                "$lookup": {
-                    "from": "stock_financial_data",
-                    "let": {"stock_code": "$code", "stock_source": "$source"},
-                    "pipeline": [
-                        {
-                            "$match": {
-                                "$expr": {
-                                    "$and": [
-                                        {"$eq": ["$code", "$$stock_code"]},
-                                        {"$eq": ["$data_source", "$$stock_source"]}
-                                    ]
+                "$addFields": {
+                    "has_pe": {
+                        "$and": [
+                            {"$ne": ["$pe", None]},
+                            {"$ne": ["$pe", 0]}
+                        ]
+                    },
+                    "has_industry": {
+                        "$and": [
+                            {"$ne": ["$industry", None]},
+                            {"$ne": ["$industry", ""]}
+                        ]
+                    },
+                    "source_priority": {
+                        "$cond": {
+                            "if": {"$eq": ["$source", "tushare"]},
+                            "then": 1,
+                            "else": {
+                                "$cond": {
+                                    "if": {"$eq": ["$source", "akshare"]},
+                                    "then": 2,
+                                    "else": 3
                                 }
                             }
-                        },
-                        {"$sort": {"report_period": -1}},
-                        {"$limit": 1}
-                    ],
-                    "as": "financial_data"
+                        }
+                    }
                 }
             },
-            # 第四步：展开 financial_data 数组
+            # 第二步：按优先级排序（优先有 PE 数据的，然后按数据源优先级）
             {
-                "$unwind": {
-                    "path": "$financial_data",
-                    "preserveNullAndEmptyArrays": True
+                "$sort": {
+                    "has_pe": -1,
+                    "has_industry": -1,
+                    "source_priority": 1
+                }
+            },
+            # 第三步：按 code 分组，保留优先级最高的数据
+            {
+                "$group": {
+                    "_id": "$code",
+                    "doc": {"$first": "$$ROOT"}
+                }
+            },
+            # 第四步：展开文档
+            {
+                "$replaceRoot": {
+                    "newRoot": "$doc"
                 }
             },
             # 第五步：重新组织字段结构
@@ -313,28 +319,16 @@ async def create_stock_screening_view(db):
                     "pe_ttm": 1,
                     "pb_mrq": 1,
                     # 财务指标
-                    "roe": "$financial_data.roe",
-                    "roa": "$financial_data.roa",
-                    "netprofit_margin": "$financial_data.netprofit_margin",
-                    "gross_margin": "$financial_data.gross_margin",
-                    "report_period": "$financial_data.report_period",
+                    "ps": 1,
+                    "ps_ttm": 1,
                     # 交易指标
                     "turnover_rate": 1,
                     "volume_ratio": 1,
-                    # 实时行情数据
-                    "close": "$quote_data.close",
-                    "open": "$quote_data.open",
-                    "high": "$quote_data.high",
-                    "low": "$quote_data.low",
-                    "pre_close": "$quote_data.pre_close",
-                    "pct_chg": "$quote_data.pct_chg",
-                    "amount": "$quote_data.amount",
-                    "volume": "$quote_data.volume",
-                    "trade_date": "$quote_data.trade_date",
+                    # 股本数据
+                    "total_share": 1,
+                    "float_share": 1,
                     # 时间戳
-                    "updated_at": 1,
-                    "quote_updated_at": "$quote_data.updated_at",
-                    "financial_updated_at": "$financial_data.updated_at"
+                    "updated_at": 1
                 }
             }
         ]

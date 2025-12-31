@@ -1079,8 +1079,20 @@ class AnalysisService:
             logger.info(f"🔧 [任务管理器] 已将 MCP 管理器注入配置: task_id={task_id}")
 
             update_progress_sync(9, "🚀 初始化AI分析引擎", "engine_initialization")
+
+            # 🔥 添加时间戳日志，精确定位耗时
+            import time
+            graph_init_start = time.time()
+            logger.info(f"⏱️ [性能追踪] 开始创建 TradingAgentsGraph...")
+
             trading_graph = self._get_trading_graph(config)
-            
+
+            graph_init_elapsed = time.time() - graph_init_start
+            logger.info(f"⏱️ [性能追踪] TradingAgentsGraph 创建完成，耗时: {graph_init_elapsed:.2f} 秒 ({graph_init_elapsed/60:.2f} 分钟)")
+
+            if graph_init_elapsed > 60:
+                logger.warning(f"⚠️ [性能瓶颈] TradingAgentsGraph 初始化耗时超过 1 分钟！这是主要性能瓶颈！")
+
             start_time = now_config_tz()
             analysis_date = format_date_short(now_config_tz())
             if request.parameters and request.parameters.analysis_date:
@@ -1094,8 +1106,9 @@ class AnalysisService:
 
             update_progress_sync(10, "🤖 开始多智能体协作分析", "agent_analysis")
 
-            # 进度回调 - 动态从配置文件加载
-            node_progress_map = DynamicAnalystFactory.build_progress_map()
+            # 进度回调 - 动态从配置文件加载，基于选择的智能体计算进度
+            selected_analysts_for_progress = config.get("selected_analysts", [])
+            node_progress_map = DynamicAnalystFactory.build_progress_map(selected_analysts=selected_analysts_for_progress)
 
             def graph_progress_callback(message: str):
                 try:

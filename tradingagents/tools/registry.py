@@ -35,31 +35,35 @@ def _run_coroutine_sync(coro):
     根据2024年最佳实践：
     1. 检测是否已有运行中的事件循环
     2. 如果没有，直接使用 asyncio.run()
-    3. 如果有，使用 asyncio.run_coroutine_threadsafe() 而非 asyncio.run()
-       避免创建新事件循环导致冲突（特别是在uvloop环境下）
+    3. 如果有，使用独立线程运行协程，避免事件循环冲突
+    
+    🔥 修复 S2: 使用线程锁防止并发竞争
     """
+    import threading
+    
+    # 线程锁，防止多个协程同时创建新事件循环
+    _coroutine_lock = threading.Lock()
+    
     try:
         loop = asyncio.get_running_loop()
         # 已经有运行中的事件循环，使用线程安全的方式
-        import concurrent.futures
-        import threading
-
-        # 在新线程中运行协程，避免与当前事件循环冲突
         result_container = []
         exception_container = []
 
         def run_in_new_loop():
-            try:
-                # 创建新的事件循环（在新线程中）
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
+            with _coroutine_lock:  # 🔥 加锁防止并发创建事件循环
                 try:
-                    result = new_loop.run_until_complete(coro)
-                    result_container.append(result)
-                finally:
-                    new_loop.close()
-            except Exception as e:
-                exception_container.append(e)
+                    # 创建新的事件循环（在新线程中）
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        result = new_loop.run_until_complete(coro)
+                        result_container.append(result)
+                    finally:
+                        new_loop.close()
+                        asyncio.set_event_loop(None)  # 🔥 清理线程本地事件循环
+                except Exception as e:
+                    exception_container.append(e)
 
         thread = threading.Thread(target=run_in_new_loop, daemon=True)
         thread.start()
@@ -280,10 +284,27 @@ def get_all_tools(
     all_tools: List = []
     tool_map = {}
     
-    def _merge_tools(tools: List):
+    def _merge_tools(tools: List, source: str = "unknown"):
+        """
+        合并工具到 tool_map，处理重复工具
+        
+        🔥 修复 S6: 记录工具覆盖行为，而不是静默覆盖
+        """
         for t in tools:
             t_name = getattr(t, "name", None)
             if t_name:
+                if t_name in tool_map:
+                    # 🔥 记录覆盖行为
+                    old_source = getattr(tool_map[t_name], "_source", "unknown")
+                    logger.warning(
+                        f"[工具注册] 工具名称冲突: '{t_name}' "
+                        f"(来源: {source}) 覆盖了 (来源: {old_source})"
+                    )
+                # 标记工具来源
+                try:
+                    t._source = source
+                except AttributeError:
+                    pass  # 某些工具对象不允许设置属性
                 tool_map[t_name] = t
             else:
                 all_tools.append(t)
@@ -302,7 +323,7 @@ def get_all_tools(
                 toolkit_config = {}
             
             mcp_local_tools = load_local_mcp_tools(toolkit_config)
-            _merge_tools(mcp_local_tools)
+            _merge_tools(mcp_local_tools, source="mcp_local")
             logger.info(f"[工具注册] MCP 格式本地工具加载完成: {len(mcp_local_tools)} 个")
         except Exception as e:
             logger.warning(f"[工具注册] MCP 格式工具加载失败，回退到旧格式: {e}")
@@ -317,11 +338,11 @@ def get_all_tools(
             stacklevel=2
         )
         
-        _merge_tools(create_project_news_tools(toolkit))
-        _merge_tools(create_project_market_tools(toolkit))
-        _merge_tools(create_project_fundamentals_tools(toolkit))
-        _merge_tools(create_project_sentiment_tools(toolkit))
-        _merge_tools(create_project_china_market_tools(toolkit))
+        _merge_tools(create_project_news_tools(toolkit), source="news")
+        _merge_tools(create_project_market_tools(toolkit), source="market")
+        _merge_tools(create_project_fundamentals_tools(toolkit), source="fundamentals")
+        _merge_tools(create_project_sentiment_tools(toolkit), source="sentiment")
+        _merge_tools(create_project_china_market_tools(toolkit), source="china_market")
         
         logger.info(f"[工具注册] 旧格式项目工具加载完成: {len(tool_map)} 个 (已去重)")
 

@@ -429,7 +429,15 @@ class RedisProgressTracker:
                 return step
         return None
 
-    def _save_progress(self) -> None:
+    def _save_progress(self) -> bool:
+        """
+        保存进度到 Redis 或文件
+        
+        🔥 修复 S5: 返回保存是否成功，并在失败时记录详细错误
+        
+        Returns:
+            bool: 保存是否成功
+        """
         try:
             progress_copy = self.to_dict()
             serialized = json.dumps(progress_copy)
@@ -441,8 +449,13 @@ class RedisProgressTracker:
                 os.makedirs("./data/progress", exist_ok=True)
                 with open(f"./data/progress/{self.task_id}.json", 'w', encoding='utf-8') as f:
                     f.write(serialized)
+            return True
         except Exception as e:
             logger.error(f"[RedisProgress] save progress failed: {self.task_id} - {e}")
+            # 🔥 修复: 标记进度数据为不同步状态
+            self.progress_data['_sync_error'] = str(e)
+            self.progress_data['_sync_failed_at'] = time.time()
+            return False
 
     def mark_completed(self) -> Dict[str, Any]:
         try:

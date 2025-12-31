@@ -93,7 +93,9 @@
       "Bash(timeout 60 python:*)",
       "Edit",
       "Bash(cd:*)",
-      "Bash(pip:*)"
+      "Bash(pip:*)",
+      "Bash(node:*)",
+      "Bash(docker:*)"
     ],
     "deny": [],
     "ask": []

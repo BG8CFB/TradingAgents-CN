@@ -9,6 +9,7 @@ export interface PhaseConfig {
   minRounds: number
   maxRounds: number
   estimatedTimePerRound: number  // 分钟
+  hasDebateRounds?: boolean  // 是否需要辩论轮次设置（默认true，第四阶段为false）
 }
 
 export const PHASES: PhaseConfig[] = [
@@ -38,25 +39,32 @@ export const PHASES: PhaseConfig[] = [
     id: 4,
     name: 'phase4',
     title: '第四阶段 - 最终总结',
-    description: '综合所有分析结果，由总结智能体生成最终分析报告',
+    description: '综合所有分析结果，由总结智能体生成最终分析报告（固定执行1次，无需设置轮次）',
     agents: ['总结智能体'],
     defaultRounds: 1,
-    minRounds: 0,
+    minRounds: 1,
     maxRounds: 1,
-    estimatedTimePerRound: 2
+    estimatedTimePerRound: 2,
+    hasDebateRounds: false  // 第四阶段不需要辩论轮次设置
   }
 ]
 
 // 估算总耗时（分钟）
 export function estimateTotalTime(phases: Record<string, { enabled: boolean, debateRounds: number }>): number {
   let total = 5  // 第一阶段基础时间
-  
+
   PHASES.forEach(phase => {
     const phaseKey = phase.name as keyof typeof phases
     if (phases[phaseKey]?.enabled) {
-      total += phase.estimatedTimePerRound * phases[phaseKey].debateRounds
+      // 第四阶段固定执行1次，不需要辩论轮次计算
+      if (phase.hasDebateRounds === false) {
+        total += phase.estimatedTimePerRound
+      } else {
+        // 其他阶段：每轮时间 × 辩论轮次
+        total += phase.estimatedTimePerRound * phases[phaseKey].debateRounds
+      }
     }
   })
-  
+
   return total
 }

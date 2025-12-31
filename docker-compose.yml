@@ -20,9 +20,6 @@ services:
     image: docker.1ms.run/mongo:7.0
     container_name: tradingagents-mongodb
     restart: unless-stopped
-    # 映射端口到宿主机，方便本地开发调试
-    ports:
-      - "27017:27017"
     volumes:
       - tradingagents_mongodb_data:/data/db
       # 注意：不挂载初始化脚本，使用 MongoDB 自动创建的 root 用户
@@ -46,9 +43,6 @@ services:
     image: docker.1ms.run/redis:7-alpine
     container_name: tradingagents-redis
     restart: unless-stopped
-    # 映射端口到宿主机，方便本地开发调试
-    ports:
-      - "6379:6379"
     volumes:
       - tradingagents_redis_data:/data
     environment:
@@ -214,4 +208,4 @@ volumes:
 networks:
   tradingagents-network:
     driver: bridge
-
+

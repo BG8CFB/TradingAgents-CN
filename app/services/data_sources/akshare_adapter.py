@@ -134,74 +134,115 @@ class AKShareAdapter(DataSourceAdapter):
             return None
 
     def get_daily_basic(self, trade_date: str) -> Optional[pd.DataFrame]:
-        """获取每日基础财务数据（快速版）"""
+        """获取每日基础财务数据（包含 PE、PB、市值等估值指标）"""
         if not self.is_available():
             return None
         try:
             import akshare as ak  # noqa: F401
-            logger.info(f"AKShare: Attempting to get basic financial data for {trade_date}")
+            logger.info(f"AKShare: Fetching daily basic data for {trade_date}")
 
-            stock_df = self.get_stock_list()
-            if stock_df is None or stock_df.empty:
-                logger.warning("AKShare: No stock list available")
+            # 🔥 使用 stock_zh_a_spot_em 获取全市场实时快照，包含 PE/PB 数据
+            # 这个接口返回：代码、名称、最新价、市盈率-动态、市净率、总市值、流通市值等
+            df = ak.stock_zh_a_spot_em()
+
+            if df is None or df.empty:
+                logger.warning("AKShare: stock_zh_a_spot_em returned empty data")
                 return None
 
-            max_stocks = 10
-            stock_list = stock_df.head(max_stocks)
+            logger.info(f"AKShare: stock_zh_a_spot_em returned {len(df)} records")
+            logger.info(f"AKShare: Columns: {df.columns.tolist()}")
 
-            basic_data = []
-            processed_count = 0
-            import time
-            start_time = time.time()
-            timeout_seconds = 30
+            # 标准化列名映射
+            column_mapping = {
+                '代码': 'symbol',
+                '名称': 'name',
+                '最新价': 'close',
+                '市盈率-动态': 'pe',
+                '市净率': 'pb',
+                '总市值': 'total_mv',
+                '流通市值': 'circ_mv',
+                '换手率': 'turnover_rate',
+                '涨跌幅': 'pct_chg',
+                '成交量': 'volume',
+                '成交额': 'amount'
+            }
 
-            for _, stock in stock_list.iterrows():
-                if time.time() - start_time > timeout_seconds:
-                    logger.warning(f"AKShare: Timeout reached, processed {processed_count} stocks")
-                    break
-                try:
-                    symbol = stock.get('symbol', '')
-                    name = stock.get('name', '')
-                    ts_code = stock.get('ts_code', '')
-                    if not symbol:
-                        continue
-                    info_data = ak.stock_individual_info_em(symbol=symbol)
-                    if info_data is not None and not info_data.empty:
-                        info_dict = {}
-                        for _, row in info_data.iterrows():
-                            item = row.get('item', '')
-                            value = row.get('value', '')
-                            info_dict[item] = value
-                        latest_price = self._safe_float(info_dict.get('最新', 0))
-                        # 🔥 AKShare 的"总市值"单位是万元，需要转换为亿元（与 Tushare 一致）
-                        total_mv_wan = self._safe_float(info_dict.get('总市值', 0))  # 万元
-                        total_mv_yi = total_mv_wan / 10000 if total_mv_wan else None  # 转换为亿元
-                        basic_data.append({
-                            'ts_code': ts_code,
-                            'trade_date': trade_date,
-                            'name': name,
-                            'close': latest_price,
-                            'total_mv': total_mv_yi,  # 亿元（与 Tushare 一致）
-                            'turnover_rate': None,
-                            'pe': None,
-                            'pb': None,
-                        })
-                        processed_count += 1
-                        if processed_count % 5 == 0:
-                            logger.debug(f"AKShare: Processed {processed_count} stocks in {time.time() - start_time:.1f}s")
-                except Exception as e:
-                    logger.debug(f"AKShare: Failed to get data for {symbol}: {e}")
-                    continue
+            # 重命名列
+            df = df.rename(columns=column_mapping)
 
-            if basic_data:
-                df = pd.DataFrame(basic_data)
-                logger.info(f"AKShare: Successfully fetched basic data for {trade_date}, {len(df)} records")
-                return df
-            else:
-                logger.warning("AKShare: No basic data collected")
+            # 确保有必需的列
+            required_columns = ['symbol', 'name', 'close']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                logger.error(f"AKShare: Missing required columns: {missing_columns}")
+                logger.error(f"AKShare: Available columns: {df.columns.tolist()}")
                 return None
+
+            # 🔥 处理数据格式
+            # 1. 生成 6 位代码
+            df['code'] = df['symbol'].astype(str).str.zfill(6)
+
+            # 2. 生成 ts_code
+            def generate_ts_code(code: str) -> str:
+                if not code:
+                    return ""
+                code = str(code).zfill(6)
+                if code.startswith(('60', '68', '90')):
+                    return f"{code}.SH"
+                elif code.startswith(('00', '30', '20')):
+                    return f"{code}.SZ"
+                elif code.startswith(('8', '4')):
+                    return f"{code}.BJ"
+                else:
+                    return f"{code}.SZ"
+
+            df['ts_code'] = df['code'].apply(generate_ts_code)
+
+            # 3. 转换数据类型
+            numeric_columns = ['close', 'pe', 'pb', 'total_mv', 'circ_mv', 'turnover_rate', 'pct_chg', 'volume', 'amount']
+            for col in numeric_columns:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+            # 4. 🔥 单位转换：总市值和流通市值从元转换为亿元
+            if 'total_mv' in df.columns:
+                df['total_mv'] = df['total_mv'] / 1e9  # 元 -> 亿元
+            if 'circ_mv' in df.columns:
+                df['circ_mv'] = df['circ_mv'] / 1e9  # 元 -> 亿元
+
+            # 5. 添加其他必需字段
+            df['trade_date'] = trade_date
+
+            # 6. 移除无效的股票代码（过滤掉非 A 股）
+            df = df[df['code'].str.len() == 6]
+
+            # 7. 选择最终列
+            final_columns = [
+                'ts_code', 'code', 'trade_date', 'name', 'close',
+                'pe', 'pb', 'pe_ttm', 'pb_mrq',
+                'total_mv', 'circ_mv', 'turnover_rate',
+                'pct_chg', 'volume', 'amount'
+            ]
+
+            # 添加 pe_ttm 和 pb_mrq 字段（使用 pe 和 pb 的值）
+            if 'pe' in df.columns:
+                df['pe_ttm'] = df['pe']
+            if 'pb' in df.columns:
+                df['pb_mrq'] = df['pb']
+
+            # 只保留存在的列
+            available_columns = [col for col in final_columns if col in df.columns]
+            df = df[available_columns]
+
+            logger.info(f"AKShare: Successfully fetched basic data for {trade_date}, {len(df)} records")
+            logger.info(f"AKShare: PE data available: {df['pe'].notna().sum()}/{len(df)} stocks")
+
+            return df
+
         except Exception as e:
             logger.error(f"AKShare: Failed to fetch basic data for {trade_date}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def _safe_float(self, value) -> Optional[float]:

@@ -109,22 +109,11 @@ class GenericAgent:
                     system_msg_content = system_msg_content.replace("{ticker}", str(ticker))
                     system_msg_content = system_msg_content.replace("{company_name}", str(company_name))
 
-                    # 补充上下文
+                    # 只添加基本信息作为上下文（可选，非指令性内容）
                     context_info = (
-                        f"\n\n当前上下文信息:\n"
-                        f"当前日期: {current_date}\n"
-                        f"股票代码: {ticker}\n"
-                        f"公司名称: {company_name}\n"
-                        f"请用中文回答。\n\n"
-                        f"⚠️ 重要指令：\n"
-                        f"1. 如果工具调用失败（返回错误信息），请在报告中如实记录失败原因，**严禁编造**虚假数据。\n"
-                        f"2. 即使没有获取到完整数据，也请根据已知信息生成一份包含【错误说明】的报告。\n"
-                        f"3. 你的报告将被用于最终汇总，请确保信息的真实性和准确性。\n"
-                        f"4. **禁止死循环**：\n"
-                        f"   - 每次调用工具前，请仔细检查上方对话历史。\n"
-                        f"   - **严禁**使用完全相同的参数连续两次调用同一个工具。\n"
-                        f"   - 如果连续 3 次尝试均未获得有效信息，请立即停止尝试。\n"
-                        f"5. **最终输出**：必须包含具体的分析结论，不要只列出数据。"
+                        f"\n\n## 附加信息\n"
+                        f"- 分析对象: {ticker} ({company_name})\n"
+                        f"- 交易日期: {current_date}\n"
                     )
                     system_msg_content += context_info
 
@@ -227,9 +216,10 @@ class GenericAgent:
                 
                 # 使用 stream 模式执行
                 # stream_mode="values" 会返回状态字典的更新
+                # 🔥 增加 recursion_limit 以支持需要调用多个工具的智能体
                 iterator = self.agent_executor.stream(
                     {"messages": input_messages},
-                    config={"recursion_limit": 50},
+                    config={"recursion_limit": 100},
                     stream_mode="values"
                 )
                 
@@ -250,6 +240,28 @@ class GenericAgent:
 
                 if result_messages and isinstance(result_messages[-1], AIMessage):
                     final_report = result_messages[-1].content
+
+                    # 🔥 检查是否是 LLM 返回的错误消息
+                    if "sorry" in final_report.lower() and "need more steps" in final_report.lower():
+                        logger.warning(f"[{self.name}] ⚠️ 检测到 LLM 返回的错误消息，尝试生成备用报告")
+
+                        # 尝试从历史消息中生成报告
+                        history_messages = result_messages[:-1]  # 排除错误消息
+                        if history_messages:
+                            force_summary_prompt = (
+                                "\n\n🚨【系统指令】🚨\n"
+                                "请基于以上所有对话历史和工具调用结果，生成一份最终分析报告。\n"
+                                "不要再试图调用任何工具！直接输出报告内容。"
+                            )
+                            try:
+                                recovery_messages = history_messages + [HumanMessage(content=force_summary_prompt)]
+                                recovery_response = self.llm.invoke(recovery_messages)
+                                final_report = recovery_response.content
+                                logger.info(f"[{self.name}] ✅ 备用报告生成成功")
+                            except Exception as recovery_error:
+                                logger.error(f"[{self.name}] 备用报告生成失败: {recovery_error}")
+                                final_report = f"# ⚠️ 分析未完成\n\n由于达到执行步数限制，部分工具调用未完成。\n\n已尝试的工具调用数: {executed_tool_calls}\n\n请检查日志获取更多信息。"
+
                     logger.info(f"[{self.name}] ✅ Agent 执行完成，报告长度: {len(final_report)}")
                 else:
                     logger.warning(f"[{self.name}] ⚠️ Agent 未返回 AIMessage，结果状态: {result_state.keys()}")
@@ -356,9 +368,10 @@ class GenericAgent:
 
         result[report_key] = final_report
 
-        # 🔥 同时写入 reports 字典，支持动态添加的智能体（绕过 TypedDict 限制）
+        # 🔥 只返回当前报告，让 LangGraph reducer 负责合并
+        # reducer (update_reports) 会自动将新报告合并到 state["reports"] 中
         result["reports"] = {report_key: final_report}
 
-        logger.info(f"[{self.name}] 📝 报告已写入 state['{report_key}'] 和 state['reports'] (msg.name={report_key})")
+        logger.info(f"[{self.name}] 📝 报告已写入 state['{report_key}']")
 
         return result

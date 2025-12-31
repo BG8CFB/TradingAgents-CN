@@ -1,13 +1,13 @@
 # TradingAgents/graph/setup.py
 
-from typing import Dict, Any
+from typing import Dict, Any, Callable
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
 
 from tradingagents.agents.analysts.dynamic_analyst import (
-    create_dynamic_analyst,
-    create_react_agent_subgraph  # 新增：子图工厂函数
+    ProgressManager  # 进度管理器
 )
 from tradingagents.agents import *
 from tradingagents.agents.utils.agent_states import AgentState
@@ -80,98 +80,29 @@ class GraphSetup:
         # 🔍 调试日志：打印传入的分析师列表
         logger.info(f"📋 [GraphSetup] 传入的分析师列表: {selected_analysts}")
 
-        # 导入动态分析师工厂
-        from tradingagents.agents.analysts.dynamic_analyst import DynamicAnalystFactory
-        
-        # 从配置文件动态构建查找映射（不再使用硬编码）
-        analyst_lookup = DynamicAnalystFactory.build_lookup_map()
-        logger.debug(f"📋 [DEBUG] 从配置文件加载了 {len(analyst_lookup)} 个分析师映射")
-
-        # Create analyst nodes
+        # 初始化节点字典
         analyst_nodes = {}
         delete_nodes = {}
-        # 🔥 [已废弃] 子图模式不再需要外部工具节点，保留变量用于兼容
-        # tool_nodes = {}
-
-        # 用于存储规范化后的分析师列表（使用internal_key，保持顺序且去重）
         normalized_analysts = []
-        seen_internal_keys = set()  # 用于去重
-        
-        # Dynamically create analyst nodes based on selected_analysts
-        for input_key in selected_analysts:
-            # 尝试从动态查找映射中获取配置
-            if input_key in analyst_lookup:
-                config_info = analyst_lookup[input_key]
-                internal_key = config_info['internal_key']
-                config_slug = config_info['slug']
-                tool_key = config_info['tool_key']
-                agent_name = config_info.get('name', input_key)
-                
-                # 跳过已经处理过的分析师（去重）
-                if internal_key in seen_internal_keys:
-                    logger.debug(f"⏭️ [DEBUG] Skipping duplicate analyst: {input_key} -> {internal_key} (already added)")
-                    continue
-                seen_internal_keys.add(internal_key)
-                
-                logger.debug(f"📈 [DEBUG] Creating dynamic analyst: {input_key} -> {config_slug} (internal: {internal_key})")
 
-                # 使用子图模式创建分析师（LangGraph官方推荐）
-                analyst_nodes[internal_key] = create_react_agent_subgraph(
-                    config_slug, self.quick_thinking_llm, self.toolkit
-                )
+        # 使用新工厂创建所有分析师节点（统一管理，支持错误处理）
+        try:
+            analyst_node_functions = SimpleAgentFactory.create_analysts(
+                selected_analysts=selected_analysts,
+                llm=self.quick_thinking_llm,
+                toolkit=self.toolkit,
+                max_tool_calls=20  # 🔥 固定为20次，不从配置文件读取
+            )
+
+            # 将工厂创建的节点函数添加到 analyst_nodes
+            for internal_key, node_func in analyst_node_functions.items():
+                analyst_nodes[internal_key] = node_func
                 delete_nodes[internal_key] = create_msg_delete()
-
-                # 子图模式：不再需要外部工具节点
-                # 子图内部控制工具调用流程
-                logger.debug(f"🛠️ [DEBUG] 子图模式: {internal_key} 将使用内部 ToolNode")
-                
                 normalized_analysts.append(internal_key)
-            else:
-                # 尝试直接从配置文件获取（支持新添加的智能体）
-                agent_config = DynamicAnalystFactory.get_agent_config(input_key)
-                
-                if agent_config:
-                    # 找到配置，使用配置中的 slug
-                    config_slug = agent_config.get('slug', input_key)
-                    agent_name = agent_config.get('name', input_key)
-                    logger.info(f"📈 [动态分析师] 从配置文件找到: '{input_key}' -> slug='{config_slug}', name='{agent_name}'")
-                else:
-                    # 未找到配置
-                    logger.error(f"❌ 未找到智能体配置: {input_key}")
-                    raise ValueError(f"未找到智能体配置: {input_key}。请确保该智能体已在 phase1_agents_config.yaml 中配置。")
-                
-                # 生成internal_key（去除-analyst后缀，替换-为_）
-                internal_key = config_slug.replace("-analyst", "").replace("-", "_")
-                
-                # 跳过已经处理过的分析师（去重）
-                if internal_key in seen_internal_keys:
-                    logger.debug(f"⏭️ [DEBUG] Skipping duplicate custom analyst: {input_key} -> {internal_key} (already added)")
-                    continue
-                seen_internal_keys.add(internal_key)
-                
-                logger.debug(f"📈 [DEBUG] Creating custom dynamic analyst: {input_key} -> {config_slug}")
-
-                try:
-                    # 使用子图模式创建分析师（LangGraph官方推荐）
-                    analyst_nodes[internal_key] = create_react_agent_subgraph(
-                        config_slug, self.quick_thinking_llm, self.toolkit
-                    )
-                    delete_nodes[internal_key] = create_msg_delete()
-
-                    # 子图模式：不再需要外部工具节点
-                    # 子图内部控制工具调用流程
-                    logger.debug(f"🛠️ [DEBUG] 子图模式: {internal_key} 将使用内部 ToolNode")
-
-                    normalized_analysts.append(internal_key)
-                except ValueError as e:
-                    logger.error(f"❌ 创建动态分析师失败: {input_key} -> {e}")
-                    raise ValueError(f"未找到智能体配置: {input_key}")
-        
-        # 使用规范化后的分析师列表
-        selected_analysts = normalized_analysts
-
-        # 🔍 调试日志：打印规范化后的分析师列表
-        logger.info(f"📋 [GraphSetup] 规范化后的分析师列表: {selected_analysts}")
+                logger.info(f"✅ [重构] 已创建智能体节点: {internal_key}")
+        except Exception as e:
+            logger.error(f"❌ [重构] 创建智能体节点失败: {e}", exc_info=True)
+            raise
 
         # Create researcher and manager nodes (Phase 2)
         bull_researcher_node = create_bull_researcher(
@@ -204,9 +135,12 @@ class GraphSetup:
         # Add analyst nodes to the graph
         for analyst_type, node in analyst_nodes.items():
             workflow.add_node(f"{self._format_analyst_name(analyst_type)} Analyst", node)
-            workflow.add_node(
-                f"Msg Clear {self._format_analyst_name(analyst_type)}", delete_nodes[analyst_type]
-            )
+            # 🔥 性能优化：删除消息清理节点
+            # 原因：子图现在只返回最后一条消息，不需要清理
+            # 之前清理节点耗时 342 秒，是因为需要删除几百条消息
+            # workflow.add_node(
+            #     f"Msg Clear {self._format_analyst_name(analyst_type)}", delete_nodes[analyst_type]
+            # )
             # 子图模式：不再添加外部工具节点
             # 子图内部控制工具调用流程
 
@@ -229,7 +163,9 @@ class GraphSetup:
         # enable_phase4 = bool(self.config.get("phase4_enabled", False)) 
 
         # Start with the first analyst
-        first_analyst = selected_analysts[0]
+        if not normalized_analysts:
+            raise ValueError("No valid analysts found after normalization")
+        first_analyst = normalized_analysts[0]
         workflow.add_edge(START, f"{self._format_analyst_name(first_analyst)} Analyst")
 
         # 确定 Phase 1 结束后的下一个节点
@@ -241,20 +177,16 @@ class GraphSetup:
         else:
             next_entry_node = "Summary Agent"
 
-        for i, analyst_type in enumerate(selected_analysts):
+        for i, analyst_type in enumerate(normalized_analysts):
             current_analyst = f"{self._format_analyst_name(analyst_type)} Analyst"
-            current_clear = f"Msg Clear {self._format_analyst_name(analyst_type)}"
-
-            # 子图模式：分析师子图完成后，直接进入Msg Clear节点
-            # 不需要条件边，子图内部控制工具调用流程
-            workflow.add_edge(current_analyst, current_clear)
+            # 🔥 性能优化：删除消息清理节点后，直接从分析师节点连接到下一个节点
 
             # Connect to next analyst or to next phase entry node
-            if i < len(selected_analysts) - 1:
-                next_analyst = f"{self._format_analyst_name(selected_analysts[i+1])} Analyst"
-                workflow.add_edge(current_clear, next_analyst)
+            if i < len(normalized_analysts) - 1:
+                next_analyst = f"{self._format_analyst_name(normalized_analysts[i+1])} Analyst"
+                workflow.add_edge(current_analyst, next_analyst)
             else:
-                workflow.add_edge(current_clear, next_entry_node)
+                workflow.add_edge(current_analyst, next_entry_node)
 
         # Phase 2: Research Debate & Trader Plan
         if enable_phase2:
@@ -318,3 +250,10 @@ class GraphSetup:
 
         # Compile and return
         return workflow.compile()
+
+
+# ============================================================================
+# 🔥 重构说明：第一阶段智能体工厂函数已迁移到
+# tradingagents/agents/analysts/simple_agent_factory.py
+# 和 tradingagents/agents/analysts/simple_agent_template.py
+# ============================================================================

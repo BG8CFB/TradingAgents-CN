@@ -7,7 +7,6 @@ MCP 工具模块
 
 from .finance import (
     get_stock_news,
-    get_stock_market_data,
     get_stock_fundamentals,
     get_stock_sentiment,
     get_china_market_overview,
@@ -30,7 +29,6 @@ from .reports import (
 
 __all__ = [
     "get_stock_news",
-    "get_stock_market_data",
     "get_stock_fundamentals",
     "get_stock_sentiment",
     "get_china_market_overview",

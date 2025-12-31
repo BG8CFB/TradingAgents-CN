@@ -25,10 +25,10 @@ class Propagator:
         """Create the initial state for the agent graph."""
         from langchain_core.messages import HumanMessage
 
-        # 🔥 修复：创建中性的初始消息
-        # 对于1阶段智能体：pre_model_hook 会根据 initial_task 配置生成更具体的消息
-        # 对于其他阶段智能体：使用这个通用消息
-        initial_message = HumanMessage(content=f"请分析 {company_name}，交易日期为 {trade_date}。")
+        # 🔥 修复：创建包含任务描述的初始消息
+        # 替代 pre_model_hook 的功能，让父图直接传入任务
+        task_description = f"请对股票 {company_name} 进行全面分析，交易日期：{trade_date}"
+        initial_message = HumanMessage(content=task_description)
 
         state = {
             "messages": [initial_message],

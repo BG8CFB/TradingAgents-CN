@@ -849,7 +849,14 @@ class TradingAgentsGraph:
         self.log_states_dict = {}  # date to full state dict
 
         # Set up the graph
+        import time
+        setup_start = time.time()
+        logger.info(f"⏱️ [性能追踪] 开始 setup_graph，分析师数量: {len(selected_analysts)}")
         self.graph = self.graph_setup.setup_graph(selected_analysts)
+        setup_elapsed = time.time() - setup_start
+        logger.info(f"⏱️ [性能追踪] setup_graph 完成，耗时: {setup_elapsed:.2f} 秒")
+        if setup_elapsed > 30:
+            logger.warning(f"⚠️ [性能瓶颈] setup_graph 耗时 {setup_elapsed:.2f} 秒！")
 
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
         """Create tool nodes for different data sources.
@@ -937,6 +944,12 @@ class TradingAgentsGraph:
             task_id: Optional task ID for tracking performance data
         """
 
+        # 注册进度回调到全局管理器
+        from tradingagents.agents.analysts.dynamic_analyst import ProgressManager
+        if progress_callback:
+            ProgressManager.set_callback(progress_callback)
+            logger.debug(f"🔧 [进度管理器] 已注册进度回调")
+
         # 添加详细的接收日志
         logger.debug(f"🔍 [GRAPH DEBUG] ===== TradingAgentsGraph.propagate 接收参数 =====")
         logger.debug(f"🔍 [GRAPH DEBUG] 接收到的company_name: '{company_name}' (类型: {type(company_name)})")
@@ -951,12 +964,12 @@ class TradingAgentsGraph:
         init_agent_state = self.propagator.create_initial_state(
             company_name, trade_date
         )
-        
+
         # 注入阶段配置参数到初始状态 (从 config 中读取并注入)
         init_agent_state["phase2_enabled"] = self.config.get("phase2_enabled", False)
         init_agent_state["phase3_enabled"] = self.config.get("phase3_enabled", False)
         init_agent_state["phase4_enabled"] = self.config.get("phase4_enabled", False)
-        
+
         logger.debug(f"🔍 [GRAPH DEBUG] 初始状态中的company_of_interest: '{init_agent_state.get('company_of_interest', 'NOT_FOUND')}'")
         logger.debug(f"🔍 [GRAPH DEBUG] 初始状态中的trade_date: '{init_agent_state.get('trade_date', 'NOT_FOUND')}'")
         logger.debug(f"🔍 [GRAPH DEBUG] 阶段配置注入状态: P2={init_agent_state['phase2_enabled']}, P3={init_agent_state['phase3_enabled']}, P4={init_agent_state['phase4_enabled']}")
@@ -1187,6 +1200,11 @@ class TradingAgentsGraph:
                 "reason": "未开启深度决策阶段，未生成最终决策",  # 保留兼容性
             }
         decision["model_info"] = model_info
+
+        # 清理进度回调
+        if progress_callback:
+            ProgressManager.clear_callback()
+            logger.debug(f"🔧 [进度管理器] 已清除进度回调")
 
         # Return decision and processed signal
         return final_state, decision

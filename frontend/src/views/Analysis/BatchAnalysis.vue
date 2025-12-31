@@ -197,12 +197,13 @@
                           </el-tag>
                         </div>
                       </div>
-                      
-                      <div class="phase-rounds">
+
+                      <!-- 第四阶段固定执行1次，不显示辩论轮次设置 -->
+                      <div class="phase-rounds" v-if="phase.hasDebateRounds !== false">
                         <span class="label">辩论轮次:</span>
-                        <el-input-number 
-                          v-model="batchForm.phases[phase.name as keyof typeof batchForm.phases].debateRounds" 
-                          :min="phase.minRounds" 
+                        <el-input-number
+                          v-model="batchForm.phases[phase.name as keyof typeof batchForm.phases].debateRounds"
+                          :min="phase.minRounds"
                           :max="phase.maxRounds"
                           size="small"
                           controls-position="right"

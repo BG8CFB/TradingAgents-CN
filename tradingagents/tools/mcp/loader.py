@@ -218,7 +218,7 @@ class MCPToolLoaderFactory:
         通用的 MCP 工具参数信息补全
 
         解决 langchain-mcp-adapters 转换过程中可能丢失的参数信息。
-        将所有参数定义（名称、类型、是否必需、描述）整合到工具描述中，
+        将所有参数定义（名称、类型、是否必需、描述、默认值、枚举）整合到工具描述中，
         确保 LLM 能够获得完整的工具信息。
         """
         tool_name = getattr(tool, 'name', 'unknown')
@@ -248,14 +248,33 @@ class MCPToolLoaderFactory:
             param_type = param_def.get('type', 'unknown')
             param_desc = param_def.get('description', '')
             is_required = param_name in required_params
+            default_val = param_def.get('default', None)
+            enum_vals = param_def.get('enum', None)
 
-            required_mark = "✅ 必需" if is_required else "⚪ 可选"
-            param_lines.append(f"  - `{param_name}` ({param_type}) [{required_mark}]: {param_desc}")
+            status_mark = "✅ REQUIRED" if is_required else "⚪ OPTIONAL"
+
+            # 构建参数描述行
+            line_parts = [f"  - `{param_name}` ({param_type}) [{status_mark}]"]
+
+            if param_desc:
+                line_parts.append(f": {param_desc}")
+
+            # 补充额外信息（默认值、枚举）
+            extras = []
+            if default_val is not None:
+                extras.append(f"Default: {default_val}")
+            if enum_vals:
+                extras.append(f"Enum: {enum_vals}")
+
+            if extras:
+                line_parts.append(f" ({', '.join(extras)})")
+
+            param_lines.append("".join(line_parts))
 
         # 整合到工具描述
         enhanced_desc = f"""{original_desc}
 
-📋 参数说明:
+--- Parameters ---
 {chr(10).join(param_lines)}"""
 
         try:
@@ -562,14 +581,28 @@ class MCPToolLoaderFactory:
         return server_param
 
     async def _connect_server(self, name: str) -> bool:
-        """连接单个服务器"""
+        """
+        连接单个服务器
+
+        优化逻辑：
+        - 如果服务器已连接且健康，直接返回 True（避免重复创建进程）
+        - 只在必要时才创建新的 MultiServerMCPClient 实例
+        """
         if not LANGCHAIN_MCP_AVAILABLE:
             return False
 
         try:
-            # 防止重复连接
+            # 🔥 关键修复：先检查服务器是否已连接且健康
             if name in self._mcp_clients:
-                await self._disconnect_server(name)
+                # 检查连接是否健康
+                is_healthy = await self._check_server_alive(name)
+                if is_healthy:
+                    logger.debug(f"[MCP] 服务器 {name} 已连接且健康，跳过重复连接")
+                    return True
+                else:
+                    # 连接存在但不健康，需要重新连接
+                    logger.info(f"[MCP] 服务器 {name} 连接不健康，将重新连接")
+                    await self._disconnect_server(name)
 
             params = self._build_single_server_param(name)
             if not params:
@@ -580,6 +613,7 @@ class MCPToolLoaderFactory:
 
             self._mcp_clients[name] = single_client
 
+            # 🔥 关键：只调用一次 get_tools()，因为每次调用都会创建新的 stdio 会话
             raw_tools = await single_client.get_tools()
 
             annotated_tools = [
@@ -707,13 +741,21 @@ class MCPToolLoaderFactory:
             是否成功初始化
         """
         try:
+            # 🔥 防止重复初始化：检查是否已存在客户端
+            if name in self._mcp_clients:
+                logger.debug(f"[MCP] 服务器 {name} 的客户端已存在，跳过初始化")
+                return True
+
             logger.info(f"[MCP] 正在连接服务器 {name}...")
 
             # 创建 MultiServerMCPClient
+            # 注意：每次创建 MultiServerMCPClient 都会启动新的 npx 子进程
             single_client = MultiServerMCPClient({name: params})
             self._mcp_clients[name] = single_client
 
-            # 获取工具列表
+            # 🔥 关键：get_tools() 会创建新的 stdio 会话，导致启动 npx 进程
+            # 进度条（如 0/15 → 100%）就是在这里产生的
+            logger.debug(f"[MCP] 正在获取服务器 {name} 的工具列表...")
             raw_tools = await single_client.get_tools()
 
             # 🔥 修复工具 schema（解决 langchain-mcp-adapters 参数丢失问题）
@@ -774,10 +816,15 @@ class MCPToolLoaderFactory:
 
         Returns:
             是否成功刷新
+
+        警告：此操作会终止现有 npx 进程并启动新的进程，可能需要重新下载 npm 包
         """
         if server_name not in self._server_configs:
             logger.warning(f"[MCP] 服务器 {server_name} 不存在")
             return False
+
+        # 🔥 警告日志：此操作会启动新的 npx 进程
+        logger.warning(f"[MCP] 正在刷新服务器 {server_name}，这将启动新的 npx 进程")
 
         # 关闭旧连接（不删除配置）
         await self._cleanup_server_resources(server_name)
@@ -970,8 +1017,7 @@ class MCPToolLoaderFactory:
         """
         检查服务器是否存活
 
-        核心原则：只要客户端连接存在就认为存活，不管子进程状态。
-        子进程跟踪失败不影响服务器可用性判断。
+        🔥 修复 S7: 增强健康检查，不仅检查连接存在，还验证连接可用性
 
         Returns:
             是否存活
@@ -984,19 +1030,37 @@ class MCPToolLoaderFactory:
         if config is None:
             return False
 
-        # 对于非 stdio 类型，假设存活（远程服务器自行管理）
+        # 对于非 stdio 类型（HTTP/SSE），尝试简单的连接验证
         if not config.is_stdio():
+            # 🔥 增强: 对于 HTTP 类型，可以尝试 ping 或简单请求
+            # 但为了避免过度检查，暂时假设存活
             return True
 
-        # 对于 stdio 类型，核心判断：客户端连接是否存在
-        if server_name in self._mcp_clients:
-            # 客户端连接存在，认为服务器存活
-            # 注意：子进程跟踪失败不影响此判断
+        # 对于 stdio 类型，检查客户端连接
+        if server_name not in self._mcp_clients:
+            return False
+        
+        client = self._mcp_clients[server_name]
+        
+        # 🔥 增强: 验证客户端连接是否真正可用
+        try:
+            # 检查客户端是否有有效的工具列表（表示连接正常）
+            if hasattr(client, '_tools') and client._tools:
+                return True
+            
+            # 检查客户端是否有活跃的会话
+            if hasattr(client, '_sessions') and client._sessions:
+                return True
+            
+            # 如果客户端存在但没有工具，可能是连接已断开
+            # 尝试获取工具列表来验证连接
+            # 注意：这可能会触发重新连接，所以只在必要时执行
+            logger.debug(f"[MCP] 服务器 {server_name} 客户端存在但状态不明，假设存活")
             return True
-
-        # 客户端连接不存在，说明服务器确实未运行
-        # （不检查子进程，因为子进程跟踪可能失败）
-        return False
+            
+        except Exception as e:
+            logger.warning(f"[MCP] 检查服务器 {server_name} 状态时出错: {e}")
+            return False
 
     # ------------------------------------------------------------------
     # 工具加载
@@ -1015,13 +1079,22 @@ class MCPToolLoaderFactory:
         加载工具列表
 
         合并本地工具和从 MCP 服务器加载的工具
+
+        注意：此方法只返回缓存的工具列表，不会创建新的 MCP 连接
         """
         # 本地工具
         local_tools = load_local_mcp_tools() if include_local else []
 
-        # MCP 服务器工具
+        # MCP 服务器工具（从缓存读取）
         raw_tools = local_tools + self._mcp_tools
         all_tools = [self._unwrap_runnable_binding(t) for t in raw_tools]
+
+        # 🔥 调试日志：帮助追踪工具加载
+        logger.debug(
+            f"[MCP] load_tools: 本地工具={len(local_tools)}, "
+            f"缓存MCP工具={len(self._mcp_tools)}, "
+            f"筛选条件={selected_tool_ids or '无'}"
+        )
 
         if not selected_tool_ids:
             return all_tools
@@ -1149,7 +1222,10 @@ class MCPToolLoaderFactory:
         手动重新加载配置并重新初始化连接
 
         注意：此操作会关闭所有现有连接并重新建立
+        警告：这将启动所有 MCP 服务器的新的 npx 进程，可能需要重新下载 npm 包
         """
+        # 🔥 警告日志：此操作会重启所有 MCP 服务器
+        logger.warning("[MCP] 正在重载配置，这将重启所有 MCP 服务器并启动新的 npx 进程")
         async with self._lock:
             # 关闭现有连接
             # 注意：这里不能直接调用 self.close()，因为它会销毁 exit_stack

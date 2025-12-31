@@ -13,6 +13,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from tradingagents.dataflows.manager import DataSourceManager
 from tradingagents.utils.time_utils import now_utc, get_current_date, get_current_date_compact
+from .tool_standard import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 
 logger = logging.getLogger(__name__)
 
@@ -34,37 +35,36 @@ def _get_global_manager():
 # --- 1. Stock Data ---
 
 def get_stock_data(
-    code: str,
+    stock_code: str,
     market_type: str = "cn",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     indicators: Optional[str] = None
 ) -> str:
     """
-    获取股票行情数据 (开盘价, 最高价, 最低价, 收盘价, 成交量) 及技术指标。
-    
-    本工具会自动识别股票类型 (A股/港股/美股) 并调用最佳数据源。
-    优先从数据库获取数据，若数据库无数据则从数据源拉取并存入数据库。
-    
+    获取股票行情数据及技术指标。
+
+    返回开盘价、最高价、最低价、收盘价、成交量等行情数据，以及可选的技术指标。
+
     Args:
-        code: 股票代码 (例如: "000001.SZ", "AAPL", "00700.HK")。
-        market_type: 市场类型: "cn" (A股), "us" (美股), "hk" (港股)。若不指定，将尝试自动推断。
-        start_date: 开始日期 (YYYYMMDD)。默认: 1个月前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        indicators: 技术指标 (例如: "macd(12,26,9) rsi(14)")。
-        
+        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        market_type: 市场类型: "cn"(A股)、"us"(美股)、"hk"(港股)，默认自动推断
+        start_date: 开始日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认 1 个月前
+        end_date: 结束日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认今天
+        indicators: 技术指标表达式，如 "macd(12,26,9) rsi(14)"
+
     Returns:
-        Markdown 格式的股票数据表格。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         from tradingagents.utils.stock_utils import StockUtils
-        
+
         # 1. 自动推断市场类型 (优先使用 StockUtils)
-        market_info = StockUtils.get_market_info(code)
+        market_info = StockUtils.get_market_info(stock_code)
         is_china = market_info['is_china']
         is_hk = market_info['is_hk']
         is_us = market_info['is_us']
-        
+
         # 如果无法识别，回退到参数指定
         if not (is_china or is_hk or is_us):
             if market_type == "hk": is_hk = True
@@ -76,42 +76,40 @@ def get_stock_data(
             start_date = (now_utc() - timedelta(days=30)).strftime('%Y-%m-%d')
         if not end_date:
             end_date = get_current_date()
-            
+
         # 3. 调用统一数据接口 (包含 Write-Through 逻辑)
         if is_china:
             from tradingagents.dataflows.interface import get_china_stock_data_unified
-            # 注意: get_china_stock_data_unified 内部可能会处理 indicators
-            data = get_china_stock_data_unified(code, start_date, end_date)
-            return f"## A股行情数据 ({code})\n{data}"
-            
+            data = get_china_stock_data_unified(stock_code, start_date, end_date)
+            return format_tool_result(success_result(f"## A股行情数据 ({stock_code})\n{data}"))
+
         elif is_hk:
             from tradingagents.dataflows.interface import get_hk_stock_data_unified
-            data = get_hk_stock_data_unified(code, start_date, end_date)
-            return f"## 港股行情数据 ({code})\n{data}"
-            
+            data = get_hk_stock_data_unified(stock_code, start_date, end_date)
+            return format_tool_result(success_result(f"## 港股行情数据 ({stock_code})\n{data}"))
+
         elif is_us:
-            # from tradingagents.dataflows.providers.us.optimized import get_us_stock_data_cached
-            # data = get_us_stock_data_cached(code, start_date, end_date)
-            # Use manager to support AKShare fallback
-            data = get_manager().get_stock_data(code, "us", start_date, end_date)
-            return f"## 美股行情数据 ({code})\n{data}"
-            
-        return "Error: Unknown market type"
-        
+            data = get_manager().get_stock_data(stock_code, "us", start_date, end_date)
+            return format_tool_result(success_result(f"## 美股行情数据 ({stock_code})\n{data}"))
+
+        return format_tool_result(error_result(
+            ErrorCodes.UNKNOWN_MARKET,
+            f"无法识别股票代码 {stock_code} 的市场类型"
+        ))
+
     except Exception as e:
         logger.error(f"get_stock_data failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 # --- 1.1 Unified Stock News ---
 
 def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
-    """
-    内部辅助函数：获取原始新闻数据列表
-    
-    逻辑：数据库优先 -> Tushare -> AKShare -> Finnhub -> Google -> Return
-    """
+    """内部辅助函数：获取原始新闻数据列表"""
     news_list = []
-    
+
     try:
         from tradingagents.utils.stock_utils import StockUtils
         market_info = StockUtils.get_market_info(stock_code)
@@ -129,7 +127,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
         if client:
             db = client.get_database('tradingagents')
             collection = db.stock_news
-            
+
             clean_code = stock_code.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
                                    .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
 
@@ -138,7 +136,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
                 {'symbol': clean_code, 'publish_time': {'$gte': thirty_days_ago}},
                 {'symbol': stock_code, 'publish_time': {'$gte': thirty_days_ago}},
             ]
-            
+
             for query in query_list:
                 cursor = collection.find(query).sort('publish_time', -1).limit(max_news)
                 db_items = list(cursor)
@@ -158,38 +156,34 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
         logger.warning(f"[MCP新闻工具] 数据库获取失败: {e}")
 
     # 2. 外部数据源
-    
+
     # --- A股 & 港股 ---
     if is_china or is_hk:
         clean_code = stock_code.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
                                .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
-        
+
         # 2.1 尝试 Tushare
         try:
             from tradingagents.dataflows.providers.china.tushare import TushareProvider
-            
+
             ts_provider = TushareProvider()
             if ts_provider.is_available():
                 logger.info(f"🔄 尝试 Tushare 新闻: {stock_code}")
-                # 获取个股新闻 (src='sina' 是常用的免费/低积分源)
-                # TushareProvider 需要确保初始化了 pro 接口
                 if hasattr(ts_provider, 'pro') and ts_provider.pro:
-                    # 获取最近30天的新闻
                     start_dt = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
                     end_dt = get_current_date_compact()
-                    
+
                     df = ts_provider.pro.news(src='sina', symbol=clean_code, start_date=start_dt, end_date=end_dt)
                     if df is not None and not df.empty:
-                         # 按时间降序
                          df = df.sort_values('datetime', ascending=False).head(max_news)
-                         
+
                          for _, row in df.iterrows():
                              news_list.append({
                                  'title': row.get('title', '无标题'),
                                  'content': row.get('content', ''),
                                  'source': 'Tushare (Sina)',
                                  'publish_time': row.get('datetime', now_utc()),
-                                 'sentiment': 'neutral', # Tushare news doesn't provide sentiment
+                                 'sentiment': 'neutral',
                                  'url': ''
                              })
                          logger.info(f"✅ Tushare 获取新闻成功: {len(news_list)} 条")
@@ -197,14 +191,14 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
         except Exception as e:
             logger.warning(f"[MCP新闻工具] Tushare 获取失败: {e}")
 
-        # 2.2 尝试 AKShare (作为主要来源，因为它免费且稳定)
+        # 2.2 尝试 AKShare
         try:
             from tradingagents.dataflows.providers.china.akshare import AKShareProvider
             import asyncio
             import concurrent.futures
-            
+
             provider = AKShareProvider()
-            
+
             def run_async():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -212,11 +206,11 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
                     return loop.run_until_complete(provider.get_stock_news(symbol=clean_code, limit=max_news))
                 finally:
                     loop.close()
-            
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(run_async)
                 ak_news = future.result(timeout=30)
-            
+
             if ak_news:
                 for item in ak_news:
                     news_list.append({
@@ -224,7 +218,7 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
                         'content': item.get('content', '') or item.get('summary', ''),
                         'source': f"{item.get('source', 'AKShare')}",
                         'publish_time': item.get('publish_time', now_utc()),
-                        'sentiment': item.get('sentiment', 'neutral'), # AKShare provider returns sentiment
+                        'sentiment': item.get('sentiment', 'neutral'),
                         'url': item.get('url', '')
                     })
                 return news_list
@@ -238,14 +232,9 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
             from tradingagents.dataflows.interface import get_finnhub_news
             logger.info(f"🔄 尝试 Finnhub 新闻: {stock_code}")
             current_date_str = get_current_date()
-            # get_finnhub_news(ticker, curr_date, look_back_days)
             finnhub_news_str = get_finnhub_news(stock_code, current_date_str, 7)
-            
-            # Finnhub 接口返回的是字符串，需要解析或直接使用（这里为了统一，我们可能需要重构 get_finnhub_news 返回结构化数据）
-            # 暂时跳过解析字符串，如果 finnhub_news_str 有效，则直接返回（由于接口限制，这里不做深度解析）
+
             if finnhub_news_str and "暂无" not in finnhub_news_str and "Error" not in finnhub_news_str:
-                 # 构造一个伪列表，因为上层期望列表，或者我们让 get_stock_news 处理字符串
-                 # 这里我们简单包装一下
                  news_list.append({
                      'title': 'Finnhub News Summary',
                      'content': finnhub_news_str,
@@ -262,9 +251,8 @@ def _fetch_news_data(stock_code: str, max_news: int = 10) -> list:
             from tradingagents.dataflows.interface import get_google_news
             logger.info(f"🔄 尝试 Google News: {stock_code}")
             current_date_str = get_current_date()
-            # get_google_news(query, curr_date, look_back_days=7)
             google_news_str = get_google_news(stock_code, current_date_str, 7)
-            
+
             if google_news_str and "暂无" not in google_news_str:
                  news_list.append({
                      'title': 'Google News Summary',
@@ -292,13 +280,12 @@ def _format_news_list(news_list: list, source_label: str = None) -> str:
         title = news.get('title', '无标题')
         content = news.get('content', '')
         source = news.get('source', '未知来源')
-        # Handle datetime object or string
         pub_time = news.get('publish_time', now_utc())
         if isinstance(pub_time, datetime):
             pub_time_str = pub_time.strftime('%Y-%m-%d %H:%M')
         else:
             pub_time_str = str(pub_time)
-            
+
         sentiment = news.get('sentiment', 'neutral')
         sentiment_icon = {'positive': '📈', 'negative': '📉', 'neutral': '➖'}.get(sentiment, '➖')
 
@@ -309,15 +296,14 @@ def _format_news_list(news_list: list, source_label: str = None) -> str:
         report += "\n"
 
         if content:
-            # Check if content is actually the summary string from Finnhub/Google
-            if len(content) > 1000 and "===" in content: # Likely a pre-formatted report
+            if len(content) > 1000 and "===" in content:
                 report += content
             else:
                 content_preview = content[:500] + '...' if len(content) > 500 else content
                 report += f"{content_preview}\n\n"
 
         report += "---\n\n"
-    
+
     return report
 
 def get_stock_news(
@@ -325,73 +311,68 @@ def get_stock_news(
     max_news: int = 10
 ) -> str:
     """
-    统一新闻获取工具 - 根据股票代码自动获取相应市场的新闻。
-    
-    自动识别股票类型（A股/港股/美股）并从最佳数据源获取新闻：
-    - A股: 数据库缓存 -> AKShare
-    - 港股: 数据库缓存 -> AKShare
-    - 美股: 数据库缓存 -> Finnhub -> Google News
-    
-    逻辑：数据库优先 -> 单源返回 -> 无冗余。
-    
+    获取指定股票的最新新闻。
+
+    返回格式化的新闻列表，包含标题、来源、时间和摘要。
+
     Args:
-        stock_code: 股票代码，支持多种格式。
-        max_news: 获取新闻的最大数量，建议范围 5-20，默认 10
-    
+        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        max_news: 返回的最大新闻数，建议范围 5-20，默认 10
+
     Returns:
-        格式化的新闻内容，包含新闻标题、来源、时间和摘要
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     if not stock_code:
-        return "❌ 错误: 未提供股票代码"
-    
-    logger.info(f"[MCP新闻工具] 开始获取 {stock_code} 的新闻")
-    
-    news_list = _fetch_news_data(stock_code, max_news)
-    
-    if news_list:
-        # Determine primary source for label
-        source = news_list[0].get('source', 'Unknown')
-        if "(DB)" in source: source_label = "数据库缓存"
-        elif "AKShare" in source: source_label = "AKShare"
-        elif "Finnhub" in source: source_label = "Finnhub"
-        elif "Google" in source: source_label = "Google News"
-        else: source_label = "聚合数据"
-        
-        return _format_news_list(news_list, source_label)
-    
-    # 返回无数据提示
-    return f"""
-=== 📰 新闻数据来源: 无可用数据源 ===
-获取时间: {now_utc().strftime("%Y-%m-%d %H:%M:%S")}
+        return format_tool_result(error_result(
+            ErrorCodes.MISSING_PARAM,
+            "未提供股票代码"
+        ))
 
-=== ⚠️ 提示 ===
-无法获取 {stock_code} 的新闻数据。
-建议：
-- 检查股票代码是否正确
-- 稍后重试
-"""
+    try:
+        news_list = _fetch_news_data(stock_code, max_news)
+
+        if news_list:
+            source = news_list[0].get('source', 'Unknown')
+            if "(DB)" in source: source_label = "数据库缓存"
+            elif "AKShare" in source: source_label = "AKShare"
+            elif "Finnhub" in source: source_label = "Finnhub"
+            elif "Google" in source: source_label = "Google News"
+            else: source_label = "聚合数据"
+
+            return format_tool_result(success_result(_format_news_list(news_list, source_label)))
+
+        return format_tool_result(no_data_result(
+            message=f"未找到 {stock_code} 的新闻数据",
+            suggestion="这是正常状态，不要重试或尝试其他参数"
+        ))
+    except Exception as e:
+        logger.error(f"get_stock_news failed: {e}")
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_stock_fundamentals(
-    ticker: str,
+    stock_code: str,
     curr_date: str = None,
     start_date: str = None,
     end_date: str = None
 ) -> str:
     """
-    统一股票基本面分析工具 - 获取股票的财务数据和估值指标。
-    
-    自动识别股票类型（A股/港股/美股）并调用最佳数据源。
-    
+    获取股票基本面财务数据和估值指标。
+
+    返回包括财务报表、估值指标、盈利能力等基本面数据。
+
     Args:
-        ticker: 股票代码
-        curr_date: 当前日期（可选）
-        start_date: 开始日期（可选）
-        end_date: 结束日期（可选）
-    
+        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        curr_date: 当前日期，格式 YYYY-MM-DD，默认今天
+        start_date: 开始日期，格式 YYYY-MM-DD，默认 10 天前
+        end_date: 结束日期，格式 YYYY-MM-DD，默认今天
+
     Returns:
-        格式化的基本面分析数据
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
-    logger.info(f"📊 [MCP基本面工具] 分析股票: {ticker}")
+    logger.info(f"📊 [MCP基本面工具] 分析股票: {stock_code}")
     start_time = now_utc()
 
     # 设置默认日期
@@ -400,7 +381,7 @@ def get_stock_fundamentals(
 
     if not start_date:
         start_date = (now_utc() - timedelta(days=10)).strftime('%Y-%m-%d')
-    
+
     if not end_date:
         end_date = curr_date
 
@@ -411,7 +392,7 @@ def get_stock_fundamentals(
         from tradingagents.utils.stock_utils import StockUtils
 
         # 自动识别股票类型
-        market_info = StockUtils.get_market_info(ticker)
+        market_info = StockUtils.get_market_info(stock_code)
         is_china = market_info['is_china']
         is_hk = market_info['is_hk']
         is_us = market_info['is_us']
@@ -423,7 +404,7 @@ def get_stock_fundamentals(
         if is_china:
             # 中国A股
             logger.info(f"🇨🇳 [MCP基本面工具] 处理A股数据...")
-            
+
             # 获取最新股价信息 (仅用于辅助分析，不直接返回)
             current_price_data = ""
             try:
@@ -431,7 +412,7 @@ def get_stock_fundamentals(
                 recent_start_date = (datetime.strptime(curr_date, '%Y-%m-%d') - timedelta(days=2)).strftime('%Y-%m-%d')
 
                 from tradingagents.dataflows.interface import get_china_stock_data_unified
-                current_price_data = get_china_stock_data_unified(ticker, recent_start_date, recent_end_date)
+                current_price_data = get_china_stock_data_unified(stock_code, recent_start_date, recent_end_date)
             except Exception as e:
                 logger.error(f"❌ [MCP基本面工具] A股价格数据获取失败: {e}")
                 current_price_data = ""
@@ -440,18 +421,18 @@ def get_stock_fundamentals(
             try:
                 from tradingagents.dataflows.providers.china.optimized import OptimizedChinaDataProvider
                 analyzer = OptimizedChinaDataProvider()
-                
+
                 # 根据数据深度选择分析模块
                 analysis_modules = data_depth
-                
+
                 # 尝试调用报告生成方法
                 if hasattr(analyzer, "generate_fundamentals_report"):
-                    fundamentals_data = analyzer.generate_fundamentals_report(ticker, current_price_data, analysis_modules)
+                    fundamentals_data = analyzer.generate_fundamentals_report(stock_code, current_price_data, analysis_modules)
                 elif hasattr(analyzer, "_generate_fundamentals_report"):
-                    fundamentals_data = analyzer._generate_fundamentals_report(ticker, current_price_data, analysis_modules)
+                    fundamentals_data = analyzer._generate_fundamentals_report(stock_code, current_price_data, analysis_modules)
                 else:
                     fundamentals_data = "基本面报告生成方法不可用"
-                
+
                 result_data.append(f"## A股基本面财务数据\n{fundamentals_data}")
             except Exception as e:
                 logger.error(f"❌ [MCP基本面工具] A股基本面数据获取失败: {e}")
@@ -460,12 +441,12 @@ def get_stock_fundamentals(
         elif is_hk:
             # 港股
             logger.info(f"🇭🇰 [MCP基本面工具] 处理港股数据...")
-            
+
             # 1. 获取基础信息
             try:
                 from tradingagents.dataflows.interface import get_hk_stock_info_unified
-                hk_info = get_hk_stock_info_unified(ticker)
-                
+                hk_info = get_hk_stock_info_unified(stock_code)
+
                 basic_info = f'''## 港股基础信息
 **名称**: {hk_info.get('name', 'N/A')}
 **行业**: {hk_info.get('industry', 'N/A')}
@@ -485,7 +466,7 @@ def get_stock_fundamentals(
                 # 尝试使用 Finnhub 获取基本面
                 try:
                     from tradingagents.dataflows.interface import get_us_stock_info
-                    us_info = get_us_stock_info(ticker)
+                    us_info = get_us_stock_info(stock_code)
                     if us_info:
                         result_data.append(f"## 美股基本面信息\n{us_info}")
                     else:
@@ -500,7 +481,7 @@ def get_stock_fundamentals(
         execution_time = (now_utc() - start_time).total_seconds()
 
         # 组合所有数据
-        combined_result = f"""# {ticker} 基本面分析
+        combined_result = f"""# {stock_code} 基本面分析
 
 **股票类型**: {market_info['market_name']}
 **分析日期**: {curr_date}
@@ -508,43 +489,47 @@ def get_stock_fundamentals(
 
 {chr(10).join(result_data)}
 """
-        return combined_result
+        return format_tool_result(success_result(combined_result))
 
     except Exception as e:
         logger.error(f"get_stock_fundamentals failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_stock_sentiment(
-    ticker: str,
+    stock_code: str,
     curr_date: str,
     start_date: str = None,
     end_date: str = None,
     source_name: str = None
 ) -> str:
     """
-    统一股票情绪分析工具 - 获取市场对股票的情绪倾向。
-    
-    自动识别股票类型并调用相应数据源（如中国社交媒体、Reddit、内部交易等）。
-    返回数据包括：投资者情绪指数、社交媒体热度、内部人士交易信号等。
-    
+    获取股票市场情绪分析数据。
+
+    返回包括投资者情绪指数、社交媒体热度、内部人士交易信号等。
+
     Args:
-        ticker: 股票代码
-        curr_date: 当前日期，格式：YYYY-MM-DD
-        start_date: 可选：开始日期 (YYYY-MM-DD)，如果不提供则默认分析curr_date当天
-        end_date: 可选：结束日期 (YYYY-MM-DD)，如果不提供则默认分析curr_date当天
-        source_name: 可选：指定数据源名称（如'雪球'、'Reddit'），如果不支持将自动忽略
-    
+        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        curr_date: 当前日期，格式 YYYY-MM-DD
+        start_date: 保留参数，暂未使用
+        end_date: 保留参数，暂未使用
+        source_name: 保留参数，暂未使用
+
     Returns:
-        格式化的情绪分析数据，包含情绪指数和社交媒体热度
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
-    logger.info(f"😊 [MCP情绪工具] 分析股票: {ticker}")
+    # 参数保留用于未来扩展，当前未使用
+    _ = start_date, end_date, source_name
+    logger.info(f"😊 [MCP情绪工具] 分析股票: {stock_code}")
     start_time = now_utc()
 
     try:
         from tradingagents.utils.stock_utils import StockUtils
 
         # 自动识别股票类型
-        market_info = StockUtils.get_market_info(ticker)
+        market_info = StockUtils.get_market_info(stock_code)
         is_china = market_info['is_china']
         is_hk = market_info['is_hk']
         is_us = market_info['is_us']
@@ -558,29 +543,28 @@ def get_stock_sentiment(
             logger.info(f"🇨🇳🇭🇰 [MCP情绪工具] 处理中文市场情绪...")
 
             # 1. 获取新闻数据 (复用 get_stock_news 的逻辑)
-            # 这里的 _fetch_news_data 已经实现了 DB -> Tushare -> AKShare -> ... 的 fallback
-            news_list = _fetch_news_data(ticker, 20)
-            
+            news_list = _fetch_news_data(stock_code, 20)
+
             if news_list:
                 # 简单计算情绪分数
                 positive = 0
                 negative = 0
                 neutral = 0
-                
+
                 for news in news_list:
                     # 如果新闻项本身带有 sentiment 字段（AKShareProvider/TushareProvider 返回的）
                     s = news.get('sentiment', 'neutral')
                     if s == 'positive': positive += 1
                     elif s == 'negative': negative += 1
                     else: neutral += 1
-                
+
                 total = positive + negative + neutral
                 score = (positive - negative) / total if total > 0 else 0
-                
+
                 sentiment_summary = f"""
 ## 中文市场情绪分析
 
-**股票**: {ticker} ({market_info['market_name']})
+**股票**: {stock_code} ({market_info['market_name']})
 **分析日期**: {curr_date}
 **分析周期**: 近期新闻
 
@@ -601,7 +585,7 @@ def get_stock_sentiment(
                 # 备用：Reddit新闻
                 try:
                     from tradingagents.dataflows.interface import get_reddit_company_news
-                    reddit_data = get_reddit_company_news(ticker, curr_date, 7, 5)
+                    reddit_data = get_reddit_company_news(stock_code, curr_date, 7, 5)
                     if reddit_data:
                         result_data.append(f"## Reddit讨论(备用)\n{reddit_data}")
                 except Exception as e:
@@ -615,17 +599,17 @@ def get_stock_sentiment(
                 # 尝试获取内幕交易情绪
                 try:
                     from tradingagents.dataflows.interface import get_finnhub_company_insider_sentiment
-                    
-                    insider_sentiment = get_finnhub_company_insider_sentiment(ticker, curr_date, 30)
+
+                    insider_sentiment = get_finnhub_company_insider_sentiment(stock_code, curr_date, 30)
                     if insider_sentiment:
                         result_data.append(f"## 内部人士情绪\n{insider_sentiment}")
                 except Exception as e:
                     logger.warning(f"⚠️ [MCP情绪工具] 内幕交易数据获取失败: {e}")
-                
+
                 # 尝试获取Reddit讨论
                 try:
                     from tradingagents.dataflows.interface import get_reddit_company_news
-                    reddit_info = get_reddit_company_news(ticker, curr_date, 7, 5)
+                    reddit_info = get_reddit_company_news(stock_code, curr_date, 7, 5)
                     if reddit_info:
                         result_data.append(f"## Reddit讨论\n{reddit_info}")
                 except Exception as e:
@@ -642,7 +626,7 @@ def get_stock_sentiment(
         execution_time = (now_utc() - start_time).total_seconds()
 
         # 组合所有数据
-        combined_result = f"""# {ticker} 市场情绪分析
+        combined_result = f"""# {stock_code} 市场情绪分析
 
 **股票类型**: {market_info['market_name']}
 **分析日期**: {curr_date}
@@ -653,11 +637,14 @@ def get_stock_sentiment(
 ---
 *数据来源: 社交媒体、新闻评论及内部交易数据*
 """
-        return combined_result
+        return format_tool_result(success_result(combined_result))
 
     except Exception as e:
         logger.error(f"get_stock_sentiment failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_china_market_overview(
     date: str = None,
@@ -665,20 +652,17 @@ def get_china_market_overview(
     include_sectors: bool = True
 ) -> str:
     """
-    中国A股市场概览工具 - 获取中国A股市场的整体概况。
-    
-    提供市场指数、板块表现、资金流向等宏观市场数据。
-    适用于了解整体市场环境和趋势。
-    
-    逻辑：Tushare (Indices) -> AKShare (Indices + Sectors) -> Return
-    
+    获取中国A股市场整体概览。
+
+    返回市场指数、板块表现、资金流向等宏观市场数据。
+
     Args:
-        date: 查询日期，格式：YYYY-MM-DD（可选，默认为今天）
+        date: 查询日期，格式 YYYY-MM-DD，默认今天
         include_indices: 是否包含主要指数数据（上证、深证、创业板等）
         include_sectors: 是否包含板块表现数据
-    
+
     Returns:
-        格式化的市场概览数据，包含指数、板块和资金流向信息
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     logger.info(f"🇨🇳 [MCP中国市场工具] 获取市场概览")
     start_time = now_utc()
@@ -692,7 +676,7 @@ def get_china_market_overview(
     if include_indices:
         indices_data = []
         indices_source = "Unknown"
-        
+
         # 定义关注的指数
         indices_to_fetch = [
             ('000001.SH', 'sh000001', '上证指数'),
@@ -701,33 +685,29 @@ def get_china_market_overview(
         ]
 
         # 1. 尝试使用 get_manager().get_index_data (支持 DB -> Tushare -> AKShare)
-        # 注意：这里我们逐个获取，虽然效率略低但能复用现有的健壮逻辑
         try:
             for ts_code, ak_code, name in indices_to_fetch:
                 # 优先尝试 Tushare 格式代码
                 try:
                     # 使用 DataSourceManager 的逻辑
                     index_result = get_manager().get_index_data(code=ts_code, start_date=date, end_date=date)
-                    
+
                     # 简单解析返回的 Markdown 表格获取收盘价
                     if index_result and "|" in index_result:
                         lines = index_result.split('\n')
-                        # 假设表格格式，最后一行是数据
                         # 寻找包含日期的行
                         data_line = None
                         for line in lines:
                             if date.replace('-', '') in line or date in line:
                                 data_line = line
                                 break
-                        
+
                         if data_line:
-                            # 提取收盘价 (假设是第3列或第4列，取决于 get_index_data 的输出)
-                            # 这里为了稳健，如果解析失败，我们只记录获取成功
                             indices_data.append(f"- **{name}**: (已获取，请查看详细指数数据)")
                             continue
                 except Exception:
                     pass
-                
+
                 # 如果上面失败，尝试 AKShare 直接调用 (作为备用)
                 try:
                     import akshare as ak
@@ -752,7 +732,7 @@ def get_china_market_overview(
     if include_sectors:
         try:
             import akshare as ak
-            
+
             # 获取行业板块涨跌幅
             try:
                 sector_df = ak.stock_board_industry_name_em()
@@ -760,27 +740,27 @@ def get_china_market_overview(
                     # 取涨幅前5和跌幅前5
                     top_sectors = sector_df.head(5)
                     bottom_sectors = sector_df.tail(5)
-                    
+
                     sector_info = "## 板块表现 (AKShare)\n\n"
                     sector_info += "### 涨幅前5\n"
                     for _, row in top_sectors.iterrows():
                         name = row.get('板块名称', 'N/A')
                         change = row.get('涨跌幅', 'N/A')
                         sector_info += f"- {name}: {change}%\n"
-                    
+
                     sector_info += "\n### 跌幅前5\n"
                     for _, row in bottom_sectors.iterrows():
                         name = row.get('板块名称', 'N/A')
                         change = row.get('涨跌幅', 'N/A')
                         sector_info += f"- {name}: {change}%\n"
-                    
+
                     result_sections.append(sector_info)
                 else:
                     result_sections.append("## 板块表现\n\n⚠️ 板块数据暂时无法获取")
             except Exception as e:
                 logger.warning(f"获取板块数据失败: {e}")
                 result_sections.append(f"## 板块表现\n\n⚠️ 获取失败: {e}")
-                
+
         except Exception as e:
             logger.error(f"❌ [MCP中国市场工具] 获取板块数据失败: {e}")
             result_sections.append(f"## 板块表现\n\n⚠️ 获取失败: {e}")
@@ -800,38 +780,27 @@ def get_china_market_overview(
 *数据来源: AKShare/Tushare*
 """
     logger.info(f"🇨🇳 [MCP中国市场工具] 数据获取完成，总长度: {len(combined_result)}")
-    return combined_result
-
-def get_stock_market_data(
-    ticker: str,
-    start_date: str,
-    end_date: str
-) -> str:
-    """
-    统一股票市场数据工具 - 获取股票的历史价格、技术指标和市场表现。
-    (Alias for get_stock_data with auto-detection)
-    """
-    return get_stock_data(code=ticker, start_date=start_date, end_date=end_date)
+    return format_tool_result(success_result(combined_result))
 
 def get_stock_data_minutes(
     market_type: str,
-    code: str,
+    stock_code: str,
     start_datetime: Optional[str] = None,
     end_datetime: Optional[str] = None,
     freq: str = "30min"
 ) -> str:
     """
     获取分钟级 K 线数据。
-    
+
     Args:
-        market_type: 市场类型 (目前仅支持 "cn")。
-        code: 股票代码 (例如: "600519.SH")。
-        start_datetime: 开始时间 (YYYY-MM-DD HH:mm:ss 或 YYYYMMDDHHmmss)。默认: 1天前。
-        end_datetime: 结束时间。默认: 现在。
-        freq: 频率: "1min", "5min", "15min", "30min", "60min"。默认: "30min"。
-        
+        market_type: 市场类型，目前仅支持 "cn"
+        stock_code: 股票代码，如 "600519.SH"
+        start_datetime: 开始时间，格式 YYYY-MM-DD HH:mm:ss 或 YYYYMMDDHHmmss，默认 1 天前
+        end_datetime: 结束时间，格式 YYYY-MM-DD HH:mm:ss 或 YYYYMMDDHHmmss，默认现在
+        freq: 频率，支持 "1min"、"5min"、"15min"、"30min"、"60min"，默认 "30min"
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认时间
@@ -842,37 +811,40 @@ def get_stock_data_minutes(
 
         data = get_manager().get_stock_data_minutes(
             market_type=market_type,
-            code=code,
+            code=stock_code,
             start_datetime=start_datetime,
             end_datetime=end_datetime,
             freq=freq
         )
-        return _format_result(data, f"{code} {freq} Data")
+        return format_tool_result(success_result(_format_result(data, f"{stock_code} {freq} Data")))
     except Exception as e:
         logger.error(f"get_stock_data_minutes failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 # --- 2. Company Performance ---
 
 def get_company_performance(
-    ts_code: str,
+    stock_code: str,
     data_type: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     period: Optional[str] = None
 ) -> str:
     """
-    获取 A 股公司业绩/财务数据。
-    
+    获取 A 股公司业绩和财务数据。
+
     Args:
-        ts_code: 股票代码 (例如: "000001.SZ")。
-        data_type: 数据类型 (forecast-业绩预告, express-业绩快报, indicators-财务指标, dividend-分红送转, mainbz-主营业务, holder_number-股东人数, holder_trade-股东增减持, managers-管理层, audit-审计意见, company_basic-公司基本信息, balance_basic-资产负债表(基础), balance_all-资产负债表(全部), cashflow_basic-现金流量表(基础), cashflow_all-现金流量表(全部), income_basic-利润表(基础), income_all-利润表(全部), share_float-解禁数据, repurchase-回购数据, top10_holders-前十大股东, top10_floatholders-前十大流通股东, pledge_stat-质押统计, pledge_detail-质押详情)。
-        start_date: 开始日期 (YYYYMMDD)。默认: 1年前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        period: 报告期 (YYYYMMDD, 可选)。
-        
+        stock_code: 股票代码，如 "000001.SZ"
+        data_type: 数据类型，支持 forecast(业绩预告)、express(业绩快报)、indicators(财务指标)、dividend(分红送转)等
+        start_date: 开始日期，格式 YYYYMMDD，默认 1 年前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+        period: 报告期，格式 YYYYMMDD，可选
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -882,20 +854,23 @@ def get_company_performance(
             start_date = (now_utc() - timedelta(days=360)).strftime('%Y%m%d')
 
         data = get_manager().get_company_performance(
-            ts_code=ts_code,
+            ts_code=stock_code,
             data_type=data_type,
             start_date=start_date,
             end_date=end_date,
             period=period,
             market="cn"
         )
-        return _format_result(data, f"{ts_code} {data_type}")
+        return format_tool_result(success_result(_format_result(data, f"{stock_code} {data_type}")))
     except Exception as e:
         logger.error(f"get_company_performance failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_company_performance_hk(
-    ts_code: str,
+    stock_code: str,
     data_type: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -904,17 +879,17 @@ def get_company_performance_hk(
 ) -> str:
     """
     获取港股财务数据。
-    
+
     Args:
-        ts_code: 港股代码 (例如: "00700.HK")。
-        data_type: 数据类型 (income-利润表, balance-资产负债表, cashflow-现金流量表)。
-        start_date: 开始日期 (YYYYMMDD)。默认: 1年前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        period: 报告期。
-        ind_name: 指标名称过滤。
-        
+        stock_code: 港股代码，如 "00700.HK"
+        data_type: 数据类型，支持 income(利润表)、balance(资产负债表)、cashflow(现金流量表)
+        start_date: 开始日期，格式 YYYYMMDD，默认 1 年前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+        period: 报告期，可选
+        ind_name: 指标名称过滤，可选
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -924,7 +899,7 @@ def get_company_performance_hk(
             start_date = (now_utc() - timedelta(days=360)).strftime('%Y%m%d')
 
         data = get_manager().get_company_performance(
-            ts_code=ts_code,
+            ts_code=stock_code,
             data_type=data_type,
             start_date=start_date,
             end_date=end_date,
@@ -932,13 +907,16 @@ def get_company_performance_hk(
             ind_name=ind_name,
             market="hk"
         )
-        return _format_result(data, f"{ts_code} {data_type} (HK)")
+        return format_tool_result(success_result(_format_result(data, f"{stock_code} {data_type} (HK)")))
     except Exception as e:
         logger.error(f"get_company_performance_hk failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_company_performance_us(
-    ts_code: str,
+    stock_code: str,
     data_type: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -946,16 +924,16 @@ def get_company_performance_us(
 ) -> str:
     """
     获取美股财务数据。
-    
+
     Args:
-        ts_code: 美股代码 (例如: "AAPL")。
-        data_type: 数据类型 (income-利润表, balance-资产负债表, cashflow-现金流量表, indicator-财务指标)。
-        start_date: 开始日期 (YYYYMMDD)。默认: 1年前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        period: 报告期。
-        
+        stock_code: 美股代码，如 "AAPL"
+        data_type: 数据类型，支持 income(利润表)、balance(资产负债表)、cashflow(现金流量表)、indicator(财务指标)
+        start_date: 开始日期，格式 YYYYMMDD，默认 1 年前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+        period: 报告期，可选
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -965,17 +943,20 @@ def get_company_performance_us(
             start_date = (now_utc() - timedelta(days=360)).strftime('%Y%m%d')
 
         data = get_manager().get_company_performance(
-            ts_code=ts_code,
+            ts_code=stock_code,
             data_type=data_type,
             start_date=start_date,
             end_date=end_date,
             period=period,
             market="us"
         )
-        return _format_result(data, f"{ts_code} {data_type} (US)")
+        return format_tool_result(success_result(_format_result(data, f"{stock_code} {data_type} (US)")))
     except Exception as e:
         logger.error(f"get_company_performance_us failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 # --- 3. Macro & Flows ---
 
@@ -986,14 +967,14 @@ def get_macro_econ(
 ) -> str:
     """
     获取宏观经济数据。
-    
+
     Args:
-        indicator: 指标名称 (shibor-Shibor利率, lpr-LPR利率, gdp-GDP数据, cpi-CPI数据, ppi-PPI数据, cn_m-货币供应量, cn_pmi-PMI数据, cn_sf-社融数据, shibor_quote-Shibor报价, libor-Libor利率, hibor-Hibor利率)。
-        start_date: 开始日期 (YYYYMMDD)。默认: 3月。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        
+        indicator: 指标名称，支持 shibor、lpr、gdp、cpi、ppi、cn_m、cn_pmi、cn_sf 等
+        start_date: 开始日期，格式 YYYYMMDD，默认 3 个月前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -1003,10 +984,13 @@ def get_macro_econ(
             start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
 
         data = get_manager().get_macro_econ(indicator=indicator, start_date=start_date, end_date=end_date)
-        return _format_result(data, f"Macro: {indicator}")
+        return format_tool_result(success_result(_format_result(data, f"Macro: {indicator}")))
     except Exception as e:
         logger.error(f"get_macro_econ failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_money_flow(
     start_date: Optional[str] = None,
@@ -1018,17 +1002,17 @@ def get_money_flow(
 ) -> str:
     """
     获取资金流向数据。
-    
+
     Args:
-        start_date: 开始日期 (YYYYMMDD)。默认: 1个月前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        query_type: 查询类型 (stock-个股, market-大盘, sector-板块)。
-        ts_code: 股票或板块代码。
-        content_type: 板块类型 (industry-行业, concept-概念, area-地域)，仅在 query_type 为 sector 时有效。
-        trade_date: 指定交易日期。
-        
+        start_date: 开始日期，格式 YYYYMMDD，默认 1 个月前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+        query_type: 查询类型，支持 stock(个股)、market(大盘)、sector(板块)
+        ts_code: 股票或板块代码
+        content_type: 板块类型，支持 industry(行业)、concept(概念)、area(地域)
+        trade_date: 指定交易日期，格式 YYYYMMDD
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期 (如果未提供 trade_date)
@@ -1046,10 +1030,13 @@ def get_money_flow(
             content_type=content_type,
             trade_date=trade_date
         )
-        return _format_result(data, f"Money Flow: {ts_code or query_type}")
+        return format_tool_result(success_result(_format_result(data, f"Money Flow: {ts_code or query_type}")))
     except Exception as e:
         logger.error(f"get_money_flow failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_margin_trade(
     data_type: str,
@@ -1060,16 +1047,16 @@ def get_margin_trade(
 ) -> str:
     """
     获取融资融券数据。
-    
+
     Args:
-        data_type: 数据类型 (margin_secs-融资融券标的, margin-融资融券交易汇总, margin_detail-融资融券交易明细, slb_len_mm-转融通)。
-        start_date: 开始日期 (YYYYMMDD)。默认: 1个月前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        ts_code: 股票代码。
-        exchange: 交易所 (SSE-上交所, SZSE-深交所, BSE-北交所)。
-        
+        data_type: 数据类型，支持 margin_secs、margin、margin_detail、slb_len_mm
+        start_date: 开始日期，格式 YYYYMMDD，默认 1 个月前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+        ts_code: 股票代码
+        exchange: 交易所，支持 SSE、SZSE、BSE
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -1085,10 +1072,13 @@ def get_margin_trade(
             ts_code=ts_code,
             exchange=exchange
         )
-        return _format_result(data, f"Margin Trade: {data_type}")
+        return format_tool_result(success_result(_format_result(data, f"Margin Trade: {data_type}")))
     except Exception as e:
         logger.error(f"get_margin_trade failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 # --- 4. Funds ---
 
@@ -1101,16 +1091,16 @@ def get_fund_data(
 ) -> str:
     """
     获取公募基金数据。
-    
+
     Args:
-        ts_code: 基金代码。
-        data_type: 数据类型 (basic-基本信息, manager-基金经理, nav-净值数据, dividend-分红数据, portfolio-持仓数据, all-全部)。
-        start_date: 开始日期 (YYYYMMDD)。默认: 3个月前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        period: 报告期。
-        
+        ts_code: 基金代码
+        data_type: 数据类型，支持 basic、manager、nav、dividend、portfolio、all
+        start_date: 开始日期，格式 YYYYMMDD，默认 3 个月前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+        period: 报告期，可选
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -1126,10 +1116,13 @@ def get_fund_data(
             end_date=end_date,
             period=period
         )
-        return _format_result(data, f"Fund: {ts_code} {data_type}")
+        return format_tool_result(success_result(_format_result(data, f"Fund: {ts_code} {data_type}")))
     except Exception as e:
         logger.error(f"get_fund_data failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_fund_manager_by_name(
     name: str,
@@ -1139,36 +1132,39 @@ def get_fund_manager_by_name(
     根据姓名获取基金经理信息。
 
     Args:
-        name: 基金经理姓名。
-        ann_date: 公告日期 (YYYYMMDD)。
+        name: 基金经理姓名
+        ann_date: 公告日期，格式 YYYYMMDD，可选
 
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         data = get_manager().get_fund_manager_by_name(name=name, ann_date=ann_date)
-        return _format_result(data, f"Manager: {name}")
+        return format_tool_result(success_result(_format_result(data, f"Manager: {name}")))
     except Exception as e:
         logger.error(f"get_fund_manager_by_name failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 # --- 5. Index & Others ---
 
 def get_index_data(
-    code: str,
+    stock_code: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None
 ) -> str:
     """
     获取指数日线行情。
-    
+
     Args:
-        code: 指数代码 (例如: 000001.SH)。
-        start_date: 开始日期 (YYYYMMDD)。默认: 3个月前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        
+        stock_code: 指数代码，如 "000001.SH"
+        start_date: 开始日期，格式 YYYYMMDD，默认 3 个月前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -1177,11 +1173,14 @@ def get_index_data(
         if not start_date:
             start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
 
-        data = get_manager().get_index_data(code=code, start_date=start_date, end_date=end_date)
-        return _format_result(data, f"Index: {code}")
+        data = get_manager().get_index_data(code=stock_code, start_date=start_date, end_date=end_date)
+        return format_tool_result(success_result(_format_result(data, f"Index: {stock_code}")))
     except Exception as e:
         logger.error(f"get_index_data failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_csi_index_constituents(
     index_code: str,
@@ -1190,14 +1189,14 @@ def get_csi_index_constituents(
 ) -> str:
     """
     获取中证指数成份股及权重。
-    
+
     Args:
-        index_code: 指数代码。
-        start_date: 开始日期 (YYYYMMDD)。默认: 1个月前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        
+        index_code: 指数代码
+        start_date: 开始日期，格式 YYYYMMDD，默认 1 个月前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -1207,10 +1206,13 @@ def get_csi_index_constituents(
             start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
         data = get_manager().get_csi_index_constituents(index_code=index_code, start_date=start_date, end_date=end_date)
-        return _format_result(data, f"CSI Constituents: {index_code}")
+        return format_tool_result(success_result(_format_result(data, f"CSI Constituents: {index_code}")))
     except Exception as e:
         logger.error(f"get_csi_index_constituents failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_convertible_bond(
     data_type: str,
@@ -1220,15 +1222,15 @@ def get_convertible_bond(
 ) -> str:
     """
     获取可转债数据。
-    
+
     Args:
-        data_type: 数据类型 (issue-发行信息, info-基本信息)。
-        ts_code: 转债代码。
-        start_date: 开始日期 (YYYYMMDD)。
-        end_date: 结束日期 (YYYYMMDD)。
-        
+        data_type: 数据类型，支持 issue(发行信息)、info(基本信息)
+        ts_code: 转债代码
+        start_date: 开始日期，格式 YYYYMMDD
+        end_date: 结束日期，格式 YYYYMMDD
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         data = get_manager().get_convertible_bond(
@@ -1237,10 +1239,13 @@ def get_convertible_bond(
             start_date=start_date,
             end_date=end_date
         )
-        return _format_result(data, f"CB: {data_type}")
+        return format_tool_result(success_result(_format_result(data, f"CB: {data_type}")))
     except Exception as e:
         logger.error(f"get_convertible_bond failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_block_trade(
     start_date: Optional[str] = None,
@@ -1249,14 +1254,14 @@ def get_block_trade(
 ) -> str:
     """
     获取大宗交易数据。
-    
+
     Args:
-        start_date: 开始日期 (YYYYMMDD)。默认: 7天前。
-        end_date: 结束日期 (YYYYMMDD)。默认: 今天。
-        code: 股票代码。
-        
+        start_date: 开始日期，格式 YYYYMMDD，默认 7 天前
+        end_date: 结束日期，格式 YYYYMMDD，默认今天
+        code: 股票代码，可选
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -1266,10 +1271,13 @@ def get_block_trade(
             start_date = (now_utc() - timedelta(days=7)).strftime('%Y%m%d')
 
         data = get_manager().get_block_trade(start_date=start_date, end_date=end_date, code=code)
-        return _format_result(data, f"Block Trade: {code or 'All'}")
+        return format_tool_result(success_result(_format_result(data, f"Block Trade: {code or 'All'}")))
     except Exception as e:
         logger.error(f"get_block_trade failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_dragon_tiger_inst(
     trade_date: Optional[str] = None,
@@ -1277,13 +1285,13 @@ def get_dragon_tiger_inst(
 ) -> str:
     """
     获取龙虎榜机构明细。
-    
+
     Args:
-        trade_date: 交易日期 (YYYYMMDD)。默认: 今天。
-        ts_code: 股票代码。
-        
+        trade_date: 交易日期，格式 YYYYMMDD，默认今天
+        ts_code: 股票代码，可选
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         # 设置默认日期
@@ -1291,10 +1299,13 @@ def get_dragon_tiger_inst(
             trade_date = get_current_date_compact()
 
         data = get_manager().get_dragon_tiger_inst(trade_date=trade_date, ts_code=ts_code)
-        return _format_result(data, f"Dragon Tiger: {trade_date}")
+        return format_tool_result(success_result(_format_result(data, f"Dragon Tiger: {trade_date}")))
     except Exception as e:
         logger.error(f"get_dragon_tiger_inst failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 # --- 6. News ---
 
@@ -1303,52 +1314,58 @@ def get_finance_news(
 ) -> str:
     """
     搜索财经新闻。
-    
+
     Args:
-        query: 搜索关键词。
-        
+        query: 搜索关键词
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         data = get_manager().get_finance_news(query=query)
-        return _format_result(data, f"News: {query}")
+        return format_tool_result(success_result(_format_result(data, f"News: {query}")))
     except Exception as e:
         logger.error(f"get_finance_news failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_hot_news_7x24(
     limit: int = 100
 ) -> str:
     """
     获取 7x24 小时全球财经快讯。
-    
+
     Args:
-        limit: 获取条数。
-        
+        limit: 获取条数，默认 100
+
     Returns:
-        Markdown 格式的表格数据。
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
         data = get_manager().get_hot_news_7x24(limit=limit)
-        return _format_result(data, "Hot News 7x24")
+        return format_tool_result(success_result(_format_result(data, "Hot News 7x24")))
     except Exception as e:
         logger.error(f"get_hot_news_7x24 failed: {e}")
-        return f"Error: {str(e)}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_current_timestamp(
     format: str = "%Y-%m-%d %H:%M:%S"
 ) -> str:
     """
     获取当前时间戳。
-    
+
     Args:
-        format: 格式字符串。
-        
+        format: 格式字符串，默认 "%Y-%m-%d %H:%M:%S"
+
     Returns:
-        当前时间戳。
+        当前时间戳字符串
     """
-    return now_utc().strftime(format)
+    return format_tool_result(success_result(now_utc().strftime(format)))
 
 # --- Helpers ---
 
@@ -1356,10 +1373,10 @@ def _format_result(data: Any, title: str, max_rows: int = 2000) -> str:
     """Format data to Markdown"""
     if data is None:
         return f"# {title}\n\nNo data found."
-    
+
     if isinstance(data, list) and not data:
         return f"# {title}\n\nNo data found."
-        
+
     if isinstance(data, str):
         # 如果字符串本身已经是Markdown表格，尝试截断行数
         if "|" in data and data.count('\n') > max_rows + 5:
@@ -1372,29 +1389,29 @@ def _format_result(data: Any, title: str, max_rows: int = 2000) -> str:
                 truncated_content = content[:max_rows]
                 return "\n".join(header + truncated_content + [f"\n... (剩余 {len(content) - max_rows} 行已隐藏)"])
         return data
-        
+
     # Assuming data is a list of dicts or a pandas DataFrame (converted to list of dicts)
     if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
         # Truncate list if too long
         original_len = len(data)
         if original_len > max_rows:
             data = data[:max_rows]
-            
+
         # Create markdown table
         headers = list(data[0].keys())
         header_row = "| " + " | ".join(headers) + " |"
         separator_row = "| " + " | ".join(["---"] * len(headers)) + " |"
-        
+
         rows = []
         for item in data:
             row = "| " + " | ".join([str(item.get(h, "")) for h in headers]) + " |"
             rows.append(row)
-            
+
         result = f"# {title}\n\n{header_row}\n{separator_row}\n" + "\n".join(rows)
-        
+
         if original_len > max_rows:
             result += f"\n\n... (剩余 {original_len - max_rows} 行已隐藏)"
-            
+
         return result
-    
+
     return f"# {title}\n\n{str(data)}"

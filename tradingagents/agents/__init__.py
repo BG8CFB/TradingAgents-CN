@@ -2,7 +2,9 @@ from .utils.agent_utils import Toolkit, create_msg_delete
 from .utils.agent_states import AgentState, InvestDebateState, RiskDebateState
 from .utils.memory import FinancialSituationMemory
 
-from .analysts.dynamic_analyst import create_dynamic_analyst
+# 第一阶段智能体工厂（使用新的 SimpleAgentFactory）
+from .analysts.simple_agent_factory import SimpleAgentFactory
+# 废弃的 create_dynamic_analyst 已删除
 
 # Stage 2
 from .stage_2.bear_researcher import create_bear_researcher
@@ -29,10 +31,10 @@ __all__ = [
     "create_msg_delete",
     "InvestDebateState",
     "RiskDebateState",
+    "SimpleAgentFactory",
     "create_bear_researcher",
     "create_bull_researcher",
     "create_research_manager",
-    "create_dynamic_analyst",
     "create_neutral_debator",
     "create_risky_debator",
     "create_risk_manager",
