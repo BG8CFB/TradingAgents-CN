@@ -17,8 +17,7 @@ class DatabaseScreeningService:
     """基于数据库的股票筛选服务"""
     
     def __init__(self):
-        # 使用视图而不是基础信息表，视图已经包含了实时行情数据
-        self.collection_name = "stock_screening_view"
+        self.collection_name = "stock_basic_info"
         
         # 支持的基础信息字段映射
         self.basic_fields = {
@@ -143,42 +142,52 @@ class DatabaseScreeningService:
                 source = enabled_sources[0] if enabled_sources else 'tushare'
                 logger.info(f"✅ [database_screening] 最终使用的数据源: {source}")
 
-            # 构建查询条件（现在视图已包含实时行情数据，可以直接查询所有字段）
-            query = await self._build_query(conditions)
+            # 分离基础信息条件和实时行情条件
+            basic_conditions, quote_conditions = self._separate_conditions(conditions)
 
-            # 🔥 添加数据源筛选
+            # 构建基础信息查询条件
+            query = await self._build_query(basic_conditions)
+
+            # 添加数据源筛选
             query["source"] = source
 
             logger.info(f"📋 数据库查询条件: {query}")
+            logger.info(f"📊 实时行情条件: {quote_conditions}")
 
             # 构建排序条件
             sort_conditions = self._build_sort_conditions(order_by)
 
-            # 获取总数
+            # 获取总数（基础信息）
             total_count = await collection.count_documents(query)
 
-            # 执行查询
+            # 执行基础信息查询
             cursor = collection.find(query)
 
             # 应用排序
             if sort_conditions:
                 cursor = cursor.sort(sort_conditions)
 
-            # 应用分页
-            cursor = cursor.skip(offset).limit(limit)
+            # 如果没有实时行情条件，应用分页
+            if not quote_conditions:
+                cursor = cursor.skip(offset).limit(limit)
 
             # 获取结果
             results = []
             codes = []
             async for doc in cursor:
-                # 转换结果格式
                 result = self._format_result(doc)
                 results.append(result)
                 codes.append(doc.get("code"))
 
-            # 批量查询财务数据（ROE等）- 如果视图中没有包含
+            # 批量查询财务数据（ROE等）
             if codes:
                 await self._enrich_with_financial_data(results, codes)
+
+            # 如果有实时行情条件，进行二次筛选
+            if quote_conditions and results:
+                results = await self._filter_by_quotes(results, codes, quote_conditions)
+                # 应用分页
+                results = results[offset:offset + limit]
 
             logger.info(f"✅ 数据库筛选完成: 总数={total_count}, 返回={len(results)}, 数据源={source}")
 
