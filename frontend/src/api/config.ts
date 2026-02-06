@@ -424,15 +424,22 @@ export const configApi = {
 
   // 获取系统设置
   getSystemSettings(): Promise<Record<string, any>> {
-    return ApiClient.get('/api/config/settings')
+    return ApiClient.get('/api/config/settings').then((response: any) => {
+      // 🔧 返回实际的配置对象，如果是嵌套结构则提取 config
+      return response.config || response
+    })
   },
 
   // 获取默认模型配置
   getDefaultModels(): Promise<{ quick_analysis_model: string; deep_analysis_model: string }> {
-    return ApiClient.get('/api/config/settings').then(settings => ({
-      quick_analysis_model: settings.quick_analysis_model || 'qwen-turbo',
-      deep_analysis_model: settings.deep_analysis_model || 'qwen-max'
-    }))
+    return ApiClient.get('/api/config/settings').then((response: any) => {
+      // 🔧 修复：后端返回的是 {config: {...}, version, cached_at}
+      const settings = response.config || response
+      return {
+        quick_analysis_model: settings.quick_analysis_model || 'qwen-turbo',
+        deep_analysis_model: settings.deep_analysis_model || 'qwen-max'
+      }
+    })
   },
 
   // 更新系统设置

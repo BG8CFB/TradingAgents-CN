@@ -1428,12 +1428,18 @@ const loadDatabaseConfigs = async () => {
 const loadSystemSettings = async () => {
   systemLoading.value = true
   try {
-    const [settings, meta] = await Promise.all([
+    const [response, meta] = await Promise.all([
       configApi.getSystemSettings(),
       configApi.getSystemSettingsMeta()
     ])
+
+    // 🔧 修复：后端返回的是 {config: {...}, version, cached_at}，需要提取 config
+    const settings = response.config || response
+
     // 确保有默认值
     systemSettings.value = {
+      // 🔧 添加 default_provider 字段
+      default_provider: '',
       quick_analysis_model: 'qwen-turbo',
       deep_analysis_model: 'qwen-max',
       default_analysis_timeout: 300,
@@ -1466,10 +1472,18 @@ const loadSystemSettings = async () => {
 
       ...settings
     }
+
+    console.log('✅ 系统设置加载成功:', {
+      default_provider: systemSettings.value.default_provider,
+      quick_analysis_model: systemSettings.value.quick_analysis_model,
+      deep_analysis_model: systemSettings.value.deep_analysis_model
+    })
+
     // 规整元数据为map
     const metaList = meta?.items || []
     systemSettingsMeta.value = Object.fromEntries(metaList.map((m: SettingMeta) => [m.key, m]))
   } catch (error) {
+    console.error('❌ 加载系统设置失败:', error)
     ElMessage.error('加载系统设置失败')
   } finally {
     systemLoading.value = false
