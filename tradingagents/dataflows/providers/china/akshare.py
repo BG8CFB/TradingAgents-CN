@@ -11,6 +11,7 @@ import pandas as pd
 from tradingagents.config.runtime_settings import get_int
 from tradingagents.utils.stock_utils import StockUtils, StockMarket
 from tradingagents.utils.time_utils import now_utc, now_config_tz, format_iso
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from ..base_provider import BaseStockDataProvider
 
 logger = logging.getLogger(__name__)
@@ -1180,11 +1181,27 @@ class AKShareProvider(BaseStockDataProvider):
             # ========== A股处理 (原有逻辑) ==========
             logger.info(f"📈 使用 stock_bid_ask_em 接口获取 {code} 实时行情...")
 
-            # 🔥 使用 stock_bid_ask_em 接口获取单个股票实时行情
+            # 🔥 使用 stock_bid_ask_em 接口获取单个股票实时行情（带重试机制）
+            @retry(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential(multiplier=1, min=1, max=4),
+                retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+                reraise=True
+            )
             def fetch_bid_ask():
                 return self.ak.stock_bid_ask_em(symbol=code)
 
-            bid_ask_df = await asyncio.to_thread(fetch_bid_ask)
+            try:
+                bid_ask_df = await asyncio.to_thread(fetch_bid_ask)
+            except ConnectionError as e:
+                logger.error(f"❌ AKShare 连接失败 {code}: {str(e)}")
+                return None
+            except TimeoutError as e:
+                logger.warning(f"⏱️ AKShare 请求超时 {code}: {str(e)}")
+                return None
+            except Exception as e:
+                logger.error(f"❌ AKShare 未知错误 {code}: {str(e)}", exc_info=True)
+                return None
 
             # 🔥 打印原始返回数据
             logger.info(f"📊 stock_bid_ask_em 返回数据类型: {type(bid_ask_df)}")

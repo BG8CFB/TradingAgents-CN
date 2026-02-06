@@ -7,7 +7,7 @@
 import re
 from typing import Dict, Tuple, Optional
 from datetime import datetime, timedelta
-from tradingagents.utils.time_utils import now_utc, get_current_date
+from tradingagents.utils.time_utils import now_utc, get_current_date, parse_date_aware
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
@@ -326,14 +326,14 @@ class StockDataPreparer:
         logger.info(f"📊 [A股数据] 开始准备{stock_code}的数据 (时长: {period_days}天)")
 
         # 计算日期范围（使用扩展后的日期范围，与get_china_stock_data_unified保持一致）
-        end_date = datetime.strptime(analysis_date, '%Y-%m-%d')
+        end_date = parse_date_aware(analysis_date, to_config_tz=False)
 
         # 获取配置的回溯天数（与get_china_stock_data_unified保持一致）
         from app.core.config import settings
         lookback_days = getattr(settings, 'MARKET_ANALYST_LOOKBACK_DAYS', 365)
 
         # 使用扩展后的日期范围进行数据检查和同步
-        extended_start_date = end_date - timedelta(days=lookback_days)
+        extended_start_date = end_date - timedelta(days=lookback_days)  # ✅ aware - timedelta = aware
         extended_start_date_str = extended_start_date.strftime('%Y-%m-%d')
         end_date_str = end_date.strftime('%Y-%m-%d')
 
@@ -488,10 +488,10 @@ class StockDataPreparer:
         logger.info(f"📊 [A股数据-异步] 开始准备{stock_code}的数据 (时长: {period_days}天)")
 
         # 计算日期范围
-        end_date = datetime.strptime(analysis_date, '%Y-%m-%d')
+        end_date = parse_date_aware(analysis_date, to_config_tz=False)
         from app.core.config import settings
         lookback_days = getattr(settings, 'MARKET_ANALYST_LOOKBACK_DAYS', 365)
-        extended_start_date = end_date - timedelta(days=lookback_days)
+        extended_start_date = end_date - timedelta(days=lookback_days)  # ✅ aware - timedelta = aware
         extended_start_date_str = extended_start_date.strftime('%Y-%m-%d')
         end_date_str = end_date.strftime('%Y-%m-%d')
 
@@ -673,8 +673,8 @@ class StockDataPreparer:
             is_latest = False
             if latest_date:
                 latest_date_str = str(latest_date)[:10]  # 取前10个字符 YYYY-MM-DD
-                latest_dt = datetime.strptime(latest_date_str, '%Y-%m-%d')
-                days_diff = (recent_trade_date - latest_dt).days
+                latest_dt = parse_date_aware(latest_date_str, to_config_tz=False)  # 解析为aware UTC
+                days_diff = (recent_trade_date - latest_dt).days  # ✅ aware - aware
                 is_latest = days_diff <= 1  # 允许1天延迟
 
             message = f"找到{record_count}条记录，最新日期: {latest_date}"
@@ -957,8 +957,8 @@ class StockDataPreparer:
             formatted_code = stock_code.upper()
 
         # 计算日期范围
-        end_date = datetime.strptime(analysis_date, '%Y-%m-%d')
-        start_date = end_date - timedelta(days=period_days)
+        end_date = parse_date_aware(analysis_date, to_config_tz=False)
+        start_date = end_date - timedelta(days=period_days)  # ✅ aware - timedelta = aware
         start_date_str = start_date.strftime('%Y-%m-%d')
         end_date_str = end_date.strftime('%Y-%m-%d')
 
@@ -1124,8 +1124,8 @@ class StockDataPreparer:
         formatted_code = stock_code.upper()
 
         # 计算日期范围
-        end_date = datetime.strptime(analysis_date, '%Y-%m-%d')
-        start_date = end_date - timedelta(days=period_days)
+        end_date = parse_date_aware(analysis_date, to_config_tz=False)
+        start_date = end_date - timedelta(days=period_days)  # ✅ aware - timedelta = aware
         start_date_str = start_date.strftime('%Y-%m-%d')
         end_date_str = end_date.strftime('%Y-%m-%d')
 

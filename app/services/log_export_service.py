@@ -8,12 +8,22 @@ import os
 import zipfile
 from datetime import datetime, timedelta
 from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
+from tradingagents.utils.time_utils import fromtimestamp_aware
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import re
 import json
 
 logger = logging.getLogger("webapi")
+
+# 日志统计默认值常量
+DEFAULT_LOG_STATISTICS = {
+    "total_files": 0,
+    "total_size_mb": 0.0,
+    "error_files": 0,
+    "recent_errors": [],
+    "log_types": {}
+}
 
 
 class LogExportService:
@@ -87,7 +97,7 @@ class LogExportService:
                         "path": str(file_path),
                         "size": stat.st_size,
                         "size_mb": round(stat.st_size / (1024 * 1024), 2),
-                        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "modified_at": format_iso(fromtimestamp_aware(stat.st_mtime)),
                         "type": self._get_log_type(file_path.name)
                     }
                     log_files.append(log_file_info)
@@ -327,50 +337,64 @@ class LogExportService:
         """
         try:
             cutoff_time = now_utc() - timedelta(days=days)
-            
-            stats = {
-                "total_files": 0,
-                "total_size_mb": 0,
-                "error_files": 0,
-                "recent_errors": [],
-                "log_types": {}
-            }
-            
+
+            # 使用默认值初始化(避免硬编码)
+            stats = DEFAULT_LOG_STATISTICS.copy()
+
+            # 检查日志目录是否存在
+            if not self.log_dir.exists():
+                logger.warning(f"⚠️ 日志目录不存在: {self.log_dir}")
+                return stats
+
+            # 遍历日志文件进行统计
             for file_path in self.log_dir.glob("*.log*"):
-                if not file_path.is_file():
+                try:
+                    # 单个文件处理异常隔离
+                    if not file_path.is_file():
+                        continue
+
+                    stat = file_path.stat()
+                    modified_time = fromtimestamp_aware(stat.st_mtime, to_config_tz=False)
+
+                    if modified_time < cutoff_time:
+                        continue
+
+                    stats["total_files"] += 1
+                    stats["total_size_mb"] += stat.st_size / (1024 * 1024)
+
+                    log_type = self._get_log_type(file_path.name)
+                    stats["log_types"][log_type] = stats["log_types"].get(log_type, 0) + 1
+
+                    # 统计错误日志
+                    if log_type == "error":
+                        stats["error_files"] += 1
+                        # 读取最近的错误(带异常处理)
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                lines = f.readlines()
+                                error_lines = [line for line in lines[-100:] if "ERROR" in line]
+                                stats["recent_errors"].extend(error_lines[-10:])
+                        except Exception as file_error:
+                            logger.warning(f"⚠️ 读取错误日志文件失败 {file_path.name}: {file_error}")
+                            # 继续处理其他文件,不中断整个统计流程
+
+                except Exception as file_error:
+                    # 单个文件处理失败不影响整体统计
+                    logger.warning(f"⚠️ 处理日志文件失败 {file_path.name}: {file_error}")
                     continue
-                
-                stat = file_path.stat()
-                modified_time = datetime.fromtimestamp(stat.st_mtime)
-                
-                if modified_time < cutoff_time:
-                    continue
-                
-                stats["total_files"] += 1
-                stats["total_size_mb"] += stat.st_size / (1024 * 1024)
-                
-                log_type = self._get_log_type(file_path.name)
-                stats["log_types"][log_type] = stats["log_types"].get(log_type, 0) + 1
-                
-                # 统计错误日志
-                if log_type == "error":
-                    stats["error_files"] += 1
-                    # 读取最近的错误
-                    try:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            lines = f.readlines()
-                            error_lines = [line for line in lines[-100:] if "ERROR" in line]
-                            stats["recent_errors"].extend(error_lines[-10:])
-                    except Exception:
-                        pass
             
             stats["total_size_mb"] = round(stats["total_size_mb"], 2)
-            
+
+            # 限制最近错误列表长度(防止内存溢出)
+            if len(stats["recent_errors"]) > 50:
+                stats["recent_errors"] = stats["recent_errors"][-50:]
+
             return stats
             
         except Exception as e:
-            logger.error(f"❌ 获取日志统计失败: {e}")
-            return {}
+            logger.error(f"❌ 获取日志统计失败: {e}", exc_info=True)
+            # 返回符合模型的默认值
+            return DEFAULT_LOG_STATISTICS.copy()
 
 
 # 全局服务实例

@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 import pandas as pd
 
+from tradingagents.utils.time_utils import now_utc
 from app.services.data_sources.base import DataSourceAdapter
 
 logger = logging.getLogger(__name__)

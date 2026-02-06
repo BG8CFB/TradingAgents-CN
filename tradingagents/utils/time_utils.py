@@ -106,6 +106,47 @@ def ensure_tz(dt: Optional[datetime], default_to_utc: bool = False) -> Optional[
     return dt
 
 
+def parse_date_aware(
+    date_str: str,
+    format: str = "%Y-%m-%d",
+    to_config_tz: bool = True
+) -> datetime:
+    """
+    从日期字符串解析为timezone-aware datetime对象
+
+    Args:
+        date_str: 日期字符串，如 "2024-01-01"
+        format: strptime格式，默认 "%Y-%m-%d"
+        to_config_tz: 是否转换为配置时区，False则保持UTC
+
+    Returns:
+        timezone-aware datetime对象
+
+    Raises:
+        ValueError: date_str为空或格式不匹配
+
+    Examples:
+        >>> parse_date_aware("2024-01-01")
+        datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=ZoneInfo(key='Asia/Shanghai'))
+        >>> parse_date_aware("2024-01-01", to_config_tz=False)
+        datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    """
+    if not date_str:
+        raise ValueError("date_str cannot be empty")
+
+    # 解析为naive datetime
+    naive_dt = datetime.strptime(date_str, format)
+
+    # 假定为UTC时间，添加时区信息
+    utc_dt = naive_dt.replace(tzinfo=timezone.utc)
+
+    # 根据参数转换为配置时区
+    if to_config_tz:
+        return utc_dt.astimezone(get_zoneinfo())
+
+    return utc_dt
+
+
 # ============================================================================
 # 时间格式化函数
 # ============================================================================
@@ -222,6 +263,35 @@ def timestamp_to_datetime(ts: Optional[float], to_config_tz: bool = True) -> Opt
     return dt
 
 
+def fromtimestamp_aware(
+    timestamp: float,
+    to_config_tz: bool = True
+) -> datetime:
+    """
+    从Unix时间戳创建timezone-aware datetime对象
+
+    Args:
+        timestamp: Unix时间戳（秒）
+        to_config_tz: 是否转换为配置时区，False则保持UTC
+
+    Returns:
+        timezone-aware datetime对象
+
+    Examples:
+        >>> fromtimestamp_aware(1704067200.0)
+        datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=ZoneInfo(key='Asia/Shanghai'))
+        >>> fromtimestamp_aware(1704067200.0, to_config_tz=False)
+        datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    """
+    # 使用fromtimestamp，直接指定UTC时区
+    utc_dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+
+    if to_config_tz:
+        return utc_dt.astimezone(get_zoneinfo())
+
+    return utc_dt
+
+
 # ============================================================================
 # 日期相关辅助函数
 # ============================================================================
@@ -268,6 +338,9 @@ __all__ = [
     "to_utc",
     "to_config_tz",
     "ensure_tz",
+    # 时间解析（新增）
+    "parse_date_aware",
+    "fromtimestamp_aware",
     # 格式化
     "format_iso",
     "format_date_short",

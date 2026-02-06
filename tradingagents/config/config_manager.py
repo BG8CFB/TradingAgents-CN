@@ -484,6 +484,17 @@ class ConfigManager:
             if self.settings_file.exists():
                 with open(self.settings_file, 'r', encoding='utf-8') as f:
                     settings = json.load(f)
+
+                # 恢复 MCP 工具加载器（如果存在）
+                if "mcp_tool_loader" in settings and isinstance(settings["mcp_tool_loader"], dict):
+                    try:
+                        from tradingagents.tools.mcp.task_manager import TaskLevelMCPManager
+                        settings["mcp_tool_loader"] = TaskLevelMCPManager.from_dict(settings["mcp_tool_loader"])
+                    except ImportError:
+                        # 如果无法导入 TaskLevelMCPManager，保持为字典
+                        pass
+                    except Exception as e:
+                        logger.warning(f"恢复 MCP 工具加载器失败: {e}")
             else:
                 # 如果设置文件不存在，创建默认设置
                 settings = {
@@ -556,11 +567,23 @@ class ConfigManager:
         try:
             # 创建副本以避免修改原始字典
             settings_to_save = settings.copy()
-            
-            # 移除不可序列化的对象
+
+            # 处理 MCP 工具加载器序列化
             if "mcp_tool_loader" in settings_to_save:
-                settings_to_save["mcp_tool_loader"] = None
-                
+                mcp_loader = settings_to_save["mcp_tool_loader"]
+                # 尝试导入 TaskLevelMCPManager
+                try:
+                    from tradingagents.tools.mcp.task_manager import TaskLevelMCPManager
+                    if isinstance(mcp_loader, TaskLevelMCPManager):
+                        # 使用 to_dict() 方法转换为可序列化的字典
+                        settings_to_save["mcp_tool_loader"] = mcp_loader.to_dict()
+                    else:
+                        # 如果不是 TaskLevelMCPManager 实例，设为 None
+                        settings_to_save["mcp_tool_loader"] = None
+                except ImportError:
+                    # 如果无法导入 TaskLevelMCPManager，设为 None
+                    settings_to_save["mcp_tool_loader"] = None
+
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings_to_save, f, ensure_ascii=False, indent=2)
         except Exception as e:

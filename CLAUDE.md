@@ -635,6 +635,64 @@ TradingAgents-CN/
 - **重要**: LLM 调用、外部 API 请求、数据库操作必须记录日志
 - 错误日志必须包含完整的堆栈信息和上下文
 
+### 8. 时区处理规范（强制）
+
+**核心原则**:
+1. **禁止使用 naive datetime**: 所有 datetime 对象必须带时区信息（timezone-aware）
+2. **统一工具库**: 使用 `tradingagents.utils.time_utils` 提供的函数
+3. **存储标准**: 数据库存储使用 UTC 时区
+4. **显示标准**: 前端显示使用配置时区（Asia/Shanghai）
+
+**允许的函数**:
+- ✅ `now_utc()` - 获取当前UTC时间（aware）
+- ✅ `now_config_tz()` - 获取配置时区时间（aware）
+- ✅ `parse_date_aware(date_str)` - 解析日期字符串为aware datetime
+- ✅ `fromtimestamp_aware(ts)` - 从时间戳创建aware datetime
+- ✅ `ensure_tz(dt)` - 确保datetime带时区信息
+
+**禁止的函数**:
+- ❌ `datetime.strptime()` - 使用 `parse_date_aware()` 代替
+- ❌ `datetime.fromtimestamp()` - 使用 `fromtimestamp_aware()` 代替
+- ❌ `datetime.now()` - 使用 `now_utc()` 或 `now_config_tz()` 代替
+- ❌ `datetime.utcnow()` - 使用 `now_utc()` 代替
+
+**示例代码**:
+
+❌ **错误示例**:
+```python
+# 错误：创建naive datetime
+dt = datetime.strptime("2024-01-01", "%Y-%m-%d")
+ts_datetime = datetime.fromtimestamp(1704067200.0)
+
+# 错误：naive与aware比较或运算
+if dt < now_utc():
+    pass
+delta = aware_dt - dt  # TypeError!
+```
+
+✅ **正确示例**:
+```python
+from tradingagents.utils.time_utils import parse_date_aware, fromtimestamp_aware, now_utc
+
+# 正确：创建aware datetime
+dt = parse_date_aware("2024-01-01", to_config_tz=False)  # UTC
+ts_datetime = fromtimestamp_aware(1704067200.0)  # 自动转换到配置时区
+
+# 正确：aware与aware比较和运算
+if dt < now_utc():
+    pass
+delta = aware_dt - dt  # ✅ 正常工作
+```
+
+**为什么有这个规范**:
+- Python 3.6+ 严格禁止 naive 和 aware datetime 之间的比较和运算
+- 混用时区会导致 `TypeError: can't compare/subtract offset-naive and offset-aware datetimes`
+- 统一使用 aware datetime 可以避免时区相关的隐蔽错误
+- 数据库统一使用 UTC 存储便于跨时区协作
+- 日志文件存放在 `logs/` 目录
+- **重要**: LLM 调用、外部 API 请求、数据库操作必须记录日志
+- 错误日志必须包含完整的堆栈信息和上下文
+
 ### 8. Docker 容器化
 
 - 所有服务通过 `docker-compose.yml` 编排

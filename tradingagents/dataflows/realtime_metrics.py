@@ -6,6 +6,8 @@ import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+from tradingagents.utils.time_utils import now_config_tz
+
 logger = logging.getLogger(__name__)
 
 

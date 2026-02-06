@@ -400,6 +400,89 @@ class TaskLevelMCPManager:
             for tool_key in self._tool_states.keys()
         }
 
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        转换为可序列化的字典
+
+        只提取配置数据，排除运行时状态（锁、信号量等）
+        """
+        return {
+            "task_id": self.task_id,
+            "default_server_concurrency": self._default_server_concurrency,
+            "circuit_breaker_config": {
+                "failure_threshold": self._circuit_config.failure_threshold,
+                "success_threshold": self._circuit_config.success_threshold,
+                "timeout": self._circuit_config.timeout,
+                "window_size": self._circuit_config.window_size
+            },
+            "retry_config": {
+                "max_attempts": self._retry_mechanism.config.max_attempts,
+                "base_delay": self._retry_mechanism.config.base_delay,
+                "max_delay": self._retry_mechanism.config.max_delay,
+                "exponential_base": self._retry_mechanism.config.exponential_base
+            },
+            "tool_states": {
+                key: {
+                    "failure_count": state.failure_count,
+                    "last_failure_time": state.last_failure_time,
+                    "last_success_time": state.last_success_time,
+                    "total_calls": state.total_calls,
+                    "total_failures": state.total_failures
+                }
+                for key, state in self._tool_states.items()
+            },
+            "failed_tools": list(self._failed_tools)
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TaskLevelMCPManager':
+        """
+        从字典创建实例
+
+        恢复配置数据，重新初始化运行时对象
+        """
+        task_id = data.get("task_id", "unknown")
+        manager = cls(task_id)
+
+        # 恢复配置
+        if "circuit_breaker_config" in data:
+            config = data["circuit_breaker_config"]
+            manager._circuit_config = CircuitBreakerConfig(
+                failure_threshold=config.get("failure_threshold", 3),
+                success_threshold=config.get("success_threshold", 2),
+                timeout=config.get("timeout", 60.0),
+                window_size=config.get("window_size", 10)
+            )
+
+        if "retry_config" in data:
+            config = data["retry_config"]
+            manager._retry_mechanism = RetryMechanism(RetryConfig(
+                max_attempts=config.get("max_attempts", 3),
+                base_delay=config.get("base_delay", 1.0),
+                max_delay=config.get("max_delay", 10.0),
+                exponential_base=config.get("exponential_base", 2.0)
+            ))
+
+        if "default_server_concurrency" in data:
+            manager._default_server_concurrency = data["default_server_concurrency"]
+
+        # 恢复工具状态（但不包含运行时锁）
+        if "tool_states" in data:
+            for key, state_data in data["tool_states"].items():
+                manager._tool_states[key] = ToolState(
+                    failure_count=state_data.get("failure_count", 0),
+                    last_failure_time=state_data.get("last_failure_time", 0.0),
+                    last_success_time=state_data.get("last_success_time", 0.0),
+                    total_calls=state_data.get("total_calls", 0),
+                    total_failures=state_data.get("total_failures", 0)
+                )
+
+        # 恢复失败工具集合
+        if "failed_tools" in data:
+            manager._failed_tools = set(data["failed_tools"])
+
+        return manager
+
 
 # 全局任务管理器注册表
 _task_managers: Dict[str, TaskLevelMCPManager] = {}
