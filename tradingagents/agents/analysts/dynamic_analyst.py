@@ -107,9 +107,7 @@ class DynamicAnalystFactory:
                 if os.path.exists(config_path_candidate):
                     config_path = config_path_candidate
                 else:
-                    # 3. 回退到 tradingagents/agents/phase1_agents_config.yaml
-                    agents_dir = os.path.dirname(current_dir)
-                    config_path = os.path.join(agents_dir, "phase1_agents_config.yaml")
+                    logger.warning(f"⚠️ 未找到配置文件: {config_path_candidate}")
 
         try:
             mtime = os.path.getmtime(config_path)
