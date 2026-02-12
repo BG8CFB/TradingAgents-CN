@@ -3,11 +3,9 @@
 负责在容器首次启动时自动初始化必要的配置文件
 """
 
-import os
 import shutil
 import logging
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -106,115 +104,3 @@ def _handle_config_file(src: Path, dst: Path, config_name: str) -> bool:
         logger.error(f"❌ {config_name}初始化失败: {e}")
         return False
 
-
-def get_config_status() -> dict:
-    """获取当前配置文件状态
-
-    Returns:
-        dict: 包含各配置文件状态的字典
-    """
-    project_root = Path(__file__).resolve().parents[2]
-    config_dir = project_root / "config"
-    status = {}
-
-    # 检查Agent配置 (Phase1-4)
-    for phase in range(1, 5):
-        filename = f"phase{phase}_agents_config.yaml"
-        agent_config = config_dir / "agents" / filename
-        # 只在返回中包含存在的或者应该是存在的（即模板存在的）
-        # 这里简单起见，如果文件存在就返回状态
-        if agent_config.exists():
-            status[f"agent_config_phase{phase}"] = {
-                "path": str(agent_config),
-                "exists": True,
-                "is_custom": _is_custom_config(agent_config)
-            }
-        elif (Path("/app/install/default-config/agents") / filename).exists():
-             # 模板存在但配置不存在
-             status[f"agent_config_phase{phase}"] = {
-                "path": str(agent_config),
-                "exists": False,
-                "is_custom": False
-            }
-
-    # 检查MCP配置
-    mcp_config = config_dir / "mcp.json"
-    status["mcp_config"] = {
-        "path": str(mcp_config),
-        "exists": mcp_config.exists(),
-        "is_custom": mcp_config.exists() and _is_custom_config(mcp_config)
-    }
-
-    return status
-
-
-def _is_custom_config(file_path: Path) -> bool:
-    """判断配置文件是否为用户自定义的
-
-    通过比较文件修改时间与容器启动时间来判断
-    """
-    try:
-        # 获取文件修改时间
-        file_mtime = file_path.stat().st_mtime
-
-        # 获取容器启动时间（近似为/proc/1的启动时间）
-        try:
-            with open('/proc/1/stat', 'r') as f:
-                # 第22个字段是进程启动时间（从系统启动开始的时钟滴答数）
-                start_ticks = int(f.read().split()[21])
-            # 转换为秒（需要获取系统时钟频率）
-            import psutil
-            boot_time = psutil.boot_time()
-            container_start_time = boot_time + (start_ticks * psutil.cpu_times().system / psutil.cpu_count())
-        except:
-            # 如果无法获取容器启动时间，使用当前时间减去10分钟作为估算
-            import time
-            container_start_time = time.time() - 600
-
-        # 如果文件修改时间早于容器启动时间，说明是挂载的已有文件
-        return file_mtime < container_start_time
-
-    except Exception:
-        # 如果无法判断，保守地认为是自定义配置
-        return True
-
-
-def reset_config_to_default() -> bool:
-    """重置配置为默认版本
-
-    删除现有配置文件，下次启动时会自动重新初始化
-
-    Returns:
-        bool: 是否成功重置
-    """
-    try:
-        project_root = Path(__file__).resolve().parents[2]
-        config_dir = project_root / "config"
-        reset_count = 0
-
-        # 删除Agent配置 (Phase1-4)
-        for phase in range(1, 5):
-            filename = f"phase{phase}_agents_config.yaml"
-            agent_config = config_dir / "agents" / filename
-            if agent_config.exists():
-                agent_config.unlink()
-                reset_count += 1
-                logger.info(f"🗑️ 已删除Agent配置(Phase{phase}): {agent_config}")
-
-        # 删除MCP配置
-        mcp_config = config_dir / "mcp.json"
-        if mcp_config.exists():
-            mcp_config.unlink()
-            reset_count += 1
-            logger.info(f"🗑️ 已删除MCP配置: {mcp_config}")
-
-        if reset_count > 0:
-            logger.info(f"✅ 配置重置完成，请重启服务以重新初始化")
-        else:
-            logger.info("ℹ️ 没有找到需要重置的配置文件")
-
-        return True
-
-    except Exception as e:
-        logger.error(f"❌ 配置重置失败: {e}")
-        return False
