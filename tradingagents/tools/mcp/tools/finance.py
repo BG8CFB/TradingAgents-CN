@@ -78,30 +78,53 @@ def get_stock_data(
             end_date = get_current_date()
 
         # 3. 调用统一数据接口 (包含 Write-Through 逻辑)
+        data = None
+        market_name = ""
+
         if is_china:
             from tradingagents.dataflows.interface import get_china_stock_data_unified
             data = get_china_stock_data_unified(stock_code, start_date, end_date)
-            # 直接返回原始数据，不转换格式
-            return f"## A股行情数据 ({stock_code})\n{data}"
+            market_name = "A股"
 
         elif is_hk:
             from tradingagents.dataflows.interface import get_hk_stock_data_unified
             data = get_hk_stock_data_unified(stock_code, start_date, end_date)
-            # 直接返回原始数据，不转换格式
-            return f"## 港股行情数据 ({stock_code})\n{data}"
+            market_name = "港股"
 
         elif is_us:
             data = get_manager().get_stock_data(stock_code, "us", start_date, end_date)
-            # 直接返回原始数据，不转换格式
-            return f"## 美股行情数据 ({stock_code})\n{data}"
+            market_name = "美股"
 
-        # 错误情况也返回原始格式
-        return f"❌ 错误：无法识别股票代码 {stock_code} 的市场类型"
+        # 返回 JSON 格式
+        if data is not None:
+            # data 可能是 DataFrame 或字符串
+            import pandas as pd
+            if isinstance(data, pd.DataFrame):
+                # 转换为 JSON 字符串
+                json_data = data.to_dict(orient='records')
+                import json
+                data_str = json.dumps(json_data, ensure_ascii=False, default=str)
+            else:
+                # 已经是字符串格式
+                data_str = str(data)
+
+            return format_tool_result(success_result(
+                data=data_str,
+                message=f"{market_name}行情数据 ({stock_code})"
+            ))
+        else:
+            return format_tool_result(error_result(
+                ErrorCodes.UNKNOWN_MARKET,
+                f"无法识别股票代码 {stock_code} 的市场类型",
+                suggestion="请使用标准格式的股票代码，如 000001.SZ、00700.HK、AAPL"
+            ))
 
     except Exception as e:
         logger.error(f"get_stock_data failed: {e}")
-        # 直接返回错误信息，不转换为 JSON
-        return f"❌ 获取股票数据失败: {e}"
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            f"获取股票数据失败: {str(e)}"
+        ))
 
 # --- 1.1 Unified Stock News ---
 
@@ -913,6 +936,14 @@ def get_company_performance(
     period: Optional[str] = None
 ) -> str:
     """
+    [已废弃] 请使用 get_company_performance_unified() 代替
+
+    .. deprecated::
+        1.1.0
+        此函数已被 get_company_performance_unified() 替代
+        将在 v1.3.0 版本中移除。请使用新函数：
+        get_company_performance_unified("000001.SZ", "forecast", ...)
+
     获取 A 股公司业绩和财务数据。
 
     Args:
@@ -1021,6 +1052,14 @@ def get_company_performance_hk(
     ind_name: Optional[str] = None
 ) -> str:
     """
+    [已废弃] 请使用 get_company_performance_unified() 代替
+
+    .. deprecated::
+        1.1.0
+        此函数已被 get_company_performance_unified() 替代
+        将在 v1.3.0 版本中移除。请使用新函数：
+        get_company_performance_unified("00700.HK", "income", ind_name="净利润", ...)
+
     获取港股财务数据。
 
     Args:
@@ -1115,6 +1154,14 @@ def get_company_performance_us(
     period: Optional[str] = None
 ) -> str:
     """
+    [已废弃] 请使用 get_company_performance_unified() 代替
+
+    .. deprecated::
+        1.1.0
+        此函数已被 get_company_performance_unified() 替代
+        将在 v1.3.0 版本中移除。请使用新函数：
+        get_company_performance_unified("AAPL", "balance", ...)
+
     获取美股财务数据。
 
     Args:
@@ -1151,6 +1198,189 @@ def get_company_performance_us(
         ))
 
 # --- 3. Macro & Flows ---
+
+def get_company_performance_unified(
+    stock_code: str,
+    data_type: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    period: Optional[str] = None,
+    ind_name: Optional[str] = None
+) -> str:
+    """
+    获取公司业绩数据（支持A股、港股、美股）✨ 统一工具
+
+    自动识别股票市场类型，调用对应的数据源。这是整合后的统一工具，
+    替代了原来的 get_company_performance()、get_company_performance_hk()、
+    get_company_performance_us() 三个工具。
+
+    ⚠️ 数据源支持范围：
+
+    1. A股和港股：
+       - forecast (业绩预告): 支持 Tushare 和 AkShare 双数据源
+       - express/indicators/income/balance/cashflow: 仅支持 Tushare
+
+    2. 美股：
+       - 所有数据类型: 仅支持 Tushare
+
+    如果未配置 Tushare Token，将只能获取 A股和港股的 forecast 数据。
+
+    Args:
+        stock_code: 股票代码，如 "000001.SZ"(A股)、"00700.HK"(港股)、"AAPL"(美股)
+        data_type: 数据类型，支持：
+                   - forecast: 业绩预告（支持双数据源）
+                   - express: 业绩快报（仅Tushare）
+                   - indicators: 财务指标（仅Tushare）
+                   - income: 利润表（仅Tushare）
+                   - balance: 资产负债表（仅Tushare）
+                   - cashflow: 现金流量表（仅Tushare）
+        start_date: 开始日期，格式 YYYYMMDD 或 YYYY-MM-DD，默认 1 年前
+        end_date: 结束日期，格式 YYYYMMDD 或 YYYY-MM-DD，默认今天
+        period: 报告期，格式 YYYYMMDD，可选
+        ind_name: 指标名称过滤，可选（⚠️ 仅港股有效，A股和美股将忽略此参数）
+
+    Returns:
+        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
+
+    Examples:
+        >>> get_company_performance_unified("000001.SZ", "forecast")
+        >>> get_company_performance_unified("00700.HK", "income", ind_name="净利润")
+        >>> get_company_performance_unified("AAPL", "balance")
+    """
+    try:
+        from tradingagents.utils.stock_utils import StockUtils
+
+        # 1. 自动识别市场类型
+        market_info = StockUtils.get_market_info(stock_code)
+
+        # 确定市场参数
+        if market_info['is_china']:
+            market = "cn"
+            market_name = "A股"
+        elif market_info['is_hk']:
+            market = "hk"
+            market_name = "港股"
+        elif market_info['is_us']:
+            market = "us"
+            market_name = "美股"
+            # ⚠️ 美股忽略 ind_name 参数
+            if ind_name:
+                logger.warning(f"⚠️ ind_name 参数仅对港股有效，美股 {stock_code} 将忽略此参数")
+                ind_name = None
+        else:
+            return format_tool_result(error_result(
+                ErrorCodes.UNKNOWN_MARKET,
+                f"无法识别股票代码 {stock_code} 的市场类型，请使用标准格式（如 000001.SZ、00700.HK、AAPL）",
+                suggestion="检查股票代码格式是否正确，A股需包含交易所后缀（.SZ/.SH），港股需包含.HK后缀"
+            ))
+
+        # 2. 设置默认日期
+        if not end_date:
+            end_date = get_current_date_compact()
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=360)).strftime('%Y%m%d')
+
+        logger.info(f"📊 [{market_name}业绩] 获取数据: {stock_code}, data_type: {data_type}, start: {start_date}, end: {end_date}")
+
+        # 2.5. ⚠️ 检查数据源支持范围并给出明确提示
+        import os
+        tushare_token = os.getenv("TUSHARE_TOKEN")
+
+        if not tushare_token or not tushare_token.strip():
+            # 未配置 Tushare 的情况
+            can_use_akshare = (data_type == "forecast" and market in ["cn", "hk"])
+            if not can_use_akshare:
+                # 不能使用 AkShare 回退
+                error_msg = f"获取 {market_name}{data_type} 数据需要配置 Tushare"
+                suggestion_msg = (
+                    f"请配置 TUSHARE_TOKEN 环境变量\n"
+                    f"或者仅使用 forecast 类型（A股和港股支持）"
+                )
+                return format_tool_result(error_result(
+                    ErrorCodes.DATA_FETCH_ERROR,
+                    error_msg,
+                    suggestion=suggestion_msg
+                ))
+            else:
+                # 可以使用 AkShare 回退，给出提示
+                logger.info(f"⚠️ 未配置 Tushare，将使用 AkShare 获取 A股/港股 forecast 数据")
+
+        # 3. 🔥 优先使用Tushare获取业绩数据
+        try:
+            logger.info(f"📊 尝试使用Tushare获取{market_name}业绩数据: {stock_code}, data_type: {data_type}")
+            data = get_manager().get_company_performance(
+                ts_code=stock_code,
+                data_type=data_type,
+                start_date=start_date,
+                end_date=end_date,
+                period=period,
+                ind_name=ind_name,  # 仅港股有效
+                market=market
+            )
+            if data and not data.empty:
+                logger.info(f"✅ Tushare成功获取{market_name}业绩数据: {stock_code}, {len(data)}条记录")
+                return format_tool_result(success_result(_format_result(data, f"{stock_code} Performance ({market.upper()})")))
+        except Exception as tu_e:
+            logger.info(f"⚠️ Tushare获取{market_name}业绩数据失败: {tu_e}，尝试AkShare")
+
+        # 4. 回退到AkShare（仅支持A股和港股的业绩预告forecast）
+        if data_type == "forecast" and market in ["cn", "hk"]:
+            try:
+                import akshare as ak
+                import pandas as pd
+
+                logger.info(f"📊 尝试使用AkShare获取{market_name}业绩预告: {stock_code}")
+
+                if market == "cn":
+                    # A股业绩预告
+                    code_6digit = stock_code.replace('.SH', '').replace('.SZ', '').replace('.sh', '').replace('.sz', '').zfill(6)
+                    df = ak.stock_profit_forecast_em()
+
+                    if df is not None and not df.empty:
+                        df_filtered = df[df['代码'] == code_6digit]
+
+                        if not df_filtered.empty:
+                            logger.info(f"✅ AkShare成功获取A股业绩预告数据: {stock_code}, {len(df_filtered)}条记录")
+
+                            # 格式化输出
+                            result_text = f"# {stock_code} A股业绩预告数据（来源：AkShare-东方财富）\n\n"
+                            result_text += _format_result(df_filtered, f"{stock_code} Forecast (AkShare)")
+
+                            return format_tool_result(success_result(result_text))
+
+                elif market == "hk":
+                    # 港股业绩预测
+                    code_clean = stock_code.replace('.HK', '').replace('.hk', '').zfill(5)
+                    df = ak.stock_hk_profit_forecast_et(symbol=code_clean)
+
+                    if df is not None and not df.empty:
+                        logger.info(f"✅ AkShare成功获取港股业绩预告: {stock_code}, {len(df)}条记录")
+
+                        # 格式化输出
+                        result_text = f"# {stock_code} 港股业绩预告（来源：AkShare-东方财富）\n\n"
+                        result_text += _format_result(df, f"{stock_code} Forecast (AkShare)")
+
+                        return format_tool_result(success_result(result_text))
+
+            except Exception as ak_e:
+                logger.warning(f"⚠️ AkShare获取{market_name}业绩预告失败: {ak_e}")
+
+        # 5. 两个数据源都失败
+        error_msg = f"无法从Tushare和AkShare获取{market_name}业绩数据: {stock_code}, data_type: {data_type}"
+        suggestion_msg = "检查数据源配置或尝试其他数据类型" if market in ["cn", "hk"] else "检查Tushare配置或尝试其他数据类型"
+
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            error_msg,
+            suggestion=suggestion_msg
+        ))
+
+    except Exception as e:
+        logger.error(f"get_company_performance_unified failed: {e}")
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            str(e)
+        ))
 
 def get_macro_econ(
     indicator: str,
@@ -1486,20 +1716,26 @@ def get_convertible_bond(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        # 🔥 优先使用Tushare获取可转债数据
-        try:
-            logger.info(f"📊 尝试使用Tushare获取可转债数据: 类型{data_type}")
-            data = get_manager().get_convertible_bond(
-                data_type=data_type,
-                ts_code=ts_code,
-                start_date=start_date,
-                end_date=end_date
-            )
-            if data and not data.empty:
-                logger.info(f"✅ Tushare成功获取可转债数据: {len(data)}条记录")
-                return format_tool_result(success_result(_format_result(data, f"CB: {data_type}")))
-        except Exception as tu_e:
-            logger.info(f"⚠️ Tushare获取可转债数据失败: {tu_e}，尝试AkShare")
+        import os
+
+        # 🔥 优先使用Tushare获取可转债数据（仅当配置了token时）
+        tushare_token = os.getenv("TUSHARE_TOKEN")
+        if tushare_token and tushare_token.strip():
+            try:
+                logger.info(f"📊 尝试使用Tushare获取可转债数据: 类型{data_type}")
+                data = get_manager().get_convertible_bond(
+                    data_type=data_type,
+                    ts_code=ts_code,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                if data and not data.empty:
+                    logger.info(f"✅ Tushare成功获取可转债数据: {len(data)}条记录")
+                    return format_tool_result(success_result(_format_result(data, f"CB: {data_type}")))
+            except Exception as tu_e:
+                logger.info(f"⚠️ Tushare获取可转债数据失败: {tu_e}，尝试AkShare")
+        else:
+            logger.debug("⚠️ 未配置Tushare token，直接使用AkShare")
 
         # 回退到AkShare
         try:
@@ -1514,35 +1750,57 @@ def get_convertible_bond(
             if df is not None and not df.empty:
                 logger.info(f"✅ AkShare成功获取可转债数据: {len(df)}条记录")
 
-                # 如果指定了转债代码，进行过滤
+                # 如果指定了转债代码，进行过滤（尝试所有可能的列名）
                 if ts_code:
-                    df_filtered = df[df['债券代码'] == ts_code]
+                    df_filtered = None
+                    # 尝试直接在所有列中查找匹配的值
+                    for col in df.columns:
+                        if df[col].dtype == 'object':
+                            matched = df[df[col].astype(str).str.contains(ts_code, na=False)]
+                            if not matched.empty:
+                                df_filtered = matched
+                                logger.info(f"✅ 在列'{col}'中找到{ts_code}的可转债数据")
+                                break
 
-                    if df_filtered.empty:
+                    if df_filtered is None or df_filtered.empty:
                         logger.info(f"⚠️ AkShare未找到{ts_code}的可转债数据，返回全部数据")
                         df_filtered = df
                     else:
-                        logger.info(f"✅ AkShare找到{ts_code}的可转债数据")
+                        logger.info(f"✅ AkShare找到{ts_code}的可转债数据: {len(df_filtered)}条记录")
                 else:
                     df_filtered = df
 
-                # 格式化数据（限制最多显示50条）
-                result_text = f"# 可转债数据（来源：AkShare-集思录）\n\n"
-                result_text += f"**数据类型**: {data_type}\n"
-                if ts_code:
-                    result_text += f"**债券代码**: {ts_code}\n"
-                result_text += f"**记录数**: {len(df_filtered)}\n\n"
-
-                result_text += "## 可转债明细（前50条）\n\n"
-                for idx, row in df_filtered.head(50).iterrows():
-                    result_text += f"### 债券 {idx + 1}\n"
+                # 按日期范围过滤（如果提供了日期）
+                if start_date or end_date:
+                    # 尝试找到日期列并过滤
+                    date_col = None
                     for col in df_filtered.columns:
-                        value = row[col]
-                        if pd.notna(value):
-                            result_text += f"- **{col}**: {value}\n"
-                    result_text += "\n"
+                        # 检查第一行数据是否为datetime类型
+                        if len(df_filtered) > 0:
+                            sample_val = df_filtered[col].iloc[0]
+                            # 使用pd.Timestamp而不是datetime来避免变量冲突
+                            if isinstance(sample_val, pd.Timestamp):
+                                date_col = col
+                                break
 
-                return result_text
+                    if date_col:
+                        if start_date:
+                            # 使用pd.to_datetime解析日期字符串，避免datetime变量冲突
+                            start_dt = pd.to_datetime(start_date)
+                            df_filtered = df_filtered[df_filtered[date_col] >= start_dt]
+
+                        if end_date:
+                            end_dt = pd.to_datetime(end_date)
+                            df_filtered = df_filtered[df_filtered[date_col] <= end_dt]
+
+                        logger.info(f"✅ 按日期范围过滤后剩余: {len(df_filtered)}条记录")
+
+                # 返回JSON格式
+                data_dict = df_filtered.head(50).to_dict(orient='records')
+                json_data = json.dumps(data_dict, ensure_ascii=False, default=str)
+                return format_tool_result(success_result(
+                    data=json_data,
+                ))
             else:
                 logger.warning(f"⚠️ AkShare可转债接口返回空数据")
         except Exception as ak_e:
@@ -1577,40 +1835,37 @@ def get_block_trade(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
+        import os
+
         # 设置默认日期
         if not end_date:
             end_date = get_current_date_compact()
         if not start_date:
             start_date = (now_utc() - timedelta(days=7)).strftime('%Y%m%d')
 
-        # 🔥 优先使用Tushare获取大宗交易数据
-        try:
-            logger.info(f"📊 尝试使用Tushare获取大宗交易数据")
-            data = get_manager().get_block_trade(start_date=start_date, end_date=end_date, code=code)
-            if data and not data.empty:
-                logger.info(f"✅ Tushare成功获取大宗交易数据: {len(data)}条记录")
-                return format_tool_result(success_result(_format_result(data, f"Block Trade: {code or 'All'}")))
-        except Exception as tu_e:
-            logger.info(f"⚠️ Tushare获取大宗交易数据失败: {tu_e}，尝试AkShare")
+        # 🔥 优先使用Tushare获取大宗交易数据（仅当配置了token时）
+        tushare_token = os.getenv("TUSHARE_TOKEN")
+        if tushare_token and tushare_token.strip():
+            try:
+                logger.info(f"📊 尝试使用Tushare获取大宗交易数据")
+                data = get_manager().get_block_trade(start_date=start_date, end_date=end_date, code=code)
+                if data and not data.empty:
+                    logger.info(f"✅ Tushare成功获取大宗交易数据: {len(data)}条记录")
+                    return format_tool_result(success_result(_format_result(data, f"Block Trade: {code or 'All'}")))
+            except Exception as tu_e:
+                logger.info(f"⚠️ Tushare获取大宗交易数据失败: {tu_e}，尝试AkShare")
+        else:
+            logger.debug("⚠️ 未配置Tushare token，直接使用AkShare")
 
         # 回退到AkShare
         try:
             import akshare as ak
             import pandas as pd
 
-            logger.info(f"📊 尝试使用AkShare获取大宗交易数据")
+            logger.info(f"📊 尝试使用AkShare获取大宗交易数据: 日期范围{start_date}-{end_date}")
 
-            # AkShare大宗交易接口：尝试多个接口
-            try:
-                # 优先尝试新接口
-                df = ak.stock_block_trade(start_date=start_date, end_date=end_date)
-            except (AttributeError, Exception):
-                # 回退到旧接口
-                try:
-                    df = ak.stock_dzjy_hygtj(date=start_date.replace('-', ''))
-                except:
-                    # 尝试东方财富接口
-                    df = ak.stock_block_deal_em(date=start_date.replace('-', ''))
+            # 使用正确的AkShare大宗交易接口：stock_dzjy_mrmx（每日明细）
+            df = ak.stock_dzjy_mrmx(symbol='A股', start_date=start_date, end_date=end_date)
 
             if df is not None and not df.empty:
                 logger.info(f"✅ AkShare成功获取大宗交易数据: {len(df)}条记录")
@@ -1618,8 +1873,8 @@ def get_block_trade(
                 # 如果指定了股票代码，进行过滤
                 if code:
                     code_6digit = code.replace('.SH', '').replace('.SZ', '').replace('.sh', '').replace('.sz', '').zfill(6)
-                    # 尝试多种可能的列名
-                    for col_name in ['股票代码', '代码', 'symbol', 'stock_code']:
+                    # 尝试多种可能的列名（根据实际测试）
+                    for col_name in ['证券代码', '代码', 'symbol', 'stock_code']:
                         if col_name in df.columns:
                             df_filtered = df[df[col_name] == code_6digit]
                             if not df_filtered.empty:
@@ -1635,24 +1890,12 @@ def get_block_trade(
                 else:
                     df_filtered = df
 
-                # 格式化数据（限制最多显示50条）
-                result_text = f"# 大宗交易数据（来源：AkShare）\n\n"
-                result_text += f"**日期范围**: {start_date} 至 {end_date}\n"
-                if code:
-                    result_text += f"**股票代码**: {code}\n"
-                result_text += f"**记录数**: {len(df_filtered)}\n\n"
-
-                result_text += "## 大宗交易明细（前50条）\n\n"
-                for idx, row in df_filtered.head(50).iterrows():
-                    result_text += f"### 交易 {idx + 1}\n"
-                    for col in df_filtered.columns:
-                        value = row[col]
-                        # 格式化数值
-                        if pd.notna(value):
-                            result_text += f"- **{col}**: {value}\n"
-                    result_text += "\n"
-
-                return result_text
+                # 返回JSON格式
+                data_dict = df_filtered.head(50).to_dict(orient='records')
+                json_data = json.dumps(data_dict, ensure_ascii=False, default=str)
+                return format_tool_result(success_result(
+                    data=json_data,
+                ))
             else:
                 logger.warning(f"⚠️ AkShare大宗交易接口返回空数据")
         except Exception as ak_e:
@@ -1685,19 +1928,25 @@ def get_dragon_tiger_inst(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
+        import os
+
         # 设置默认日期
         if not trade_date:
             trade_date = get_current_date_compact()
 
-        # 🔥 优先使用Tushare获取龙虎榜数据
-        try:
-            logger.info(f"📊 尝试使用Tushare获取龙虎榜数据: 日期{trade_date}")
-            data = get_manager().get_dragon_tiger_inst(trade_date=trade_date, ts_code=ts_code)
-            if data and not data.empty:
-                logger.info(f"✅ Tushare成功获取龙虎榜数据: {len(data)}条记录")
-                return format_tool_result(success_result(_format_result(data, f"Dragon Tiger: {trade_date}")))
-        except Exception as tu_e:
-            logger.info(f"⚠️ Tushare获取龙虎榜数据失败: {tu_e}，尝试AkShare")
+        # 🔥 优先使用Tushare获取龙虎榜数据（仅当配置了token时）
+        tushare_token = os.getenv("TUSHARE_TOKEN")
+        if tushare_token and tushare_token.strip():
+            try:
+                logger.info(f"📊 尝试使用Tushare获取龙虎榜数据: 日期{trade_date}")
+                data = get_manager().get_dragon_tiger_inst(trade_date=trade_date, ts_code=ts_code)
+                if data and not data.empty:
+                    logger.info(f"✅ Tushare成功获取龙虎榜数据: {len(data)}条记录")
+                    return format_tool_result(success_result(_format_result(data, f"Dragon Tiger: {trade_date}")))
+            except Exception as tu_e:
+                logger.info(f"⚠️ Tushare获取龙虎榜数据失败: {tu_e}，尝试AkShare")
+        else:
+            logger.debug("⚠️ 未配置Tushare token，直接使用AkShare")
 
         # 回退到AkShare
         try:
@@ -1706,17 +1955,24 @@ def get_dragon_tiger_inst(
 
             logger.info(f"📊 尝试使用AkShare获取龙虎榜数据: 日期{trade_date}")
 
-            # 获取龙虎榜每日详情（添加内部错误处理）
+            # 获取龙虎榜数据
+            df = None
             try:
-                df = ak.stock_lhb_detail_daily_sina(date=trade_date)
-            except KeyError as ke:
-                # AkShare内部bug：'股票代码'字段缺失
-                logger.warning(f"⚠️ AkShare龙虎榜接口内部错误: {ke}，尝试其他接口")
+                # 方法1：使用东方财富龙虎榜接口（需要start_date和end_date）
+                df = ak.stock_lhb_detail_em(start_date=trade_date, end_date=trade_date)
+                # 检查是否返回None（API在某些日期可能没有数据）
+                if df is None:
+                    logger.warning(f"⚠️ stock_lhb_detail_em返回None（{trade_date}可能没有龙虎榜数据）")
+                else:
+                    logger.info(f"✅ 使用stock_lhb_detail_em成功获取数据: {len(df)}条记录")
+            except Exception as em_e:
+                logger.warning(f"⚠️ stock_lhb_detail_em失败: {em_e}，尝试其他接口")
                 try:
-                    # 尝试使用东方财富龙虎榜接口
-                    df = ak.stock_lhb_detail_em(date=trade_date)
-                except:
-                    logger.warning(f"⚠️ 所有AkShare龙虎榜接口均失败")
+                    # 方法2：尝试使用新浪龙虎榜接口
+                    df = ak.stock_lhb_detail_daily_sina(date=trade_date)
+                    logger.info(f"✅ 使用stock_lhb_detail_daily_sina成功获取数据")
+                except Exception as sina_e:
+                    logger.warning(f"⚠️ stock_lhb_detail_daily_sina也失败: {sina_e}")
                     df = None
 
             if df is not None and not df.empty:
@@ -1741,23 +1997,12 @@ def get_dragon_tiger_inst(
 
                 logger.info(f"✅ AkShare成功获取龙虎榜数据: {len(df_filtered)}条记录")
 
-                # 格式化数据（限制最多显示50条）
-                result_text = f"# 龙虎榜数据（来源：AkShare）\n\n"
-                result_text += f"**交易日期**: {trade_date}\n"
-                if ts_code:
-                    result_text += f"**股票代码**: {ts_code}\n"
-                result_text += f"**记录数**: {len(df_filtered)}\n\n"
-
-                result_text += "## 龙虎榜明细（前50条）\n\n"
-                for idx, row in df_filtered.head(50).iterrows():
-                    result_text += f"### 记录 {idx + 1}\n"
-                    for col in df_filtered.columns:
-                        value = row[col]
-                        if pd.notna(value):
-                            result_text += f"- **{col}**: {value}\n"
-                    result_text += "\n"
-
-                return result_text
+                # 返回JSON格式
+                data_dict = df_filtered.head(50).to_dict(orient='records')
+                json_data = json.dumps(data_dict, ensure_ascii=False, default=str)
+                return format_tool_result(success_result(
+                    data=json_data,
+                ))
             else:
                 logger.warning(f"⚠️ AkShare龙虎榜接口返回空数据")
         except Exception as ak_e:

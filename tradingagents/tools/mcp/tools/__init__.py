@@ -12,9 +12,7 @@ from .finance import (
     get_china_market_overview,
     get_stock_data,
     get_stock_data_minutes,
-    get_company_performance,
-    get_company_performance_hk,
-    get_company_performance_us,
+    get_company_performance_unified,  # 🔥 统一工具（替代旧的三个工具）
     get_macro_econ,
     get_money_flow,
     get_margin_trade,
@@ -41,10 +39,8 @@ __all__ = [
     # 分钟级数据
     "get_stock_data_minutes",
 
-    # 公司业绩数据
-    "get_company_performance",
-    "get_company_performance_hk",
-    "get_company_performance_us",
+    # 公司业绩数据（统一工具，支持A股/港股/美股）
+    "get_company_performance_unified",
 
     # 宏观与资金流向
     "get_macro_econ",

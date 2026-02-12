@@ -106,7 +106,7 @@ def load_local_mcp_tools(toolkit: Optional[Dict] = None) -> List[Any]:
         if LANGCHAIN_TOOLS_AVAILABLE:
             from langchain_core.tools import tool as lc_tool
 
-            # 加载 22 个金融工具
+            # 加载 20 个金融工具（原22个，整合公司业绩工具后变为20个）
             if HAS_FINANCE_TOOLS and finance:
                 finance_funcs = [
                     # 核心工具 (5个)
@@ -119,31 +119,29 @@ def load_local_mcp_tools(toolkit: Optional[Dict] = None) -> List[Any]:
                     # 分钟级数据 (1个)
                     finance.get_stock_data_minutes, # 6. 分钟级K线
 
-                    # 公司业绩 (3个)
-                    finance.get_company_performance, # 7. A股业绩
-                    finance.get_company_performance_hk, # 8. 港股业绩
-                    finance.get_company_performance_us, # 9. 美股业绩
+                    # 公司业绩 (1个) - 🔥 合并后的统一工具
+                    finance.get_company_performance_unified, # 7. 公司业绩（A股/港股/美股）
 
                     # 宏观与资金 (3个)
-                    finance.get_macro_econ,         # 10. 宏观经济
-                    finance.get_money_flow,         # 11. 资金流向
-                    finance.get_margin_trade,       # 12. 融资融券
+                    finance.get_macro_econ,         # 8. 宏观经济
+                    finance.get_money_flow,         # 9. 资金流向
+                    finance.get_margin_trade,       # 10. 融资融券
 
                     # 基金数据 (2个)
-                    finance.get_fund_data,          # 13. 公募基金
-                    finance.get_fund_manager_by_name, # 14. 基金经理
+                    finance.get_fund_data,          # 11. 公募基金
+                    finance.get_fund_manager_by_name, # 12. 基金经理
 
                     # 指数与其他 (5个)
-                    finance.get_index_data,         # 15. 指数行情
-                    finance.get_csi_index_constituents, # 16. 中证指数成份股
-                    finance.get_convertible_bond,   # 17. 可转债
-                    finance.get_block_trade,        # 18. 大宗交易
-                    finance.get_dragon_tiger_inst,  # 19. 龙虎榜
+                    finance.get_index_data,         # 13. 指数行情
+                    finance.get_csi_index_constituents, # 14. 中证指数成份股
+                    finance.get_convertible_bond,   # 15. 可转债
+                    finance.get_block_trade,        # 16. 大宗交易
+                    finance.get_dragon_tiger_inst,  # 17. 龙虎榜
 
                     # 新闻与时间 (3个)
-                    finance.get_finance_news,       # 20. 财经新闻搜索
-                    finance.get_hot_news_7x24,      # 21. 7x24快讯
-                    finance.get_current_timestamp   # 22. 当前时间戳
+                    finance.get_finance_news,       # 18. 财经新闻搜索
+                    finance.get_hot_news_7x24,      # 19. 7x24快讯
+                    finance.get_current_timestamp   # 20. 当前时间戳
                 ]
 
                 # 🔥 应用数据源过滤器

@@ -18,7 +18,8 @@ TUSHARE_ONLY_TOOLS: Set[str] = {
     'get_fund_manager_by_name',        # 基金经理信息
     'get_finance_news',                # 财经新闻搜索
     'get_hot_news_7x24',               # 7x24快讯
-    'get_company_performance_us',      # 美股业绩
+    # 🔥 注意：get_company_performance_unified 不在此列表中
+    #    因为A股和港股部分数据类型支持AkShare回退
     'get_stock_sentiment',             # 社交媒体情绪（Reddit/Twitter）
 }
 
