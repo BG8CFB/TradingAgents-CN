@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from app.worker.baostock_init_service import BaoStockInitService
 from app.worker.baostock_sync_service import BaoStockSyncService
 from app.utils.timezone import now_config_tz, format_date_compact, format_iso
-from tradingagents.utils.time_utils import now_config_tz as now_tz
+from app.utils.time_utils import now_config_tz as now_tz
 
 logger = logging.getLogger(__name__)
 

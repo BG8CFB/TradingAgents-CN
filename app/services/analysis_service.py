@@ -19,15 +19,15 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 # 初始化TradingAgents日志系统
-from tradingagents.utils.logging_init import init_logging
+from app.utils.logging_init import init_logging
 init_logging()
 
-from tradingagents.graph.trading_graph import TradingAgentsGraph
-from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.utils.runtime_paths import get_analysis_results_dir, resolve_path
-from tradingagents.dataflows.data_source_manager import get_data_source_manager
-from tradingagents.utils.stock_utils import StockUtils
-from tradingagents.utils.dataflow_utils import get_trading_date_range
+from app.engine.graph.trading_graph import TradingAgentsGraph
+from app.engine.default_config import DEFAULT_CONFIG
+from app.utils.runtime_paths import get_analysis_results_dir, resolve_path
+from app.data.data_source_manager import get_data_source_manager
+from app.utils.stock_utils import StockUtils
+from app.utils.dataflow_utils import get_trading_date_range
 
 from app.models.analysis import (
     AnalysisParameters, AnalysisResult, AnalysisTask, AnalysisBatch,
@@ -49,7 +49,7 @@ from app.services.websocket_manager import get_websocket_manager
 from app.core.config import settings
 from app.services.queue import DEFAULT_USER_CONCURRENT_LIMIT, GLOBAL_CONCURRENT_LIMIT, VISIBILITY_TIMEOUT_SECONDS
 from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
-from tradingagents.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
+from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
 
 # 设置日志
 logger = logging.getLogger("app.services.analysis_service")
@@ -612,7 +612,7 @@ class AnalysisService:
             logger.info(f"🚀 开始后台执行分析任务: {task_id}")
 
             # 验证股票代码
-            from tradingagents.utils.stock_validator import prepare_stock_data_async
+            from app.utils.stock_validator import prepare_stock_data_async
             market_type = request.parameters.market_type if request.parameters else "A股"
             analysis_date = request.parameters.analysis_date if request.parameters else None
             
@@ -903,9 +903,9 @@ class AnalysisService:
         task_mcp_manager = None
 
         try:
-            from tradingagents.utils.logging_init import init_logging, get_logger
-            from tradingagents.agents.analysts.dynamic_analyst import DynamicAnalystFactory
-            from tradingagents.tools.mcp.task_manager import get_task_mcp_manager, remove_task_mcp_manager
+            from app.utils.logging_init import init_logging, get_logger
+            from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+            from app.engine.tools.mcp.task_manager import get_task_mcp_manager, remove_task_mcp_manager
             init_logging()
 
             # 创建任务级 MCP 管理器
@@ -1618,7 +1618,7 @@ class AnalysisService:
             
             # 从配置文件动态加载第1阶段分析师的报告标题
             try:
-                from tradingagents.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+                from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
                 for agent in DynamicAnalystFactory.get_all_agents():
                     slug = agent.get('slug', '')
                     name = agent.get('name', '')

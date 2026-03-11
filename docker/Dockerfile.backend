@@ -81,13 +81,10 @@ RUN pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/ --trust
 
 # 复制后端代码和必需模块
 COPY app ./app
-COPY tradingagents ./tradingagents
 COPY config ./config
-# 复制 install 目录（如果存在），确保 SystemInitService 能找到初始数据
-COPY install ./install
 
-# 复制Docker环境配置文件
-COPY .env.docker ./.env
+# 复制Docker环境配置文件（从docker目录复制，因为build context是项目根目录）
+COPY docker/.env.docker ./.env
 
 # 暴露后端端口（与docker-compose.v1.0.0.yml一致）
 EXPOSE 8000

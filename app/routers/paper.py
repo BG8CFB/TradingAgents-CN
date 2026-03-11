@@ -8,7 +8,7 @@ import re
 from app.routers.auth_db import get_current_user
 from app.core.database import get_mongo_db
 from app.core.response import ok
-from tradingagents.utils.time_utils import now_utc, format_iso
+from app.utils.time_utils import now_utc, format_iso
 
 router = APIRouter(prefix="/paper", tags=["paper"])
 logger = logging.getLogger("webapi")

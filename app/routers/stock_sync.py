@@ -631,7 +631,7 @@ async def sync_batch_stocks(
                 # 🔥 批量同步基础数据
                 # 注意：基础数据同步服务目前只支持 Tushare 数据源
                 if request.data_source == "tushare":
-                    from tradingagents.dataflows.providers.china.tushare import TushareProvider
+                    from app.data.providers.china.tushare import TushareProvider
 
                     tushare_provider = TushareProvider()
                     if tushare_provider.is_available():

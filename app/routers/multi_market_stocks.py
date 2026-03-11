@@ -45,7 +45,7 @@ async def get_supported_markets(current_user: dict = Depends(get_current_user)):
             }
         }
     """
-    from tradingagents.config.runtime_settings import get_timezone_name
+    from app.engine.config.runtime_settings import get_timezone_name
 
     markets = [
         {

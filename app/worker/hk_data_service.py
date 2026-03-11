@@ -25,8 +25,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from tradingagents.dataflows.providers.hk.hk_stock import HKStockProvider
-from tradingagents.dataflows.providers.hk.improved_hk import ImprovedHKStockProvider
+from app.data.providers.hk.hk_stock import HKStockProvider
+from app.data.providers.hk.improved_hk import ImprovedHKStockProvider
 from app.core.database import get_mongo_db
 from app.core.config import settings
 from app.utils.timezone import now_config_tz

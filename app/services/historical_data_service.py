@@ -12,7 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.database import get_database
 from app.utils.timezone import now_config_tz
-from tradingagents.utils.time_utils import now_utc, format_iso
+from app.utils.time_utils import now_utc, format_iso
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from app.services.historical_data_service import get_historical_data_service
 from app.worker.tushare_sync_service import TushareSyncService
 from app.worker.akshare_sync_service import AKShareSyncService
 from app.worker.baostock_sync_service import BaoStockSyncService
-from tradingagents.utils.time_utils import now_utc, now_config_tz, format_iso, format_date_short
+from app.utils.time_utils import now_utc, now_config_tz, format_iso, format_date_short
 
 logger = logging.getLogger(__name__)
 

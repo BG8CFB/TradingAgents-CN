@@ -8,21 +8,21 @@ FROM docker.1ms.run/node:22-alpine AS build
 ENV NODE_ENV=production
 WORKDIR /app/frontend
 
-# 复制package.json、yarn.lock和.yarnrc（配置国内镜像源）
-COPY frontend/package.json frontend/yarn.lock frontend/.yarnrc ./
+# 复制package.json、package-lock.json和npmrc配置
+COPY frontend/package.json frontend/package-lock.json ./
 
-# 配置yarn国内镜像源（Node.js镜像已包含yarn）
-RUN yarn config set registry https://registry.npmmirror.com
+# 配置npm国内镜像源
+RUN npm config set registry https://registry.npmmirror.com
 
-# 安装依赖（使用yarn.lock确保版本一致）
+# 安装依赖（使用package-lock.json确保版本一致）
 # 增加网络超时时间到5分钟，适应跨平台构建的网络延迟
-RUN yarn install --frozen-lockfile --production=false --network-timeout 300000
+RUN npm ci --include=dev --timeout=300000
 
 # 复制前端源代码
 COPY frontend/. ./
 
-# 构建生产版本（跳过类型检查以加快构建速度）
-RUN yarn vite build
+# 构建生产版本（使用 vite build 跳过类型检查，避免类型错误导致构建失败）
+RUN npx vite build
 
 # 运行阶段：使用Nginx提供静态文件服务
 # 使用 1ms.run 镜像源加速下载

@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional
 
 # 从统一工具模块导入
-from tradingagents.utils.time_utils import (
+from app.utils.time_utils import (
     now_utc,
     now_config_tz,
     to_utc,
@@ -27,7 +27,7 @@ from tradingagents.utils.time_utils import (
 )
 
 # 从运行时配置导入
-from tradingagents.config.runtime_settings import get_timezone_name, get_zoneinfo
+from app.engine.config.runtime_settings import get_timezone_name, get_zoneinfo
 
 
 # ============================================================================

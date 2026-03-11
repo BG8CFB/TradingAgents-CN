@@ -1,5 +1,5 @@
 import pytest
-from tradingagents.tools.mcp import MCPServerConfig
+from app.engine.tools.mcp import MCPServerConfig
 
 def test_mcp_config_import():
     """Test that MCPServerConfig can be imported."""

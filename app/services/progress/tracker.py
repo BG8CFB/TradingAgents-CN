@@ -223,7 +223,7 @@ class RedisProgressTracker:
     def _get_analyst_step_info(self, analyst: str) -> Dict[str, str]:
         """获取分析师步骤信息（名称与描述）- 动态从配置文件加载"""
         try:
-            from tradingagents.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+            from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
             
             # 尝试从配置文件获取分析师信息
             lookup = DynamicAnalystFactory.build_lookup_map()

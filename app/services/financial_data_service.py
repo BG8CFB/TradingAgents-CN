@@ -11,7 +11,7 @@ import pandas as pd
 from pymongo import ReplaceOne
 
 from app.core.database import get_mongo_db
-from tradingagents.utils.time_utils import now_utc, format_iso
+from app.utils.time_utils import now_utc, format_iso
 
 logger = logging.getLogger(__name__)
 

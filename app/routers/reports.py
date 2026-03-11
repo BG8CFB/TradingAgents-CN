@@ -182,7 +182,7 @@ async def get_reports_list(
             # 🔥 获取市场类型，如果没有则根据股票代码推断
             market_type = doc.get("market_type")
             if not market_type:
-                from tradingagents.utils.stock_utils import StockUtils
+                from app.utils.stock_utils import StockUtils
                 market_info = StockUtils.get_market_info(stock_code)
                 market_type_map = {
                     "china_a": "A股",

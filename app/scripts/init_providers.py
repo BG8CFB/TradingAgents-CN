@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from app.core.database import init_db, get_mongo_db
 from app.models.config import LLMProvider
-from tradingagents.utils.time_utils import now_utc
+from app.utils.time_utils import now_utc
 
 async def init_providers():
     """初始化大模型厂家数据"""

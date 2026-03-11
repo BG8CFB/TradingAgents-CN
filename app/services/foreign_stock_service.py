@@ -13,10 +13,10 @@ import asyncio
 from collections import defaultdict
 
 # 复用现有缓存系统
-from tradingagents.dataflows.cache import get_cache
+from app.data.cache import get_cache
 
 # 复用现有数据源提供者
-from tradingagents.dataflows.providers.hk.hk_stock import HKStockProvider
+from app.data.providers.hk.hk_stock import HKStockProvider
 
 logger = logging.getLogger(__name__)
 
@@ -282,7 +282,7 @@ class ForeignStockService:
 
     def _get_hk_quote_from_akshare(self, code: str) -> Dict:
         """从AKShare获取港股行情"""
-        from tradingagents.dataflows.providers.hk.improved_hk import get_hk_stock_info_akshare
+        from app.data.providers.hk.improved_hk import get_hk_stock_info_akshare
         info = get_hk_stock_info_akshare(code)
         if not info or 'error' in info:
             raise Exception("无数据")
@@ -449,7 +449,7 @@ class ForeignStockService:
     def _get_us_quote_from_alpha_vantage(self, code: str) -> Dict:
         """从Alpha Vantage获取美股行情"""
         try:
-            from tradingagents.dataflows.providers.us.alpha_vantage_common import get_api_key, _make_api_request
+            from app.data.providers.us.alpha_vantage_common import get_api_key, _make_api_request
 
             # 获取 API Key
             api_key = get_api_key()
@@ -979,7 +979,7 @@ class ForeignStockService:
 
     def _get_us_info_from_alpha_vantage(self, code: str) -> Dict:
         """从Alpha Vantage获取美股基础信息"""
-        from tradingagents.dataflows.providers.us.alpha_vantage_common import get_api_key, _make_api_request
+        from app.data.providers.us.alpha_vantage_common import get_api_key, _make_api_request
 
         # 获取 API Key
         api_key = get_api_key()
@@ -1075,7 +1075,7 @@ class ForeignStockService:
 
     def _get_us_kline_from_alpha_vantage(self, code: str, period: str, limit: int) -> List[Dict]:
         """从Alpha Vantage获取美股K线数据"""
-        from tradingagents.dataflows.providers.us.alpha_vantage_common import get_api_key, _make_api_request
+        from app.data.providers.us.alpha_vantage_common import get_api_key, _make_api_request
         import pandas as pd
 
         # 获取 API Key
@@ -1395,7 +1395,7 @@ class ForeignStockService:
 
     def _get_us_news_from_alpha_vantage(self, code: str, days: int, limit: int) -> List[Dict]:
         """从Alpha Vantage获取美股新闻"""
-        from tradingagents.dataflows.providers.us.alpha_vantage_common import get_api_key, _make_api_request
+        from app.data.providers.us.alpha_vantage_common import get_api_key, _make_api_request
         from datetime import datetime, timedelta
 
         # 获取 API Key
@@ -1555,7 +1555,7 @@ class ForeignStockService:
 
     def _get_hk_info_from_akshare(self, code: str) -> Dict:
         """从AKShare获取港股基础信息和财务指标"""
-        from tradingagents.dataflows.providers.hk.improved_hk import (
+        from app.data.providers.hk.improved_hk import (
             get_hk_stock_info_akshare,
             get_hk_financial_indicators
         )
@@ -1668,7 +1668,7 @@ class ForeignStockService:
         import akshare as ak
         import pandas as pd
         from datetime import datetime, timedelta
-        from tradingagents.dataflows.providers.hk.improved_hk import get_improved_hk_provider
+        from app.data.providers.hk.improved_hk import get_improved_hk_provider
 
         # 标准化代码
         provider = get_improved_hk_provider()

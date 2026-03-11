@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 import os
 
 from app.services.config_service import config_service
-from tradingagents.utils.time_utils import now_utc
+from app.utils.time_utils import now_utc
 
 
 class ConfigProvider:

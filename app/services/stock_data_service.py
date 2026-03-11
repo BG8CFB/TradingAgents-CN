@@ -16,7 +16,7 @@ from app.models.stock_models import (
     ExchangeType,
     CurrencyType
 )
-from tradingagents.utils.time_utils import now_utc
+from app.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -318,7 +318,7 @@ class StockDataService:
                 exchange_name = "深圳证券交易所"
             
             # 添加市场信息
-            from tradingagents.config.runtime_settings import get_timezone_name
+            from app.engine.config.runtime_settings import get_timezone_name
             result["market_info"] = {
                 "market": "CN",
                 "exchange": exchange,

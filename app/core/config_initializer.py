@@ -20,7 +20,7 @@ def ensure_config_files():
         # 获取配置目录路径
         project_root = Path(__file__).resolve().parents[2]
         config_dir = project_root / "config"
-        install_dir = project_root / "install" / "default-config"
+        install_dir = project_root / "config" / "defaults"
 
         # 记录初始化开始
         logger.info("=" * 60)
@@ -37,7 +37,7 @@ def ensure_config_files():
         # 1. 处理Agent配置文件 (Phase1-4)
         for phase in range(1, 5):
             filename = f"phase{phase}_agents_config.yaml"
-            agent_config_src = install_dir / "agents" / filename
+            agent_config_src = install_dir / filename
             agent_config_dst = config_dir / "agents" / filename
             
             # 只有当源文件存在时才尝试初始化

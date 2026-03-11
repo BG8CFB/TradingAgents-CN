@@ -10,7 +10,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, HTTPExcept
 from datetime import datetime
 
 from app.services.auth_service import AuthService
-from tradingagents.utils.time_utils import now_utc, format_iso
+from app.utils.time_utils import now_utc, format_iso
 
 router = APIRouter()
 logger = logging.getLogger("webapi.websocket")

@@ -632,7 +632,7 @@ async def lifespan(app: FastAPI):
     # 在应用启动时建立所有 MCP 连接，在整个应用生命周期内保持活跃
     mcp_health_check_task = None
     try:
-        from tradingagents.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
+        from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
 
         if LANGCHAIN_MCP_AVAILABLE:
             logger.info("🔧 初始化 MCP 连接管理器...")
@@ -681,7 +681,7 @@ async def lifespan(app: FastAPI):
 
         # 2. 关闭所有 MCP 连接
         try:
-            from tradingagents.tools.mcp import get_mcp_loader_factory
+            from app.engine.tools.mcp import get_mcp_loader_factory
             factory = get_mcp_loader_factory()
             await factory.close()
             logger.info("🛑 MCP 连接已关闭")

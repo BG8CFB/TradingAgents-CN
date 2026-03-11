@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from app.core.config import get_settings
 from app.core.database import get_database
 from app.services.historical_data_service import get_historical_data_service
-from tradingagents.dataflows.providers.china.baostock import BaoStockProvider
+from app.data.providers.china.baostock import BaoStockProvider
 from app.utils.timezone import now_config_tz, format_date_short, format_iso
 
 logger = logging.getLogger(__name__)

@@ -8,8 +8,8 @@ from pymongo import UpdateOne
 
 from app.core.config import settings
 from app.core.database import get_mongo_db
-from tradingagents.dataflows.manager import DataSourceManager
-from tradingagents.utils.time_utils import now_config_tz, format_date_compact
+from app.data.manager import DataSourceManager
+from app.utils.time_utils import now_config_tz, format_date_compact
 
 logger = logging.getLogger(__name__)
 

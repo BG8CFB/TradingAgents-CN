@@ -26,8 +26,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from tradingagents.dataflows.providers.us.yfinance import YFinanceUtils
-from tradingagents.utils.time_utils import now_utc
+from app.data.providers.us.yfinance import YFinanceUtils
+from app.utils.time_utils import now_utc
 from app.core.database import get_mongo_db
 from app.core.config import settings
 from app.utils.timezone import now_config_tz, format_iso

@@ -17,7 +17,7 @@ from app.models.operation_log import ActionType
 
 # 尝试导入日志管理器
 try:
-    from tradingagents.utils.logging_manager import get_logger
+    from app.utils.logging_manager import get_logger
 except ImportError:
     # 如果导入失败，使用标准日志
     import logging

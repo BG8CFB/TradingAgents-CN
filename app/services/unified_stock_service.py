@@ -260,7 +260,7 @@ class UnifiedStockService:
         Returns:
             市场列表
         """
-        from tradingagents.config.runtime_settings import get_timezone_name
+        from app.engine.config.runtime_settings import get_timezone_name
 
         return [
             {

@@ -21,7 +21,7 @@ from app.models.analysis import (
     AnalysisTaskResponse, AnalysisBatchResponse, AnalysisHistoryQuery
 )
 from app.core.config import settings
-from tradingagents.utils.runtime_paths import get_analysis_results_dir, resolve_path
+from app.utils.runtime_paths import get_analysis_results_dir, resolve_path
 from app.utils.timezone import now_utc
 
 router = APIRouter()

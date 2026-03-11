@@ -21,7 +21,7 @@ from pymongo import UpdateOne
 
 from app.core.database import get_mongo_db
 from app.core.config import settings
-from tradingagents.utils.time_utils import now_utc, format_iso
+from app.utils.time_utils import now_utc, format_iso
 
 from app.services.basics_sync import (
     fetch_stock_basic_df as _fetch_stock_basic_df_util,

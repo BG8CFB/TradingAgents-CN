@@ -17,13 +17,13 @@ from typing import Dict, Any
 from unittest.mock import MagicMock, Mock
 from langchain_openai import ChatOpenAI
 
-from tradingagents.agents.analysts.dynamic_analyst import (
+from app.engine.agents.analysts.dynamic_analyst import (
     create_react_agent_subgraph,
     DynamicAnalystFactory
 )
-from tradingagents.graph.setup import GraphSetup
-from tradingagents.graph.conditional_logic import ConditionalLogic
-from tradingagents.agents.utils.agent_utils import Toolkit
+from app.engine.graph.setup import GraphSetup
+from app.engine.graph.conditional_logic import ConditionalLogic
+from app.engine.agents.utils.agent_utils import Toolkit
 
 
 class TestSubgraphArchitecture:

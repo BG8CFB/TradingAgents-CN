@@ -22,7 +22,7 @@ class TushareAdapter(DataSourceAdapter):
     def _initialize(self):
         """Initialize Tushare provider"""
         try:
-            from tradingagents.dataflows.providers.china.tushare import get_tushare_provider
+            from app.data.providers.china.tushare import get_tushare_provider
             self._provider = get_tushare_provider()
         except Exception as e:
             logger.warning(f"Failed to initialize Tushare provider: {e}")

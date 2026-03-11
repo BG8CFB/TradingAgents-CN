@@ -7,7 +7,7 @@ import platform
 
 from app.core.logging_context import LoggingContextFilter, trace_id_var
 from app.core.config import settings
-from tradingagents.utils.runtime_paths import get_logs_dir, get_runtime_base_dir
+from app.utils.runtime_paths import get_logs_dir, get_runtime_base_dir
 
 # 🔥 在 Windows 上使用 concurrent-log-handler 避免文件占用问题
 _IS_WINDOWS = platform.system() == "Windows"

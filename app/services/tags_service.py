@@ -7,7 +7,7 @@ from datetime import datetime
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
-from tradingagents.utils.time_utils import now_utc
+from app.utils.time_utils import now_utc
 
 
 class TagsService:

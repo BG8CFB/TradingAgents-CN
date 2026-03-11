@@ -8,7 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 from typing import Callable, Dict, Optional
 from core.redis_client import get_redis_service, RedisKeys
-from tradingagents.utils.time_utils import get_current_date
+from app.utils.time_utils import get_current_date
 
 logger = logging.getLogger(__name__)
 

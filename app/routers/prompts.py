@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from app.routers.auth_db import get_current_user
-from tradingagents.utils.time_utils import now_utc
+from app.utils.time_utils import now_utc
 
 
 class PromptTemplate(BaseModel):

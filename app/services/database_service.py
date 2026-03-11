@@ -17,7 +17,7 @@ from pymongo.errors import ServerSelectionTimeoutError
 
 from app.core.database import get_mongo_db, get_redis_client, db_manager
 from app.core.config import settings
-from tradingagents.utils.runtime_paths import get_backups_dir, get_exports_dir
+from app.utils.runtime_paths import get_backups_dir, get_exports_dir
 
 from app.services.database import status_checks as _db_status
 from app.services.database import cleanup as _db_cleanup

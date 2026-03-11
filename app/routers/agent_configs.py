@@ -20,7 +20,7 @@ from app.routers.auth_db import get_current_user
 
 # 导入动态分析师工厂，用于清除配置缓存
 try:
-    from tradingagents.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+    from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
     DYNAMIC_ANALYST_AVAILABLE = True
 except ImportError:
     DYNAMIC_ANALYST_AVAILABLE = False

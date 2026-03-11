@@ -15,7 +15,7 @@ from typing import List, Dict, Any, Optional
 import os
 from app.services.stock_data_service import get_stock_data_service
 from app.core.database import get_mongo_db
-from tradingagents.dataflows.providers.examples.example_sdk import ExampleSDKProvider
+from app.data.providers.examples.example_sdk import ExampleSDKProvider
 from app.utils.timezone import now_utc, now_config_tz
 
 logger = logging.getLogger(__name__)

@@ -1,4 +1,4 @@
-# TradingAgents 中文增强版 (社区维护版)
+# TradingAgents MCP版本 (社区维护版)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -8,14 +8,26 @@
 [![Maintainer](https://img.shields.io/badge/Maintainer-BG8CFB-red.svg)](https://github.com/BG8CFB)
 
 > ⚠️ **特别维护声明**
->
-> 由于原作者 **hsliuping** 暂时失联，本项目现由 **BG8CFB** 个人维护与更新。
+> 建议优先使用原作者版本，原作者已经发布2.0版本，功能更加强大和完善，本项目主要未个人使用。
+原作者仓库：https://github.com/hsliuping/TradingAgents-CN
+
+> ⚠️ **免责声明**
+> 本项目仅供学习与研究使用，不构成任何投资建议。所有策略和数据均为模拟，不涉及真实交易。使用者需自行承担风险。
+> 本项目由 **BG8CFB** 个人维护与更新，只用于个人学习与研究，不用于任何商业用途。
 > - **开源承诺**: 永久免费，严格遵守开源协议。
-> - **维护计划**: 计划每周更新，重大问题实时修复。
-> - **未来规划**: 若原作者回归，将配合合并代码。
-> - **交流反馈**: 欢迎加入文末的 QQ/微信群交流。
+> - **版本说明**: 当前为预览版，功能可能不稳定。
+> - **维护计划**: 只做维护，使用有问题请进QQ群进行反馈和交流，重大问题实时修复。
 
 ---
+
+- **QQ群**
+
+<div align="left">
+  <img src="docs/BG8CFBQQ.jpg" alt="QQ交流群" width="180" style="margin-left: 20px;"/>
+</div>
+
+### 问题反馈
+- **GitHub Issues**: [提交 Bug 或建议](https://github.com/BG8CFB/TradingAgents-CN/issues)
 
 ## 📖 项目简介
 
@@ -55,68 +67,6 @@
 ## 🤖 智能体工作流 (Agent Workflow)
 
 本项目采用 **LangGraph** 构建了复杂的多智能体协作网络，整个分析过程分为四个核心阶段，用户可根据需求灵活开启或关闭特定阶段。
-
-```mermaid
-graph TD
-    Start([🚀 开始分析]) --> Phase1Start
-    
-    %% Phase 1: Data Analysis
-    subgraph "Phase 1: 市场数据分析 (Analysts)"
-        direction TB
-        Phase1Start(选择分析师) --> Analyst1[📊 市场/技术分析师]
-        Analyst1 -- 调用工具 --> Tools1[🛠️ 数据工具集]
-        Tools1 -- 返回数据 --> Analyst1
-        Analyst1 -- 思考完成 --> Clear1[清理上下文]
-        Clear1 --> Analyst2[📰 舆情/新闻分析师]
-        Analyst2 -- 调用工具 --> Tools2[🛠️ 数据工具集]
-        Tools2 -- 返回数据 --> Analyst2
-        Analyst2 -- 思考完成 --> Clear2[清理上下文]
-        Clear2 --> Analyst3[💰 基本面分析师]
-        Analyst3 -- 思考完成 --> Clear3[清理上下文]
-    end
-
-    Clear3 --> Phase2Check{启用研究辩论?}
-
-    %% Phase 2: Research Debate
-    subgraph "Phase 2: 多空博弈 (Debate)"
-        Phase2Check -- 是 --> Bull[📈 看多研究员]
-        Bull <-- 循环辩论 --> Bear[📉 看空研究员]
-    end
-
-    Phase2Check -- 否 --> Phase4Check{启用交易策略?}
-    Bull --> Phase4Check
-    Bear --> Phase4Check
-
-    %% Phase 4: Trading Strategy
-    subgraph "Phase 4: 交易策略 (Trader)"
-        Phase4Check -- 是 --> Trader[⚖️ 交易员 Agent]
-    end
-
-    Phase4Check -- 否 --> Phase3Check{启用风控?}
-    Trader --> Phase3Check
-
-    %% Phase 3: Risk Management
-    subgraph "Phase 3: 风险控制 (Risk)"
-        Phase3Check -- 是 --> Risky[🦁 激进派]
-        Risky --> Safe[🐢 保守派]
-        Safe --> Neutral[🦉 中立派]
-        Neutral -- 循环讨论 --> Risky
-        Risky --> RiskJudge[👨‍⚖️ 风控经理]
-        Safe --> RiskJudge
-        Neutral --> RiskJudge
-    end
-    
-    Phase3Check -- 否 --> Summary
-    RiskJudge --> Summary[📝 总结报告 Agent]
-    
-    Summary --> End([🏁 结束 & 生成报告])
-
-    style Start fill:#f9f,stroke:#333,stroke-width:2px,color:#000
-    style End fill:#f9f,stroke:#333,stroke-width:2px,color:#000
-    style Trader fill:#ff9,stroke:#333,stroke-width:2px,color:#000
-    style RiskJudge fill:#f96,stroke:#333,stroke-width:2px,color:#000
-    style Summary fill:#9cf,stroke:#333,stroke-width:2px,color:#000
-```
 
 ### 📈 流程详解
 
@@ -165,25 +115,6 @@ graph TD
 - ✅ **国产化适配**: 完整支持 A股数据，集成通义千问、Kimi 等国产大模型。
 - ✅ **体验优化**: 全中文界面，Web 配置管理，实时进度显示。
 - ✅ **工程化落地**: Docker 一键部署，统一日志管理，成本优化策略。
-
----
-
-## 📞 社区与联系
-
-### 关注我们
-获取项目最新进展和使用教程：
-
-- **微信公众号**: `TradingAgents-CN`
-- **项目维护者**: BG8CFB
-
-<div align="left">
-  <img src="assets/wexin.png" alt="微信公众号" width="180"/>
-  <img src="docs/BG8CFBQQ.jpg" alt="QQ交流群" width="180" style="margin-left: 20px;"/>
-</div>
-
-### 问题反馈
-- **GitHub Issues**: [提交 Bug 或建议](https://github.com/BG8CFB/TradingAgents-CN/issues)
-- **原作者邮箱**: hsliup@163.com
 
 ---
 

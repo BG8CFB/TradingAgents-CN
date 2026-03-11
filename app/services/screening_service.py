@@ -9,10 +9,10 @@ import pandas as pd
 import numpy as np
 
 # 统一指标库
-from tradingagents.tools.analysis.indicators import IndicatorSpec, compute_many
+from app.engine.tools.analysis.indicators import IndicatorSpec, compute_many
 # 统一多数据源DF接口（按优先级降级）
-from tradingagents.dataflows.data_source_manager import get_data_source_manager
-from tradingagents.dataflows.providers.china.fundamentals_snapshot import get_cn_fund_snapshot
+from app.data.data_source_manager import get_data_source_manager
+from app.data.providers.china.fundamentals_snapshot import get_cn_fund_snapshot
 
 
 from app.services.screening.eval_utils import (

@@ -12,7 +12,7 @@ import re
 from app.routers.auth_db import get_current_user
 from app.core.database import get_mongo_db
 from app.core.response import ok
-from tradingagents.utils.time_utils import now_config_tz, format_date_compact, format_date_short
+from app.utils.time_utils import now_config_tz, format_date_compact, format_date_short
 
 logger = logging.getLogger(__name__)
 
@@ -324,7 +324,7 @@ async def get_fundamentals(
         logger.error(f"获取财务数据失败: {e}")
 
     # 3. 获取实时PE/PB（优先使用实时计算）
-    from tradingagents.dataflows.realtime_metrics import get_pe_pb_with_fallback
+    from app.data.realtime_metrics import get_pe_pb_with_fallback
     import asyncio
 
     # 在线程池中执行同步的实时计算
@@ -498,7 +498,7 @@ async def get_kline(
 
     # 1. 优先从 MongoDB 缓存获取
     try:
-        from tradingagents.dataflows.cache.mongodb_cache_adapter import get_mongodb_cache_adapter
+        from app.data.cache.mongodb_cache_adapter import get_mongodb_cache_adapter
         adapter = get_mongodb_cache_adapter()
 
         # 计算日期范围
@@ -531,7 +531,7 @@ async def get_kline(
         logger.info(f"📡 MongoDB 无数据，降级到外部 API")
         try:
             import asyncio
-            from tradingagents.dataflows.manager import DataSourceManager
+            from app.data.manager import DataSourceManager
 
             mgr = DataSourceManager()
             # 添加 10 秒超时保护

@@ -25,7 +25,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from tradingagents.dataflows.providers.us.optimized import OptimizedUSDataProvider
+from app.data.providers.us.optimized import OptimizedUSDataProvider
 from app.core.database import get_mongo_db
 from app.core.config import settings
 from app.utils.timezone import now_config_tz

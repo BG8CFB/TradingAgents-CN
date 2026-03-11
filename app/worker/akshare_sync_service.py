@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 from app.core.database import get_mongo_db
 from app.services.historical_data_service import get_historical_data_service
 from app.services.news_data_service import get_news_data_service
-from tradingagents.dataflows.providers.china.akshare import get_akshare_provider
+from app.data.providers.china.akshare import get_akshare_provider
 from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, get_current_date
 
 logger = logging.getLogger(__name__)

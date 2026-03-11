@@ -10,13 +10,13 @@ from bson import ObjectId
 
 from app.core.config import settings
 from app.models.user import User, UserCreate, UserUpdate, UserResponse
-from tradingagents.utils.time_utils import now_utc
+from app.utils.time_utils import now_utc
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 # 尝试导入日志管理器
 try:
-    from tradingagents.utils.logging_manager import get_logger
+    from app.utils.logging_manager import get_logger
 except ImportError:
     import logging
     def get_logger(name: str) -> logging.Logger:

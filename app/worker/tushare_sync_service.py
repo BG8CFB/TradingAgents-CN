@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 import logging
 
-from tradingagents.dataflows.providers.china.tushare import TushareProvider
+from app.data.providers.china.tushare import TushareProvider
 from app.services.stock_data_service import get_stock_data_service
 from app.services.historical_data_service import get_historical_data_service
 from app.services.news_data_service import get_news_data_service
@@ -15,8 +15,8 @@ from app.core.database import get_mongo_db
 from app.core.config import settings
 from app.core.rate_limiter import get_tushare_rate_limiter
 from app.utils.timezone import now_tz, now_utc, now_config_tz, format_date_short
-from tradingagents.utils.time_utils import now_utc as time_now_utc
-from tradingagents.config.runtime_settings import get_zoneinfo
+from app.utils.time_utils import now_utc as time_now_utc
+from app.engine.config.runtime_settings import get_zoneinfo
 
 logger = logging.getLogger(__name__)
 
@@ -490,7 +490,7 @@ class TushareSyncService:
 
         注意：此方法不检查节假日，仅检查时间段
         """
-        from tradingagents.utils.time_utils import now_config_tz
+        from app.utils.time_utils import now_config_tz
 
         # 使用配置的时区
         now = now_config_tz()

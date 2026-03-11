@@ -11,10 +11,10 @@ from dataclasses import dataclass, field
 
 from app.core.database import get_mongo_db
 from app.services.financial_data_service import get_financial_data_service
-from tradingagents.dataflows.providers.china.tushare import get_tushare_provider
-from tradingagents.dataflows.providers.china.akshare import get_akshare_provider
-from tradingagents.dataflows.providers.china.baostock import get_baostock_provider
-from tradingagents.utils.time_utils import now_utc, format_iso
+from app.data.providers.china.tushare import get_tushare_provider
+from app.data.providers.china.akshare import get_akshare_provider
+from app.data.providers.china.baostock import get_baostock_provider
+from app.utils.time_utils import now_utc, format_iso
 
 logger = logging.getLogger(__name__)
 

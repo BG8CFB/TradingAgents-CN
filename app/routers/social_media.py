@@ -13,7 +13,7 @@ from app.services.social_media_service import (
     SocialMediaStats
 )
 from app.core.response import ok
-from tradingagents.utils.time_utils import now_utc
+from app.utils.time_utils import now_utc
 
 router = APIRouter(prefix="/api/social-media", tags=["social-media"])
 

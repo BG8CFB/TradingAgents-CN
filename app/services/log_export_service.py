@@ -8,7 +8,7 @@ import os
 import zipfile
 from datetime import datetime, timedelta
 from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
-from tradingagents.utils.time_utils import fromtimestamp_aware
+from app.utils.time_utils import fromtimestamp_aware
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import re

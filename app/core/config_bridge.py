@@ -228,8 +228,8 @@ def bridge_config_to_env():
         # 6. 重新初始化 tradingagents 库的 MongoDB 存储
         # 因为全局 config_manager 实例是在模块导入时创建的，那时环境变量还没有被桥接
         try:
-            from tradingagents.config.config_manager import config_manager
-            from tradingagents.config.mongodb_storage import MongoDBStorage
+            from app.engine.config.config_manager import config_manager
+            from app.engine.config.mongodb_storage import MongoDBStorage
             logger.info("🔄 重新初始化 tradingagents MongoDB 存储...")
 
             # 调试：检查环境变量

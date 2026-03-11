@@ -6,8 +6,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.routers.auth_db import get_current_user
-from tradingagents.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
-from tradingagents.tools.mcp.config_utils import (
+from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
+from app.engine.tools.mcp.config_utils import (
     MCPServerConfig,
     MCPServerType,
     HealthCheckConfig,
@@ -16,7 +16,7 @@ from tradingagents.tools.mcp.config_utils import (
     merge_servers,
     write_mcp_config,
 )
-from tradingagents.tools.mcp.health_monitor import ServerStatus
+from app.engine.tools.mcp.health_monitor import ServerStatus
 
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 CONFIG_FILE = get_config_path()

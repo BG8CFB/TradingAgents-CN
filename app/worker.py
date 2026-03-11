@@ -22,7 +22,7 @@ from app.core.logging_config import setup_logging
 from app.core.database import init_db, close_db, get_redis_client
 from app.core.config import settings
 from app.utils.timezone import format_iso, get_current_date
-from tradingagents.utils.time_utils import now_utc
+from app.utils.time_utils import now_utc
 
 # Redis keys (must match queue_service)
 READY_LIST = "qa:ready"

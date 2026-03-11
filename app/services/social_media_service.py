@@ -10,7 +10,7 @@ from pymongo import ReplaceOne
 from pymongo.errors import BulkWriteError
 
 from app.core.database import get_database
-from tradingagents.utils.time_utils import now_utc
+from app.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
