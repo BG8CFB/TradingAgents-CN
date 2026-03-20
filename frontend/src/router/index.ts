@@ -281,6 +281,15 @@ const routes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'mcp-tools',
+        name: 'MCPToolsManagement',
+        component: () => import('@/views/Settings/MCPToolsManagement.vue'),
+        meta: {
+          title: 'MCP 工具管理',
+          requiresAuth: true
+        }
+      },
+      {
         path: 'agents',
         name: 'AgentManagement',
         component: () => import('@/views/Settings/AgentManagement.vue'),

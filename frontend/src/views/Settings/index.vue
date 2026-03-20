@@ -54,6 +54,10 @@
                 <el-icon><Connection /></el-icon>
                 <span>MCP 管理</span>
               </el-menu-item>
+              <el-menu-item index="mcp-tools">
+                <el-icon><Box /></el-icon>
+                <span>MCP 工具</span>
+              </el-menu-item>
               <el-menu-item index="agents">
                 <el-icon><UserFilled /></el-icon>
                 <span>智能体管理</span>
@@ -331,6 +335,26 @@
           </div>
         </el-card>
 
+        <!-- MCP 工具 -->
+        <el-card v-show="activeTab === 'mcp-tools'" class="settings-content" shadow="never">
+          <template #header>
+            <h3>MCP 工具</h3>
+          </template>
+
+          <div class="config-content">
+            <el-alert
+              title="本地 MCP 工具管理"
+              type="info"
+              description="管理 20 个内置金融数据工具，查看可用性状态并启用/禁用工具"
+              :closable="false"
+              style="margin-bottom: 20px;"
+            />
+            <el-button type="primary" @click="goToMCPToolsManagement">
+              进入 MCP 工具管理
+            </el-button>
+          </div>
+        </el-card>
+
         <!-- 智能体管理 -->
         <el-card v-show="activeTab === 'agents'" class="settings-content" shadow="never">
           <template #header>
@@ -508,7 +532,8 @@ import {
   Document,
   Refresh,
   DataAnalysis,
-  UserFilled
+  UserFilled,
+  Box
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -569,6 +594,9 @@ const updateSectionFromRoute = () => {
   } else if (path === '/settings/mcp') {
     currentSection.value = 'config'
     activeTab.value = 'mcp'
+  } else if (path === '/settings/mcp-tools') {
+    currentSection.value = 'config'
+    activeTab.value = 'mcp-tools'
   } else if (path === '/settings/agents') {
     currentSection.value = 'config'
     activeTab.value = 'agents'
@@ -795,6 +823,10 @@ const goToConfigManagement = () => {
 
 const goToMCPManagement = () => {
   router.push('/settings/mcp')
+}
+
+const goToMCPToolsManagement = () => {
+  router.push('/settings/mcp-tools')
 }
 
 const goToAgentManagement = () => {
