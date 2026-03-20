@@ -155,7 +155,8 @@ import TaskReportDialog from '@/components/Global/TaskReportDialog.vue'
 
 
 marked.setOptions({ breaks: true, gfm: true })
-const renderMarkdown = (s: string) => {
+// @ts-expect-error
+const _renderMarkdown = (s: string) => {
   try { return marked.parse(s||'') as string } catch { return s }
 }
 
@@ -196,7 +197,8 @@ const connectTaskWebSocket = (taskId: string) => {
   }
 
   try {
-    const token = localStorage.getItem('token') || ''
+    // @ts-expect-error
+    const _token = localStorage.getItem('auth-token') || ''
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
     const wsUrl = `${wsProtocol}//${host}/api/ws/task/${taskId}`
@@ -363,13 +365,13 @@ const openResult = async (row:any) => {
   }
 }
 
-const openReport = (row:any) => {
+const openReport = (row:any): void => {
   const id = row?.task_id || row?.analysis_id || row?.id
-  if (!id) return ElMessage.warning('未找到报告ID')
+  if (!id) { ElMessage.warning('未找到报告ID'); return }
   router.push({ name: 'ReportDetail', params: { id } })
 }
 
-const retryTask = (row:any) => { ElMessage.info('重试功能待实现') }
+const retryTask = (_row:any) => { ElMessage.info('重试功能待实现') }
 
 // 显示错误详情
 const showErrorDetail = async (row: any) => {

@@ -1,380 +1,286 @@
+"""
+统一工具注册中心
+
+管理三类工具：内置工具（Builtin）、MCP 工具（外部）、Skill 工具（渐进式披露）。
+提供统一的工具获取、按名称查询、可用性管理接口。
+"""
 import asyncio
-import concurrent.futures
 import logging
-import warnings
-from typing import Callable, Iterable, List, Optional
-
-from langchain_core.tools import StructuredTool
-
-from app.engine.tools.manager import (
-    create_project_news_tools,
-    create_project_market_tools,
-    create_project_fundamentals_tools,
-    create_project_sentiment_tools,
-    create_project_china_market_tools
-)
+import threading
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# MCP 工具加载标志
-_USE_MCP_TOOLS = True  # 默认使用 MCP 工具
+# 全局单例
+_registry = None
+_registry_lock = threading.Lock()
 
 
-def _tool_names(tools: Iterable) -> set:
-    return {
-        getattr(t, "name", None)
-        for t in tools
-        if getattr(t, "name", None)
-    }
-
-
-def _run_coroutine_sync(coro):
+class ToolRegistry:
     """
-    在同步环境中安全运行协程，避免事件循环冲突。
+    统一工具注册中心 — 管理内置工具、MCP 工具、Skill
 
-    根据2024年最佳实践：
-    1. 检测是否已有运行中的事件循环
-    2. 如果没有，直接使用 asyncio.run()
-    3. 如果有，使用独立线程运行协程，避免事件循环冲突
-    
-    🔥 修复 S2: 使用线程锁防止并发竞争
+    使用方式：
+        registry = ToolRegistry.get_instance()
+        tools = registry.get_all_tools()
     """
-    import threading
-    
-    # 线程锁，防止多个协程同时创建新事件循环
-    _coroutine_lock = threading.Lock()
-    
-    try:
-        loop = asyncio.get_running_loop()
-        # 已经有运行中的事件循环，使用线程安全的方式
-        result_container = []
-        exception_container = []
 
-        def run_in_new_loop():
-            with _coroutine_lock:  # 🔥 加锁防止并发创建事件循环
-                try:
-                    # 创建新的事件循环（在新线程中）
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        result = new_loop.run_until_complete(coro)
-                        result_container.append(result)
-                    finally:
-                        new_loop.close()
-                        asyncio.set_event_loop(None)  # 🔥 清理线程本地事件循环
-                except Exception as e:
-                    exception_container.append(e)
+    def __init__(self):
+        # 三类工具缓存
+        self._builtin_tools: List = []
+        self._mcp_tools: List = []
+        self._skill_tools: List = []
 
-        thread = threading.Thread(target=run_in_new_loop, daemon=True)
-        thread.start()
-        thread.join(timeout=120)  # 2分钟超时
+        # 内置工具元数据（从 builtin/loader 获取）
+        self._builtin_metas: Dict[str, Dict] = {}
 
-        if exception_container:
-            raise exception_container[0]
-        if result_container:
-            return result_container[0]
-        raise TimeoutError("Async operation timed out after 120 seconds")
+        # 手动禁用的工具名称集合
+        self._disabled_tools: set = set()
 
-    except RuntimeError:
-        # 没有运行中的事件循环，直接运行
-        return asyncio.run(coro)
+        # 是否已初始化
+        self._initialized = False
 
+    @classmethod
+    def get_instance(cls) -> "ToolRegistry":
+        """获取全局单例"""
+        global _registry
+        if _registry is None:
+            with _registry_lock:
+                if _registry is None:
+                    _registry = cls()
+        return _registry
 
-def _wrap_async_tool(tool):
-    """
-    将仅支持异步调用的 StructuredTool 包装为同步可用的工具，防止
-    LangGraph 同步执行路径触发 NotImplementedError。
-    """
-    try:
-        is_async_tool = bool(getattr(tool, "coroutine", False))
-    except Exception:
-        is_async_tool = False
+    @classmethod
+    def reset_instance(cls):
+        """重置全局单例（测试用）"""
+        global _registry
+        with _registry_lock:
+            _registry = None
 
-    if not is_async_tool:
-        return tool
+    def initialize(self, toolkit_config: Optional[Dict] = None):
+        """
+        加载所有工具源
 
-    name = getattr(tool, "name", None) or getattr(tool, "__name__", "async_tool")
-    description = getattr(tool, "description", "") or getattr(tool, "__doc__", "") or ""
-    args_schema = getattr(tool, "args_schema", None)
-    metadata = getattr(tool, "metadata", None)
-    server_name = getattr(tool, "server_name", None) or getattr(tool, "_server_name", None)
+        Args:
+            toolkit_config: 工具配置字典
+        """
+        if self._initialized:
+            logger.info("[ToolRegistry] 已初始化，跳过重复初始化")
+            return
 
-    def _sync_wrapper(**kwargs):
-        async def _call():
-            if hasattr(tool, "ainvoke"):
-                return await tool.ainvoke(kwargs)
-            if hasattr(tool, "_arun"):
-                return await tool._arun(**kwargs)
-            if hasattr(tool, "arun"):
-                return await tool.arun(**kwargs)
-            raise NotImplementedError("Async tool missing ainvoke/_arun")
+        # 1. 加载内置工具
+        self._load_builtin_tools(toolkit_config)
 
-        return _run_coroutine_sync(_call())
+        # 2. 尝试加载 Skill 的 load_skill Meta-Tool
+        self._load_skill_meta_tool()
 
-    wrapped = StructuredTool.from_function(
-        func=_sync_wrapper,
-        name=name,
-        description=description,
-        args_schema=args_schema,
-    )
+        self._initialized = True
+        total = len(self._builtin_tools) + len(self._mcp_tools) + len(self._skill_tools)
+        logger.info(
+            f"[ToolRegistry] 初始化完成: "
+            f"内置={len(self._builtin_tools)}, "
+            f"MCP={len(self._mcp_tools)}, "
+            f"Skill={len(self._skill_tools)}, "
+            f"总计={total}"
+        )
 
-    # 透传元数据，保持服务器标识等信息
-    if metadata:
+    def _load_builtin_tools(self, toolkit_config: Optional[Dict] = None):
+        """加载内置工具"""
         try:
-            wrapped.metadata = metadata
-        except Exception:
-            pass
-    for attr in ("server_name", "_server_name"):
-        if server_name:
-            try:
-                setattr(wrapped, attr, server_name)
-            except Exception:
-                continue
+            from app.engine.tools.builtin import load_builtin_tools
+            from app.engine.tools.builtin.loader import get_builtin_tool_metas
 
-    return wrapped
+            self._builtin_tools = load_builtin_tools(toolkit_config)
+            self._builtin_metas = get_builtin_tool_metas()
+
+            logger.info(f"[ToolRegistry] 内置工具加载完成: {len(self._builtin_tools)} 个")
+        except Exception as e:
+            logger.error(f"[ToolRegistry] 内置工具加载失败: {e}")
+            self._builtin_tools = []
+            self._builtin_metas = {}
+
+    def _load_skill_meta_tool(self):
+        """加载 Skill 的 load_skill Meta-Tool"""
+        try:
+            from app.engine.tools.skill import SkillRegistry
+
+            # SkillRegistry.__init__ 内已自动调用 discover_skills()，无需重复调用
+            skill_registry = SkillRegistry()
+
+            from app.engine.tools.skill.meta_tool import create_load_skill_tool
+
+            load_skill_tool = create_load_skill_tool(skill_registry)
+            if load_skill_tool:
+                self._skill_tools = [load_skill_tool]
+                logger.info("[ToolRegistry] Skill Meta-Tool 加载完成")
+        except Exception as e:
+            logger.debug(f"[ToolRegistry] Skill Meta-Tool 加载失败（可忽略）: {e}")
+            self._skill_tools = []
+
+    def set_mcp_tools(self, tools: List):
+        """
+        设置 MCP 工具列表（由外部 MCP 连接管理器在连接建立后调用）
+
+        Args:
+            tools: 从外部 MCP 服务器加载的工具列表
+        """
+        self._mcp_tools = tools or []
+        logger.info(f"[ToolRegistry] MCP 工具已更新: {len(self._mcp_tools)} 个")
+
+    def get_all_tools(self) -> List:
+        """
+        获取所有可用工具（内置 + MCP + Skill），过滤已禁用的工具
+
+        Returns:
+            工具列表
+        """
+        all_tools = []
+
+        # 内置工具（过滤禁用和不可用的）
+        for tool in self._builtin_tools:
+            name = getattr(tool, "name", None)
+            if name and name not in self._disabled_tools:
+                all_tools.append(tool)
+
+        # MCP 工具
+        for tool in self._mcp_tools:
+            name = getattr(tool, "name", None)
+            if name and name not in self._disabled_tools:
+                all_tools.append(tool)
+
+        # Skill 工具
+        for tool in self._skill_tools:
+            name = getattr(tool, "name", None)
+            if name and name not in self._disabled_tools:
+                all_tools.append(tool)
+
+        return all_tools
+
+    def get_tools_by_names(self, names: List[str]) -> List:
+        """
+        按名称获取工具，自动过滤禁用的
+
+        Args:
+            names: 工具名称列表
+
+        Returns:
+            匹配的工具列表
+        """
+        if not names:
+            return self.get_all_tools()
+
+        name_set = set(names)
+        filtered = [
+            tool for tool in self.get_all_tools()
+            if getattr(tool, "name", None) in name_set
+        ]
+
+        return filtered if filtered else self.get_all_tools()
+
+    def get_builtin_tools(self) -> List:
+        """获取所有内置工具（不过滤）"""
+        return list(self._builtin_tools)
+
+    def get_builtin_tool_metas(self) -> Dict[str, Dict]:
+        """获取所有内置工具的元数据"""
+        return dict(self._builtin_metas)
+
+    def toggle_tool(self, name: str, enabled: bool):
+        """
+        手动启用/禁用工具
+
+        Args:
+            name: 工具名称
+            enabled: 是否启用
+        """
+        if enabled:
+            self._disabled_tools.discard(name)
+            logger.info(f"[ToolRegistry] 启用工具: {name}")
+        else:
+            self._disabled_tools.add(name)
+            logger.info(f"[ToolRegistry] 禁用工具: {name}")
+
+    def get_availability_summary(self) -> dict:
+        """
+        获取工具可用性摘要
+
+        Returns:
+            {
+                "builtin": {"total": N, "available": N, "unavailable": N},
+                "mcp": {"total": N},
+                "skill": {"total": N},
+                "disabled": ["tool_name", ...]
+            }
+        """
+        try:
+            from app.engine.tools.builtin.availability import get_availability_summary
+
+            combined_dsm = {}
+            for tool_name, meta in self._builtin_metas.items():
+                if meta.get("data_source_map"):
+                    combined_dsm[tool_name] = meta["data_source_map"]
+
+            builtin_summary = get_availability_summary(combined_dsm) if combined_dsm else {}
+        except Exception as e:
+            logger.warning(f"[ToolRegistry] 获取可用性摘要失败: {e}")
+            builtin_summary = {}
+
+        return {
+            "builtin": builtin_summary,
+            "mcp": {"total": len(self._mcp_tools)},
+            "skill": {"total": len(self._skill_tools)},
+            "disabled": sorted(self._disabled_tools),
+        }
 
 
-def _load_mcp_tools(loader: Callable[[], Iterable] | None, existing_names: set | None = None) -> List:
-    """
-    预留的 MCP 工具加载入口；目前返回空列表或 loader 结果。
-    """
-    if not loader:
-        return []
-    try:
-        tools = list(loader())
-        if existing_names:
-            filtered = []
-            for t in tools:
-                t_name = getattr(t, "name", None)
-                if t_name and t_name in existing_names:
-                    logger.warning(f"[工具注册] MCP 工具名称冲突，已跳过: {t_name}")
-                    continue
-                filtered.append(t)
-            tools = filtered
-
-        logger.info(f"[工具注册] MCP 工具加载成功: {len(tools)} 个")
-        return tools
-    except Exception as exc:
-        logger.warning(f"[工具注册] MCP 工具加载失败: {exc}")
-        return []
-
-
-def get_news_toolset(
-    toolkit,
-    enable_mcp: bool = False,
-    mcp_tool_loader: Callable[[], Iterable] | None = None,
-) -> List:
-    """统一新闻分析工具集装配。"""
-    tools: List = []
-
-    project_tools = create_project_news_tools(toolkit)
-    logger.info(f"[工具注册] 项目新闻工具: {len(project_tools)} 个")
-    tools.extend(project_tools)
-
-    if enable_mcp:
-        mcp_tools = _load_mcp_tools(mcp_tool_loader, existing_names=_tool_names(project_tools))
-        logger.info(f"[工具注册] MCP 工具: {len(mcp_tools)} 个")
-        tools.extend(mcp_tools)
-
-    return tools
-
-def get_market_toolset(
-    toolkit,
-    enable_mcp: bool = False,
-    mcp_tool_loader: Callable[[], Iterable] | None = None,
-) -> List:
-    """统一市场数据工具集装配。"""
-    tools: List = []
-
-    project_tools = create_project_market_tools(toolkit)
-    logger.info(f"[工具注册] 项目市场数据工具: {len(project_tools)} 个")
-    tools.extend(project_tools)
-
-    if enable_mcp:
-        mcp_tools = _load_mcp_tools(mcp_tool_loader, existing_names=_tool_names(project_tools))
-        tools.extend(mcp_tools)
-
-    return tools
-
-def get_fundamentals_toolset(
-    toolkit,
-    enable_mcp: bool = False,
-    mcp_tool_loader: Callable[[], Iterable] | None = None,
-) -> List:
-    """统一基本面分析工具集装配。"""
-    tools: List = []
-
-    project_tools = create_project_fundamentals_tools(toolkit)
-    logger.info(f"[工具注册] 项目基本面工具: {len(project_tools)} 个")
-    tools.extend(project_tools)
-
-    if enable_mcp:
-        mcp_tools = _load_mcp_tools(mcp_tool_loader, existing_names=_tool_names(project_tools))
-        tools.extend(mcp_tools)
-
-    return tools
-
-def get_sentiment_toolset(
-    toolkit,
-    enable_mcp: bool = False,
-    mcp_tool_loader: Callable[[], Iterable] | None = None,
-) -> List:
-    """统一情绪分析工具集装配。"""
-    tools: List = []
-
-    project_tools = create_project_sentiment_tools(toolkit)
-    logger.info(f"[工具注册] 项目情绪分析工具: {len(project_tools)} 个")
-    tools.extend(project_tools)
-
-    if enable_mcp:
-        mcp_tools = _load_mcp_tools(mcp_tool_loader, existing_names=_tool_names(project_tools))
-        tools.extend(mcp_tools)
-
-    return tools
-
-def get_china_market_toolset(
-    toolkit,
-    enable_mcp: bool = False,
-    mcp_tool_loader: Callable[[], Iterable] | None = None,
-) -> List:
-    """中国市场特定工具集装配。"""
-    tools: List = []
-
-    project_tools = list(create_project_china_market_tools(toolkit))
-    market_tools = list(create_project_market_tools(toolkit))
-
-    # 基于 name 去重，避免重复注册同名工具
-    existing_names = _tool_names(project_tools)
-    for tool in market_tools:
-        t_name = getattr(tool, "name", None)
-        if t_name and t_name in existing_names:
-            logger.info(f"[工具注册] 跳过重复的市场工具: {t_name}")
-            continue
-        project_tools.append(tool)
-        if t_name:
-            existing_names.add(t_name)
-
-    logger.info(f"[工具注册] 项目中国市场工具: {len(project_tools)} 个 (已去重)")
-    tools.extend(project_tools)
-
-    if enable_mcp:
-        mcp_tools = _load_mcp_tools(mcp_tool_loader, existing_names=_tool_names(project_tools))
-        tools.extend(mcp_tools)
-
-    return tools
+# ========================================================================
+# 向后兼容的入口函数（供 simple_agent_factory, tools.py 等调用）
+# ========================================================================
 
 def get_all_tools(
-    toolkit,
+    toolkit=None,
     enable_mcp: bool = False,
-    mcp_tool_loader: Callable[[], Iterable] | None = None,
-    use_mcp_format: bool = True,
+    mcp_tool_loader: Optional[Callable] = None,
+    **kwargs,
 ) -> List:
     """
-    统一获取全量工具集，供所有分析师使用。
-    
+    获取所有工具（向后兼容接口）
+
+    此函数保留旧签名，内部委托给 ToolRegistry。
+
     Args:
-        toolkit: 工具配置
-        enable_mcp: 是否启用外部 MCP 工具
-        mcp_tool_loader: 外部 MCP 工具加载器
-        use_mcp_format: 是否使用 MCP 格式的本地工具（推荐）
-    
+        toolkit: 工具配置（传递给内置工具加载器）
+        enable_mcp: 是否包含 MCP 工具
+        mcp_tool_loader: MCP 工具加载器（Callable）
+        **kwargs: 忽略的其他参数（向后兼容）
+
     Returns:
         工具列表
     """
-    all_tools: List = []
-    tool_map = {}
-    
-    def _merge_tools(tools: List, source: str = "unknown"):
-        """
-        合并工具到 tool_map，处理重复工具
-        
-        🔥 修复 S6: 记录工具覆盖行为，而不是静默覆盖
-        """
-        for t in tools:
-            t_name = getattr(t, "name", None)
-            if t_name:
-                if t_name in tool_map:
-                    # 🔥 记录覆盖行为
-                    old_source = getattr(tool_map[t_name], "_source", "unknown")
-                    logger.warning(
-                        f"[工具注册] 工具名称冲突: '{t_name}' "
-                        f"(来源: {source}) 覆盖了 (来源: {old_source})"
-                    )
-                # 标记工具来源
-                try:
-                    t._source = source
-                except AttributeError:
-                    pass  # 某些工具对象不允许设置属性
-                tool_map[t_name] = t
-            else:
-                all_tools.append(t)
+    registry = ToolRegistry.get_instance()
 
-    # 优先使用 MCP 格式的本地工具
-    if use_mcp_format and _USE_MCP_TOOLS:
-        try:
-            from app.engine.tools.mcp import load_local_mcp_tools
-            
-            # 转换 toolkit 为字典格式
+    # 首次调用时自动初始化
+    if not registry._initialized:
+        # 将 toolkit 转为字典格式
+        toolkit_config = {}
+        if toolkit:
             if isinstance(toolkit, dict):
                 toolkit_config = toolkit
             elif hasattr(toolkit, 'config'):
                 toolkit_config = toolkit.config
-            else:
-                toolkit_config = {}
-            
-            mcp_local_tools = load_local_mcp_tools(toolkit_config)
-            _merge_tools(mcp_local_tools, source="mcp_local")
-            logger.info(f"[工具注册] MCP 格式本地工具加载完成: {len(mcp_local_tools)} 个")
+        registry.initialize(toolkit_config)
+
+    # 如果需要 MCP 工具
+    if enable_mcp and mcp_tool_loader:
+        try:
+            mcp_tools = list(mcp_tool_loader())
+            # 过滤已禁用的
+            mcp_tools = [
+                t for t in mcp_tools
+                if getattr(t, "name", None) not in registry._disabled_tools
+            ]
+            registry.set_mcp_tools(mcp_tools)
         except Exception as e:
-            logger.warning(f"[工具注册] MCP 格式工具加载失败，回退到旧格式: {e}")
-            use_mcp_format = False
-    
-    # 如果 MCP 格式不可用，使用旧格式
-    if not use_mcp_format or not tool_map:
-        warnings.warn(
-            "使用旧格式工具，建议迁移到 MCP 格式。"
-            "参考: tradingagents/tools/mcp/",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        
-        _merge_tools(create_project_news_tools(toolkit), source="news")
-        _merge_tools(create_project_market_tools(toolkit), source="market")
-        _merge_tools(create_project_fundamentals_tools(toolkit), source="fundamentals")
-        _merge_tools(create_project_sentiment_tools(toolkit), source="sentiment")
-        _merge_tools(create_project_china_market_tools(toolkit), source="china_market")
-        
-        logger.info(f"[工具注册] 旧格式项目工具加载完成: {len(tool_map)} 个 (已去重)")
+            logger.warning(f"[ToolRegistry] MCP 工具加载失败: {e}")
 
-    # 将 map 转回 list
-    unique_project_tools = list(tool_map.values())
-    all_tools.extend(unique_project_tools)
-    
-    # 加载外部 MCP 工具 (如果启用)
-    if enable_mcp:
-        mcp_tools = _load_mcp_tools(mcp_tool_loader, existing_names=set(tool_map.keys()))
-        all_tools.extend(mcp_tools)
-        logger.info(f"[工具注册] 外部 MCP 工具追加完成: {len(mcp_tools)} 个")
-
-    # 确保所有工具在同步执行路径下可用，避免 async StructuredTool 抛出错误
-    return [_wrap_async_tool(t) for t in all_tools]
-
-
-def get_all_tools_mcp(toolkit_config: Optional[dict] = None) -> List:
-    """
-    获取所有 MCP 格式的工具（新接口）。
-    
-    这是推荐的工具获取方式，返回标准 MCP 格式的工具。
-    
-    Args:
-        toolkit_config: 工具配置字典
-    
-    Returns:
-        MCP 格式的工具列表
-    """
-    try:
-        from app.engine.tools.mcp import load_local_mcp_tools
-        return load_local_mcp_tools(toolkit_config)
-    except Exception as e:
-        logger.error(f"[工具注册] MCP 工具加载失败: {e}")
-        return []
+    return registry.get_all_tools()

@@ -2,6 +2,7 @@
 import os
 import yaml
 import logging
+import threading
 from typing import List, Dict, Any, Optional
 
 from app.engine.tools.registry import get_all_tools
@@ -20,23 +21,28 @@ class ProgressManager:
     用于在节点函数和父图之间传递进度信息。
     由于 progress_callback 无法序列化，不能通过状态传递，
     所以使用全局变量来实现进度追踪。
+
+    注意：使用线程锁保护并发访问，避免并发分析任务时状态互相覆盖。
     """
 
     _callback = None
     _current_node = None
     _node_start_time = None
+    _lock = threading.Lock()
 
     @classmethod
     def set_callback(cls, callback):
         """设置进度回调函数"""
-        cls._callback = callback
+        with cls._lock:
+            cls._callback = callback
 
     @classmethod
     def clear_callback(cls):
         """清除进度回调函数"""
-        cls._callback = None
-        cls._current_node = None
-        cls._node_start_time = None
+        with cls._lock:
+            cls._callback = None
+            cls._current_node = None
+            cls._node_start_time = None
 
     @classmethod
     def node_start(cls, display_name):
@@ -45,15 +51,18 @@ class ProgressManager:
         Args:
             display_name: 中文显示名称（如 "📊 基本面分析师"）
         """
-        cls._current_node = display_name
         import time
-        cls._node_start_time = time.time()
+        with cls._lock:
+            cls._current_node = display_name
+            cls._node_start_time = time.time()
+            callback = cls._callback
+
         logger.info(f"🚀 [节点] {display_name} 开始执行")
 
-        # 立即发送进度更新
-        if cls._callback:
+        # 立即发送进度更新（在锁外执行，避免回调耗时阻塞其他线程）
+        if callback:
             try:
-                cls._callback(display_name)
+                callback(display_name)
             except Exception as e:
                 logger.warning(f"⚠️ 进度回调失败: {e}")
 
@@ -61,15 +70,18 @@ class ProgressManager:
     def node_end(cls, name):
         """节点执行完成时调用"""
         import time
-        elapsed = time.time() - cls._node_start_time if cls._node_start_time else 0
+        with cls._lock:
+            elapsed = time.time() - cls._node_start_time if cls._node_start_time else 0
+            cls._current_node = None
+            cls._node_start_time = None
+
         logger.info(f"✅ [节点] {name} 执行完成，耗时: {elapsed:.2f}秒")
-        cls._current_node = None
-        cls._node_start_time = None
 
     @classmethod
     def get_current_node(cls):
         """获取当前正在执行的节点名称"""
-        return cls._current_node
+        with cls._lock:
+            return cls._current_node
 
 
 # 保留旧名称作为别名，向后兼容
@@ -85,6 +97,7 @@ class DynamicAnalystFactory:
 
     _config_cache = {}
     _config_mtime = {}
+    _config_lock = threading.Lock()
 
     @classmethod
     def load_config(cls, config_path: str = None) -> Dict[str, Any]:
@@ -115,24 +128,25 @@ class DynamicAnalystFactory:
             mtime = None
 
         # 命中缓存且文件未变化则复用
-        if (
-            config_path in cls._config_cache
-            and config_path in cls._config_mtime
-            and mtime is not None
-            and cls._config_mtime.get(config_path) == mtime
-        ):
-            return cls._config_cache[config_path]
-
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-                cls._config_cache[config_path] = config or {}
-                if mtime is not None:
-                    cls._config_mtime[config_path] = mtime
+        with cls._config_lock:
+            if (
+                config_path in cls._config_cache
+                and config_path in cls._config_mtime
+                and mtime is not None
+                and cls._config_mtime.get(config_path) == mtime
+            ):
                 return cls._config_cache[config_path]
-        except Exception as e:
-            logger.error(f"❌ 加载配置文件失败: {config_path}, 错误: {e}")
-            return {}
+
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f)
+                    cls._config_cache[config_path] = config or {}
+                    if mtime is not None:
+                        cls._config_mtime[config_path] = mtime
+                    return cls._config_cache[config_path]
+            except Exception as e:
+                logger.error(f"❌ 加载配置文件失败: {config_path}, 错误: {e}")
+                return {}
 
     @classmethod
     def get_agent_config(cls, slug_or_name: str, config_path: str = None) -> Optional[Dict[str, Any]]:

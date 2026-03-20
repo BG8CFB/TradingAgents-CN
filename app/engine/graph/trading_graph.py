@@ -152,12 +152,18 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
         )
 
     elif provider.lower() == "anthropic":
+        # 读取 Anthropic API Key（优先环境变量）
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+        anthropic_kwargs = {}
+        if anthropic_key:
+            anthropic_kwargs["api_key"] = anthropic_key
         return ChatAnthropic(
             model=model,
             base_url=backend_url,
             temperature=temperature,
             max_tokens=max_tokens,
-            timeout=timeout
+            timeout=timeout,
+            **anthropic_kwargs
         )
 
     elif provider.lower() in ["qianfan", "custom_openai"]:
@@ -378,19 +384,27 @@ class TradingAgentsGraph:
             logger.info(f"🔧 [Anthropic-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [Anthropic-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
 
+            # Anthropic: 读取 API Key（优先配置中的 api_key，其次环境变量）
+            anthropic_key = self.config.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
+            anthropic_kwargs = {}
+            if anthropic_key:
+                anthropic_kwargs["api_key"] = anthropic_key
+
             self.deep_thinking_llm = ChatAnthropic(
                 model=self.config["deep_think_llm"],
                 base_url=self.config["backend_url"],
                 temperature=deep_temperature,
                 max_tokens=deep_max_tokens,
-                timeout=deep_timeout
+                timeout=deep_timeout,
+                **anthropic_kwargs
             )
             self.quick_thinking_llm = ChatAnthropic(
                 model=self.config["quick_think_llm"],
                 base_url=self.config["backend_url"],
                 temperature=quick_temperature,
                 max_tokens=quick_max_tokens,
-                timeout=quick_timeout
+                timeout=quick_timeout,
+                **anthropic_kwargs
             )
         elif self.config["llm_provider"].lower() == "google":
             # 使用 Google OpenAI 兼容适配器，解决工具调用格式不匹配问题
@@ -791,9 +805,6 @@ class TradingAgentsGraph:
 
         # Create tool nodes
         # 🔥 子图模式：每个分析师子图内部处理工具调用，不再需要外部 ToolNode
-        # 以下代码已废弃，保留用于历史参考
-        # self.tool_nodes = self._create_tool_nodes()
-        self.tool_nodes = {}  # 兼容 GraphSetup 接口
 
         # Initialize components
         # 🔥 [修复] 从配置中读取辩论轮次参数 (优先使用阶段配置)
@@ -828,7 +839,6 @@ class TradingAgentsGraph:
             self.quick_thinking_llm,
             self.deep_thinking_llm,
             self.toolkit,
-            self.tool_nodes,
             self.bull_memory,
             self.bear_memory,
             self.trader_memory,
@@ -1124,7 +1134,7 @@ class TradingAgentsGraph:
                         final_state = init_agent_state.copy()
                     for node_name, node_update in chunk.items():
                         if not node_name.startswith('__'):
-                            final_state.update(node_update)
+                            _merge_state_update(final_state, node_update)
 
         # 记录最后一个节点的时间
         if current_node_name and current_node_start:

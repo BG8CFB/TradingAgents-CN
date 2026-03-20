@@ -26,8 +26,6 @@ from .providers.us import get_data_in_range
 from app.utils.logging_init import setup_dataflow_logging
 
 # 导入日志模块
-from app.utils.logging_manager import get_logger
-logger = get_logger('agents')
 logger = setup_dataflow_logging()
 
 # 导入港股工具

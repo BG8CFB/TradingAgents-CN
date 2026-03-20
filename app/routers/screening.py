@@ -230,17 +230,6 @@ async def enhanced_screening(req: NewScreeningRequest, user: dict = Depends(get_
         raise HTTPException(status_code=500, detail=f"增强筛选失败: {str(e)}")
 
 
-# 获取支持的字段信息
-@router.get("/fields", response_model=List[Dict[str, Any]])
-async def get_supported_fields(user: dict = Depends(get_current_user)):
-    """获取所有支持的筛选字段信息"""
-    try:
-        fields = await enhanced_svc.get_all_supported_fields()
-        return fields
-    except Exception as e:
-        logger.error(f"[screening] 获取字段信息失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取字段信息失败: {str(e)}")
-
 
 # 获取单个字段的详细信息
 @router.get("/fields/{field_name}", response_model=Dict[str, Any])
@@ -310,7 +299,7 @@ async def get_industries(user: dict = Depends(get_current_user)):
             {
                 "$match": {
                     "source": preferred_source,  # 🔥 只查询优先级最高的数据源
-                    "industry": {"$ne": None, "$ne": ""}  # 过滤空行业
+                    "industry": {"$ne": None}  # 过滤空行业
                 }
             },
             {

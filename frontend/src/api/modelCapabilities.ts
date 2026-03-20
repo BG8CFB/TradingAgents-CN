@@ -1,8 +1,7 @@
 /**
  * 模型能力管理 API
  */
-
-import { request } from './request'
+import { ApiClient } from './request'
 
 /**
  * 模型能力信息
@@ -74,40 +73,28 @@ export interface DepthRequirement {
  * 获取所有默认模型能力配置
  */
 export function getDefaultModelConfigs() {
-  return request({
-    url: '/api/model-capabilities/default-configs',
-    method: 'get'
-  })
+  return ApiClient.get('/api/model-capabilities/default-configs')
 }
 
 /**
  * 获取分析深度要求
  */
 export function getDepthRequirements() {
-  return request({
-    url: '/api/model-capabilities/depth-requirements',
-    method: 'get'
-  })
+  return ApiClient.get('/api/model-capabilities/depth-requirements')
 }
 
 /**
  * 获取能力等级描述
  */
 export function getCapabilityDescriptions() {
-  return request({
-    url: '/api/model-capabilities/capability-descriptions',
-    method: 'get'
-  })
+  return ApiClient.get('/api/model-capabilities/capability-descriptions')
 }
 
 /**
  * 获取所有徽章样式
  */
 export function getAllBadges() {
-  return request({
-    url: '/api/model-capabilities/badges',
-    method: 'get'
-  })
+  return ApiClient.get('/api/model-capabilities/badges')
 }
 
 /**
@@ -115,12 +102,8 @@ export function getAllBadges() {
  * @param researchDepth 研究深度：快速/基础/标准/深度/全面
  */
 export function recommendModels(researchDepth: string) {
-  return request({
-    url: '/api/model-capabilities/recommend',
-    method: 'post',
-    data: {
-      research_depth: researchDepth
-    }
+  return ApiClient.post('/api/model-capabilities/recommend', {
+    research_depth: researchDepth
   })
 }
 
@@ -131,14 +114,10 @@ export function recommendModels(researchDepth: string) {
  * @param researchDepth 研究深度
  */
 export function validateModels(quickModel: string, deepModel: string, researchDepth: string) {
-  return request({
-    url: '/api/model-capabilities/validate',
-    method: 'post',
-    data: {
-      quick_model: quickModel,
-      deep_model: deepModel,
-      research_depth: researchDepth
-    }
+  return ApiClient.post('/api/model-capabilities/validate', {
+    quick_model: quickModel,
+    deep_model: deepModel,
+    research_depth: researchDepth
   })
 }
 
@@ -147,12 +126,8 @@ export function validateModels(quickModel: string, deepModel: string, researchDe
  * @param overwrite 是否覆盖已有配置
  */
 export function batchInitCapabilities(overwrite: boolean = false) {
-  return request({
-    url: '/api/model-capabilities/batch-init',
-    method: 'post',
-    data: {
-      overwrite
-    }
+  return ApiClient.post('/api/model-capabilities/batch-init', {
+    overwrite
   })
 }
 
@@ -161,9 +136,5 @@ export function batchInitCapabilities(overwrite: boolean = false) {
  * @param modelName 模型名称
  */
 export function getModelCapability(modelName: string) {
-  return request({
-    url: `/api/model-capabilities/model/${modelName}`,
-    method: 'get'
-  })
+  return ApiClient.get(`/api/model-capabilities/model/${modelName}`)
 }
-

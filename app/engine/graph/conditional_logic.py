@@ -26,7 +26,8 @@ class ConditionalLogic:
         """Determine if debate should continue."""
         current_count = state["investment_debate_state"]["count"]
         max_count = 2 * (self.max_debate_rounds + 1)
-        latest_speaker = state["investment_debate_state"]["current_response"]
+        # 优先使用 latest_speaker 结构化字段，回退到 current_response 内容匹配
+        latest_speaker = state["investment_debate_state"].get("latest_speaker", "")
 
         # 🔍 详细日志
         logger.info(f"🔍 [投资辩论控制] 当前发言次数: {current_count}, 最大次数: {max_count} (配置轮次: {self.max_debate_rounds})")
@@ -36,21 +37,14 @@ class ConditionalLogic:
             logger.info(f"✅ [投资辩论控制] 达到最大次数，结束辩论 -> Research Manager")
             return "Research Manager"
 
-        # 兼容英文 "Bull" 和中文 "【多头"
-        is_bull = latest_speaker.startswith("Bull") or "【多头" in latest_speaker
-
-        # 兼容英文 "Bear" 和中文 "【空头" (防御性编程：显式检查)
-        is_bear = latest_speaker.startswith("Bear") or "【空头" in latest_speaker
-
-        if is_bull:
+        # 使用结构化 latest_speaker 字段路由
+        if "Bull" in latest_speaker or "多头" in latest_speaker:
             next_speaker = "Bear Researcher"
-        elif is_bear:
+        elif "Bear" in latest_speaker or "空头" in latest_speaker:
             next_speaker = "Bull Researcher"
         else:
-            # 默认回落逻辑：如果无法识别，交替进行
-            # 假设如果上一轮不是 Bull，那下一轮就该 Bull 了（或者反之，取决于设计）
-            # 这里保持原有的 else 逻辑作为兜底
-            next_speaker = "Bull Researcher"
+            # 兜底：如果无法识别，根据 count 奇偶交替
+            next_speaker = "Bull Researcher" if current_count % 2 == 0 else "Bear Researcher"
             logger.warning(f"⚠️ [投资辩论控制] 无法识别发言者身份: {latest_speaker[:20]}...，默认跳转 -> {next_speaker}")
 
         logger.info(f"🔄 [投资辩论控制] 继续辩论 -> {next_speaker}")

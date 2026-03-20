@@ -2,6 +2,7 @@
  * 多数据源同步相关API
  */
 import { ApiClient } from './request'
+import type { ApiResponse } from './request'
 
 // 数据源状态接口
 export interface DataSourceStatus {
@@ -32,13 +33,6 @@ export interface SyncStatus {
 export interface SyncRequest {
   force?: boolean
   preferred_sources?: string[]
-}
-
-// API响应格式
-export interface ApiResponse<T = any> {
-  success: boolean
-  message: string
-  data: T
 }
 
 // 基础测试结果接口

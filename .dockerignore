@@ -82,12 +82,10 @@ frontend/coverage/
 *.sublime-workspace
 
 # 日志文件
-logs/
 *.log
 log/
 
 # 数据文件
-data/
 *.db
 *.sqlite
 *.sqlite3
@@ -113,11 +111,7 @@ coverage/
 !docs/paper/**
 
 # Docker相关
-Dockerfile.legacy
-docker-compose.yml
-docker-compose.split.yml
 docker-compose.*.yml
-!docker-compose.v1.0.0.yml
 
 # 脚本（保留Python脚本，排除Shell脚本）
 # scripts/ - 注释掉，因为需要Python初始化脚本

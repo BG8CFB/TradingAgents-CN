@@ -1,9 +1,4 @@
 {
-  "enabledPlugins": {
-    "glm-plan-usage@zai-coding-plugins": true,
-    "glm-plan-bug@zai-coding-plugins": true
-  },
-  "alwaysThinkingEnabled": true,
   "permissions": {
     "allow": [
       "Bash",
@@ -96,9 +91,20 @@
       "Bash(pip:*)",
       "Bash(node:*)",
       "Bash(docker:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "mcp__web-search-prime__web_search_prime",
+      "mcp__web-reader__webReader",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__fill"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enabledPlugins": {
+    "glm-plan-usage@zai-coding-plugins": true,
+    "glm-plan-bug@zai-coding-plugins": true
+  },
+  "alwaysThinkingEnabled": true
 }

@@ -295,9 +295,9 @@ const overview = reactive({
   avgCostChange: 0
 })
 
-const records = ref([])
-const filteredRecords = ref([])
-const modelRanking = ref([])
+const records = ref<any[]>([])
+const filteredRecords = ref<any[]>([])
+const modelRanking = ref<any[]>([])
 
 // 方法
 const formatNumber = (num: number): string => {
@@ -326,7 +326,7 @@ const formatDateTime = (timestamp: string): string => {
 }
 
 const getProviderName = (provider: string): string => {
-  const names = {
+  const names: Record<string, string> = {
     'dashscope': '阿里百炼',
     'openai': 'OpenAI',
     'google': 'Google',
@@ -447,7 +447,7 @@ const exportData = () => {
   ElMessage.info('导出功能开发中...')
 }
 
-const viewDetails = (row: any) => {
+const viewDetails = (_row: any) => {
   ElMessage.info('详情功能开发中...')
 }
 

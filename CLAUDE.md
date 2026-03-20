@@ -49,7 +49,7 @@ npm run lint         # ESLint
 
 ```bash
 # Full stack with Docker Compose (includes MongoDB, Redis, Nginx)
-docker-compose -f docker-compose.build.yml up -d
+docker compose -f docker-compose.build.yml up -d
 
 # Access: http://localhost:3000 (Nginx proxy)
 # API: http://localhost:8000/api

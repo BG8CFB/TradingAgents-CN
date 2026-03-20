@@ -488,16 +488,22 @@ def _get_log_directory() -> str:
         except Exception as e:
             logger.warning(f"⚠️ [_get_log_directory] 从settings读取日志目录失败: {e}", exc_info=True)
 
-        # Docker环境默认使用 /app/logs
+        # 默认使用 runtime/logs
+        from app.utils.runtime_paths import get_logs_dir
+        default_log_dir = str(get_logs_dir())
         if is_docker:
-            logger.info("✅ [_get_log_directory] Docker环境，使用默认日志目录: /app/logs")
-            return "/app/logs"
+            logger.info(f"✅ [_get_log_directory] Docker环境，使用默认日志目录: /app/runtime/logs")
+            return "/app/runtime/logs"
 
-        # 非Docker环境默认使用 ./logs
-        logger.info("✅ [_get_log_directory] 使用默认日志目录: ./logs")
-        return "./logs"
+        # 非Docker环境默认使用 runtime/logs
+        logger.info(f"✅ [_get_log_directory] 使用默认日志目录: {default_log_dir}")
+        return default_log_dir
 
     except Exception as e:
-        logger.error(f"❌ [_get_log_directory] 获取日志目录失败: {e}，使用默认值 ./logs", exc_info=True)
-        return "./logs"
+        logger.error(f"❌ [_get_log_directory] 获取日志目录失败: {e}", exc_info=True)
+        try:
+            from app.utils.runtime_paths import get_logs_dir
+            return str(get_logs_dir())
+        except Exception:
+            return "./runtime/logs"
 

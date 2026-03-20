@@ -7,7 +7,7 @@
 import os
 import yaml
 from typing import Dict, Any, List, Callable, Optional
-from app.engine.tools.registry import get_all_tools
+from app.engine.tools.registry import get_all_tools, ToolRegistry
 from app.utils.logging_init import get_logger
 
 logger = get_logger("simple_agent_factory")
@@ -196,13 +196,33 @@ class SimpleAgentFactory:
             
             # === 使用简单模板创建智能体 ===
             from app.engine.agents.analysts.simple_agent_template import create_simple_agent
+
+            # 收集内置工具用于自动数据注入
+            inject_tools_list = []
+            if allowed_tool_names:
+                registry = ToolRegistry.get_instance()
+                if not registry._initialized:
+                    registry.initialize()
+                allowed_set = {str(name).strip() for name in allowed_tool_names if str(name).strip()}
+                for bt in registry.get_builtin_tools():
+                    bt_name = getattr(bt, "name", None)
+                    if bt_name in allowed_set:
+                        inject_tools_list.append(bt)
+                if inject_tools_list:
+                    logger.info(f"💉 [工厂] {name}: 准备注入 {len(inject_tools_list)} 个内置工具数据")
+
+            # 构建 inject_context（ticker 和 trade_date 将在运行时从 state 中获取）
+            # 这里传入 None，实际值由 simple_agent_node 内部从 state 动态获取
+            inject_context = None  # 运行时由 node 函数内部从 state 获取
+
             node_function = create_simple_agent(
                 name=name,
                 slug=slug,
                 llm=llm,
                 tools=tools,
                 system_prompt=system_prompt,
-                max_tool_calls=max_tool_calls  # 🔥 固定为20
+                max_tool_calls=max_tool_calls,  # 🔥 固定为20
+                inject_tools=inject_tools_list if inject_tools_list else None,
             )
             
             # 保存节点函数

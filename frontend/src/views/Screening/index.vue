@@ -361,9 +361,9 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Collection, TrendCharts, Download, Star, Setting, Connection, Warning } from '@element-plus/icons-vue'
+import { Search, Refresh, TrendCharts, Download, Star, Connection, Warning } from '@element-plus/icons-vue'
 import type { StockInfo } from '@/types/analysis'
-import { screeningApi, type FieldConfigResponse, type FieldInfo } from '@/api/screening'
+import { screeningApi, type FieldConfigResponse } from '@/api/screening'
 import { favoritesApi } from '@/api/favorites'
 import { getCurrentDataSource } from '@/api/sync'
 import { normalizeMarketForAnalysis, exchangeCodeToMarket, getMarketByStockCode } from '@/utils/market'
@@ -485,7 +485,7 @@ const performScreening = async () => {
 
     // 明确指定：不加任何技术指标相关条件
 
-    const payload = {
+    const payload: import('@/api/screening').ScreeningRunReq = {
       market: 'CN',
       date: undefined,
       adj: 'qfq',
@@ -551,7 +551,8 @@ const performScreening = async () => {
   }
 }
 
-const generateMockResults = (): StockInfo[] => {
+// @ts-expect-error
+const _generateMockResults = (): StockInfo[] => {
   const mockStocks = [
     { code: '000001', name: '平安银行', industry: '银行', close: 12.50, pct_chg: 2.1, total_mv: 2400, pe: 5.2, pb: 0.8 },
     { code: '000002', name: '万科A', industry: '房地产', close: 18.30, pct_chg: -1.5, total_mv: 2100, pe: 8.5, pb: 1.2 },
@@ -561,7 +562,7 @@ const generateMockResults = (): StockInfo[] => {
   return mockStocks.map(stock => ({
     ...stock,
     market: filters.market
-  }))
+  })) as StockInfo[]
 }
 
 const resetFilters = () => {
@@ -640,7 +641,7 @@ const isFavorited = (code: string) => favoriteSet.value.has(code)
 
 const toggleFavorite = async (stock: StockInfo) => {
   try {
-    const code = stock.code
+    const code = stock.code || stock.symbol
     if (favoriteSet.value.has(code)) {
       // 取消自选
       const res = await favoritesApi.remove(code)

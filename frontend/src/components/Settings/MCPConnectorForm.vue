@@ -122,9 +122,9 @@ watch(
   (val) => {
     if (val) {
       form.name = val.name
-      form.endpoint = val.endpoint
-      form.description = val.description || ''
-      form.insecure = !!val.insecure
+      form.endpoint = val.config?.url || ''
+      form.description = val.config?.description || ''
+      form.insecure = false
       form.api_key = ''
       form.enabled = val.enabled
     } else {

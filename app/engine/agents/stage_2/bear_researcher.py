@@ -248,6 +248,7 @@ def create_bear_researcher(llm, memory):
             "bull_history": investment_debate_state.get("bull_history", ""),
             "current_response": argument,
             "count": investment_debate_state.get("count", 0) + 1,
+            "latest_speaker": "Bear Researcher",
             # 新字段更新
             "rounds": rounds,
             "bull_report_content": investment_debate_state.get("bull_report_content", ""), # 保持不变

@@ -847,7 +847,7 @@ const loadHistory = async () => {
 
     // 直接使用执行记录，不需要转换格式
     const executions = Array.isArray(res.data?.items) ? res.data.items : []
-    historyList.value = executions
+    historyList.value = executions as any
     historyTotal.value = res.data?.total || 0
   } catch (error: any) {
     ElMessage.error(error.message || '加载执行历史失败')
@@ -863,7 +863,7 @@ const handleHistoryPageChange = (page: number) => {
   loadHistory()
 }
 
-const handleHistoryTabChange = (tabName: string) => {
+const handleHistoryTabChange = (tabName: string | number | boolean) => {
   if (tabName === 'execution') {
     executionPage.value = 1
     loadExecutions()
@@ -994,7 +994,8 @@ const formatTrigger = (trigger: string) => {
   return trigger
 }
 
-const formatAction = (action: string) => {
+// @ts-expect-error
+const _formatAction = (action: string) => {
   const actionMap: Record<string, string> = {
     pause: '暂停',
     resume: '恢复',

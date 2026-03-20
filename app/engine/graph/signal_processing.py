@@ -206,12 +206,12 @@ class SignalProcessor:
                 return result
             else:
                 # 如果无法解析JSON，使用简单的文本提取
-                return self._extract_simple_decision(response)
+                return self._extract_simple_decision(response, is_china)
 
         except Exception as e:
             logger.error(f"信号处理错误: {e}", exc_info=True, extra={'stock_symbol': stock_symbol})
             # 回退到简单提取
-            return self._extract_simple_decision(full_signal)
+            return self._extract_simple_decision(full_signal, is_china)
 
     def _smart_price_estimation(self, text: str, action: str, is_china: bool) -> float:
         """智能价格推算方法"""
@@ -278,7 +278,7 @@ class SignalProcessor:
         
         return None
 
-    def _extract_simple_decision(self, text: str) -> dict:
+    def _extract_simple_decision(self, text: str, is_china: bool = True) -> dict:
         """简单的决策提取方法作为备用"""
         import re
 
@@ -314,7 +314,6 @@ class SignalProcessor:
         # 如果没有找到价格，尝试智能推算
         if target_price is None:
             # 检测股票类型
-            is_china = True  # 默认假设是A股，实际应该从上下文获取
             target_price = self._smart_price_estimation(text, action, is_china)
 
         return {

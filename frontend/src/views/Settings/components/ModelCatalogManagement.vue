@@ -174,7 +174,7 @@
 
           <el-table :data="formData.models" border max-height="400">
             <el-table-column label="模型名称" width="200">
-              <template #default="{ row, $index }">
+              <template #default="{ row }">
                 <el-input
                   v-model="row.name"
                   placeholder="如: qwen-turbo"
@@ -183,7 +183,7 @@
               </template>
             </el-table-column>
             <el-table-column label="显示名称" width="280">
-              <template #default="{ row, $index }">
+              <template #default="{ row }">
                 <el-input
                   v-model="row.display_name"
                   placeholder="如: Qwen Turbo - 快速经济"
@@ -192,7 +192,7 @@
               </template>
             </el-table-column>
             <el-table-column label="输入价格/1K" width="180">
-              <template #default="{ row, $index }">
+              <template #default="{ row }">
                 <div style="display: flex; align-items: center; gap: 4px;">
                   <el-input-number
                     v-model="row.input_price_per_1k"
@@ -207,7 +207,7 @@
               </template>
             </el-table-column>
             <el-table-column label="输出价格/1K" width="180">
-              <template #default="{ row, $index }">
+              <template #default="{ row }">
                 <div style="display: flex; align-items: center; gap: 4px;">
                   <el-input-number
                     v-model="row.output_price_per_1k"
@@ -222,7 +222,7 @@
               </template>
             </el-table-column>
             <el-table-column label="上下文长度" width="150">
-              <template #default="{ row, $index }">
+              <template #default="{ row }">
                 <el-input
                   v-model.number="row.context_length"
                   placeholder="1000000"
@@ -232,7 +232,7 @@
               </template>
             </el-table-column>
             <el-table-column label="货币单位" width="120">
-              <template #default="{ row, $index }">
+              <template #default="{ row }">
                 <el-select
                   v-model="row.currency"
                   size="small"
@@ -273,7 +273,6 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus, Refresh, Document } from '@element-plus/icons-vue'
 import { configApi, type LLMProvider } from '@/api/config'
-import axios from 'axios'
 
 // 数据
 const loading = ref(false)
@@ -324,7 +323,7 @@ const loadCatalogs = async () => {
   loading.value = true
   try {
     const response = await configApi.getModelCatalog()
-    catalogs.value = response
+    catalogs.value = response as any
   } catch (error) {
     console.error('加载模型目录失败:', error)
     ElMessage.error('加载模型目录失败')
@@ -338,10 +337,10 @@ const loadProviders = async (showSuccessMessage = false) => {
   providersLoading.value = true
   try {
     const providers = await configApi.getLLMProviders()
-    availableProviders.value = providers
-    console.log('✅ 加载厂家列表成功:', availableProviders.value.length)
+    availableProviders.value = providers as any
+    console.log('✅ 加载厂家列表成功:', (providers as any).length)
     if (showSuccessMessage) {
-      ElMessage.success(`已刷新厂家列表，共 ${providers.length} 个厂家`)
+      ElMessage.success(`已刷新厂家列表，共 ${(providers as any).length} 个厂家`)
     }
   } catch (error) {
     console.error('❌ 加载厂家列表失败:', error)
@@ -470,9 +469,9 @@ const handleFetchModelsFromAPI = async () => {
 
     console.log('📊 API 响应:', response)
 
-    if (response.success && response.models && response.models.length > 0) {
+    if (response.success && (response as any).models && (response as any).models.length > 0) {
       // 转换模型格式，包含价格信息
-      formData.value.models = response.models.map((model: any) => ({
+      formData.value.models = (response as any).models.map((model: any) => ({
         name: model.id || model.name,
         display_name: model.name || model.id,
         // 使用 API 返回的价格信息（USD），如果没有则为 null

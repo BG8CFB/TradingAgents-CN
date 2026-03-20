@@ -76,9 +76,10 @@ if TYPE_CHECKING:
 
 def load_local_mcp_tools(toolkit: Optional[Dict] = None) -> List[Any]:
     """
-    从本地 MCP 服务器加载工具并转换为 LangChain 工具格式。
+    加载内置金融工具（已迁移到 builtin 模块）。
 
-    这些是内置的本地工具，不依赖外部 MCP 服务器。
+    此函数保留旧签名以向后兼容，内部委托给 ToolRegistry。
+    不再依赖旧的 app.engine.tools.mcp.tools.finance 模块。
 
     Args:
         toolkit: 工具配置字典
@@ -86,100 +87,22 @@ def load_local_mcp_tools(toolkit: Optional[Dict] = None) -> List[Any]:
     Returns:
         LangChain 工具列表
     """
-    start_time = now_utc()
-    logger.info("[MCP Loader] 开始加载本地 MCP 工具...")
-
     try:
-        try:
-            from app.engine.tools.mcp.tools import finance
-            HAS_FINANCE_TOOLS = True
-        except Exception as e:
-            logger.warning(f"⚠️ Finance tools module import failed: {e}")
-            HAS_FINANCE_TOOLS = False
-            finance = None
-
-        # 设置工具配置
-        config = toolkit or {}
-
-        tools = []
-
-        if LANGCHAIN_TOOLS_AVAILABLE:
-            from langchain_core.tools import tool as lc_tool
-
-            # 加载 20 个金融工具（原22个，整合公司业绩工具后变为20个）
-            if HAS_FINANCE_TOOLS and finance:
-                finance_funcs = [
-                    # 核心工具 (5个)
-                    finance.get_stock_data,         # 1. 股票行情数据
-                    finance.get_stock_news,         # 2. 股票新闻
-                    finance.get_stock_fundamentals, # 3. 基本面数据
-                    finance.get_stock_sentiment,    # 4. 市场情绪
-                    finance.get_china_market_overview, # 5. 中国市场概览
-
-                    # 分钟级数据 (1个)
-                    finance.get_stock_data_minutes, # 6. 分钟级K线
-
-                    # 公司业绩 (1个) - 🔥 合并后的统一工具
-                    finance.get_company_performance_unified, # 7. 公司业绩（A股/港股/美股）
-
-                    # 宏观与资金 (3个)
-                    finance.get_macro_econ,         # 8. 宏观经济
-                    finance.get_money_flow,         # 9. 资金流向
-                    finance.get_margin_trade,       # 10. 融资融券
-
-                    # 基金数据 (2个)
-                    finance.get_fund_data,          # 11. 公募基金
-                    finance.get_fund_manager_by_name, # 12. 基金经理
-
-                    # 指数与其他 (5个)
-                    finance.get_index_data,         # 13. 指数行情
-                    finance.get_csi_index_constituents, # 14. 中证指数成份股
-                    finance.get_convertible_bond,   # 15. 可转债
-                    finance.get_block_trade,        # 16. 大宗交易
-                    finance.get_dragon_tiger_inst,  # 17. 龙虎榜
-
-                    # 新闻与时间 (3个)
-                    finance.get_finance_news,       # 18. 财经新闻搜索
-                    finance.get_hot_news_7x24,      # 19. 7x24快讯
-                    finance.get_current_timestamp   # 20. 当前时间戳
-                ]
-
-                # 🔥 应用数据源过滤器
-                from app.engine.tools.mcp.data_source_filter import get_filtered_tool_list, get_tool_filter_summary
-
-                # 打印工具过滤摘要
-                summary = get_tool_filter_summary(finance_funcs)
-                logger.info(f"📊 MCP工具加载摘要:")
-                logger.info(f"   总工具数: {summary['total']}")
-                logger.info(f"   仅Tushare: {summary['tushare_only']}个")
-                logger.info(f"   双数据源: {summary['dual_source']}个")
-                logger.info(f"   Tushare状态: {summary['tushare_status']}")
-                logger.info(f"   过滤工具数: {summary['filtered']}")
-                logger.info(f"   可用工具数: {summary['available']}")
-
-                # 应用过滤
-                filtered_funcs = get_filtered_tool_list(finance_funcs)
-
-                for func in filtered_funcs:
-                    try:
-                        tools.append(lc_tool(func))
-                    except Exception as e:
-                        logger.error(f"Failed to create langchain tool for {func.__name__}: {e}")
-
-        execution_time = (now_utc() - start_time).total_seconds()
-        logger.info(f"✅ [MCP Loader] 加载完成，共 {len(tools)} 个本地工具，耗时 {execution_time:.2f}秒")
-
-        return tools
-
+        from app.engine.tools.registry import get_all_tools
+        return get_all_tools(toolkit=toolkit, enable_mcp=False)
     except Exception as e:
-        logger.error(f"❌ [MCP Loader] 加载本地 MCP 工具失败: {e}")
+        logger.error(f"❌ [MCP Loader] 加载内置工具失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return []
 
 
 def get_all_tools_mcp(toolkit: Optional[Dict] = None) -> List[Any]:
-    """获取所有 MCP 格式的工具（同步接口）。"""
+    """
+    获取所有内置工具（向后兼容接口）。
+
+    已弃用：新代码请直接使用 app.engine.tools.registry.get_all_tools()。
+    """
     return load_local_mcp_tools(toolkit)
 
 

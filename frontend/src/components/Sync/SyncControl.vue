@@ -445,7 +445,7 @@ const showSyncCompletionNotification = (status: string) => {
 
 // 获取状态类型
 const getStatusType = (status?: string) => {
-  const typeMap: Record<string, string> = {
+  const typeMap: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
     idle: 'info',
     running: 'warning',
     success: 'success',

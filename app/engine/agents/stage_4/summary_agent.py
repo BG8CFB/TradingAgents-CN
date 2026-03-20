@@ -107,6 +107,8 @@ JSON 结构定义如下：
                 "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A"},
                 "model_confidence": 50,
                 "risk_assessment": {"level": "Medium", "score": 5.0, "description": "解析失败，使用默认值"},
+                "analysis_summary": "JSON解析失败，无法生成分析摘要",
+                "investment_recommendation": "暂无建议",
                 "analysis_reference": [],
                 "final_signal": "Hold"
             }

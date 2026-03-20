@@ -716,7 +716,7 @@ const handleMenuSelect = (index: string) => {
   activeTab.value = index
 }
 
-const handleThemeChange = (theme: string) => {
+const handleThemeChange = (theme: string | number | boolean | undefined) => {
   appStore.setTheme(theme as any)
 }
 
@@ -727,7 +727,7 @@ const saveGeneralSettings = async () => {
       email: generalSettings.value.email,
       preferences: {
         language: generalSettings.value.language
-      }
+      } as any
     })
 
     if (success) {
@@ -750,7 +750,7 @@ const saveAppearanceSettings = async () => {
       preferences: {
         ui_theme: appearanceSettings.value.theme,
         sidebar_width: appearanceSettings.value.sidebarWidth
-      }
+      } as any
     })
 
     if (success) {
@@ -773,7 +773,7 @@ const saveAnalysisSettings = async () => {
       autoRefresh: analysisSettings.value.autoRefresh,
       refreshInterval: analysisSettings.value.refreshInterval,
       defaultAnalysts: normalizedAnalysts
-    })
+    } as any)
 
     // 保存到后端
     const success = await authStore.updateUserInfo({
@@ -783,7 +783,7 @@ const saveAnalysisSettings = async () => {
         default_analysts: normalizedAnalysts,
         auto_refresh: analysisSettings.value.autoRefresh,
         refresh_interval: analysisSettings.value.refreshInterval
-      }
+      } as any
     })
 
     if (success) {
@@ -804,7 +804,7 @@ const saveNotificationSettings = async () => {
         analysis_complete_notification: notificationSettings.value.analysisComplete,
         system_maintenance_notification: notificationSettings.value.systemMaintenance,
         notifications_enabled: notificationSettings.value.desktop || notificationSettings.value.analysisComplete || notificationSettings.value.systemMaintenance
-      }
+      } as any
     })
 
     if (success) {
@@ -863,7 +863,7 @@ const changePasswordForm = ref({
   confirmPassword: ''
 })
 
-const validateConfirmPassword = (rule: any, value: any, callback: any) => {
+const validateConfirmPassword = (_rule: any, value: any, callback: any) => {
   if (value === '') {
     callback(new Error('请再次输入新密码'))
   } else if (value !== changePasswordForm.value.newPassword) {

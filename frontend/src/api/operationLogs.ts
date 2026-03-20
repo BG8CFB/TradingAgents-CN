@@ -152,19 +152,20 @@ export class OperationLogsApi {
   /**
    * 导出操作日志为CSV
    */
-  static exportOperationLogsCSV(params: {
+  static async exportOperationLogsCSV(params: {
     start_date?: string
     end_date?: string
     action_type?: string
   } = {}): Promise<Blob> {
     const queryParams = new URLSearchParams()
-    
+
     if (params.start_date) queryParams.append('start_date', params.start_date)
     if (params.end_date) queryParams.append('end_date', params.end_date)
     if (params.action_type) queryParams.append('action_type', params.action_type)
-    
+
     const url = `/api/system/logs/export/csv${queryParams.toString() ? '?' + queryParams.toString() : ''}`
-    return ApiClient.get(url, { responseType: 'blob' })
+    const response = await ApiClient.get(url, { responseType: 'blob' } as any)
+    return response as unknown as Blob
   }
 }
 

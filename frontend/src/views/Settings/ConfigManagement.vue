@@ -1089,8 +1089,6 @@ import {
   OfficeBuilding,
   CircleCheck,
   Collection,
-  Star,
-  Money
 } from '@element-plus/icons-vue'
 
 import {
@@ -1236,10 +1234,10 @@ const loadProviders = async () => {
   providersLoading.value = true
   try {
     console.log('🔄 开始加载厂家列表...')
-    const providerList = await configApi.getLLMProviders()
-    console.log('📊 厂家列表响应:', providerList)
-    providers.value = providerList
-    console.log('✅ 厂家列表加载成功，数量:', providerList.length)
+    const providerListResp = await configApi.getLLMProviders()
+    console.log('📊 厂家列表响应:', providerListResp)
+    providers.value = providerListResp.data
+    console.log('✅ 厂家列表加载成功，数量:', providerListResp.data.length)
   } catch (error) {
     console.error('❌ 加载厂家列表失败:', error)
     ElMessage.error('加载厂家列表失败')
@@ -1252,15 +1250,15 @@ const loadLLMConfigs = async () => {
   llmLoading.value = true
   try {
     console.log('🔄 开始加载大模型配置...')
-    const configs = await configApi.getLLMConfigs()
-    console.log('📊 大模型配置响应:', configs)
-    llmConfigs.value = configs
-    console.log('✅ 大模型配置加载成功，数量:', configs.length)
+    const configsResp = await configApi.getLLMConfigs()
+    console.log('📊 大模型配置响应:', configsResp)
+    llmConfigs.value = configsResp.data
+    console.log('✅ 大模型配置加载成功，数量:', configsResp.data.length)
 
     // 获取默认LLM
     const systemConfig = await configApi.getSystemConfig()
     console.log('📊 系统配置响应:', systemConfig)
-    defaultLLM.value = systemConfig.default_llm || ''
+    defaultLLM.value = systemConfig.data.default_llm || ''
 
     // 构建分组数据
     buildLLMConfigGroups()
@@ -1327,11 +1325,11 @@ const loadDataSourceConfigs = async () => {
   dataSourceLoading.value = true
   try {
     const configs = await configApi.getDataSourceConfigs()
-    dataSourceConfigs.value = configs
+    dataSourceConfigs.value = configs.data
 
     // 获取默认数据源
     const systemConfig = await configApi.getSystemConfig()
-    defaultDataSource.value = systemConfig.default_data_source || ''
+    defaultDataSource.value = systemConfig.data.default_data_source || ''
 
     // 加载分组相关数据
     await loadMarketCategories()
@@ -1347,7 +1345,7 @@ const loadDataSourceConfigs = async () => {
 // 加载市场分类
 const loadMarketCategories = async () => {
   try {
-    marketCategories.value = await configApi.getMarketCategories()
+    marketCategories.value = (await configApi.getMarketCategories()).data
   } catch (error) {
     console.error('加载市场分类失败:', error)
   }
@@ -1356,7 +1354,7 @@ const loadMarketCategories = async () => {
 // 加载数据源分组关系
 const loadDataSourceGroupings = async () => {
   try {
-    dataSourceGroupings.value = await configApi.getDataSourceGroupings()
+    dataSourceGroupings.value = (await configApi.getDataSourceGroupings()).data
   } catch (error) {
     console.error('加载数据源分组关系失败:', error)
   }
@@ -1388,7 +1386,7 @@ const buildDataSourceGroups = () => {
           }
           return null
         })
-        .filter(Boolean)
+        .filter((ds): ds is DataSourceConfig & { priority: number } => ds !== null)
         .sort((a, b) => b.priority - a.priority) // 按优先级降序排列
 
       groups.push({
@@ -1417,7 +1415,7 @@ const buildDataSourceGroups = () => {
 const loadDatabaseConfigs = async () => {
   databaseLoading.value = true
   try {
-    databaseConfigs.value = await configApi.getDatabaseConfigs()
+    databaseConfigs.value = (await configApi.getDatabaseConfigs()).data
   } catch (error) {
     ElMessage.error('加载数据库配置失败')
   } finally {
@@ -1544,10 +1542,10 @@ const handleProviderSuccess = () => {
 // 加载厂家信息到映射表
 const loadProviderInfoMap = async () => {
   try {
-    const providerList = await configApi.getLLMProviders()
+    const providerListResp = await configApi.getLLMProviders()
     const map: Record<string, any> = {}
 
-    providerList.forEach(provider => {
+    providerListResp.data.forEach((provider: LLMProvider) => {
       map[provider.name] = {
         display_name: provider.display_name,
         description: provider.description,
@@ -1561,14 +1559,9 @@ const loadProviderInfoMap = async () => {
   }
 }
 
-// 刷新大模型配置数据
-const refreshLLMConfigs = () => {
-  buildLLMConfigGroups()
-}
-
 // 获取厂家标签类型
-const getProviderTagType = (provider: string) => {
-  const typeMap: Record<string, string> = {
+const getProviderTagType = (provider: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' => {
+  const typeMap: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
     'openai': 'primary',
     'google': 'success',
     'anthropic': 'warning',
@@ -1578,7 +1571,7 @@ const getProviderTagType = (provider: string) => {
     'deepseek': 'primary',
     'qianfan': 'success'
   }
-  return typeMap[provider.toLowerCase()] || 'info'
+  return typeMap[provider.toLowerCase()] || 'info' as const
 }
 
 // 🆕 获取能力等级文本
@@ -1594,15 +1587,15 @@ const getCapabilityLevelText = (level: number) => {
 }
 
 // 🆕 获取能力等级标签类型
-const getCapabilityLevelType = (level: number) => {
-  const typeMap: Record<number, string> = {
+const getCapabilityLevelType = (level: number): 'primary' | 'success' | 'warning' | 'info' | 'danger' => {
+  const typeMap: Record<number, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
     1: 'info',
-    2: '',
+    2: 'info',
     3: 'success',
     4: 'warning',
     5: 'danger'
   }
-  return typeMap[level] || ''
+  return typeMap[level] || 'info' as const
 }
 
 // 🆕 获取角色文本
@@ -1630,7 +1623,7 @@ const addModelToProvider = (providerRow: any) => {
   currentLLMConfig.value = {
     provider: providerRow.provider,
     model_name: '',
-    display_name: '',
+    model_display_name: '',
     description: '',
     enabled: true,
     max_tokens: 4000,
@@ -1793,18 +1786,6 @@ const handleLLMConfigSuccess = () => {
   loadLLMConfigs()
 }
 
-// 设置默认LLM
-const setDefaultLLM = async (modelName: string) => {
-  try {
-    await configApi.setDefaultLLM(modelName)
-    defaultLLM.value = modelName
-    buildLLMConfigGroups() // 重新构建分组以更新排序
-    ElMessage.success('默认大模型设置成功')
-  } catch (error) {
-    ElMessage.error('设置默认大模型失败')
-  }
-}
-
 // 测试LLM配置
 const testLLMConfig = async (config: LLMConfig) => {
   try {
@@ -1929,16 +1910,6 @@ const handleDataSourceGroupingSuccess = () => {
   buildDataSourceGroups()
 }
 
-const setDefaultDataSource = async (name: string) => {
-  try {
-    await configApi.setDefaultDataSource(name)
-    defaultDataSource.value = name
-    ElMessage.success('默认数据源设置成功')
-  } catch (error) {
-    ElMessage.error('设置默认数据源失败')
-  }
-}
-
 const testDataSource = async (config: DataSourceConfig) => {
   try {
     const result = await configApi.testConfig({
@@ -2013,7 +1984,7 @@ const testDatabase = async (config: DatabaseConfig) => {
     const result = await configApi.testDatabaseConfig(config.name)
 
     if (result.success) {
-      ElMessage.success(`数据库连接测试成功 (${result.response_time?.toFixed(2)}s)`)
+      ElMessage.success(`数据库连接测试成功 (${(result.data as any).response_time?.toFixed(2)}s)`)
     } else {
       ElMessage.error(`数据库连接测试失败: ${result.message}`)
     }

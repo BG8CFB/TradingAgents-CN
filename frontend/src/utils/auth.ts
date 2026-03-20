@@ -183,12 +183,24 @@ export const autoRefreshToken = async (): Promise<boolean> => {
 /**
  * 设置定时刷新 token
  */
+let _refreshTimerId: ReturnType<typeof setInterval> | null = null
+
 export const setupTokenRefreshTimer = (): void => {
-  // 每分钟检查一次
-  setInterval(() => {
+  // 避免重复创建定时器
+  if (_refreshTimerId) {
+    clearInterval(_refreshTimerId)
+  }
+  _refreshTimerId = setInterval(() => {
     autoRefreshToken()
   }, 60000)
 
   console.log('✅ Token 自动刷新定时器已启动')
+}
+
+export const clearTokenRefreshTimer = (): void => {
+  if (_refreshTimerId) {
+    clearInterval(_refreshTimerId)
+    _refreshTimerId = null
+  }
 }
 

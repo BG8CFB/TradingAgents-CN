@@ -85,11 +85,11 @@ class ChatDeepSeek(ChatOpenAI):
                     "(设置 -> 大模型厂家) 或设置 DEEPSEEK_API_KEY 环境变量。"
                 )
         
-        # 初始化父类
+        # 初始化父类（使用新版参数名，替代已弃用的 openai_api_key/openai_api_base）
         super().__init__(
             model=model,
-            openai_api_key=api_key,
-            openai_api_base=base_url,
+            api_key=api_key,
+            base_url=base_url,
             temperature=temperature,
             max_tokens=max_tokens,
             **kwargs

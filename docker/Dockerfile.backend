@@ -21,7 +21,7 @@ WORKDIR /app
 # - pandoc: 使用 Debian 官方包（稳定版本，避免网络问题）
 # - wkhtmltopdf: 使用 Debian 官方包（用于 PDF 生成）
 # - 中文字体: 用于 PDF 中文显示
-RUN mkdir -p /app/logs /app/data /app/config && \
+RUN mkdir -p /app/runtime /app/config && \
     # 配置 apt 重试和超时
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
     echo 'Acquire::http::Timeout "30";' >> /etc/apt/apt.conf.d/80-retries && \
@@ -86,7 +86,7 @@ COPY config ./config
 # 复制Docker环境配置文件（从docker目录复制，因为build context是项目根目录）
 COPY docker/.env.docker ./.env
 
-# 暴露后端端口（与docker-compose.v1.0.0.yml一致）
+# 暴露后端端口
 EXPOSE 8000
 
 # Docker环境标识

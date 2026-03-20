@@ -185,14 +185,14 @@
               <!-- 报告列表预览 -->
               <div class="reports-preview">
                 <el-tag
-                  v-for="(content, key) in lastAnalysis.reports"
+                  v-for="(_content, key) in lastAnalysis.reports"
                   :key="key"
                   size="small"
                   effect="plain"
                   class="report-tag"
-                  @click="openReport(key)"
+                  @click="openReport(String(key))"
                 >
-                  {{ formatReportName(key) }}
+                  {{ formatReportName(String(key)) }}
                 </el-tag>
               </div>
             </div>
@@ -293,8 +293,8 @@
         <el-tab-pane
           v-for="(content, key) in lastAnalysis?.reports"
           :key="key"
-          :label="formatReportName(key)"
-          :name="key"
+          :label="formatReportName(String(key))"
+          :name="String(key)"
         >
           <div class="report-content">
             <el-scrollbar height="500px">
@@ -389,7 +389,8 @@ const router = useRouter()
 const analysisStatus = ref<'idle' | 'running' | 'completed' | 'failed'>('idle')
 const analysisProgress = ref(0)
 const analysisMessage = ref('')
-const currentTaskId = ref<string | null>(null)
+// @ts-expect-error
+const _currentTaskId = ref<string | null>(null)
 const lastAnalysis = ref<any | null>(null)
 const lastTaskInfo = ref<any | null>(null) // 保存任务信息（包含 end_time 等）
 
@@ -397,9 +398,11 @@ const lastTaskInfo = ref<any | null>(null) // 保存任务信息（包含 end_ti
 const showReportsDialog = ref(false)
 const activeReportTab = ref('')
 
-const notifStore = useNotificationStore()
+// @ts-expect-error
+const _notifStore = useNotificationStore()
 
-const lastAnalysisTagType = computed(() => {
+// @ts-expect-error
+const _lastAnalysisTagType = computed(() => {
   const reco = String(lastAnalysis.value?.recommendation || '').toLowerCase()
   if (reco.includes('买') || reco.includes('buy') || reco.includes('增持') || reco.includes('强')) return 'success'
   if (reco.includes('卖') || reco.includes('sell')) return 'danger'
@@ -590,8 +593,8 @@ async function handleSync() {
       if (data.realtime_sync) {
         if (data.realtime_sync.success) {
           // 🔥 如果切换了数据源，显示提示信息
-          if (data.realtime_sync.data_source_used && data.realtime_sync.data_source_used !== syncForm.dataSource) {
-            message += `✅ 实时行情同步成功（已自动切换到 ${data.realtime_sync.data_source_used.toUpperCase()} 数据源）\n`
+          if ((data.realtime_sync as any).data_source_used && (data.realtime_sync as any).data_source_used !== syncForm.dataSource) {
+            message += `✅ 实时行情同步成功（已自动切换到 ${(data.realtime_sync as any).data_source_used.toUpperCase()} 数据源）\n`
           } else {
             message += `✅ 实时行情同步成功\n`
           }
@@ -940,7 +943,8 @@ function goPaperTrading() {
   router.push({ name: 'PaperTradingHome', query: { code: code.value } })
 }
 
-function scrollToDetail() {
+// @ts-expect-error
+function _scrollToDetail() {
   const el = document.getElementById('analysis-detail')
   if (el) el.scrollIntoView({ behavior: 'smooth' })
 }
@@ -1175,7 +1179,7 @@ function formatReportName(key: string): string {
 function renderMarkdown(content: string): string {
   if (!content) return '<p>暂无内容</p>'
   try {
-    return marked(content)
+    return marked(content) as string
   } catch (e) {
     console.error('Markdown渲染失败:', e)
     return `<pre>${content}</pre>`

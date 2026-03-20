@@ -1,6 +1,7 @@
-import functools
 import time
 import json
+
+from langchain_core.messages import SystemMessage
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
@@ -8,7 +9,7 @@ logger = get_logger("default")
 
 
 def create_trader(llm, memory):
-    def trader_node(state, name):
+    def trader_node(state):
         # 使用安全读取，确保缺失字段不会导致整个流程中断
         company_name = state.get("company_of_interest", "")
         
@@ -115,10 +116,7 @@ def create_trader(llm, memory):
         full_system_prompt = base_prompt + "\n\n" + system_context
 
         messages = [
-            {
-                "role": "system",
-                "content": full_system_prompt,
-            },
+            SystemMessage(content=full_system_prompt),
             context,
         ]
 
@@ -133,7 +131,7 @@ def create_trader(llm, memory):
         return {
             "messages": [result],
             "trader_investment_plan": result.content,
-            "sender": name,
+            "sender": "Trader",
         }
 
-    return functools.partial(trader_node, name="Trader")
+    return trader_node

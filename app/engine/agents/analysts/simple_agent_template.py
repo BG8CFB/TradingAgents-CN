@@ -11,9 +11,9 @@
 """
 
 import json
-from typing import Any
+from typing import Any, Optional
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
-from typing import Dict, Any, List
+from typing import Dict, List
 from app.utils.logging_init import get_logger
 
 logger = get_logger("simple_agent_template")
@@ -53,6 +53,131 @@ def format_tool_result(tool_result: Any) -> str:
         return str(tool_result)
 
 
+# === 自动数据注入：工具参数映射 ===
+# 格式: tool_name → {参数名: inject_context 字段或固定值}
+# inject_context 提供: ticker, trade_date, company_name
+_INJECT_TOOL_ARGS_MAP: Dict[str, Dict[str, Any]] = {
+    # ticker 参数名映射（不同工具使用不同的参数名）
+    "get_stock_data": {"stock_code": "ticker"},
+    "get_stock_data_minutes": {"stock_code": "ticker", "market_type": "cn"},
+    "get_index_data": {"stock_code": "ticker"},
+    "get_stock_news": {"stock_code": "ticker"},
+    "get_stock_fundamentals": {"stock_code": "ticker", "current_date": "trade_date"},
+    "get_company_performance_unified": {"stock_code": "ticker"},
+    "get_stock_sentiment": {"stock_code": "ticker", "current_date": "trade_date"},
+    "get_dragon_tiger_inst": {"ts_code": "ticker", "trade_date": "trade_date_compact"},
+    "get_block_trade": {"code": "ticker"},
+    "get_money_flow": {"ts_code": "ticker", "query_type": "stock"},
+    "get_margin_trade": {"data_type": "margin", "ts_code": "ticker"},
+    # 不依赖 ticker 的工具：仅注入日期
+    "get_china_market_overview": {"date": "trade_date"},
+    "get_finance_news": {},
+    "get_hot_news_7x24": {},
+    "get_current_timestamp": {},
+}
+
+
+def _inject_tool_data(
+    agent_name: str,
+    inject_tools: List[Any],
+    inject_context: Dict[str, str],
+    messages: List,
+) -> None:
+    """
+    自动调用内置工具获取数据，并将结果注入到消息上下文中。
+
+    通过在 messages 列表中插入 AIMessage(tool_calls) + ToolMessage(content) 对，
+    模拟工具已执行的结果，使 LLM 在第一轮就能看到预加载数据。
+
+    Args:
+        agent_name: 分析师名称（用于日志）
+        inject_tools: 需要预加载的内置工具列表
+        inject_context: 注入上下文 {ticker, trade_date, company_name}
+        messages: 消息列表（就地修改）
+    """
+    ticker = inject_context.get("ticker", "")
+    trade_date = inject_context.get("trade_date", "")
+    # trade_date_compact: YYYYMMDD 格式（龙虎榜/大宗交易等工具需要）
+    trade_date_compact = trade_date.replace("-", "") if trade_date and "-" in trade_date else trade_date
+
+    context_values = {
+        "ticker": ticker,
+        "trade_date": trade_date,
+        "trade_date_compact": trade_date_compact,
+        "company_name": inject_context.get("company_name", ""),
+    }
+
+    injected_count = 0
+    for tool in inject_tools:
+        tool_name = getattr(tool, "name", None)
+        if not tool_name:
+            continue
+
+        args_map = _INJECT_TOOL_ARGS_MAP.get(tool_name)
+        if args_map is None:
+            logger.debug(f"🔄 [{agent_name}] 跳过未注册的注入工具: {tool_name}")
+            continue
+
+        # 构建工具调用参数
+        tool_args = {}
+        for arg_name, source in args_map.items():
+            if isinstance(source, str) and not source:
+                # 空字符串 = 无需传参
+                continue
+            if isinstance(source, str) and not source.startswith("ticker") and not source.startswith("trade_date") and not source == "date":
+                # 固定值（如 "cn", "stock", "margin"）
+                tool_args[arg_name] = source
+            else:
+                # 从 inject_context 获取值
+                val = context_values.get(source, "")
+                if val:
+                    tool_args[arg_name] = val
+
+        # 跳过没有 ticker 的工具（除非工具本身不需要 ticker）
+        needs_ticker = any(
+            v in ("ticker",)
+            for v in args_map.values()
+            if isinstance(v, str) and v.startswith("ticker")
+        )
+        if needs_ticker and not ticker:
+            logger.debug(f"🔄 [{agent_name}] 跳过 {tool_name}: 缺少 ticker")
+            continue
+
+        # 调用工具
+        try:
+            import uuid
+            call_id = f"pre_{uuid.uuid4().hex[:8]}_{tool_name}"
+            logger.info(f"💉 [{agent_name}] 预加载数据: {tool_name}({tool_args})")
+
+            result = tool.invoke(tool_args)
+            result_str = format_tool_result(result)
+
+            # 插入 AIMessage + ToolMessage 对到消息历史
+            messages.append(AIMessage(
+                content="",
+                tool_calls=[{
+                    "name": tool_name,
+                    "args": tool_args,
+                    "id": call_id,
+                }]
+            ))
+            messages.append(ToolMessage(
+                content=result_str,
+                tool_call_id=call_id,
+                name=tool_name,
+            ))
+
+            injected_count += 1
+            logger.info(f"✅ [{agent_name}] 预加载成功: {tool_name} ({len(result_str)} 字符)")
+        except Exception as e:
+            logger.warning(f"⚠️ [{agent_name}] 预加载失败: {tool_name}, 错误: {e}")
+            # 预加载失败不阻断分析流程
+            continue
+
+    if injected_count > 0:
+        logger.info(f"💉 [{agent_name}] 共预加载 {injected_count} 个工具数据到上下文")
+
+
 def create_simple_agent(
     name: str,
     slug: str,
@@ -61,23 +186,24 @@ def create_simple_agent(
     system_prompt: str,
     max_tool_calls: int = 20,
     llm_provider: str = "default",
+    inject_tools: Optional[List[Any]] = None,
 ):
     """
     创建简单智能体节点函数
-    
+
     核心理念（参考阶段2-4）：
     1. 手动构建消息列表（System + Human + AI history + Tool results）
     2. llm.invoke(messages)
     3. 检查是否有工具调用
     4. 如果有，执行工具并继续
     5. 如果没有，完成并返回报告
-    
+
     🔥 防止循环机制：
     - 最大工具调用次数：20次（硬编码）
     - 连续同一工具调用检测：如果同一工具连续调用超过3次，触发总结
-    
+
     🔥 S11 修复：添加 LLM 调用速率限制
-    
+
     Args:
         name: 智能体名称
         slug: 智能体标识符
@@ -86,7 +212,8 @@ def create_simple_agent(
         system_prompt: 系统提示词
         max_tool_calls: 最大工具调用次数（固定为20）
         llm_provider: LLM 提供商名称（用于速率限制）
-    
+        inject_tools: 需要自动预加载数据的内置工具列表（自动注入到消息上下文）
+
     Returns:
         节点函数（可以直接添加到 LangGraph）
     """
@@ -174,7 +301,18 @@ def create_simple_agent(
             # 添加任务描述
             task_message = f"请对股票 {company_name} ({ticker}) 进行全面分析，交易日期：{trade_date}"
             messages.append(HumanMessage(content=task_message))
-            
+
+            # === 自动数据注入：预加载内置工具数据到消息上下文 ===
+            if inject_tools:
+                inject_ctx = {
+                    "ticker": ticker,
+                    "trade_date": trade_date,
+                    "company_name": company_name,
+                }
+                _inject_tool_data(
+                    name, inject_tools, inject_ctx, messages
+                )
+
             # === 步骤3：LLM + 工具调用循环（参考 GenericAgent，但简化） ===
             tool_call_count = 0
             final_report = ""
@@ -395,6 +533,7 @@ def create_simple_agent(
             return {
                 **state,
                 report_key: error_report,
+                "messages": [AIMessage(content=error_report)],
                 "reports": {
                     **state.get("reports", {}),
                     report_key: error_report

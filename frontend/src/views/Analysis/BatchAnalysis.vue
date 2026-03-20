@@ -175,20 +175,21 @@
                     v-for="phase in PHASES" 
                     :key="phase.id" 
                     class="phase-card"
-                    :class="{ enabled: batchForm.phases[phase.name as keyof typeof batchForm.phases].enabled }"
+                    :class="{ enabled: getPhaseConfig(phase.name)?.enabled }"
                   >
                     <div class="phase-header">
                       <div class="phase-title-row">
                         <div class="phase-title">{{ phase.title }}</div>
-                        <el-switch 
-                          v-model="batchForm.phases[phase.name as keyof typeof batchForm.phases].enabled" 
+                        <el-switch
+                          :model-value="getPhaseConfig(phase.name)?.enabled"
+                          @update:model-value="(val: boolean | string | number) => { if (getPhaseConfig(phase.name)) getPhaseConfig(phase.name).enabled = val as boolean }"
                           :disabled="phase.id === 4"
                         />
                       </div>
                       <div class="phase-desc">{{ phase.description }}</div>
                     </div>
-                    
-                    <div class="phase-body" v-if="batchForm.phases[phase.name as keyof typeof batchForm.phases].enabled">
+
+                    <div class="phase-body" v-if="getPhaseConfig(phase.name)?.enabled">
                       <div class="phase-agents">
                         <span class="label">参与角色:</span>
                         <div class="agent-tags">
@@ -202,7 +203,8 @@
                       <div class="phase-rounds" v-if="phase.hasDebateRounds !== false">
                         <span class="label">辩论轮次:</span>
                         <el-input-number
-                          v-model="batchForm.phases[phase.name as keyof typeof batchForm.phases].debateRounds"
+                          :model-value="getPhaseConfig(phase.name)?.debateRounds"
+                          @update:model-value="(val: number | undefined) => { if (getPhaseConfig(phase.name)) getPhaseConfig(phase.name).debateRounds = val || 1 }"
                           :min="phase.minRounds"
                           :max="phase.maxRounds"
                           size="small"
@@ -450,10 +452,14 @@ const batchForm = reactive({
   phases: {
     phase2: { enabled: false, debateRounds: 2 },
     phase3: { enabled: false, debateRounds: 1 },
-    phase4: { enabled: true, debateRounds: 1 },
-    summary: { enabled: true, debateRounds: 1 }
+    phase4: { enabled: true, debateRounds: 1 }
   }
 })
+
+// 辅助函数：安全获取阶段配置（避免模板中的类型索引问题）
+const getPhaseConfig = (phaseName: string) => {
+  return (batchForm.phases as Record<string, { enabled: boolean; debateRounds: number }>)[phaseName]
+}
 
 // 归一化阶段配置，确保后续阶段依赖前置阶段
 const buildPhasePayload = (phases: any) => {
@@ -515,7 +521,7 @@ const parseStockCodes = () => {
   const normalized: string[] = []
   const invalid: string[] = []
   for (const c of codes) {
-    const { symbol, error } = normalizeCodeSmart(c)
+    const { symbol } = normalizeCodeSmart(c)
     if (symbol) normalized.push(symbol)
     else invalid.push(c)
   }
@@ -542,7 +548,7 @@ const initializeModelSettings = async () => {
 
     // 获取所有可用的模型列表
     const llmConfigs = await configApi.getLLMConfigs()
-    availableModels.value = llmConfigs.filter((config: any) => config.enabled)
+    availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled)
 
     console.log('✅ 加载模型配置成功:', {
       quick: modelSettings.value.quickAnalysisModel,
@@ -730,7 +736,8 @@ const submitBatchAnalysis = async () => {
   }
 }
 
-const resetForm = () => {
+// @ts-expect-error - reserved for future use
+const _resetForm = () => {
   // 从用户偏好加载默认值
   const authStore = useAuthStore()
   const userPrefs = authStore.user?.preferences
@@ -753,7 +760,7 @@ const resetForm = () => {
     analysts: defaultAnalysts,
     phases: {
       phase2: { enabled: false, debateRounds: 2 },
-      phase3: { enabled: false, debateRounds: 2 },
+      phase3: { enabled: false, debateRounds: 1 },
       phase4: { enabled: true, debateRounds: 1 }
     }
   })

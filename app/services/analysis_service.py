@@ -453,8 +453,9 @@ class AnalysisService:
             if user_id == "admin":
                 return PyObjectId(ObjectId("507f1f77bcf86cd799439011"))
             return PyObjectId(ObjectId(user_id))
-        except Exception:
-            return PyObjectId(ObjectId())
+        except Exception as e:
+            logger.warning(f"⚠️ 用户ID转换失败: user_id={user_id}, error={e}")
+            raise ValueError(f"无效的用户ID: {user_id}") from e
 
     def _serialize_for_response(self, value: Any) -> Any:
         """递归转换 Mongo 特定类型为可序列化格式"""
@@ -1166,7 +1167,7 @@ class AnalysisService:
                                 try:
                                     reports[key] = str(content)
                                     logger.debug(f"🔍 [报告提取] 提取报告 {key} (转换为字符串): 长度={len(str(content))}")
-                                except:
+                                except Exception:
                                     logger.warning(f"⚠️ [报告提取] 无法提取报告 {key}: 内容类型={type(content)}")
                         else:
                             logger.debug(f"🔍 [报告提取] 跳过空报告 {key}")
@@ -1456,7 +1457,8 @@ class AnalysisService:
                 # 假设传入的是 YYYY-MM-DD
                 s_date = datetime.strptime(start_date, "%Y-%m-%d")
                 date_query["$gte"] = s_date
-            except:
+            except Exception:
+                logger.warning(f"⚠️ 日期解析失败: start_date={start_date}")
                 pass
         if end_date:
             try:
@@ -1464,7 +1466,8 @@ class AnalysisService:
                 # 结束日期加一天，包含当天
                 e_date = e_date.replace(hour=23, minute=59, second=59, microsecond=999999)
                 date_query["$lte"] = e_date
-            except:
+            except Exception:
+                logger.warning(f"⚠️ 日期解析失败: end_date={end_date}")
                 pass
                 
         if date_query:

@@ -31,11 +31,15 @@ export function validateAStock(code: string): StockValidationResult {
     }
   }
   
-  // 验证前缀
-  const prefix = cleanCode.substring(0, 2)
-  const validPrefixes = ['60', '68', '00', '30', '43', '83', '87']
-  
-  if (!validPrefixes.includes(prefix)) {
+  // 验证前缀（使用3位前缀以覆盖更多上海市场代码）
+  const prefix3 = cleanCode.substring(0, 3)
+  const validPrefixes3 = ['600', '601', '603', '605', '688', '689', '000', '001', '002', '003', '300', '301', '430', '830', '831', '832', '833', '834', '835', '836', '837', '838', '839', '870', '871', '872', '873']
+
+  // 兼容：也检查2位前缀
+  const prefix2 = cleanCode.substring(0, 2)
+  const validPrefixes2 = ['60', '68', '00', '30', '43', '83', '87']
+
+  if (!validPrefixes3.includes(prefix3) && !validPrefixes2.includes(prefix2)) {
     return {
       valid: false,
       message: 'A股代码前缀不正确（支持：60/68/00/30/43/83/87开头）'

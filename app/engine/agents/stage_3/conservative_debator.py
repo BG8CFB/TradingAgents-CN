@@ -176,6 +176,7 @@ def create_safe_debator(llm):
             "history": risk_debate_state.get("history", "") + f"\n{argument_prefix}\n{content}",
             "current_safe_response": content,
             "count": risk_debate_state.get("count", 0) + 1,
+            "current_round_index": (risk_debate_state.get("count", 0) + 1) // 3,  # 3个发言者(激进/保守/中性)
             "latest_speaker": "Safe Analyst"
         })
 

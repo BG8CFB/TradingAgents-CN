@@ -113,6 +113,18 @@ export interface MCPConnectorsResponse {
 }
 
 /**
+ * MCP 连接器表单负载
+ */
+export interface MCPConnectorPayload {
+  name: string;
+  endpoint: string;
+  api_key: string;
+  description: string;
+  insecure: boolean;
+  enabled: boolean;
+}
+
+/**
  * 切换响应
  */
 export interface MCPToggleResponse {

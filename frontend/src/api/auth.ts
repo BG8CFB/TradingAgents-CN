@@ -1,11 +1,10 @@
 import { ApiClient } from './request'
-import type { 
-  LoginForm, 
-  RegisterForm, 
-  LoginResponse, 
+import type {
+  LoginForm,
+  RegisterForm,
+  LoginResponse,
   RefreshTokenResponse,
   User,
-  UserPermissions,
   ChangePasswordForm
 } from '@/types/auth'
 

@@ -17,7 +17,8 @@ import time as _time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from app.engine.config.runtime_settings import get_timezone_name, get_zoneinfo
+# 延迟导入以避免循环依赖
+# from app.engine.config.runtime_settings import get_timezone_name, get_zoneinfo
 
 
 # ============================================================================
@@ -43,6 +44,7 @@ def now_config_tz() -> datetime:
     Returns:
         datetime: 配置时区的当前时间（带时区信息）
     """
+    from app.engine.config.runtime_settings import get_zoneinfo
     return datetime.now(get_zoneinfo())
 
 
@@ -62,6 +64,7 @@ def to_utc(dt: Optional[datetime]) -> Optional[datetime]:
     """
     if dt is None:
         return None
+    from app.engine.config.runtime_settings import get_zoneinfo
     if dt.tzinfo is None:
         # naive datetime 假定为配置时区，然后转换为 UTC
         return dt.replace(tzinfo=get_zoneinfo()).astimezone(timezone.utc)
@@ -80,6 +83,7 @@ def to_config_tz(dt: Optional[datetime]) -> Optional[datetime]:
     """
     if dt is None:
         return None
+    from app.engine.config.runtime_settings import get_zoneinfo
     if dt.tzinfo is None:
         # naive datetime 假定为 UTC，然后转换为配置时区
         return dt.replace(tzinfo=timezone.utc).astimezone(get_zoneinfo())
@@ -102,6 +106,7 @@ def ensure_tz(dt: Optional[datetime], default_to_utc: bool = False) -> Optional[
     if dt.tzinfo is None:
         if default_to_utc:
             return dt.replace(tzinfo=timezone.utc)
+        from app.engine.config.runtime_settings import get_zoneinfo
         return dt.replace(tzinfo=get_zoneinfo())
     return dt
 
@@ -142,6 +147,7 @@ def parse_date_aware(
 
     # 根据参数转换为配置时区
     if to_config_tz:
+        from app.engine.config.runtime_settings import get_zoneinfo
         return utc_dt.astimezone(get_zoneinfo())
 
     return utc_dt
@@ -259,6 +265,7 @@ def timestamp_to_datetime(ts: Optional[float], to_config_tz: bool = True) -> Opt
         return None
     dt = datetime.fromtimestamp(ts, tz=timezone.utc)
     if to_config_tz:
+        from app.engine.config.runtime_settings import get_zoneinfo
         return dt.astimezone(get_zoneinfo())
     return dt
 
@@ -287,6 +294,7 @@ def fromtimestamp_aware(
     utc_dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
 
     if to_config_tz:
+        from app.engine.config.runtime_settings import get_zoneinfo
         return utc_dt.astimezone(get_zoneinfo())
 
     return utc_dt

@@ -326,7 +326,8 @@ const filterToolOption = (query: string, option?: ToolOption) => {
   )
 }
 
-const toolFilterMethod = (query: string, option: any) => {
+// @ts-expect-error
+const _toolFilterMethod = (query: string, option: any) => {
   // option is el-option instance; we store raw option data on props
   const opt = option?.raw as ToolOption | undefined
   return filterToolOption(query, opt)

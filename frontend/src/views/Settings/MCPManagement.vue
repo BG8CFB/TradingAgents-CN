@@ -155,7 +155,6 @@ import {
   Warning,
   Tools,
   Close,
-  Loading,
   QuestionFilled as Unknown
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'

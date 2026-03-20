@@ -145,20 +145,21 @@
                     v-for="phase in PHASES" 
                     :key="phase.id" 
                     class="phase-card"
-                    :class="{ enabled: analysisForm.phases[phase.name as keyof typeof analysisForm.phases].enabled }"
+                    :class="{ enabled: getPhaseConfig(phase.name)?.enabled }"
                   >
                     <div class="phase-header">
                       <div class="phase-title-row">
                         <div class="phase-title">{{ phase.title }}</div>
-                        <el-switch 
-                          v-model="analysisForm.phases[phase.name as keyof typeof analysisForm.phases].enabled" 
+                        <el-switch
+                          :model-value="getPhaseConfig(phase.name)?.enabled"
+                          @update:model-value="(val: boolean | string | number) => { if (getPhaseConfig(phase.name)) getPhaseConfig(phase.name).enabled = val as boolean }"
                           :disabled="phase.id === 4"
                         />
                       </div>
                       <div class="phase-desc">{{ phase.description }}</div>
                     </div>
-                    
-                    <div class="phase-body" v-if="analysisForm.phases[phase.name as keyof typeof analysisForm.phases].enabled">
+
+                    <div class="phase-body" v-if="getPhaseConfig(phase.name)?.enabled">
                       <div class="phase-agents">
                         <span class="label">参与角色:</span>
                         <div class="agent-tags">
@@ -172,7 +173,8 @@
                       <div class="phase-rounds" v-if="phase.hasDebateRounds !== false">
                         <span class="label">辩论轮次:</span>
                         <el-input-number
-                          v-model="analysisForm.phases[phase.name as keyof typeof analysisForm.phases].debateRounds"
+                          :model-value="getPhaseConfig(phase.name)?.debateRounds"
+                          @update:model-value="(val: number | undefined) => { if (getPhaseConfig(phase.name)) getPhaseConfig(phase.name).debateRounds = val || 1 }"
                           :min="phase.minRounds"
                           :max="phase.maxRounds"
                           size="small"
@@ -726,9 +728,9 @@ import { mcpApi } from '@/api/mcp'
 import type { MCPTool } from '@/types/mcp'
 import DeepModelSelector from '@/components/DeepModelSelector.vue'
 import { normalizeAnalystIds } from '@/constants/analysts'
-import { PHASES, estimateTotalTime, type PhaseConfig } from '@/constants/phases'
+import { PHASES, estimateTotalTime } from '@/constants/phases'
 import { marked } from 'marked'
-import { validateStockCode, getStockCodeFormatHelp, getStockCodeExamples } from '@/utils/stockValidator'
+import { validateStockCode, getStockCodeFormatHelp } from '@/utils/stockValidator'
 import { normalizeMarketForAnalysis, getMarketByStockCode } from '@/utils/market'
 
 // 配置marked选项
@@ -766,7 +768,6 @@ interface AnalysisForm {
 }
 
 // 使用store
-const appStore = useAppStore()
 const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
@@ -877,7 +878,8 @@ const mcpTools = ref<MCPTool[]>([])
 const loadingMcpTools = ref(false)
 
 // 🆕 模型推荐提示
-const modelRecommendation = ref<{
+// @ts-expect-error - reserved for future use
+const _modelRecommendation = ref<{
   title: string
   message: string
   type: 'success' | 'warning' | 'info' | 'error'
@@ -900,6 +902,11 @@ const analysisForm = reactive<AnalysisForm>({
     phase4: { enabled: true, debateRounds: 1 }
   }
 })
+
+// 辅助函数：安全获取阶段配置（避免模板中的类型索引问题）
+const getPhaseConfig = (phaseName: string) => {
+  return (analysisForm.phases as Record<string, { enabled: boolean; debateRounds: number }>)[phaseName]
+}
 
 // 归一化阶段配置，保证后续阶段依赖前置阶段
 const buildPhasePayload = (phases: any) => {
@@ -1014,14 +1021,16 @@ const resolveIcon = (name: string) => {
 // 页面初始化
 onMounted(async () => {
   await fetchAnalysts()
+  initializeModelSettings()
+
   // 加载模型配置
   try {
     const defaultModels = await configApi.getDefaultModels()
     modelSettings.value.quickAnalysisModel = defaultModels.quick_analysis_model
     modelSettings.value.deepAnalysisModel = defaultModels.deep_analysis_model
-    
+
     const llmConfigs = await configApi.getLLMConfigs()
-    availableModels.value = llmConfigs.filter((config: any) => config.enabled)
+    availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled)
   } catch (error) {
     console.error('加载模型配置失败:', error)
   }
@@ -1038,11 +1047,56 @@ onMounted(async () => {
   } finally {
     loadingMcpTools.value = false
   }
-  
+
+  // 🆕 从用户偏好加载默认设置
+  const authStore = useAuthStore()
+  const appStore = useAppStore()
+
+  // 优先从 authStore.user.preferences 读取，其次从 appStore.preferences 读取
+  const userPrefs = authStore.user?.preferences
+  if (userPrefs) {
+    // 加载默认市场
+    if (userPrefs.default_market) {
+      analysisForm.market = userPrefs.default_market as MarketType
+    }
+
+    // 加载默认分析师（兼容旧的名称数据，统一规范化）
+    if (userPrefs.default_analysts && userPrefs.default_analysts.length > 0) {
+      analysisForm.selectedAnalysts = normalizeAnalystIds([...userPrefs.default_analysts])
+    }
+  } else {
+    // 降级到 appStore.preferences
+    if (appStore.preferences.defaultMarket) {
+      analysisForm.market = appStore.preferences.defaultMarket as MarketType
+    }
+  }
+
   // 从用户偏好加载分析师选择 (如果有保存的偏好，且分析师列表已加载)
   if (authStore.user?.preferences?.default_analysts) {
     // 这里需要注意：用户偏好可能存的是旧的ID或名称，需要兼容
     // 简单起见，暂不覆盖 fetchAnalysts 中的默认逻辑，除非有明确映射
+  }
+
+  // 接收一次路由参数（从筛选页带入）- 路由参数优先级最高
+  const q = route.query as any
+  const hasNewStock = !!q?.stock
+  if (hasNewStock) {
+    analysisForm.stockCode = String(q.stock)
+    // 🔥 关键修复：如果有新的股票代码，清除旧任务缓存
+    clearTaskCache()
+    console.log('🔄 检测到新股票代码，已清除旧任务缓存:', q.stock)
+
+    // 🆕 自动识别市场类型（如果URL中没有明确指定market参数）
+    if (!q?.market) {
+      const detectedMarket = getMarketByStockCode(analysisForm.stockCode)
+      analysisForm.market = detectedMarket as MarketType
+    }
+  }
+  if (q?.market) analysisForm.market = normalizeMarketForAnalysis(q.market) as MarketType
+
+  // 尝试恢复任务状态（仅当没有新股票代码时）
+  if (!hasNewStock) {
+    await restoreTaskFromCache()
   }
 })
 
@@ -1209,39 +1263,30 @@ const startPollingTaskStatus = () => {
         console.log('🎉 分析完成，正在获取完整结果...')
 
         try {
-          const resultResponse = await fetch(`/api/analysis/tasks/${currentTaskId.value}/result`, {
-            headers: {
-              'Authorization': `Bearer ${authStore.token}`,
-              'Content-Type': 'application/json'
-            }
-          })
+          const resultData = await analysisApi.getTaskResult(currentTaskId.value)
+          // resultData 是 ApiResponse: { success, data, message }
+          if (resultData && resultData.success) {
+            analysisResults.value = resultData.data
+            console.log('✅ 获取完整分析结果成功:', resultData.data)
 
-          if (resultResponse.ok) {
-            const resultData = await resultResponse.json()
-            if (resultData.success) {
-              analysisResults.value = resultData.data
-              console.log('✅ 获取完整分析结果成功:', resultData.data)
-
-              // 添加调试信息
-              console.log('🔍 完整结果数据结构:', {
-                hasDecision: !!resultData.data?.decision,
-                hasState: !!resultData.data?.state,
-                hasReports: !!resultData.data?.reports,
-                hasSummary: !!resultData.data?.summary,
-                hasRecommendation: !!resultData.data?.recommendation,
-                keys: Object.keys(resultData.data || {})
-              })
-            } else {
-              console.error('❌ 获取分析结果失败:', resultData.message)
-              analysisResults.value = status.result_data // 回退到状态中的数据
-            }
+            // 添加调试信息
+            console.log('🔍 完整结果数据结构:', {
+              hasDecision: !!resultData.data?.decision,
+              hasState: !!resultData.data?.state,
+              hasReports: !!resultData.data?.reports,
+              hasSummary: !!resultData.data?.summary,
+              hasRecommendation: !!resultData.data?.recommendation,
+              keys: Object.keys(resultData.data || {})
+            })
           } else {
-            console.error('❌ 结果API调用失败:', resultResponse.status)
-            analysisResults.value = status.result_data // 回退到状态中的数据
+            // 回退到状态中的数据
+            console.error('❌ 获取分析结果失败:', resultData?.message)
+            analysisResults.value = status.result_data
           }
         } catch (error) {
+          // 回退到状态中的数据
           console.error('❌ 获取分析结果异常:', error)
-          analysisResults.value = status.result_data // 回退到状态中的数据
+          analysisResults.value = status.result_data
         }
 
         analysisStatus.value = 'completed'
@@ -1919,7 +1964,7 @@ const goSimOrder = async () => {
       confirmButtonText: '确认下单',
       cancelButtonText: '取消',
       type: 'warning',
-      beforeClose: (action, instance, done) => {
+      beforeClose: (action, _instance, done) => {
         if (action === 'confirm') {
           // 验证输入
           if (tradeForm.quantity < 100 || tradeForm.quantity % 100 !== 0) {
@@ -1975,12 +2020,13 @@ const goSimOrder = async () => {
   }
 }
 
-// 组件销毁时清理定时器
+// 组件销毁时清理定时器和事件监听
 onUnmounted(() => {
   if (pollingTimer.value) {
     clearInterval(pollingTimer.value)
     pollingTimer.value = null
   }
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 // 页面可见性变化时的处理
@@ -2101,7 +2147,7 @@ const initializeModelSettings = async () => {
 
     // 获取所有可用的模型列表
     const llmConfigs = await configApi.getLLMConfigs()
-    availableModels.value = llmConfigs.filter((config: any) => config.enabled)
+    availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled)
 
     console.log('✅ 加载模型配置成功:', {
       quick: modelSettings.value.quickAnalysisModel,
@@ -2280,7 +2326,8 @@ const isQuickAnalysisRole = (roles: string[] | undefined): boolean => {
 /**
  * 判断是否适合深度分析
  */
-const isDeepAnalysisRole = (roles: string[] | undefined): boolean => {
+// @ts-expect-error - reserved for future use
+const _isDeepAnalysisRole = (roles: string[] | undefined): boolean => {
   if (!roles || !Array.isArray(roles)) return false
   return roles.includes('deep_analysis') || roles.includes('both')
 }
@@ -2304,80 +2351,6 @@ watch(() => analysisForm.phases.phase3.enabled, (enabled) => {
 // 监听模型选择变化
 watch([() => modelSettings.value.quickAnalysisModel, () => modelSettings.value.deepAnalysisModel], () => {
   // checkModelSuitability() // Removed
-})
-
-// 页面初始化
-onMounted(async () => {
-  initializeModelSettings()
-
-  // 加载MCP工具
-  loadingMcpTools.value = true
-  try {
-    const res = await mcpApi.listTools()
-    if (res.success && res.data) {
-      mcpTools.value = res.data
-      console.log('✅ 已加载MCP工具:', mcpTools.value.length)
-    }
-  } catch (error) {
-    console.error('❌ 加载MCP工具失败:', error)
-  } finally {
-    loadingMcpTools.value = false
-  }
-
-  // 🆕 从用户偏好加载默认设置
-  const authStore = useAuthStore()
-  const appStore = useAppStore()
-
-  // 优先从 authStore.user.preferences 读取，其次从 appStore.preferences 读取
-  const userPrefs = authStore.user?.preferences
-  if (userPrefs) {
-    // 加载默认市场
-    if (userPrefs.default_market) {
-      analysisForm.market = userPrefs.default_market as MarketType
-    }
-
-    // 加载默认分析师（兼容旧的名称数据，统一规范化）
-    if (userPrefs.default_analysts && userPrefs.default_analysts.length > 0) {
-      analysisForm.selectedAnalysts = normalizeAnalystIds([...userPrefs.default_analysts])
-    }
-
-    console.log('✅ 已加载用户偏好设置:', {
-      market: analysisForm.market,
-      analysts: analysisForm.selectedAnalysts
-    })
-  } else {
-    // 降级到 appStore.preferences
-    if (appStore.preferences.defaultMarket) {
-      analysisForm.market = appStore.preferences.defaultMarket as MarketType
-    }
-    console.log('✅ 已加载应用偏好设置（降级）')
-  }
-
-  // 接收一次路由参数（从筛选页带入）- 路由参数优先级最高
-  const q = route.query as any
-  const hasNewStock = !!q?.stock
-  if (hasNewStock) {
-    analysisForm.stockCode = String(q.stock)
-    // 🔥 关键修复：如果有新的股票代码，清除旧任务缓存
-    clearTaskCache()
-    console.log('🔄 检测到新股票代码，已清除旧任务缓存:', q.stock)
-
-    // 🆕 自动识别市场类型（如果URL中没有明确指定market参数）
-    if (!q?.market) {
-      const detectedMarket = getMarketByStockCode(analysisForm.stockCode)
-      analysisForm.market = detectedMarket as MarketType
-      console.log('🔍 自动识别市场类型:', analysisForm.stockCode, '->', detectedMarket)
-    }
-  }
-  if (q?.market) analysisForm.market = normalizeMarketForAnalysis(q.market) as MarketType
-
-  // 尝试恢复任务状态（仅当没有新股票代码时）
-  if (!hasNewStock) {
-    await restoreTaskFromCache()
-  }
-
-  // 🆕 初始检查模型适用性
-  // await checkModelSuitability()
 })
 </script>
 

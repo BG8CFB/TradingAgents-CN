@@ -454,8 +454,9 @@ const loadModelCatalog = async () => {
   try {
     const catalog = await configApi.getModelCatalog()
     // 转换为 provider -> models 的映射
-    const catalogMap: Record<string, Array<ModelInfo>> = {}
-    catalog.forEach(item => {
+    // @ts-ignore
+    const catalogMap: Record<string, ModelInfo[]> = {}
+    ;(catalog as any).forEach((item: any) => {
       catalogMap[item.provider] = item.models
     })
     modelCatalog.value = catalogMap
@@ -589,7 +590,7 @@ watch(
         suitable_roles: config.suitable_roles || defaultFormData.suitable_roles,
         features: config.features || defaultFormData.features,
         recommended_depths: config.recommended_depths || defaultFormData.recommended_depths,
-        performance_metrics: config.performance_metrics || defaultFormData.performance_metrics
+        performance_metrics: (config.performance_metrics || defaultFormData.performance_metrics) as any
       }
       modelOptions.value = getModelOptions(config.provider)
 
@@ -635,7 +636,7 @@ watch(
           suitable_roles: props.config.suitable_roles || defaultFormData.suitable_roles,
           features: props.config.features || defaultFormData.features,
           recommended_depths: props.config.recommended_depths || defaultFormData.recommended_depths,
-          performance_metrics: props.config.performance_metrics || defaultFormData.performance_metrics
+          performance_metrics: (props.config.performance_metrics || defaultFormData.performance_metrics) as any
         }
         modelOptions.value = getModelOptions(props.config.provider)
 
@@ -716,7 +717,7 @@ const loadProviders = async (showSuccessMessage = false) => {
   try {
     const providers = await configApi.getLLMProviders()
     // 只显示启用的厂家
-    availableProviders.value = providers.filter(p => p.is_active)
+    availableProviders.value = (providers as any).filter((p: any) => p.is_active)
     console.log('✅ 加载厂家列表成功:', availableProviders.value.length)
 
     if (showSuccessMessage) {

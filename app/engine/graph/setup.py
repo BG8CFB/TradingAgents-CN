@@ -4,7 +4,6 @@ from typing import Dict, Any, Callable
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph, START
-from langgraph.prebuilt import ToolNode
 
 from app.engine.agents.analysts.dynamic_analyst import (
     ProgressManager  # 进度管理器
@@ -28,7 +27,6 @@ class GraphSetup:
         quick_thinking_llm: ChatOpenAI,
         deep_thinking_llm: ChatOpenAI,
         toolkit: Toolkit,
-        tool_nodes: Dict[str, ToolNode],  # 🔥 [已废弃] 子图模式不再使用，保留参数用于向后兼容
         bull_memory,
         bear_memory,
         trader_memory,
@@ -42,7 +40,6 @@ class GraphSetup:
         self.quick_thinking_llm = quick_thinking_llm
         self.deep_thinking_llm = deep_thinking_llm
         self.toolkit = toolkit
-        self.tool_nodes = tool_nodes  # 🔥 [已废弃] 不再使用，但保留以兼容接口
         self.bull_memory = bull_memory
         self.bear_memory = bear_memory
         self.trader_memory = trader_memory

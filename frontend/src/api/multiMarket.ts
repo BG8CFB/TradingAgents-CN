@@ -2,7 +2,7 @@
  * 多市场股票API
  * 支持A股、港股、美股的统一查询接口
  */
-import request from './request'
+import { ApiClient } from './request'
 
 export interface Market {
   code: string
@@ -59,42 +59,28 @@ export interface DailyQuote {
  * 获取支持的市场列表
  */
 export function getSupportedMarkets() {
-  return request<{ markets: Market[] }>({
-    url: '/api/markets',
-    method: 'get'
-  })
+  return ApiClient.get<{ markets: Market[] }>('/api/markets')
 }
 
 /**
  * 搜索股票（支持多市场）
  */
 export function searchStocks(market: string, query: string, limit: number = 20) {
-  return request<{ stocks: StockInfo[]; total: number }>({
-    url: `/api/markets/${market}/stocks/search`,
-    method: 'get',
-    params: { q: query, limit }
-  })
+  return ApiClient.get<{ stocks: StockInfo[]; total: number }>(`/api/markets/${market}/stocks/search`, { q: query, limit })
 }
 
 /**
  * 获取股票基础信息
  */
 export function getStockInfo(market: string, code: string, source?: string) {
-  return request<StockInfo>({
-    url: `/api/markets/${market}/stocks/${code}/info`,
-    method: 'get',
-    params: source ? { source } : undefined
-  })
+  return ApiClient.get<StockInfo>(`/api/markets/${market}/stocks/${code}/info`, source ? { source } : undefined)
 }
 
 /**
  * 获取股票实时行情
  */
 export function getStockQuote(market: string, code: string) {
-  return request<StockQuote>({
-    url: `/api/markets/${market}/stocks/${code}/quote`,
-    method: 'get'
-  })
+  return ApiClient.get<StockQuote>(`/api/markets/${market}/stocks/${code}/quote`)
 }
 
 /**
@@ -107,14 +93,8 @@ export function getStockDailyQuotes(
   endDate?: string,
   limit: number = 100
 ) {
-  return request<{ code: string; market: string; quotes: DailyQuote[]; total: number }>({
-    url: `/api/markets/${market}/stocks/${code}/daily`,
-    method: 'get',
-    params: {
-      start_date: startDate,
-      end_date: endDate,
-      limit
-    }
-  })
+  return ApiClient.get<{ code: string; market: string; quotes: DailyQuote[]; total: number }>(
+    `/api/markets/${market}/stocks/${code}/daily`,
+    { start_date: startDate, end_date: endDate, limit }
+  )
 }
-

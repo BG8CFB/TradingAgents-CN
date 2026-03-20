@@ -244,49 +244,49 @@
               <div class="account-section-title">🇨🇳 A股账户</div>
               <div class="account-item">
                 <div class="account-label">现金</div>
-                <div class="account-value">¥{{ formatMoney(paperAccount.cash?.CNY || paperAccount.cash) }}</div>
+                <div class="account-value">¥{{ formatMoney(getCashValue('CNY')) }}</div>
               </div>
               <div class="account-item">
                 <div class="account-label">持仓市值</div>
-                <div class="account-value">¥{{ formatMoney(paperAccount.positions_value?.CNY || paperAccount.positions_value) }}</div>
+                <div class="account-value">¥{{ formatMoney(getPositionsValue('CNY')) }}</div>
               </div>
               <div class="account-item">
                 <div class="account-label">总资产</div>
-                <div class="account-value primary">¥{{ formatMoney(paperAccount.equity?.CNY || paperAccount.equity) }}</div>
+                <div class="account-value primary">¥{{ formatMoney(getEquityValue('CNY')) }}</div>
               </div>
             </div>
 
             <!-- 港股账户 -->
-            <div class="account-section" v-if="paperAccount.cash?.HKD !== undefined">
+            <div class="account-section" v-if="getCashValue('HKD') !== 0">
               <div class="account-section-title">🇭🇰 港股账户</div>
               <div class="account-item">
                 <div class="account-label">现金</div>
-                <div class="account-value">HK${{ formatMoney(paperAccount.cash.HKD) }}</div>
+                <div class="account-value">HK${{ formatMoney(getCashValue('HKD')) }}</div>
               </div>
               <div class="account-item">
                 <div class="account-label">持仓市值</div>
-                <div class="account-value">HK${{ formatMoney(paperAccount.positions_value?.HKD || 0) }}</div>
+                <div class="account-value">HK${{ formatMoney(getPositionsValue('HKD')) }}</div>
               </div>
               <div class="account-item">
                 <div class="account-label">总资产</div>
-                <div class="account-value primary">HK${{ formatMoney(paperAccount.equity?.HKD || 0) }}</div>
+                <div class="account-value primary">HK${{ formatMoney(getEquityValue('HKD')) }}</div>
               </div>
             </div>
 
             <!-- 美股账户 -->
-            <div class="account-section" v-if="paperAccount.cash?.USD !== undefined">
+            <div class="account-section" v-if="getCashValue('USD') !== 0">
               <div class="account-section-title">🇺🇸 美股账户</div>
               <div class="account-item">
                 <div class="account-label">现金</div>
-                <div class="account-value">${{ formatMoney(paperAccount.cash.USD) }}</div>
+                <div class="account-value">${{ formatMoney(getCashValue('USD')) }}</div>
               </div>
               <div class="account-item">
                 <div class="account-label">持仓市值</div>
-                <div class="account-value">${{ formatMoney(paperAccount.positions_value?.USD || 0) }}</div>
+                <div class="account-value">${{ formatMoney(getPositionsValue('USD')) }}</div>
               </div>
               <div class="account-item">
                 <div class="account-label">总资产</div>
-                <div class="account-value primary">${{ formatMoney(paperAccount.equity?.USD || 0) }}</div>
+                <div class="account-value primary">${{ formatMoney(getEquityValue('USD')) }}</div>
               </div>
             </div>
           </div>
@@ -327,7 +327,7 @@ import MultiSourceSyncCard from '@/components/Dashboard/MultiSourceSyncCard.vue'
 import { favoritesApi } from '@/api/favorites'
 import { analysisApi } from '@/api/analysis'
 import { newsApi } from '@/api/news'
-import { paperApi, type PaperAccountSummary } from '@/api/paper'
+import { paperApi, type PaperAccountSummary, type CurrencyAmount } from '@/api/paper'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -341,13 +341,15 @@ const userStats = ref({
   concurrentLimit: 3
 })
 
-const systemStatus = ref({
+// @ts-expect-error
+const _systemStatus = ref({
   api: true,
   queue: true,
   database: true
 })
 
-const queueStats = ref({
+// @ts-expect-error
+const _queueStats = ref({
   pending: 0,
   processing: 0,
   completed: 0,
@@ -365,6 +367,17 @@ const syncingNews = ref(false)
 
 // 模拟交易账户数据
 const paperAccount = ref<PaperAccountSummary | null>(null)
+
+// 辅助函数：安全提取货币值（兼容 number 和 CurrencyAmount 格式）
+const getCurrencyValue = (val: CurrencyAmount | number | undefined, currency: string): number => {
+  if (val === undefined || val === null) return 0
+  if (typeof val === 'number') return val
+  return (val as unknown as Record<string, number>)[currency] ?? 0
+}
+
+const getCashValue = (currency: string) => paperAccount.value ? getCurrencyValue(paperAccount.value.cash as CurrencyAmount | number | undefined, currency) : 0
+const getPositionsValue = (currency: string) => paperAccount.value ? getCurrencyValue(paperAccount.value.positions_value as CurrencyAmount | number | undefined, currency) : 0
+const getEquityValue = (currency: string) => paperAccount.value ? getCurrencyValue(paperAccount.value.equity as CurrencyAmount | number | undefined, currency) : 0
 
 
 
@@ -584,13 +597,15 @@ const formatMoney = (value: number) => {
 }
 
 // 获取盈亏样式类
-const getPnlClass = (pnl: number) => {
+// @ts-expect-error
+const _getPnlClass = (pnl: number) => {
   if (pnl > 0) return 'price-up'
   if (pnl < 0) return 'price-down'
   return 'price-neutral'
 }
 
-const syncMarketNews = async () => {
+// @ts-expect-error
+const _syncMarketNews = async () => {
   try {
     syncingNews.value = true
     ElMessage.info('正在同步市场新闻，请稍候...')

@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import router from '@/router'
@@ -465,9 +465,8 @@ export const testApiConnection = async (): Promise<boolean> => {
     console.log('🔍 [API_TEST] 代理目标:', 'http://localhost:8000 (根据vite.config.ts)')
 
     const response = await request.get('/api/health', {
-      timeout: 5000,
-      skipErrorHandler: true
-    })
+      timeout: 5000
+    } as any)
 
     console.log('🔍 [API_TEST] 健康检查成功:', response.data)
     return true
@@ -571,7 +570,7 @@ export class ApiClient {
     config?: RequestConfig
   ): Promise<void> {
     // 对于 blob 响应，响应拦截器返回的就是 blob 数据
-    const blobData = await request.get(url, {
+    const blobData: any = await request.get(url, {
       responseType: 'blob',
       ...config
     })

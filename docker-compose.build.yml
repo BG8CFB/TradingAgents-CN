@@ -63,7 +63,7 @@ services:
     # 本地构建: docker compose build backend
     # 拉取镜像: docker compose pull backend
     build:
-      context: ../..
+      context: .
       dockerfile: docker/Dockerfile.backend
     # 使用 latest 标签以获取最新版本（已注释，强制使用本地构建）
     # image: ghcr.1ms.run/bg8cfb/tradingagents-backend:latest
@@ -72,18 +72,17 @@ services:
     expose:
       - "8000"
     volumes:
-      - ../../logs:/app/logs
+      # 运行时产物持久化（日志、数据、缓存、结果）
+      - ./runtime:/app/runtime
       # 用户配置持久化挂载
-      - ../../config:/app/config
-      # 数据目录映射
-      - ../../data:/app/data
+      - ./config:/app/config
     env_file:
-      - ../../.env
+      - .env
     environment:
       TZ: "Asia/Shanghai"
       TRADINGAGENTS_LOG_LEVEL: "INFO"
-      TRADINGAGENTS_LOG_DIR: "/app/logs"
-      TRADINGAGENTS_LOG_FILE: "/app/logs/tradingagents.log"
+      TRADINGAGENTS_LOG_DIR: "/app/runtime/logs"
+      TRADINGAGENTS_LOG_FILE: "/app/runtime/logs/tradingagents.log"
       # MongoDB配置（使用 root 用户）
       MONGODB_HOST: "mongodb"
       MONGODB_PORT: "27017"
@@ -153,7 +152,7 @@ services:
   frontend:
     # 支持本地构建或从Docker Hub拉取
     build:
-      context: ../..
+      context: .
       dockerfile: docker/Dockerfile.frontend
     # 使用 latest 标签（已注释，强制使用本地构建）
     # image: ghcr.1ms.run/bg8cfb/tradingagents-frontend:latest
@@ -185,7 +184,7 @@ services:
     ports:
       - "3000:80" 
     volumes:
-      - ../nginx/reverse-proxy.conf:/etc/nginx/nginx.conf:ro
+      - docker/nginx/reverse-proxy.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - frontend
       - backend

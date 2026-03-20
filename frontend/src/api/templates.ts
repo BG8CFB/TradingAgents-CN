@@ -1,4 +1,4 @@
-import ApiClient from './request'
+import { ApiClient } from './request'
 
 export interface TemplateItem {
   id: string

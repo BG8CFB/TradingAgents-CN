@@ -160,9 +160,15 @@ class AnalysisWorker:
             )
 
             # 执行分析
-            result = await get_analysis_service().execute_analysis_task(
-                task,
-                progress_callback=self._progress_callback
+            from app.models.analysis import SingleAnalysisRequest
+            single_request = SingleAnalysisRequest(
+                symbol=stock_code,
+                parameters=parameters
+            )
+            result = await get_analysis_service().execute_analysis_background(
+                task_id=task_id,
+                user_id=user_id,
+                request=single_request
             )
 
             success = True

@@ -109,7 +109,7 @@ const formatDate = (dateStr?: string) => {
 const loadCategories = async () => {
   loading.value = true
   try {
-    categories.value = await configApi.getMarketCategories()
+    categories.value = (await configApi.getMarketCategories() as any) || []
     // 按排序顺序排列
     categories.value.sort((a, b) => a.sort_order - b.sort_order)
   } catch (error) {
@@ -122,7 +122,7 @@ const loadCategories = async () => {
 
 const loadGroupings = async () => {
   try {
-    groupings.value = await configApi.getDataSourceGroupings()
+    groupings.value = (await configApi.getDataSourceGroupings() as any) || []
   } catch (error) {
     console.error('加载分组关系失败:', error)
   }

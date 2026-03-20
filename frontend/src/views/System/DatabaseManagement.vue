@@ -288,7 +288,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   DataBoard,
   Download,
-  Upload
+  Upload,
+  Refresh
 } from '@element-plus/icons-vue'
 
 import {
@@ -346,7 +347,7 @@ const loadDatabaseStatus = async () => {
   try {
     loading.value = true
     const status = await databaseApi.getStatus()
-    databaseStatus.value = status
+    databaseStatus.value = status as any
     console.log('📊 数据库状态加载成功:', status)
   } catch (error) {
     console.error('❌ 加载数据库状态失败:', error)
@@ -359,7 +360,7 @@ const loadDatabaseStatus = async () => {
 const loadDatabaseStats = async () => {
   try {
     const stats = await databaseApi.getStats()
-    databaseStats.value = stats
+    databaseStats.value = stats as any
     console.log('📈 数据库统计加载成功:', stats)
   } catch (error) {
     console.error('❌ 加载数据库统计失败:', error)

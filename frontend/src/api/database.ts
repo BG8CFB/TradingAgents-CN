@@ -3,6 +3,7 @@
  */
 
 import { ApiClient } from './request'
+import request from './request'
 
 // 数据库状态接口
 export interface DatabaseStatus {
@@ -79,15 +80,13 @@ export interface ConnectionTestResult {
 // 数据库管理API
 export const databaseApi = {
   // 获取数据库状态
-  async getStatus(): Promise<DatabaseStatus> {
-    const response = await ApiClient.get<DatabaseStatus>('/api/system/database/status')
-    return response.data
+  getStatus(): Promise<{ success: boolean; data: DatabaseStatus }> {
+    return ApiClient.get('/api/system/database/status')
   },
 
   // 获取数据库统计
-  async getStats(): Promise<DatabaseStats> {
-    const response = await ApiClient.get<DatabaseStats>('/api/system/database/stats')
-    return response.data
+  getStats(): Promise<{ success: boolean; data: DatabaseStats }> {
+    return ApiClient.get('/api/system/database/stats')
   },
 
   // 测试数据库连接
@@ -153,8 +152,9 @@ export const databaseApi = {
     collections?: string[]
     format?: string
     sanitize?: boolean  // 是否脱敏（清空敏感字段，用于演示系统）
-  }): Promise<Blob> {
-    return ApiClient.post('/api/system/database/export', options, {
+  }): Promise<any> {
+    // 使用 request 直接发送，避免 ApiClient 响应拦截器对 Blob 做不必要的 JSON 检查
+    return request.post('/api/system/database/export', options, {
       responseType: 'blob'
     })
   },

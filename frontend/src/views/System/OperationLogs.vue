@@ -152,7 +152,7 @@
       </template>
 
       <el-table
-        :data="logs"
+        :data="(logs as any)"
         v-loading="loading"
         style="width: 100%"
         :default-sort="{ prop: 'timestamp', order: 'descending' }"
@@ -329,7 +329,7 @@ import {
 // 响应式数据
 const loading = ref(false)
 const detailDialogVisible = ref(false)
-const selectedLog = ref(null)
+const selectedLog = ref<OperationLog | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const totalLogs = ref(0)
@@ -340,7 +340,7 @@ const operationTrendChart = ref()
 
 // 筛选表单
 const filterForm = reactive({
-  dateRange: [],
+  dateRange: [] as string[],
   actionType: '',
   success: '',
   keyword: ''
@@ -355,14 +355,15 @@ const stats = reactive({
 })
 
 // 日志数据
-const logs = ref<OperationLog[]>([])
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const logs = ref<any[]>([])
 
 // 统计数据详细信息
 const statsData = ref<OperationLogStats | null>(null)
 
 // 方法
-const getActionTypeTag = (actionType: string): string => {
-  return getActionTypeTagColor(actionType)
+const getActionTypeTag = (actionType: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' => {
+  return getActionTypeTagColor(actionType) as 'primary' | 'success' | 'warning' | 'info' | 'danger'
 }
 
 const loadLogs = async () => {
@@ -375,7 +376,7 @@ const loadLogs = async () => {
       start_date: filterForm.dateRange[0] || undefined,
       end_date: filterForm.dateRange[1] || undefined,
       action_type: filterForm.actionType || undefined,
-      success: filterForm.success !== '' ? filterForm.success : undefined,
+      success: filterForm.success !== '' ? filterForm.success === 'true' : undefined,
       keyword: filterForm.keyword || undefined
     }
 
@@ -383,7 +384,7 @@ const loadLogs = async () => {
     const response = await OperationLogsApi.getOperationLogs(queryParams)
 
     if (response.success) {
-      logs.value = response.data.logs
+      logs.value = (response.data.logs || []) as OperationLog[]
       totalLogs.value = response.data.total
 
       // 获取统计数据

@@ -161,8 +161,8 @@ const loadData = async () => {
       configApi.getDataSourceGroupings()
     ])
     
-    categories.value = categoriesData.filter(c => c.enabled)
-    allGroupings.value = groupingsData
+    categories.value = (categoriesData as any).filter((c: any) => c.enabled)
+    allGroupings.value = groupingsData as any
     
     // 初始化优先级
     categories.value.forEach(category => {
