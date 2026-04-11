@@ -30,8 +30,7 @@ class FavoritesService:
         注意：这里只检查格式，不代表数据库中实际存储的是ObjectId类型
         为了兼容性，我们统一使用 user_favorites 集合存储自选股
         """
-        # 强制返回 False，统一使用 user_favorites 集合
-        return False
+        return ObjectId.is_valid(user_id)
 
     def _format_favorite(self, favorite: Dict[str, Any]) -> Dict[str, Any]:
         """格式化收藏条目（仅基础信息，不包含实时行情）。

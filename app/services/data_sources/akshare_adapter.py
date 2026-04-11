@@ -1307,7 +1307,8 @@ class AKShareAdapter(DataSourceAdapter):
                             '融券余额': 'rqye', '融资融券余额': 'rzrqye'
                         })
                         df_list.append(df_sz)
-                except: pass
+                except Exception:
+                    pass
                 
                 try:
                     df_sh = ak.stock_margin_detail_sse(date=query_date)
@@ -1320,7 +1321,8 @@ class AKShareAdapter(DataSourceAdapter):
                             '信用交易日期': 'trade_date'
                         })
                         df_list.append(df_sh)
-                except: pass
+                except Exception:
+                    pass
                 
                 if df_list:
                     df = pd.concat(df_list, ignore_index=True)

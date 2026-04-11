@@ -1,9 +1,12 @@
 """
 分析报告管理API路由
 """
+import asyncio
 import os
 import json
+from collections import OrderedDict
 from datetime import datetime, timedelta
+from threading import Lock
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
@@ -19,18 +22,39 @@ import logging
 logger = logging.getLogger("webapi")
 
 # 股票名称缓存
-_stock_name_cache = {}
+_STOCK_NAME_CACHE_MAX_SIZE = 512
+_stock_name_cache: "OrderedDict[str, str]" = OrderedDict()
+_stock_name_cache_lock = Lock()
+
+
+def _get_cached_stock_name(stock_code: str) -> Optional[str]:
+    """读取缓存并刷新最近使用顺序。"""
+    with _stock_name_cache_lock:
+        cached_name = _stock_name_cache.get(stock_code)
+        if cached_name is None:
+            return None
+        _stock_name_cache.move_to_end(stock_code)
+        return cached_name
+
+
+def _cache_stock_name(stock_code: str, stock_name: str) -> str:
+    """写入缓存并在超过容量时淘汰最旧项。"""
+    with _stock_name_cache_lock:
+        _stock_name_cache[stock_code] = stock_name
+        _stock_name_cache.move_to_end(stock_code)
+        if len(_stock_name_cache) > _STOCK_NAME_CACHE_MAX_SIZE:
+            _stock_name_cache.popitem(last=False)
+    return stock_name
 
 def get_stock_name(stock_code: str) -> str:
     """
     获取股票名称
     优先级：缓存 -> MongoDB（按数据源优先级） -> 默认返回股票代码
     """
-    global _stock_name_cache
-
     # 检查缓存
-    if stock_code in _stock_name_cache:
-        return _stock_name_cache[stock_code]
+    cached_name = _get_cached_stock_name(stock_code)
+    if cached_name is not None:
+        return cached_name
 
     try:
         # 从 MongoDB 获取股票名称
@@ -73,16 +97,19 @@ def get_stock_name(stock_code: str) -> str:
 
         if stock_info and stock_info.get("name"):
             stock_name = stock_info["name"]
-            _stock_name_cache[stock_code] = stock_name
-            return stock_name
+            return _cache_stock_name(stock_code, stock_name)
 
         # 如果没有找到，返回股票代码
-        _stock_name_cache[stock_code] = stock_code
-        return stock_code
+        return _cache_stock_name(stock_code, stock_code)
 
     except Exception as e:
         logger.warning(f"⚠️ 获取股票名称失败 {stock_code}: {e}")
         return stock_code
+
+
+async def get_stock_name_async(stock_code: str) -> str:
+    """在线程中执行同步股票名称查询，避免阻塞事件循环。"""
+    return await asyncio.to_thread(get_stock_name, stock_code)
 
 
 # 统一构建报告查询：支持 _id(ObjectId) / analysis_id / task_id 三种
@@ -177,7 +204,7 @@ async def get_reports_list(
             # 🔥 优先使用MongoDB中保存的股票名称，如果没有则查询
             stock_name = doc.get("stock_name")
             if not stock_name:
-                stock_name = get_stock_name(stock_code)
+                stock_name = await get_stock_name_async(stock_code)
 
             # 🔥 获取市场类型，如果没有则根据股票代码推断
             market_type = doc.get("market_type")
@@ -288,7 +315,7 @@ async def get_report_detail(
                                 else:
                                     try:
                                         reports[key] = str(content)
-                                    except:
+                                    except Exception:
                                         pass
                     logger.info(f"🔄 从 state 中恢复了 {len(reports)} 个报告模块")
 
@@ -304,7 +331,7 @@ async def get_report_detail(
             stock_symbol = r.get("stock_symbol", r.get("stock_code", tasks_doc.get("stock_code", "")))
             stock_name = r.get("stock_name")
             if not stock_name:
-                stock_name = get_stock_name(stock_symbol)
+                stock_name = await get_stock_name_async(stock_symbol)
 
             # 🔥 获取结构化总结数据
             structured_summary = r.get("structured_summary", {})
@@ -359,7 +386,7 @@ async def get_report_detail(
             stock_symbol = doc.get("stock_symbol", "")
             stock_name = doc.get("stock_name")
             if not stock_name:
-                stock_name = get_stock_name(stock_symbol)
+                stock_name = await get_stock_name_async(stock_symbol)
 
             # 获取时间（数据库中是 UTC 时间，需要转换为 UTC+8）
             created_at = doc.get("created_at", now_utc())
@@ -396,7 +423,7 @@ async def get_report_detail(
                                         else:
                                             try:
                                                 reports[key] = str(content)
-                                            except:
+                                            except Exception:
                                                 pass
                             logger.info(f"✅ 从任务 state 中恢复了 {len(reports)} 个报告模块")
                 except Exception as e:

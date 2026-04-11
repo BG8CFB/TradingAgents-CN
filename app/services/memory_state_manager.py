@@ -275,10 +275,18 @@ class MemoryStateManager:
                         "current_step": task.current_step,
                         "timestamp": now_config_tz().isoformat()
                     }
-                    # 异步推送，不等待完成
-                    asyncio.create_task(
+                    # 异步推送，不等待完成，添加错误回调防止静默失败
+                    ws_task = asyncio.create_task(
                         self._websocket_manager.send_progress_update(task_id, progress_update)
                     )
+
+                    def _on_ws_done(t: asyncio.Task):
+                        if t.cancelled():
+                            return
+                        if exc := t.exception():
+                            logger.warning(f"⚠️ WebSocket 推送任务异常: {exc}")
+
+                    ws_task.add_done_callback(_on_ws_done)
                 except Exception as e:
                     logger.warning(f"⚠️ WebSocket 推送失败: {e}")
 

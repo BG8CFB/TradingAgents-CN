@@ -3,8 +3,10 @@
 """
 
 from fastapi import Request, Response
+from fastapi import HTTPException as FastAPIHTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import logging
 import traceback
 from typing import Callable
@@ -14,20 +16,33 @@ logger = logging.getLogger(__name__)
 
 class ErrorHandlerMiddleware(BaseHTTPMiddleware):
     """全局错误处理中间件"""
-    
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         try:
             response = await call_next(request)
             return response
         except Exception as exc:
             return await self.handle_error(request, exc)
-    
+
     async def handle_error(self, request: Request, exc: Exception) -> JSONResponse:
         """处理异常并返回标准化错误响应"""
-        
+
         # 获取请求ID
         request_id = getattr(request.state, "request_id", "unknown")
-        
+
+        # HTTPException 应保留其原始状态码和 detail
+        if isinstance(exc, (FastAPIHTTPException, StarletteHTTPException)):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "error": {
+                        "code": f"HTTP_{exc.status_code}",
+                        "message": exc.detail if isinstance(exc.detail, str) else str(exc.detail),
+                        "request_id": request_id
+                    }
+                }
+            )
+
         # 记录错误日志
         logger.error(
             f"请求异常 - ID: {request_id}, "
@@ -36,7 +51,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             f"异常: {str(exc)}",
             exc_info=True
         )
-        
+
         # 根据异常类型返回不同的错误响应
         if isinstance(exc, ValueError):
             return JSONResponse(
@@ -49,7 +64,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     }
                 }
             )
-        
+
         elif isinstance(exc, PermissionError):
             return JSONResponse(
                 status_code=403,
@@ -61,7 +76,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     }
                 }
             )
-        
+
         elif isinstance(exc, FileNotFoundError):
             return JSONResponse(
                 status_code=404,
@@ -73,7 +88,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     }
                 }
             )
-        
+
         else:
             # 未知异常
             return JSONResponse(

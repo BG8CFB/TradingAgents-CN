@@ -11,9 +11,7 @@ from datetime import datetime
 from app.engine.config.runtime_settings import get_timezone_name
 from app.utils.time_utils import now_config_tz
 
-from app.utils.logging_init import get_logger
-
-# 导入日志模块
+# 导入日志模块（统一使用 logging_manager 作为唯一来源）
 from app.utils.logging_manager import get_logger, get_logger_manager
 logger = get_logger('agents')
 

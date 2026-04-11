@@ -1,12 +1,15 @@
 import time
-import json
-import os
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
 logger = get_logger("default")
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from app.engine.agents.utils.generic_agent import (
+    build_stage3_report_path,
+    load_agent_config,
+    resolve_company_name,
+)
 
 def create_risk_manager(llm, memory):
     def risk_manager_node(state) -> dict:
@@ -40,35 +43,10 @@ def create_risk_manager(llm, memory):
         from app.utils.stock_utils import StockUtils
         market_info = StockUtils.get_market_info(ticker)
         
-        # 获取公司名称
-        def _get_company_name(ticker_code: str, market_info_dict: dict) -> str:
-            try:
-                if market_info_dict['is_china']:
-                    from app.data.interface import get_china_stock_info_unified
-                    stock_info = get_china_stock_info_unified(ticker_code)
-                    if stock_info and "股票名称:" in stock_info:
-                        return stock_info.split("股票名称:")[1].split("\n")[0].strip()
-                    try:
-                        from app.data.data_source_manager import get_china_stock_info_unified as get_info_dict
-                        info = get_info_dict(ticker_code)
-                        if info and info.get('name'): return info['name']
-                    except: pass
-                elif market_info_dict['is_hk']:
-                    try:
-                        from app.data.providers.hk.improved_hk import get_hk_company_name_improved
-                        return get_hk_company_name_improved(ticker_code)
-                    except: return f"港股{ticker_code.replace('.HK','')}"
-                elif market_info_dict['is_us']:
-                    us_names = {'AAPL': '苹果', 'TSLA': '特斯拉', 'NVDA': '英伟达', 'MSFT': '微软', 'GOOGL': '谷歌'}
-                    return us_names.get(ticker_code.upper(), f"美股{ticker_code}")
-            except: pass
-            return f"股票代码{ticker_code}"
-
-        company_name = _get_company_name(ticker, market_info)
+        company_name = resolve_company_name(ticker, market_info)
         currency = market_info['currency_name']
 
         # 4. 构建 Prompt
-        from app.engine.agents.utils.generic_agent import load_agent_config
         base_prompt = load_agent_config("risk-manager")
         
         if not base_prompt:
@@ -126,7 +104,11 @@ def create_risk_manager(llm, memory):
         
         # 6. 保存报告文件
         try:
-            filename = "投资组合风控报告.md"
+            filename = build_stage3_report_path(
+                state.get("task_id"),
+                ticker,
+                "risk_manager_decision",
+            )
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(f"# {company_name} ({ticker}) 投资组合风控裁决报告\n\n")
                 f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -136,21 +118,16 @@ def create_risk_manager(llm, memory):
         except Exception as e:
             logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")
 
-        # 7. 更新状态
-        new_risk_debate_state = {
+        # 7. 更新状态（保留原有所有字段，避免丢失上游数据）
+        new_risk_debate_state = risk_debate_state.copy()
+        new_risk_debate_state.update({
             "judge_decision": final_content,
-            "history": risk_debate_state.get("history", ""),
-            "risky_history": risk_debate_state.get("risky_history", ""),
-            "safe_history": risk_debate_state.get("safe_history", ""),
-            "neutral_history": risk_debate_state.get("neutral_history", ""),
             "current_response": final_content,
             "count": risk_debate_state["count"],
-            "rounds": risk_debate_state.get("rounds", []),
             "risky_report_content": risky_report,
             "safe_report_content": safe_report,
             "neutral_report_content": neutral_report,
-            "current_round_index": risk_debate_state.get("current_round_index", 0),
-        }
+        })
         
         return {
             "risk_debate_state": new_risk_debate_state,

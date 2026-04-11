@@ -332,6 +332,12 @@ class MultiSourceBasicsSyncService:
             async with self._lock:
                 self._running = False
 
+    async def reset_state(self) -> None:
+        """安全地重置同步服务状态（供外部调用，避免直接访问私有属性）"""
+        async with self._lock:
+            self._running = False
+            logger.info("Multi-source sync state has been reset")
+
 
 
     def _add_financial_metrics(self, doc: Dict, daily_metrics: Dict) -> None:

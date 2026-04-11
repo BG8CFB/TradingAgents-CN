@@ -20,7 +20,7 @@ class Propagator:
         self.max_recur_limit = max_recur_limit
 
     def create_initial_state(
-        self, company_name: str, trade_date: str
+        self, company_name: str, trade_date: str, task_id: str | None = None
     ) -> Dict[str, Any]:
         """Create the initial state for the agent graph."""
         from langchain_core.messages import HumanMessage
@@ -34,6 +34,7 @@ class Propagator:
             "messages": [initial_message],
             "company_of_interest": company_name,
             "trade_date": str(trade_date),
+            "task_id": task_id,
             "investment_debate_state": InvestDebateState(
                 {
                     "history": "",

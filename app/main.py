@@ -71,7 +71,22 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from app.services.quotes_ingestion_service import QuotesIngestionService
-from app.routers import paper as paper_router
+
+# 模块级变量：供 APScheduler 调度的基础信息同步服务实例
+_basics_sync_service: MultiSourceBasicsSyncService | None = None
+
+
+async def _run_basics_sync(force: bool = False, preferred_sources: list | None = None):
+    """
+    模块级异步函数，供 APScheduler 调度基础信息同步。
+    APScheduler 要求 job 目标函数可被模块路径引用（app.main._run_basics_sync），
+    因此不能使用闭包或局部函数。
+    """
+    if _basics_sync_service is None:
+        logger_placeholder = logging.getLogger("app.main")
+        logger_placeholder.warning("⚠️ 基础信息同步服务未初始化，跳过同步")
+        return
+    await _basics_sync_service.run_full_sync(force=force, preferred_sources=preferred_sources)
 
 
 def get_version() -> str:
@@ -327,7 +342,9 @@ async def lifespan(app: FastAPI):
         scheduler = AsyncIOScheduler(timezone=settings.TIMEZONE)
 
         # 使用多数据源同步服务（支持自动切换）
+        global _basics_sync_service
         multi_source_service = MultiSourceBasicsSyncService()
+        _basics_sync_service = multi_source_service
 
         # 根据 TUSHARE_ENABLED 配置决定优先数据源
         # 如果 Tushare 被禁用，系统会自动使用其他可用数据源（AKShare/BaoStock）
@@ -342,30 +359,31 @@ async def lifespan(app: FastAPI):
             preferred_sources = ["akshare", "baostock"]
             logger.info(f"📊 股票基础信息同步优先数据源: AKShare > BaoStock (Tushare已禁用)")
 
-        # 立即在启动后尝试一次（不阻塞）
-        async def run_sync_with_sources():
-            await multi_source_service.run_full_sync(force=False, preferred_sources=preferred_sources)
-
-        asyncio.create_task(run_sync_with_sources())
+        # 立即在启动后尝试一次（不阻塞），使用模块级函数
+        asyncio.create_task(_run_basics_sync(preferred_sources=preferred_sources))
 
         # 配置调度：优先使用 CRON，其次使用 HH:MM
+        # 使用模块级函数 + kwargs 传递参数，确保 APScheduler 可正确序列化 job
         if settings.SYNC_STOCK_BASICS_ENABLED:
+            _sync_kwargs = {"force": False, "preferred_sources": preferred_sources}
             if settings.SYNC_STOCK_BASICS_CRON:
                 # 如果提供了cron表达式
-                add_resilient_job(scheduler, 
-                    lambda: multi_source_service.run_full_sync(force=False, preferred_sources=preferred_sources),
+                add_resilient_job(scheduler,
+                    _run_basics_sync,
                     CronTrigger.from_crontab(settings.SYNC_STOCK_BASICS_CRON, timezone=settings.TIMEZONE),
                     id="basics_sync_service",
-                    name="股票基础信息同步（多数据源）"
+                    name="股票基础信息同步（多数据源）",
+                    kwargs=_sync_kwargs
                 )
                 logger.info(f"📅 Stock basics sync scheduled by CRON: {settings.SYNC_STOCK_BASICS_CRON} ({settings.TIMEZONE})")
             else:
                 hh, mm = (settings.SYNC_STOCK_BASICS_TIME or "06:30").split(":")
-                add_resilient_job(scheduler, 
-                    lambda: multi_source_service.run_full_sync(force=False, preferred_sources=preferred_sources),
+                add_resilient_job(scheduler,
+                    _run_basics_sync,
                     CronTrigger(hour=int(hh), minute=int(mm), timezone=settings.TIMEZONE),
                     id="basics_sync_service",
-                    name="股票基础信息同步（多数据源）"
+                    name="股票基础信息同步（多数据源）",
+                    kwargs=_sync_kwargs
                 )
                 logger.info(f"📅 Stock basics sync scheduled daily at {settings.SYNC_STOCK_BASICS_TIME} ({settings.TIMEZONE})")
 
@@ -731,6 +749,11 @@ app.add_middleware(
 # 操作日志中间件
 app.add_middleware(OperationLogMiddleware)
 
+# 速率限制中间件（在操作日志之后注册 = 在操作日志之前执行）
+from app.middleware.rate_limit import RateLimitMiddleware, QuotaMiddleware
+app.add_middleware(QuotaMiddleware)
+app.add_middleware(RateLimitMiddleware)
+
 
 # 请求日志中间件
 @app.middleware("http")
@@ -763,6 +786,48 @@ app.add_middleware(RequestIDMiddleware)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理器，提供异常分类和标准化错误响应"""
+    request_id = getattr(request.state, "request_id", None)
+
+    if isinstance(exc, ValueError):
+        logging.warning(f"Validation error: {exc}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": str(exc),
+                    "request_id": request_id
+                }
+            }
+        )
+
+    if isinstance(exc, PermissionError):
+        logging.warning(f"Permission denied: {exc}")
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": {
+                    "code": "PERMISSION_DENIED",
+                    "message": "权限不足",
+                    "request_id": request_id
+                }
+            }
+        )
+
+    if isinstance(exc, FileNotFoundError):
+        logging.warning(f"Resource not found: {exc}")
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "code": "RESOURCE_NOT_FOUND",
+                    "message": "请求的资源不存在",
+                    "request_id": request_id
+                }
+            }
+        )
+
     logging.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
@@ -770,7 +835,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
                 "message": "Internal server error occurred",
-                "request_id": getattr(request.state, "request_id", None)
+                "request_id": request_id
             }
         }
     )
@@ -828,7 +893,6 @@ app.include_router(scheduler_router.router, tags=["scheduler"])
 app.include_router(sse.router, prefix="/api/stream", tags=["streaming"])
 app.include_router(sync_router.router)
 app.include_router(multi_source_sync.router)
-app.include_router(paper_router.router, prefix="/api", tags=["paper"])
 app.include_router(tushare_init.router, prefix="/api", tags=["tushare-init"])
 app.include_router(akshare_init.router, prefix="/api", tags=["akshare-init"])
 app.include_router(baostock_init.router, prefix="/api", tags=["baostock-init"])

@@ -18,6 +18,17 @@ logger = logging.getLogger("webapi")
 # 全局开关：是否启用操作日志记录（可由系统设置动态控制）
 OPLOG_ENABLED: bool = True
 
+
+def _get_client_ip_from_request(request: Request) -> str:
+    """获取客户端真实 IP 地址（检查代理头）"""
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip
+    return request.client.host if request.client else "unknown"
+
 def set_operation_log_enabled(flag: bool) -> None:
     global OPLOG_ENABLED
     OPLOG_ENABLED = bool(flag)
@@ -120,20 +131,7 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
 
     def _get_client_ip(self, request: Request) -> str:
         """获取客户端IP地址"""
-        # 检查代理头
-        forwarded_for = request.headers.get("x-forwarded-for")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-
-        real_ip = request.headers.get("x-real-ip")
-        if real_ip:
-            return real_ip
-
-        # 使用直接连接IP
-        if request.client:
-            return request.client.host
-
-        return "unknown"
+        return _get_client_ip_from_request(request)
 
     async def _get_user_info(self, request: Request) -> Optional[Dict[str, Any]]:
         """获取用户信息"""
@@ -151,14 +149,19 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
                 from app.services.auth_service import AuthService
                 token_data = AuthService.verify_token(token)
 
-                if token_data:
-                    # 返回用户信息（开源版只有admin用户）
+                if token_data and getattr(token_data, "sub", None):
+                    from app.services.user_service import user_service
+
+                    user = await user_service.get_user_by_username(token_data.sub)
+                    if not user or not user.is_active:
+                        return None
+
                     return {
-                        "id": "admin",
-                        "username": "admin",
-                        "name": "管理员",
-                        "is_admin": True,
-                        "roles": ["admin"]
+                        "id": str(user.id),
+                        "username": user.username,
+                        "name": user.username,
+                        "is_admin": user.is_admin,
+                        "roles": ["admin"] if user.is_admin else ["user"],
                     }
 
             return None
@@ -292,7 +295,7 @@ async def manual_log_operation(
 ):
     """手动记录操作日志"""
     try:
-        ip_address = request.client.host if request.client else "unknown"
+        ip_address = _get_client_ip_from_request(request)
         user_agent = request.headers.get("user-agent", "")
 
         await log_operation(

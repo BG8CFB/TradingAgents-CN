@@ -5,6 +5,8 @@
 """
 
 import re
+import asyncio
+import concurrent.futures
 from typing import Dict, Tuple, Optional
 from datetime import datetime, timedelta
 from app.utils.time_utils import now_utc, get_current_date, parse_date_aware
@@ -299,9 +301,9 @@ class StockDataPreparer:
             if market_type == "A股":
                 return await self._prepare_china_stock_data_async(stock_code, period_days, analysis_date)
             elif market_type == "港股":
-                return self._prepare_hk_stock_data(stock_code, period_days, analysis_date)
+                return await asyncio.to_thread(self._prepare_hk_stock_data, stock_code, period_days, analysis_date)
             elif market_type == "美股":
-                return self._prepare_us_stock_data(stock_code, period_days, analysis_date)
+                return await asyncio.to_thread(self._prepare_us_stock_data, stock_code, period_days, analysis_date)
             else:
                 return StockDataPreparationResult(
                     is_valid=False,
@@ -711,37 +713,16 @@ class StockDataPreparer:
         import asyncio
 
         try:
-            # 🔥 检测是否有正在运行的事件循环
-            # 如果有，说明我们在 asyncio.to_thread() 创建的线程中，需要创建新的事件循环
-            try:
-                running_loop = asyncio.get_running_loop()
-                # 有正在运行的循环，说明在异步上下文中，不能使用 run_until_complete
-                # 创建新的事件循环在新线程中运行
-                logger.info(f"🔍 [数据同步] 检测到正在运行的事件循环，创建新事件循环")
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    return loop.run_until_complete(
-                        self._trigger_data_sync_async(stock_code, start_date, end_date)
-                    )
-                finally:
-                    loop.close()
-                    asyncio.set_event_loop(None)
-            except RuntimeError:
-                # 没有正在运行的循环，可以安全地获取或创建事件循环
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_closed():
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+            coro = self._trigger_data_sync_async(stock_code, start_date, end_date)
 
-                # 调用异步方法
-                return loop.run_until_complete(
-                    self._trigger_data_sync_async(stock_code, start_date, end_date)
-                )
+            try:
+                asyncio.get_running_loop()
+                logger.info("🔍 [数据同步] 检测到正在运行的事件循环，切换到独立线程执行异步同步任务")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(asyncio.run, coro)
+                    return future.result()
+            except RuntimeError:
+                return asyncio.run(coro)
         except Exception as e:
             logger.error(f"❌ [数据同步] 同步包装器失败: {e}", exc_info=True)
             return {
@@ -950,7 +931,11 @@ class StockDataPreparer:
         # 标准化港股代码格式
         if not stock_code.upper().endswith('.HK'):
             # 移除前导0，然后补齐到4位
-            clean_code = stock_code.lstrip('0') or '0'  # 如果全是0，保留一个0
+            clean_code = stock_code.lstrip('0')
+            if not clean_code:
+                # 全零代码（如 "00000"），可能是无效输入
+                logger.warning(f"⚠️ [港股数据] 疑似无效的全零代码: {stock_code}，保留原始值")
+                clean_code = stock_code
             formatted_code = f"{clean_code.zfill(4)}.HK"
             logger.debug(f"🔍 [港股数据] 代码格式化: {stock_code} → {formatted_code}")
         else:

@@ -122,13 +122,9 @@ class ModelCapabilityService:
         """
         # 1. 优先从 MongoDB 数据库配置读取（使用同步客户端）
         try:
-            from pymongo import MongoClient
-            from app.core.config import settings
-            from app.models.config import SystemConfig
+            from app.core.database import get_mongo_db_sync
 
-            # 使用同步 MongoDB 客户端
-            client = MongoClient(settings.MONGO_URI)
-            db = client[settings.MONGO_DB]
+            db = get_mongo_db_sync()
             collection = db.system_configs  # 注意：集合名是复数
 
             # 查询系统配置（与 config_service 保持一致）
@@ -171,9 +167,6 @@ class ModelCapabilityService:
 
                         logger.info(f"📊 [MongoDB配置] {model_name}: features={features_enum}, roles={roles_enum}")
 
-                        # 关闭连接
-                        client.close()
-
                         return {
                             "model_name": config_dict.get("model_name"),
                             "capability_level": config_dict.get('capability_level', 2),
@@ -182,9 +175,6 @@ class ModelCapabilityService:
                             "recommended_depths": config_dict.get('recommended_depths', ["快速", "基础", "标准"]),
                             "performance_metrics": config_dict.get('performance_metrics', None)
                         }
-
-            # 关闭连接
-            client.close()
 
         except Exception as e:
             logger.warning(f"从 MongoDB 读取模型信息失败: {e}", exc_info=True)

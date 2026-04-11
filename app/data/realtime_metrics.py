@@ -11,6 +11,34 @@ from app.utils.time_utils import now_config_tz
 logger = logging.getLogger(__name__)
 
 
+def _resolve_sync_db(db_client=None):
+    """统一解析为可复用的同步数据库实例，避免重复创建 MongoClient。"""
+    from pymongo.database import Database
+    from app.core.database import get_mongo_db_sync
+    from app.core.config import settings
+
+    if db_client is None:
+        return get_mongo_db_sync()
+
+    if isinstance(db_client, Database):
+        return db_client
+
+    client_type = type(db_client).__name__
+    if "AsyncIOMotorDatabase" in client_type or "MotorDatabase" in client_type:
+        return get_mongo_db_sync()
+
+    if "AsyncIOMotorClient" in client_type or "MotorClient" in client_type:
+        return get_mongo_db_sync()
+
+    if hasattr(db_client, "list_collection_names") and hasattr(db_client, "name"):
+        return db_client
+
+    if hasattr(db_client, "__getitem__"):
+        return db_client[settings.MONGO_DB]
+
+    return get_mongo_db_sync()
+
+
 def calculate_realtime_pe_pb(
     symbol: str,
     db_client=None
@@ -43,26 +71,7 @@ def calculate_realtime_pe_pb(
         如果计算失败返回 None
     """
     try:
-        # 获取数据库连接（确保是同步客户端）
-        if db_client is None:
-            from app.engine.config.database_manager import get_database_manager
-            db_manager = get_database_manager()
-            if not db_manager.is_mongodb_available():
-                logger.debug("MongoDB不可用，无法计算实时PE/PB")
-                return None
-            db_client = db_manager.get_mongodb_client()
-
-        # 检查是否是异步客户端（AsyncIOMotorClient）
-        # 如果是异步客户端，需要转换为同步客户端
-        client_type = type(db_client).__name__
-        if 'AsyncIOMotorClient' in client_type or 'Motor' in client_type:
-            # 这是异步客户端，创建同步客户端
-            from pymongo import MongoClient
-            from app.core.config import settings
-            logger.debug(f"检测到异步客户端 {client_type}，转换为同步客户端")
-            db_client = MongoClient(settings.MONGO_URI)
-
-        db = db_client['tradingagents']
+        db = _resolve_sync_db(db_client)
         code6 = str(symbol).zfill(6)
 
         logger.info(f"🔍 [实时PE计算] 开始计算股票 {code6}")
@@ -359,21 +368,7 @@ def get_pe_pb_with_fallback(
 
     # 准备数据库连接
     try:
-        if db_client is None:
-            from app.engine.config.database_manager import get_database_manager
-            db_manager = get_database_manager()
-            if not db_manager.is_mongodb_available():
-                logger.error("❌ [PE智能策略-失败] MongoDB不可用")
-                return {}
-            db_client = db_manager.get_mongodb_client()
-
-        # 检查是否是异步客户端
-        client_type = type(db_client).__name__
-        if 'AsyncIOMotorClient' in client_type or 'Motor' in client_type:
-            from pymongo import MongoClient
-            from app.core.config import settings
-            logger.debug(f"检测到异步客户端 {client_type}，转换为同步客户端")
-            db_client = MongoClient(settings.MONGO_URI)
+        db = _resolve_sync_db(db_client)
 
     except Exception as e:
         logger.error(f"❌ [PE智能策略-失败] 数据库连接失败: {e}")
@@ -383,7 +378,7 @@ def get_pe_pb_with_fallback(
     logger.info("   → 尝试方案1: 动态PE计算 (实时股价 + Tushare TTM净利润)")
     logger.info("   💡 说明: 使用实时股价和Tushare官方TTM净利润，准确反映当前估值")
 
-    realtime_metrics = calculate_realtime_pe_pb(symbol, db_client)
+    realtime_metrics = calculate_realtime_pe_pb(symbol, db)
     if realtime_metrics:
         # 验证数据合理性
         pe = realtime_metrics.get('pe')
@@ -401,7 +396,6 @@ def get_pe_pb_with_fallback(
     logger.info("   💡 说明: 使用Tushare官方PE_TTM，基于昨日收盘价")
 
     try:
-        db = db_client['tradingagents']
         code6 = str(symbol).zfill(6)
 
         # 🔥 优先查询 Tushare 数据源

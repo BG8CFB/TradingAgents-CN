@@ -107,12 +107,9 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
             provider = AKShareProvider()
 
             def run_async():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    return loop.run_until_complete(provider.get_stock_news(symbol=clean_code, limit=max_results))
-                finally:
-                    loop.close()
+                return asyncio.run(
+                    provider.get_stock_news(symbol=clean_code, limit=max_results)
+                )
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(run_async)

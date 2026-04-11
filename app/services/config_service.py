@@ -374,6 +374,9 @@ class ConfigService:
 
             if config_data:
                 print(f"📊 从数据库获取配置，版本: {config_data.get('version', 0)}, LLM配置数量: {len(config_data.get('llm_configs', []))}")
+                # 补充必填字段默认值，防止旧版本文档缺失导致 ValidationError
+                config_data.setdefault('config_name', config_data.get('config_name', 'bridged'))
+                config_data.setdefault('config_type', config_data.get('config_type', 'system'))
                 return SystemConfig(**config_data)
 
             # 如果没有配置，创建默认配置
@@ -2786,10 +2789,8 @@ class ConfigService:
     def _is_valid_api_key(self, api_key: Optional[str]) -> bool:
         """
         判断 API Key 是否有效
-        
-        为了支持本地AI模型，API Key总是有效的
         """
-        return True
+        return is_valid_api_key(api_key)
 
     def _get_env_api_key(self, provider_name: str) -> Optional[str]:
         """从环境变量获取API密钥"""

@@ -10,23 +10,17 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_openai import ChatOpenAI
 from langchain_core.callbacks import CallbackManagerForLLMRun
 
-# 导入统一日志系统
-from app.utils.logging_init import setup_llm_logging
-
 # 导入日志模块
 from app.utils.logging_manager import get_logger, get_logger_manager
 logger = get_logger('agents')
-logger = setup_llm_logging()
 
 # 导入token跟踪器
 try:
     from app.engine.config.config_manager import token_tracker
     TOKEN_TRACKING_ENABLED = True
-    logger.info("✅ Token跟踪功能已启用")
 except ImportError:
+    token_tracker = None
     TOKEN_TRACKING_ENABLED = False
-    logger.warning("⚠️ Token跟踪功能未启用")
-
 
 class ChatDeepSeek(ChatOpenAI):
     """

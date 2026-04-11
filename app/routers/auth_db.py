@@ -69,19 +69,19 @@ class CreateUserRequest(BaseModel):
 async def get_current_user(authorization: Optional[str] = Header(default=None)) -> dict:
     """获取当前用户信息"""
     logger.debug(f"🔐 认证检查开始")
-    logger.debug(f"📋 Authorization header: {authorization[:50] if authorization else 'None'}...")
+    logger.debug(f"📋 Authorization header: {'present' if authorization else 'missing'}, len={len(authorization) if authorization else 0}")
 
     if not authorization:
         logger.warning("❌ 没有Authorization header")
         raise HTTPException(status_code=401, detail="No authorization header")
 
     if not authorization.lower().startswith("bearer "):
-        logger.warning(f"❌ Authorization header格式错误: {authorization[:20]}...")
+        logger.warning(f"❌ Authorization header格式错误: prefix={authorization[:7] if len(authorization) >= 7 else 'short'}...")
         raise HTTPException(status_code=401, detail="Invalid authorization format")
 
     token = authorization.split(" ", 1)[1]
     logger.debug(f"🎫 提取的token长度: {len(token)}")
-    logger.debug(f"🎫 Token前20位: {token[:20]}...")
+    logger.debug(f"🎫 Token指纹: {hash(token) % 1000000:06d}")
 
     token_data = AuthService.verify_token(token)
     logger.debug(f"🔍 Token验证结果: {token_data is not None}")
@@ -448,16 +448,11 @@ async def create_user(
         if not new_user:
             raise HTTPException(status_code=400, detail="用户名或邮箱已存在")
 
-        # 如果需要设置为管理员
+        # 如果需要设置为管理员，复用现有异步用户服务，避免额外同步连接泄漏
         if payload.is_admin:
-            from pymongo import MongoClient
-            from app.core.config import settings
-            client = MongoClient(settings.MONGO_URI)
-            db = client[settings.MONGO_DB]
-            db.users.update_one(
-                {"username": payload.username},
-                {"$set": {"is_admin": True}}
-            )
+            admin_updated = await user_service.set_admin_status(payload.username, True)
+            if not admin_updated:
+                raise HTTPException(status_code=500, detail="用户已创建，但管理员权限设置失败")
 
         return {
             "success": True,

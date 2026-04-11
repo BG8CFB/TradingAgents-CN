@@ -5,11 +5,12 @@ Provides endpoints for multi-source stock data synchronization
 import asyncio
 import logging
 from typing import Dict, List, Optional, Any, Union
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 from app.services.multi_source_basics_sync_service import get_multi_source_sync_service
 from app.data.manager import DataSourceManager
+from app.routers.auth_db import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -446,7 +447,7 @@ async def get_sync_history(
 
 
 @router.delete("/cache")
-async def clear_sync_cache():
+async def clear_sync_cache(user: dict = Depends(get_current_user)):
     """清空同步相关的缓存"""
     try:
         service = get_multi_source_sync_service()
@@ -464,7 +465,7 @@ async def clear_sync_cache():
             cleared_items += result.deleted_count
 
             # 重置服务状态
-            service._running = False
+            await service.reset_state()
 
         except Exception as e:
             logger.warning(f"Failed to clear sync status cache: {e}")

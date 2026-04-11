@@ -22,9 +22,6 @@ from langchain_core.tools import StructuredTool, BaseTool
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
-
-# 导入日志模块
-from app.utils.logging_manager import get_logger
 from app.utils.runtime_paths import get_eval_results_dir
 logger = get_logger('agents')
 from app.engine.agents.utils.agent_states import (
@@ -153,7 +150,7 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
 
     elif provider.lower() == "anthropic":
         # 读取 Anthropic API Key（优先环境变量）
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
         anthropic_kwargs = {}
         if anthropic_key:
             anthropic_kwargs["api_key"] = anthropic_key
@@ -170,6 +167,7 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
         return create_openai_compatible_llm(
             provider=provider,
             model=model,
+            api_key=api_key,
             base_url=backend_url,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -316,7 +314,7 @@ class TradingAgentsGraph:
             if not siliconflow_api_key:
                 raise ValueError("使用SiliconFlow需要设置SILICONFLOW_API_KEY环境变量")
 
-            logger.info(f"🌐 [SiliconFlow] 使用API密钥: {siliconflow_api_key[:20]}...")
+            logger.info(f"🌐 [SiliconFlow] 已配置API密钥")
             logger.info(f"🔧 [SiliconFlow-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [SiliconFlow-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
 
@@ -342,7 +340,7 @@ class TradingAgentsGraph:
             if not openrouter_api_key:
                 raise ValueError("使用OpenRouter需要设置OPENROUTER_API_KEY或OPENAI_API_KEY环境变量")
 
-            logger.info(f"🌐 [OpenRouter] 使用API密钥: {openrouter_api_key[:20]}...")
+            logger.info(f"🌐 [OpenRouter] 已配置API密钥")
             logger.info(f"🔧 [OpenRouter-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [OpenRouter-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
 
@@ -418,16 +416,16 @@ class TradingAgentsGraph:
             logger.info(f"🔑 [Google AI] API Key 来源: {'数据库配置' if self.config.get('quick_api_key') or self.config.get('deep_api_key') else '环境变量'}")
 
             # 🔧 从配置中读取模型参数（优先使用用户配置，否则使用默认值）
-            quick_config = self.config.get("quick_model_config", {})
-            deep_config = self.config.get("deep_model_config", {})
+            google_quick_config = self.config.get("quick_model_config", {})
+            google_deep_config = self.config.get("deep_model_config", {})
 
-            quick_max_tokens = quick_config.get("max_tokens", 4000)
-            quick_temperature = quick_config.get("temperature", 0.7)
-            quick_timeout = quick_config.get("timeout", 180)
+            quick_max_tokens = google_quick_config.get("max_tokens", 4000)
+            quick_temperature = google_quick_config.get("temperature", 0.7)
+            quick_timeout = google_quick_config.get("timeout", 180)
 
-            deep_max_tokens = deep_config.get("max_tokens", 4000)
-            deep_temperature = deep_config.get("temperature", 0.7)
-            deep_timeout = deep_config.get("timeout", 180)
+            deep_max_tokens = google_deep_config.get("max_tokens", 4000)
+            deep_temperature = google_deep_config.get("temperature", 0.7)
+            deep_timeout = google_deep_config.get("timeout", 180)
 
             logger.info(f"🔧 [Google-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [Google-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
@@ -470,18 +468,18 @@ class TradingAgentsGraph:
             logger.info(f"🔑 [阿里百炼] API Key 来源: {'数据库配置' if self.config.get('quick_api_key') or self.config.get('deep_api_key') else '环境变量'}")
 
             # 🔧 从配置中读取模型参数（优先使用用户配置，否则使用默认值）
-            quick_config = self.config.get("quick_model_config", {})
-            deep_config = self.config.get("deep_model_config", {})
+            dashscope_quick_config = self.config.get("quick_model_config", {})
+            dashscope_deep_config = self.config.get("deep_model_config", {})
 
             # 读取快速模型参数
-            quick_max_tokens = quick_config.get("max_tokens", 4000)
-            quick_temperature = quick_config.get("temperature", 0.7)
-            quick_timeout = quick_config.get("timeout", 180)
+            quick_max_tokens = dashscope_quick_config.get("max_tokens", 4000)
+            quick_temperature = dashscope_quick_config.get("temperature", 0.7)
+            quick_timeout = dashscope_quick_config.get("timeout", 180)
 
             # 读取深度模型参数
-            deep_max_tokens = deep_config.get("max_tokens", 4000)
-            deep_temperature = deep_config.get("temperature", 0.7)
-            deep_timeout = deep_config.get("timeout", 180)
+            deep_max_tokens = dashscope_deep_config.get("max_tokens", 4000)
+            deep_temperature = dashscope_deep_config.get("temperature", 0.7)
+            deep_timeout = dashscope_deep_config.get("timeout", 180)
 
             logger.info(f"🔧 [阿里百炼-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [阿里百炼-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
@@ -542,18 +540,18 @@ class TradingAgentsGraph:
             deepseek_base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
 
             # 🔧 从配置中读取模型参数（优先使用用户配置，否则使用默认值）
-            quick_config = self.config.get("quick_model_config", {})
-            deep_config = self.config.get("deep_model_config", {})
+            deepseek_quick_config = self.config.get("quick_model_config", {})
+            deepseek_deep_config = self.config.get("deep_model_config", {})
 
             # 读取快速模型参数
-            quick_max_tokens = quick_config.get("max_tokens", 4000)
-            quick_temperature = quick_config.get("temperature", 0.7)
-            quick_timeout = quick_config.get("timeout", 180)
+            quick_max_tokens = deepseek_quick_config.get("max_tokens", 4000)
+            quick_temperature = deepseek_quick_config.get("temperature", 0.7)
+            quick_timeout = deepseek_quick_config.get("timeout", 180)
 
             # 读取深度模型参数
-            deep_max_tokens = deep_config.get("max_tokens", 4000)
-            deep_temperature = deep_config.get("temperature", 0.7)
-            deep_timeout = deep_config.get("timeout", 180)
+            deep_max_tokens = deepseek_deep_config.get("max_tokens", 4000)
+            deep_temperature = deepseek_deep_config.get("temperature", 0.7)
+            deep_timeout = deepseek_deep_config.get("timeout", 180)
 
             logger.info(f"🔧 [DeepSeek-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [DeepSeek-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
@@ -972,7 +970,7 @@ class TradingAgentsGraph:
         # Initialize state
         logger.debug(f"🔍 [GRAPH DEBUG] 创建初始状态，传递参数: company_name='{company_name}', trade_date='{trade_date}'")
         init_agent_state = self.propagator.create_initial_state(
-            company_name, trade_date
+            company_name, trade_date, task_id=task_id
         )
 
         # 注入阶段配置参数到初始状态 (从 config 中读取并注入)

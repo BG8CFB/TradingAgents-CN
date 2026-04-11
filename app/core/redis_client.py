@@ -103,9 +103,16 @@ class RedisKeys:
 
 class RedisService:
     """Redis服务封装类"""
-    
+
     def __init__(self):
-        self.redis = get_redis()
+        self._redis = None
+
+    @property
+    def redis(self):
+        """延迟获取 Redis 客户端，避免 __init__ 阶段 Redis 未初始化时崩溃"""
+        if self._redis is None:
+            self._redis = get_redis()
+        return self._redis
     
     async def set_with_ttl(self, key: str, value: str, ttl: int = 3600):
         """设置带TTL的键值"""

@@ -9,7 +9,31 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from app.core.database import get_mongo_db_sync
+
 logger = logging.getLogger("app.config_bridge")
+
+
+def _get_sync_db():
+    """
+    复用应用级同步 MongoDB 连接池，避免桥接流程反复建连。
+
+    Returns:
+        Database: 同步 MongoDB 数据库实例
+
+    Raises:
+        RuntimeError: MongoDB 连接不可用或未初始化
+    """
+    try:
+        db = get_mongo_db_sync()
+        if db is None:
+            raise RuntimeError("同步 MongoDB 数据库连接返回 None，数据库可能未初始化")
+        return db
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 获取同步 MongoDB 连接失败: {e}")
+        raise
 
 
 def bridge_config_to_env():
@@ -57,14 +81,9 @@ def bridge_config_to_env():
         # 🔥 修改：从数据库的 llm_providers 集合读取厂家配置，而不是从 JSON 文件
         # 只有当环境变量不存在或为占位符时，才使用数据库中的配置
         try:
-            # 使用同步 MongoDB 客户端读取厂家配置
-            from pymongo import MongoClient
-            from app.core.config import settings
             from app.models.config import LLMProvider
 
-            # 创建同步 MongoDB 客户端
-            client = MongoClient(settings.MONGO_URI)
-            db = client[settings.MONGO_DB]
+            db = _get_sync_db()
             providers_collection = db.llm_providers
 
             # 查询所有厂家配置
@@ -92,9 +111,6 @@ def bridge_config_to_env():
                     bridged_count += 1
                 else:
                     logger.debug(f"  ⏭️  {env_key} 未配置有效的 API Key")
-
-            # 关闭同步客户端
-            client.close()
 
         except Exception as e:
             logger.error(f"❌ 从数据库读取厂家配置失败: {e}", exc_info=True)
@@ -145,14 +161,9 @@ def bridge_config_to_env():
         # 🔧 [优先级] .env 文件 > 数据库配置
         # 🔥 修改：从数据库的 system_configs 集合读取数据源配置，而不是从 JSON 文件
         try:
-            # 使用同步 MongoDB 客户端读取系统配置
-            from pymongo import MongoClient
-            from app.core.config import settings
             from app.models.config import SystemConfig
 
-            # 创建同步 MongoDB 客户端
-            client = MongoClient(settings.MONGO_URI)
-            db = client[settings.MONGO_DB]
+            db = _get_sync_db()
             config_collection = db.system_configs
 
             # 查询最新的系统配置
@@ -162,15 +173,20 @@ def bridge_config_to_env():
             )
 
             if config_data and config_data.get('data_source_configs'):
+                # 补充 SystemConfig 必填字段默认值，防止旧版本文档缺失导致 ValidationError
+                config_data.setdefault('config_name', config_data.get('config_name', 'bridged'))
+                config_data.setdefault('config_type', config_data.get('config_type', 'system'))
+                # 补充 DataSourceConfig 必填字段默认值
+                for ds in config_data.get('data_source_configs', []):
+                    if isinstance(ds, dict):
+                        ds.setdefault('name', ds.get('name', 'unknown'))
+                        ds.setdefault('type', ds.get('type', 'akshare'))
                 system_config = SystemConfig(**config_data)
                 data_source_configs = system_config.data_source_configs
                 logger.info(f"  📊 从数据库读取到 {len(data_source_configs)} 个数据源配置")
             else:
                 logger.warning("  ⚠️  数据库中没有数据源配置，使用 JSON 文件配置")
                 data_source_configs = unified_config.get_data_source_configs()
-
-            # 关闭同步客户端
-            client.close()
 
         except Exception as e:
             logger.error(f"❌ 从数据库读取数据源配置失败: {e}", exc_info=True)
@@ -360,19 +376,9 @@ def _bridge_system_settings() -> int:
         int: 桥接的配置项数量
     """
     try:
-        # 使用同步的 MongoDB 客户端
-        from pymongo import MongoClient
-        from app.core.config import settings
-
-        # 创建同步客户端
-        client = MongoClient(
-            settings.MONGO_URI,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=5000
-        )
+        db = _get_sync_db()
 
         try:
-            db = client[settings.MONGO_DB]
             # 从 system_configs 集合中读取激活的配置
             config_doc = db.system_configs.find_one({"is_active": True})
 
@@ -386,8 +392,6 @@ def _bridge_system_settings() -> int:
             import traceback
             logger.debug(traceback.format_exc())
             return 0
-        finally:
-            client.close()
 
         if not system_settings:
             logger.debug("  ⚠️  系统设置为空，跳过桥接")

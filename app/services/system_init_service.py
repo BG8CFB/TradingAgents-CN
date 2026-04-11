@@ -1,7 +1,6 @@
-
 import json
 import logging
-import hashlib
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -11,13 +10,13 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.core.database import db_manager
 from app.core.config import settings
 from app.utils.time_utils import now_utc
+from app.utils.passwords import hash_password as secure_hash_password
 
 logger = logging.getLogger(__name__)
 
 # 默认管理员用户
 DEFAULT_ADMIN = {
     "username": "admin",
-    "password": "admin123",
     "email": "admin@tradingagents.cn"
 }
 
@@ -42,8 +41,23 @@ class SystemInitService:
     
     @staticmethod
     def hash_password(password: str) -> str:
-        """使用 SHA256 哈希密码（与系统一致）"""
-        return hashlib.sha256(password.encode()).hexdigest()
+        """使用与用户服务一致的安全密码哈希。"""
+        return secure_hash_password(password)
+
+    @staticmethod
+    def get_default_admin_config() -> Dict[str, str]:
+        """获取默认管理员配置，密码必须来自环境变量。"""
+        password = (
+            os.getenv("INITIAL_ADMIN_PASSWORD")
+            or os.getenv("DEFAULT_ADMIN_PASSWORD")
+            or ""
+        ).strip()
+
+        return {
+            "username": os.getenv("INITIAL_ADMIN_USERNAME", DEFAULT_ADMIN["username"]).strip() or DEFAULT_ADMIN["username"],
+            "email": os.getenv("INITIAL_ADMIN_EMAIL", DEFAULT_ADMIN["email"]).strip() or DEFAULT_ADMIN["email"],
+            "password": password,
+        }
 
     @staticmethod
     def convert_to_bson(data: Any) -> Any:
@@ -188,20 +202,26 @@ class SystemInitService:
     async def _ensure_default_admin(cls, db: AsyncIOMotorDatabase):
         """确保默认管理员存在"""
         users_collection = db.users
-        
-        existing_user = await users_collection.find_one({"username": DEFAULT_ADMIN["username"]})
+        admin_config = cls.get_default_admin_config()
+
+        existing_user = await users_collection.find_one({"username": admin_config["username"]})
         
         if existing_user:
             # 用户已存在，不做任何事
             return
-            
-        logger.info(f"👤 创建默认管理员用户: {DEFAULT_ADMIN['username']}")
+
+        if not admin_config["password"]:
+            raise RuntimeError(
+                "首次初始化缺少管理员密码，请设置环境变量 INITIAL_ADMIN_PASSWORD 后重启应用"
+            )
+
+        logger.info(f"👤 创建默认管理员用户: {admin_config['username']}")
         
         # 创建用户文档
         user_doc = {
-            "username": DEFAULT_ADMIN["username"],
-            "email": DEFAULT_ADMIN["email"],
-            "hashed_password": cls.hash_password(DEFAULT_ADMIN["password"]),
+            "username": admin_config["username"],
+            "email": admin_config["email"],
+            "hashed_password": cls.hash_password(admin_config["password"]),
             "is_active": True,
             "is_verified": True,
             "is_admin": True,

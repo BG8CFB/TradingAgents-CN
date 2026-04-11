@@ -27,6 +27,9 @@ from app.utils.timezone import now_utc
 router = APIRouter()
 logger = logging.getLogger("webapi")
 
+# 保存后台任务的引用，防止 GC 提前回收
+_background_tasks: set = set()
+
 # 兼容性：保留原有的请求模型
 class SingleAnalyzeRequest(BaseModel):
     symbol: str
@@ -358,9 +361,6 @@ async def get_task_result(
 
         if not result_data:
             logger.warning(f"❌ [RESULT] 所有数据源都未找到结果: {task_id}")
-            raise HTTPException(status_code=404, detail="分析结果不存在")
-
-        if not result_data:
             raise HTTPException(status_code=404, detail="分析结果不存在")
 
         # 处理reports字段 - 如果没有reports字段，优先尝试从文件系统加载，其次从state中提取
@@ -729,7 +729,7 @@ async def get_task_result(
         raise
     except Exception as e:
         logger.error(f"❌ [RESULT] 获取任务结果失败: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"获取分析结果时发生内部错误: {str(e)}")
 
 @router.get("/tasks/all", response_model=Dict[str, Any])
 async def list_all_tasks(
@@ -889,8 +889,10 @@ async def submit_batch_analysis(
             await asyncio.gather(*tasks, return_exceptions=True)
             logger.info(f"🎉 [批量分析] 所有任务执行完成: batch_id={batch_id}")
 
-        # 在后台启动并发任务（不等待完成）
-        asyncio.create_task(run_concurrent_analysis())
+        # 在后台启动并发任务（不等待完成），保存引用防止 GC 回收
+        bg_task = asyncio.create_task(run_concurrent_analysis())
+        _background_tasks.add(bg_task)
+        bg_task.add_done_callback(lambda t: _background_tasks.discard(t))
         logger.info(f"🚀 [批量分析] 已启动 {len(task_ids)} 个并发任务")
 
         return {
@@ -1127,7 +1129,7 @@ async def get_zombie_tasks(
     僵尸任务：长时间处于 processing/running/pending 状态的任务
     """
     # 检查管理员权限
-    if user.get("username") != "admin":
+    if not user.get("is_admin", False):
         raise HTTPException(status_code=403, detail="仅管理员可访问")
 
     try:
@@ -1156,7 +1158,7 @@ async def cleanup_zombie_tasks(
     将长时间处于 processing/running/pending 状态的任务标记为失败
     """
     # 检查管理员权限
-    if user.get("username") != "admin":
+    if not user.get("is_admin", False):
         raise HTTPException(status_code=403, detail="仅管理员可访问")
 
     try:
@@ -1267,3 +1269,221 @@ async def delete_task(
     except Exception as e:
         logger.error(f"❌ 删除任务失败: {e}")
         raise HTTPException(status_code=500, detail=f"删除任务失败: {str(e)}")
+
+
+# ==================== 补充端点（前端需要但原缺失） ====================
+
+@router.get("/stats", response_model=Dict[str, Any])
+async def get_analysis_stats(
+    start_date: Optional[str] = Query(None, description="开始日期 YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD"),
+    market_type: Optional[str] = Query(None, description="市场类型过滤"),
+    user: dict = Depends(get_current_user)
+):
+    """获取分析统计信息"""
+    try:
+        from app.core.database import get_mongo_db
+        db = get_mongo_db()
+
+        query = {}
+        if start_date or end_date:
+            date_query = {}
+            if start_date:
+                date_query["$gte"] = start_date
+            if end_date:
+                date_query["$lte"] = end_date
+            query["created_at"] = date_query
+        if market_type:
+            query["market_type"] = market_type
+
+        total = await db.analysis_reports.count_documents(query)
+        completed = await db.analysis_reports.count_documents({**query, "status": "completed"})
+        failed = await db.analysis_reports.count_documents({**query, "status": "failed"})
+
+        # 按日期统计
+        pipeline = [
+            {"$match": query},
+            {"$group": {
+                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
+                "count": {"$sum": 1}
+            }},
+            {"$sort": {"_id": -1}},
+            {"$limit": 30}
+        ]
+        by_date = []
+        async for doc in db.analysis_reports.aggregate(pipeline):
+            by_date.append({"date": doc["_id"], "count": doc["count"]})
+
+        # 按市场统计
+        market_pipeline = [
+            {"$match": query},
+            {"$group": {"_id": "$market_type", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        by_market = []
+        async for doc in db.analysis_reports.aggregate(market_pipeline):
+            by_market.append({"market": doc["_id"] or "未知", "count": doc["count"]})
+
+        return {
+            "success": True,
+            "data": {
+                "total_analyses": total,
+                "successful_analyses": completed,
+                "failed_analyses": failed,
+                "avg_duration": 0,
+                "total_tokens": 0,
+                "total_cost": 0,
+                "popular_stocks": [],
+                "analysis_by_date": by_date,
+                "analysis_by_market": by_market,
+            },
+            "message": "统计获取成功"
+        }
+    except Exception as e:
+        logger.error(f"❌ 获取分析统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stock-info", response_model=Dict[str, Any])
+async def get_stock_info(
+    symbol: str = Query(..., description="股票代码"),
+    market: str = Query("A股", description="市场类型"),
+    user: dict = Depends(get_current_user)
+):
+    """获取股票基础信息（用于分析前的预览）"""
+    try:
+        from app.core.database import get_mongo_db
+        db = get_mongo_db()
+        code6 = str(symbol).zfill(6)
+
+        # 按数据源优先级查询
+        from app.core.unified_config import UnifiedConfigManager
+        config = UnifiedConfigManager()
+        data_source_configs = config.get_data_source_configs()
+        enabled_sources = [
+            ds.type.lower() for ds in data_source_configs
+            if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
+        ] or ['tushare', 'akshare', 'baostock']
+
+        b = None
+        for src in enabled_sources:
+            b = await db.stock_basic_info.find_one({"code": code6, "source": src}, {"_id": 0})
+            if b:
+                break
+        if not b:
+            b = await db.stock_basic_info.find_one({"code": code6}, {"_id": 0})
+
+        if not b:
+            raise HTTPException(status_code=404, detail=f"未找到股票 {symbol} 的信息")
+
+        # 获取实时行情补充
+        q = await db.market_quotes.find_one({"code": code6}, {"_id": 0})
+
+        data = {
+            "symbol": b.get("symbol", code6),
+            "code": code6,
+            "name": b.get("name", ""),
+            "market": b.get("market", market),
+            "industry": b.get("industry", ""),
+            "sector": b.get("sector", ""),
+            "market_cap": b.get("total_mv"),
+            "price": (q or {}).get("close") or b.get("close"),
+            "change_percent": (q or {}).get("pct_chg"),
+            "pe_ratio": b.get("pe"),
+            "pb_ratio": b.get("pb"),
+            "dividend_yield": b.get("dividend_yield"),
+            "volume": (q or {}).get("volume"),
+        }
+
+        return {"success": True, "data": data, "message": "股票信息获取成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 获取股票信息失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/search", response_model=Dict[str, Any])
+async def search_stocks(
+    query: str = Query(..., description="搜索关键词"),
+    market: Optional[str] = Query(None, description="市场类型"),
+    limit: int = Query(20, ge=1, le=50),
+    user: dict = Depends(get_current_user)
+):
+    """搜索股票"""
+    try:
+        from app.core.database import get_mongo_db
+        db = get_mongo_db()
+
+        search_regex = f".*{query}.*"
+        filter_expr = {
+            "$or": [
+                {"name": {"$regex": search_regex, "$options": "i"}},
+                {"code": {"$regex": search_regex, "$options": "i"}},
+                {"symbol": {"$regex": search_regex, "$options": "i"}},
+            ]
+        }
+        if market:
+            filter_expr["market"] = market
+
+        cursor = db.stock_basic_info.find(filter_expr, {
+            "name": 1, "code": 1, "symbol": 1, "market": 1, "industry": 1, "_id": 0
+        }).limit(limit)
+
+        results = []
+        async for doc in cursor:
+            results.append({
+                "symbol": doc.get("symbol") or doc.get("code", ""),
+                "name": doc.get("name", ""),
+                "market": doc.get("market", "A股"),
+                "type": "stock",
+            })
+
+        return {"success": True, "data": results, "message": f"搜索完成，共 {len(results)} 条"}
+    except Exception as e:
+        logger.error(f"❌ 搜索股票失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/popular", response_model=Dict[str, Any])
+async def get_popular_stocks(
+    market: Optional[str] = Query(None, description="市场类型"),
+    limit: int = Query(10, ge=1, le=20),
+    user: dict = Depends(get_current_user)
+):
+    """获取热门股票（按分析次数排序）"""
+    try:
+        from app.core.database import get_mongo_db
+        db = get_mongo_db()
+
+        # 从分析报告中统计最常分析的股票
+        pipeline = [
+            {"$group": {"_id": "$stock_symbol", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": limit}
+        ]
+
+        results = []
+        async for doc in db.analysis_reports.aggregate(pipeline):
+            symbol = doc["_id"]
+            if not symbol:
+                continue
+            # 补充股票名称和行情
+            code6 = str(symbol).zfill(6)
+            b = await db.stock_basic_info.find_one({"code": code6}, {"_id": 0, "name": 1, "market": 1})
+            q = await db.market_quotes.find_one({"code": code6}, {"_id": 0, "close": 1, "pct_chg": 1, "volume": 1})
+
+            results.append({
+                "symbol": symbol,
+                "name": (b or {}).get("name", ""),
+                "market": (b or {}).get("market", "A股"),
+                "current_price": (q or {}).get("close"),
+                "change_percent": (q or {}).get("pct_chg"),
+                "volume": (q or {}).get("volume"),
+                "analysis_count": doc["count"],
+            })
+
+        return {"success": True, "data": results, "message": f"热门股票获取成功，共 {len(results)} 只"}
+    except Exception as e:
+        logger.error(f"❌ 获取热门股票失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

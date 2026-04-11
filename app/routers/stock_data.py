@@ -243,12 +243,14 @@ async def search_stocks(
 
         # 如果是6位数字，按代码精确匹配
         if keyword.isdigit() and len(keyword) == 6:
+            search_conditions.append({"code": keyword})
             search_conditions.append({"symbol": keyword})
         else:
             # 按名称模糊匹配
             search_conditions.append({"name": {"$regex": keyword, "$options": "i"}})
             # 如果包含数字，也尝试代码匹配
             if any(c.isdigit() for c in keyword):
+                search_conditions.append({"code": {"$regex": keyword}})
                 search_conditions.append({"symbol": {"$regex": keyword}})
 
         # 🔥 添加数据源筛选：只查询优先级最高的数据源

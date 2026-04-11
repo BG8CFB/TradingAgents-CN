@@ -44,37 +44,34 @@ class RateLimiter:
         """
         获取调用许可
         如果超过速率限制，会等待直到可以调用
+
+        采用"检查-释放锁-等待-重新获取锁"模式，避免锁内 sleep 导致并发退化为串行。
         """
-        async with self.lock:
-            now = time.time()
-            
-            # 移除时间窗口外的旧调用记录
-            while self.calls and self.calls[0] <= now - self.time_window:
-                self.calls.popleft()
-            
-            # 如果当前窗口内调用次数已达上限，需要等待
-            if len(self.calls) >= self.max_calls:
+        while True:
+            async with self.lock:
+                now = time.time()
+
+                # 移除时间窗口外的旧调用记录
+                while self.calls and self.calls[0] <= now - self.time_window:
+                    self.calls.popleft()
+
+                # 如果当前窗口内调用次数未达上限，直接获取许可
+                if len(self.calls) < self.max_calls:
+                    self.calls.append(now)
+                    self.total_calls += 1
+                    return
+
                 # 计算需要等待的时间
                 oldest_call = self.calls[0]
                 wait_time = oldest_call + self.time_window - now + 0.01  # 加一点缓冲
-                
-                if wait_time > 0:
-                    self.total_waits += 1
-                    self.total_wait_time += wait_time
-                    
-                    logger.debug(f"⏳ {self.name} 达到速率限制，等待 {wait_time:.2f}秒")
-                    await asyncio.sleep(wait_time)
-                    
-                    # 重新获取当前时间
-                    now = time.time()
-                    
-                    # 再次清理旧记录
-                    while self.calls and self.calls[0] <= now - self.time_window:
-                        self.calls.popleft()
-            
-            # 记录本次调用
-            self.calls.append(now)
-            self.total_calls += 1
+
+            # 在锁外等待，不阻塞其他并发调用者
+            if wait_time > 0:
+                self.total_waits += 1
+                self.total_wait_time += wait_time
+
+                logger.debug(f"⏳ {self.name} 达到速率限制，等待 {wait_time:.2f}秒")
+                await asyncio.sleep(wait_time)
     
     def get_stats(self) -> dict:
         """获取统计信息"""

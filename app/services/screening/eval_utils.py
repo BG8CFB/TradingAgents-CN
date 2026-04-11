@@ -4,9 +4,12 @@ Extracted from ScreeningService to separate concerns while keeping API unchanged
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional, Iterable
 import pandas as pd
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def collect_fields_from_conditions(node: Dict[str, Any], allowed_fields: Iterable[str]) -> List[str]:
@@ -71,6 +74,7 @@ def evaluate_fund_conditions(snap: Dict[str, Any], node: Dict[str, Any], fund_fi
             v = float(left)
             return float(lo) <= v <= float(hi)
     except Exception:
+        logger.debug("基本面条件求值异常: field=%s, op=%s, left=%s, right=%s", field, op, left, right)
         return False
     return False
 
@@ -153,6 +157,7 @@ def evaluate_conditions(
             v = float(left)
             return float(lo) <= v <= float(hi)
     except Exception:
+        logger.debug("条件求值异常: field=%s, op=%s, left=%s, right=%s", field, op, left, right)
         return False
     return False
 

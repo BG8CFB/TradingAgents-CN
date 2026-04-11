@@ -9,18 +9,8 @@ import json
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Callable
-from pathlib import Path
-import sys
 import concurrent.futures
 import os
-
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-# 初始化TradingAgents日志系统
-from app.utils.logging_init import init_logging
-init_logging()
 
 from app.engine.graph.trading_graph import TradingAgentsGraph
 from app.engine.default_config import DEFAULT_CONFIG
@@ -36,7 +26,7 @@ from app.models.analysis import (
 from app.models.user import PyObjectId
 from app.models.notification import NotificationCreate
 from bson import ObjectId
-from app.core.database import get_mongo_db, get_redis_client
+from app.core.database import get_mongo_db, get_mongo_db_sync, get_redis_client
 from app.core.redis_client import get_redis_service, RedisKeys
 from app.services.queue_service import QueueService
 from app.services.usage_statistics_service import UsageStatisticsService
@@ -110,114 +100,104 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
     根据模型名称从数据库配置中查找对应的供应商和 API URL（同步版本）
     """
     try:
-        # 使用同步 MongoDB 客户端直接查询
-        from pymongo import MongoClient
-        from app.core.config import settings
-        
-        client = MongoClient(settings.MONGO_URI)
-        db = client[settings.MONGO_DB]
+        db = get_mongo_db_sync()
+        # 查询最新的活跃配置
+        configs_collection = db.system_configs
+        doc = configs_collection.find_one({"is_active": True}, sort=[("version", -1)])
 
-        try:
-            # 查询最新的活跃配置
-            configs_collection = db.system_configs
-            doc = configs_collection.find_one({"is_active": True}, sort=[("version", -1)])
+        if doc and "llm_configs" in doc:
+            llm_configs = doc["llm_configs"]
 
-            if doc and "llm_configs" in doc:
-                llm_configs = doc["llm_configs"]
+            for config_dict in llm_configs:
+                if config_dict.get("model_name") == model_name:
+                    provider = config_dict.get("provider")
+                    api_base = config_dict.get("api_base")
+                    model_api_key = config_dict.get("api_key")  # 🔥 获取模型配置的 API Key
 
-                for config_dict in llm_configs:
-                    if config_dict.get("model_name") == model_name:
-                        provider = config_dict.get("provider")
-                        api_base = config_dict.get("api_base")
-                        model_api_key = config_dict.get("api_key")  # 🔥 获取模型配置的 API Key
+                    # 从 llm_providers 集合中查找厂家配置
+                    providers_collection = db.llm_providers
+                    provider_doc = providers_collection.find_one({"name": provider})
 
-                        # 从 llm_providers 集合中查找厂家配置
-                        providers_collection = db.llm_providers
-                        provider_doc = providers_collection.find_one({"name": provider})
-
-                        # 🔥 确定 API Key（优先级：模型配置 > 厂家配置 > 环境变量）
-                        api_key = None
-                        if model_api_key and model_api_key.strip() and model_api_key != "your-api-key":
-                            api_key = model_api_key
-                            logger.info(f"✅ [同步查询] 使用模型配置的 API Key")
-                        elif provider_doc and provider_doc.get("api_key"):
-                            provider_api_key = provider_doc["api_key"]
-                            if provider_api_key and provider_api_key.strip() and provider_api_key != "your-api-key":
-                                api_key = provider_api_key
-                                logger.info(f"✅ [同步查询] 使用厂家配置的 API Key")
-
-                        # 如果数据库中没有有效的 API Key，尝试从环境变量获取
-                        if not api_key:
-                            api_key = _get_env_api_key_for_provider(provider)
-                            if api_key:
-                                logger.info(f"✅ [同步查询] 使用环境变量的 API Key")
-                            else:
-                                logger.warning(f"⚠️ [同步查询] 未找到 {provider} 的 API Key")
-
-                        # 确定 backend_url
-                        backend_url = None
-                        if api_base:
-                            backend_url = api_base
-                            logger.info(f"✅ [同步查询] 模型 {model_name} 使用自定义 API: {api_base}")
-                        elif provider_doc and provider_doc.get("default_base_url"):
-                            backend_url = provider_doc["default_base_url"]
-                            logger.info(f"✅ [同步查询] 模型 {model_name} 使用厂家默认 API: {backend_url}")
-                        else:
-                            backend_url = _get_default_backend_url(provider)
-                            logger.warning(f"⚠️ [同步查询] 厂家 {provider} 没有配置 default_base_url，使用硬编码默认值")
-
-                        return {
-                            "provider": provider,
-                            "backend_url": backend_url,
-                            "api_key": api_key
-                        }
-
-            # 如果数据库中没有找到模型配置，使用默认映射
-            logger.warning(f"⚠️ [同步查询] 数据库中未找到模型 {model_name}，使用默认映射")
-            provider = _get_default_provider_by_model(model_name)
-
-            # 尝试从厂家配置中获取 default_base_url 和 API Key
-            try:
-                providers_collection = db.llm_providers
-                provider_doc = providers_collection.find_one({"name": provider})
-
-                backend_url = _get_default_backend_url(provider)
-                api_key = None
-
-                if provider_doc:
-                    if provider_doc.get("default_base_url"):
-                        backend_url = provider_doc["default_base_url"]
-                        logger.info(f"✅ [同步查询] 使用厂家 {provider} 的 default_base_url: {backend_url}")
-
-                    if provider_doc.get("api_key"):
+                    # 🔥 确定 API Key（优先级：模型配置 > 厂家配置 > 环境变量）
+                    api_key = None
+                    if model_api_key and model_api_key.strip() and model_api_key != "your-api-key":
+                        api_key = model_api_key
+                        logger.info(f"✅ [同步查询] 使用模型配置的 API Key")
+                    elif provider_doc and provider_doc.get("api_key"):
                         provider_api_key = provider_doc["api_key"]
                         if provider_api_key and provider_api_key.strip() and provider_api_key != "your-api-key":
                             api_key = provider_api_key
-                            logger.info(f"✅ [同步查询] 使用厂家 {provider} 的 API Key")
+                            logger.info(f"✅ [同步查询] 使用厂家配置的 API Key")
 
-                # 如果厂家配置中没有 API Key，尝试从环境变量获取
-                if not api_key:
-                    api_key = _get_env_api_key_for_provider(provider)
-                    if api_key:
-                        logger.info(f"✅ [同步查询] 使用环境变量的 API Key")
+                    # 如果数据库中没有有效的 API Key，尝试从环境变量获取
+                    if not api_key:
+                        api_key = _get_env_api_key_for_provider(provider)
+                        if api_key:
+                            logger.info(f"✅ [同步查询] 使用环境变量的 API Key")
+                        else:
+                            logger.warning(f"⚠️ [同步查询] 未找到 {provider} 的 API Key")
 
-                return {
-                    "provider": provider,
-                    "backend_url": backend_url,
-                    "api_key": api_key
-                }
-            except Exception as e:
-                logger.warning(f"⚠️ [同步查询] 无法查询厂家配置: {e}")
+                    # 确定 backend_url
+                    backend_url = None
+                    if api_base:
+                        backend_url = api_base
+                        logger.info(f"✅ [同步查询] 模型 {model_name} 使用自定义 API: {api_base}")
+                    elif provider_doc and provider_doc.get("default_base_url"):
+                        backend_url = provider_doc["default_base_url"]
+                        logger.info(f"✅ [同步查询] 模型 {model_name} 使用厂家默认 API: {backend_url}")
+                    else:
+                        backend_url = _get_default_backend_url(provider)
+                        logger.warning(f"⚠️ [同步查询] 厂家 {provider} 没有配置 default_base_url，使用硬编码默认值")
 
-            # 最后回退到硬编码的默认 URL 和环境变量 API Key
+                    return {
+                        "provider": provider,
+                        "backend_url": backend_url,
+                        "api_key": api_key
+                    }
+
+        # 如果数据库中没有找到模型配置，使用默认映射
+        logger.warning(f"⚠️ [同步查询] 数据库中未找到模型 {model_name}，使用默认映射")
+        provider = _get_default_provider_by_model(model_name)
+
+        # 尝试从厂家配置中获取 default_base_url 和 API Key
+        try:
+            providers_collection = db.llm_providers
+            provider_doc = providers_collection.find_one({"name": provider})
+
+            backend_url = _get_default_backend_url(provider)
+            api_key = None
+
+            if provider_doc:
+                if provider_doc.get("default_base_url"):
+                    backend_url = provider_doc["default_base_url"]
+                    logger.info(f"✅ [同步查询] 使用厂家 {provider} 的 default_base_url: {backend_url}")
+
+                if provider_doc.get("api_key"):
+                    provider_api_key = provider_doc["api_key"]
+                    if provider_api_key and provider_api_key.strip() and provider_api_key != "your-api-key":
+                        api_key = provider_api_key
+                        logger.info(f"✅ [同步查询] 使用厂家 {provider} 的 API Key")
+
+            # 如果厂家配置中没有 API Key，尝试从环境变量获取
+            if not api_key:
+                api_key = _get_env_api_key_for_provider(provider)
+                if api_key:
+                    logger.info(f"✅ [同步查询] 使用环境变量的 API Key")
+
             return {
                 "provider": provider,
-                "backend_url": _get_default_backend_url(provider),
-                "api_key": _get_env_api_key_for_provider(provider)
+                "backend_url": backend_url,
+                "api_key": api_key
             }
-        finally:
-            client.close()
+        except Exception as e:
+            logger.warning(f"⚠️ [同步查询] 无法查询厂家配置: {e}")
 
+        # 最后回退到硬编码的默认 URL 和环境变量 API Key
+        return {
+            "provider": provider,
+            "backend_url": _get_default_backend_url(provider),
+            "api_key": _get_env_api_key_for_provider(provider)
+        }
     except Exception as e:
         logger.error(f"❌ [同步查询] 查找模型供应商失败: {e}")
         provider = _get_default_provider_by_model(model_name)
@@ -451,7 +431,16 @@ class AnalysisService:
         """将字符串用户ID转换为PyObjectId"""
         try:
             if user_id == "admin":
-                return PyObjectId(ObjectId("507f1f77bcf86cd799439011"))
+                # 从数据库查询 admin 用户的真实 ObjectId
+                try:
+                    db = self._get_sync_mongo_db()
+                    admin_doc = db.users.find_one({"username": "admin"})
+                    if admin_doc:
+                        return PyObjectId(admin_doc["_id"])
+                except Exception as e:
+                    logger.warning(f"⚠️ 从数据库查询 admin 用户失败: {e}")
+                # 回退：尝试使用 "admin" 作为 ObjectId 字符串
+                raise ValueError("无法确定 admin 用户的 ObjectId")
             return PyObjectId(ObjectId(user_id))
         except Exception as e:
             logger.warning(f"⚠️ 用户ID转换失败: user_id={user_id}, error={e}")
@@ -1253,6 +1242,7 @@ class AnalysisService:
                 "stock_code": request.stock_code,
                 "stock_symbol": request.stock_code,
                 "analysis_date": analysis_date,
+                "market_type": market_type,
                 "summary": summary_text,
                 "recommendation": recommendation_text,
                 "confidence_score": decision.get("confidence_score", 0.0) if isinstance(decision, dict) else 0.0,
@@ -1730,12 +1720,14 @@ class AnalysisService:
             tokens_used = result.get("tokens_used") or result.get("token_usage", {}).get("total_tokens", 0)
             execution_time = result.get("execution_time", 0)
             structured_summary = result.get("structured_summary") or {}
+            market_type = result.get("market_type") or result.get("parameters", {}).get("market_type") or "A股"
 
             document = {
                 "analysis_id": analysis_id,
                 "stock_symbol": stock_symbol,
                 "stock_name": self._resolve_stock_name(stock_symbol),
                 "analysis_date": analysis_date,
+                "market_type": market_type,
                 "status": result.get("status", "completed"),
                 "decision": result.get("decision", {}),
                 "structured_summary": structured_summary,  # 🔥 显式保存结构化总结到DB

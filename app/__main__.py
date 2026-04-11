@@ -70,21 +70,32 @@ def check_env_file():
                 env_found = True
 
                 # 读取并显示部分内容（隐藏敏感信息）
+                # 采用"已知安全键白名单"策略：仅对明确安全的配置项显示值，其余一律脱敏
                 try:
                     with open(env_path, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
                     logger.info(f"📄 .env文件内容预览 (共{len(lines)}行):")
+
+                    # 已知安全的环境变量名（值不包含敏感信息）
+                    SAFE_KEYS = frozenset({
+                        'DEBUG', 'LOG_LEVEL', 'HOST', 'PORT',
+                        'TIMEZONE', 'MONGODB_DATABASE', 'REDIS_DB',
+                        'MONGODB_PORT', 'REDIS_PORT',
+                        'PYTHONIOENCODING', 'PYTHONUTF8',
+                        'QUOTES_INGEST_INTERVAL_SECONDS',
+                    })
+
                     for i, line in enumerate(lines[:10]):  # 只显示前10行
                         line = line.strip()
                         if line and not line.startswith('#'):
-                            # 隐藏敏感信息
-                            if any(keyword in line.upper() for keyword in ['SECRET', 'PASSWORD', 'TOKEN', 'KEY']):
-                                key = line.split('=')[0] if '=' in line else line
-                                logger.info(f"  {key}=***")
+                            key = line.split('=')[0].strip() if '=' in line else ''
+                            if key in SAFE_KEYS:
+                                logger.debug(f"  {line}")
                             else:
-                                logger.info(f"  {line}")
+                                # 所有未在白名单中的变量一律隐藏值
+                                logger.debug(f"  {key}=***")
                     if len(lines) > 10:
-                        logger.info(f"  ... (还有{len(lines) - 10}行)")
+                        logger.debug(f"  ... (还有{len(lines) - 10}行)")
                 except Exception as e:
                     logger.warning(f"⚠️ 读取.env文件时出错: {e}")
             else:

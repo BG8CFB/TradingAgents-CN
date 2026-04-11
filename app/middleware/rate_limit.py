@@ -7,19 +7,51 @@ from fastapi import Request, Response, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 from typing import Callable, Dict, Optional
-from core.redis_client import get_redis_service, RedisKeys
+from app.core.redis_client import RedisKeys
 from app.utils.time_utils import get_current_date
 
 logger = logging.getLogger(__name__)
 
+# 标记 Redis 是否可用，避免每次请求都重复报错
+_redis_available: Optional[bool] = None
+
+
+def _get_redis_service_safe():
+    """安全获取 Redis 服务，Redis 不可用时返回 None"""
+    global _redis_available
+    if _redis_available is False:
+        return None
+    try:
+        from app.core.redis_client import get_redis_service
+        service = get_redis_service()
+        _redis_available = True
+        return service
+    except Exception:
+        if _redis_available is None:
+            logger.warning("⚠️ Redis 不可用，速率限制功能已禁用")
+        _redis_available = False
+        return None
+
+
+def _get_client_ip(request: Request) -> str:
+    """获取客户端真实 IP，优先检查代理头"""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        # X-Forwarded-For 可能有多个 IP，取第一个（最原始的客户端 IP）
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """速率限制中间件"""
-    
+
     def __init__(self, app, default_rate_limit: int = 100):
         super().__init__(app)
         self.default_rate_limit = default_rate_limit
-        
+
         # 不同端点的速率限制配置
         self.endpoint_limits = {
             "/api/analysis/single": 10,      # 单股分析：每分钟10次
@@ -28,18 +60,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/api/auth/login": 5,            # 登录：每分钟5次
             "/api/auth/register": 3,         # 注册：每分钟3次
         }
-    
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # 跳过健康检查和静态资源
         if request.url.path.startswith(("/api/health", "/docs", "/redoc", "/openapi.json")):
             return await call_next(request)
-        
+
         # 获取用户ID（如果已认证）
         user_id = getattr(request.state, "user_id", None)
         if not user_id:
-            # 对于未认证用户，使用IP地址
-            user_id = f"ip:{request.client.host}" if request.client else "unknown"
-        
+            # 对于未认证用户，使用真实 IP 地址（支持代理头）
+            user_id = f"ip:{_get_client_ip(request)}"
+
         # 检查速率限制
         try:
             await self.check_rate_limit(user_id, request.url.path)
@@ -48,15 +80,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         except Exception as exc:
             logger.error(f"速率限制检查失败: {exc}")
             # 如果Redis不可用，允许请求通过
-        
+
         return await call_next(request)
     
     async def check_rate_limit(self, user_id: str, endpoint: str):
         """检查速率限制"""
-        redis_service = get_redis_service()
+        redis_service = _get_redis_service_safe()
+        if redis_service is None:
+            return  # Redis 不可用，跳过限流
         
-        # 获取端点的速率限制
-        rate_limit = self.endpoint_limits.get(endpoint, self.default_rate_limit)
+        # 获取端点的速率限制（标准化路径：去除尾部斜杠）
+        normalized_endpoint = endpoint.rstrip("/")
+        rate_limit = self.endpoint_limits.get(normalized_endpoint, self.default_rate_limit)
         
         # 构建Redis键
         rate_key = RedisKeys.USER_RATE_LIMIT.format(
@@ -111,8 +146,8 @@ class QuotaMiddleware(BaseHTTPMiddleware):
         }
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # 只对需要配额的端点进行检查
-        if request.url.path not in self.quota_endpoints:
+        # 只对需要配额的端点进行检查（标准化路径：去除尾部斜杠）
+        if request.url.path.rstrip("/") not in self.quota_endpoints:
             return await call_next(request)
         
         # 获取用户ID
@@ -134,7 +169,9 @@ class QuotaMiddleware(BaseHTTPMiddleware):
     
     async def check_daily_quota(self, user_id: str):
         """检查每日配额"""
-        redis_service = get_redis_service()
+        redis_service = _get_redis_service_safe()
+        if redis_service is None:
+            return  # Redis 不可用，跳过配额检查
 
         # 获取今天的日期（配置时区）
         today = get_current_date()

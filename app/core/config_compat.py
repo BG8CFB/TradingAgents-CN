@@ -9,9 +9,12 @@
 
 import os
 import asyncio
+import logging
 from typing import Dict, Any, Optional, List
 from functools import lru_cache
 import warnings
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 
@@ -75,9 +78,9 @@ class ConfigManagerCompat:
                 config = loop.run_until_complete(config_service.get_system_config())
                 if config and config.system_settings:
                     return config.system_settings
-        except Exception:
-            pass
-        
+        except Exception as e:
+            logger.warning(f"加载系统设置失败，使用默认值: {e}")
+
         # 返回默认设置
         return self._get_default_settings()
     
@@ -136,9 +139,9 @@ class ConfigManagerCompat:
                         }
                         for llm in config.llm_configs
                     ]
-        except Exception:
-            pass
-        
+        except Exception as e:
+            logger.warning(f"获取模型配置列表失败: {e}")
+
         return []
     
     def get_model_config(self, provider: str, model_name: str) -> Optional[Dict[str, Any]]:

@@ -115,9 +115,9 @@ class QueueService:
 
             # 再次检查并发限制（防止竞态条件）
             if not await self._check_user_concurrent_limit(user_id):
-                # 如果超过限制，将任务放回队列
-                await self.r.lpush(READY_LIST, task_id)
-                logger.warning(f"用户 {user_id} 并发限制，任务重新入队: {task_id}")
+                # 如果超过限制，将任务放回队列尾部（避免队首饥饿）
+                await self.r.rpush(READY_LIST, task_id)
+                logger.warning(f"用户 {user_id} 并发限制，任务重新入队（尾部）: {task_id}")
                 return None
 
             # 标记任务为处理中
@@ -273,14 +273,12 @@ class QueueService:
     async def cleanup_expired_tasks(self):
         """清理过期任务（可见性超时）"""
         try:
-            # 获取所有可见性超时键
-            timeout_keys = await self.r.keys(VISIBILITY_TIMEOUT_PREFIX + "*")
-
             current_time = int(time.time())
             expired_tasks = []
 
-            for timeout_key in timeout_keys:
-                timeout_data = await self.r.hgetall(timeout_key)
+            # 使用 SCAN 替代 KEYS，避免 O(N) 全键空间扫描阻塞 Redis
+            async for key in self.r.scan_iter(match=VISIBILITY_TIMEOUT_PREFIX + "*"):
+                timeout_data = await self.r.hgetall(key)
                 if timeout_data:
                     timeout_at = int(timeout_data.get("timeout_at", 0))
                     if current_time > timeout_at:
@@ -313,8 +311,8 @@ class QueueService:
             # 清除可见性超时
             await self._clear_visibility_timeout(task_id)
 
-            # 重新加入队列
-            await self.r.lpush(READY_LIST, task_id)
+            # 重新加入队列尾部（保持 FIFO 顺序）
+            await self.r.rpush(READY_LIST, task_id)
 
             # 更新任务状态
             await self.r.hset(TASK_PREFIX + task_id, mapping={

@@ -10,10 +10,24 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, HTTPExcept
 from datetime import datetime
 
 from app.services.auth_service import AuthService
+from app.services.user_service import user_service
 from app.utils.time_utils import now_utc, format_iso
 
 router = APIRouter()
 logger = logging.getLogger("webapi.websocket")
+
+
+async def _resolve_authenticated_user_id(token: str) -> str | None:
+    """验证 token 并解析通知系统使用的真实用户 ID。"""
+    token_data = AuthService.verify_token(token)
+    if not token_data or not getattr(token_data, "sub", None):
+        return None
+
+    user = await user_service.get_user_by_username(token_data.sub)
+    if not user or not user.is_active:
+        return None
+
+    return str(user.id)
 
 # 🔥 全局 WebSocket 连接管理器
 class ConnectionManager:
@@ -133,13 +147,11 @@ async def websocket_notifications_endpoint(
     }
     """
     # 验证 token
-    token_data = AuthService.verify_token(token)
-    if not token_data:
+    user_id = await _resolve_authenticated_user_id(token)
+    if not user_id:
         await websocket.close(code=1008, reason="Unauthorized")
         return
-    
-    user_id = "admin"  # 从 token_data 中获取
-    
+
     # 连接 WebSocket
     await manager.connect(websocket, user_id)
     
@@ -223,12 +235,11 @@ async def websocket_task_progress_endpoint(
     }
     """
     # 验证 token
-    token_data = AuthService.verify_token(token)
-    if not token_data:
+    user_id = await _resolve_authenticated_user_id(token)
+    if not user_id:
         await websocket.close(code=1008, reason="Unauthorized")
         return
-    
-    user_id = "admin"
+
     channel = f"task_progress:{task_id}"
     
     # 连接 WebSocket

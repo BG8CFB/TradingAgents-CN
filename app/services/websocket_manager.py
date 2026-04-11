@@ -59,10 +59,26 @@ class WebSocketManager:
                         self.active_connections[task_id].discard(connection)
     
     async def broadcast_to_user(self, user_id: str, message: Dict[str, Any]):
-        """向用户的所有连接广播消息"""
-        # 这里可以扩展为按用户ID管理连接
-        # 目前简化实现，只按任务ID管理
-        pass
+        """向指定用户相关的所有连接广播消息
+
+        注意：当前连接按 task_id 管理，此方法会遍历所有任务连接发送消息。
+        如需精确按用户过滤，需扩展连接管理结构添加 user_id 映射。
+        """
+        if not self.active_connections:
+            return
+
+        message_json = json.dumps(message, ensure_ascii=False)
+
+        async with self._lock:
+            all_connections = []
+            for connections in self.active_connections.values():
+                all_connections.extend(connections)
+
+        for connection in all_connections:
+            try:
+                await connection.send_text(message_json)
+            except Exception as e:
+                logger.warning(f"⚠️ broadcast_to_user 发送失败: {e}")
     
     async def get_connection_count(self, task_id: str) -> int:
         """获取指定任务的连接数"""

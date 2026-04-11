@@ -10,9 +10,8 @@ from typing import Dict, Any, List, Optional, Union
 import pandas as pd
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.core.database import get_database
-from app.utils.timezone import now_config_tz
-from app.utils.time_utils import now_utc, format_iso
+from app.core.database import get_mongo_db
+from app.utils.timezone import now_config_tz, now_utc, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ class HistoricalDataService:
     async def initialize(self):
         """初始化数据库连接"""
         try:
-            self.db = get_database()
+            self.db = get_mongo_db()
             self.collection = self.db.stock_daily_quotes
 
             # 🔥 确保索引存在（提升查询和 upsert 性能）

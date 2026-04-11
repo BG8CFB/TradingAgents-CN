@@ -5,12 +5,14 @@
 """
 
 import logging
+import os
 from typing import Any, Dict, List, Set
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, HTTPException, Body
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.routers.auth_db import get_current_user
 from app.engine.agents import Toolkit
 from app.engine.tools.registry import get_all_tools
@@ -25,6 +27,15 @@ _DISABLED_TOOLS_FILE = Path("config/disabled_tools.json")
 
 class ToggleToolPayload(BaseModel):
     enabled: bool
+
+
+def _check_tushare_available() -> bool:
+    """检查 Tushare 受限工具当前是否可用。"""
+    if not getattr(settings, "TUSHARE_ENABLED", False):
+        return False
+
+    token = (getattr(settings, "TUSHARE_TOKEN", "") or os.getenv("TUSHARE_TOKEN", "")).strip()
+    return bool(token)
 
 
 def _get_disabled_tools() -> Set[str]:
@@ -199,10 +210,7 @@ async def list_mcp_tools(
     列出所有本地 MCP 工具（含可用性状态）
     """
     try:
-        # 检查数据源可用性
-        from app.engine.tools.mcp.data_source_filter import check_tushare_available
-
-        tushare_available = check_tushare_available()
+        tushare_available = _check_tushare_available()
         disabled_tools = _get_disabled_tools()
 
         # 构建工具列表
@@ -296,9 +304,7 @@ async def get_mcp_availability_summary(
     获取 MCP 工具可用性摘要
     """
     try:
-        from app.engine.tools.mcp.data_source_filter import check_tushare_available
-
-        tushare_available = check_tushare_available()
+        tushare_available = _check_tushare_available()
         disabled_tools = _get_disabled_tools()
 
         # 按分类统计

@@ -7,7 +7,7 @@
 
 import asyncio
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.job import Job
 from apscheduler.events import (
@@ -17,7 +17,7 @@ from apscheduler.events import (
     JobExecutionEvent
 )
 
-from app.core.database import get_mongo_db
+from app.core.database import get_mongo_db, get_mongo_db_sync
 from app.utils.logging_manager import get_logger
 from app.utils.timezone import now_tz
 from app.engine.config.runtime_settings import get_zoneinfo
@@ -25,20 +25,23 @@ from app.utils.time_utils import now_utc
 
 logger = get_logger(__name__)
 
-# 使用配置的时区（不再手动定义 UTC_8）
 def get_config_zoneinfo():
     """获取配置的时区 ZoneInfo 对象"""
     return get_zoneinfo()
 
 
-def get_utc8_now():
-    """
-    获取 UTC+8 当前时间（naive datetime）
+def get_current_time() -> datetime:
+    """获取配置时区的当前 aware datetime。"""
+    return now_tz()
 
-    注意：返回 naive datetime（不带时区信息），MongoDB 会按原样存储本地时间值
-    这样前端可以直接添加 +08:00 后缀显示
-    """
-    return now_tz().replace(tzinfo=None)
+
+def ensure_config_tz(dt: Optional[datetime]) -> Optional[datetime]:
+    """确保时间对象带有配置时区信息。"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=get_config_zoneinfo())
+    return dt.astimezone(get_config_zoneinfo())
 
 
 class TaskCancelledException(Exception):
@@ -61,6 +64,7 @@ class SchedulerService:
 
         # 添加事件监听器，监控任务执行
         self._setup_event_listeners()
+        self._setup_maintenance_jobs()
     
     def _get_db(self):
         """获取数据库连接"""
@@ -204,11 +208,10 @@ class SchedulerService:
             await self._record_job_action(job_id, "trigger", "success", action_note)
 
             # 立即创建一个"running"状态的执行记录，让用户能看到任务正在执行
-            # 🔥 使用本地时间（naive datetime）
             await self._record_job_execution(
                 job_id=job_id,
                 status="running",
-                scheduled_time=get_utc8_now(),  # 使用本地时间（naive datetime）
+                scheduled_time=get_current_time(),
                 progress=0,
                 is_manual=True  # 标记为手动触发
             )
@@ -393,14 +396,13 @@ class SchedulerService:
                 if "_id" in doc:
                     doc["_id"] = str(doc["_id"])
 
-                # 格式化时间（MongoDB 存储的是 naive datetime，表示本地时间）
-                # 直接序列化为 ISO 格式字符串，前端会自动添加 +08:00 后缀
+                # 统一序列化为带时区信息的 ISO 字符串
                 for time_field in ["scheduled_time", "timestamp", "updated_at"]:
                     if doc.get(time_field):
                         dt = doc[time_field]
-                        # 如果是 datetime 对象，转换为 ISO 格式字符串
                         if hasattr(dt, 'isoformat'):
-                            doc[time_field] = dt.isoformat()
+                            normalized_dt = ensure_config_tz(dt)
+                            doc[time_field] = normalized_dt.isoformat() if normalized_dt else None
 
                 executions.append(doc)
 
@@ -484,7 +486,7 @@ class SchedulerService:
                 {
                     "$set": {
                         "cancel_requested": True,
-                        "updated_at": get_utc8_now()
+                            "updated_at": get_current_time()
                     }
                 }
             )
@@ -526,7 +528,7 @@ class SchedulerService:
                     "$set": {
                         "status": "failed",
                         "error_message": reason,
-                        "updated_at": get_utc8_now()
+                        "updated_at": get_current_time()
                     }
                 }
             )
@@ -667,7 +669,7 @@ class SchedulerService:
             "status": "healthy" if self.scheduler.running else "stopped",
             "running": self.scheduler.running,
             "state": self.scheduler.state,
-            "timestamp": get_utc8_now().isoformat()
+            "timestamp": get_current_time().isoformat()
         }
     
     def _job_to_dict(self, job: Job, include_details: bool = False) -> Dict[str, Any]:
@@ -722,7 +724,8 @@ class SchedulerService:
 
         logger.info("✅ APScheduler事件监听器已设置")
 
-        # 添加定时任务，检测僵尸任务（长时间处于running状态）
+    def _setup_maintenance_jobs(self):
+        """设置调度器内部维护任务。"""
         self.scheduler.add_job(
             self._check_zombie_tasks,
             'interval',
@@ -739,7 +742,7 @@ class SchedulerService:
             db = self._get_db()
 
             # 查找超过30分钟仍处于running状态的任务
-            threshold_time = get_utc8_now() - timedelta(minutes=30)
+            threshold_time = get_current_time() - timedelta(minutes=30)
 
             zombie_tasks = await db.scheduler_executions.find({
                 "status": "running",
@@ -754,7 +757,7 @@ class SchedulerService:
                         "$set": {
                             "status": "failed",
                             "error_message": "任务执行超时或进程异常终止",
-                            "updated_at": get_utc8_now()
+                            "updated_at": get_current_time()
                         }
                     }
                 )
@@ -771,8 +774,10 @@ class SchedulerService:
         # 计算执行时间（处理时区问题）
         execution_time = None
         if event.scheduled_run_time:
-            now = datetime.now(event.scheduled_run_time.tzinfo)
-            execution_time = (now - event.scheduled_run_time).total_seconds()
+            scheduled = ensure_config_tz(event.scheduled_run_time)
+            if scheduled is not None:
+                now = datetime.now(scheduled.tzinfo)
+                execution_time = (now - scheduled).total_seconds()
 
         asyncio.create_task(self._record_job_execution(
             job_id=event.job_id,
@@ -788,8 +793,10 @@ class SchedulerService:
         # 计算执行时间（处理时区问题）
         execution_time = None
         if event.scheduled_run_time:
-            now = datetime.now(event.scheduled_run_time.tzinfo)
-            execution_time = (now - event.scheduled_run_time).total_seconds()
+            scheduled = ensure_config_tz(event.scheduled_run_time)
+            if scheduled is not None:
+                now = datetime.now(scheduled.tzinfo)
+                execution_time = (now - scheduled).total_seconds()
 
         asyncio.create_task(self._record_job_execution(
             job_id=event.job_id,
@@ -846,7 +853,7 @@ class SchedulerService:
             # 如果是完成状态（success/failed），先查找是否有对应的 running 记录
             if status in ["success", "failed"]:
                 # 查找最近的 running 记录（5分钟内）
-                five_minutes_ago = get_utc8_now() - timedelta(minutes=5)
+                five_minutes_ago = get_current_time() - timedelta(minutes=5)
                 existing_record = await db.scheduler_executions.find_one(
                     {
                         "job_id": job_id,
@@ -861,7 +868,7 @@ class SchedulerService:
                     update_data = {
                         "status": status,
                         "execution_time": execution_time,
-                        "updated_at": get_utc8_now()
+                        "updated_at": get_current_time()
                     }
 
                     if return_value:
@@ -886,23 +893,16 @@ class SchedulerService:
 
                     return
 
-            # 如果没有找到 running 记录，或者是 running/missed 状态，插入新记录
-            # scheduled_time 可能是 aware datetime（来自 APScheduler），需要转换为 naive datetime
-            scheduled_time_naive = None
-            if scheduled_time:
-                if scheduled_time.tzinfo is not None:
-                    # 转换为配置时区，然后移除时区信息
-                    scheduled_time_naive = scheduled_time.astimezone(get_config_zoneinfo()).replace(tzinfo=None)
-                else:
-                    scheduled_time_naive = scheduled_time
+            # 统一以带配置时区的 aware datetime 写入数据库
+            scheduled_time_normalized = ensure_config_tz(scheduled_time)
 
             execution_record = {
                 "job_id": job_id,
                 "job_name": job_name,
                 "status": status,
-                "scheduled_time": scheduled_time_naive,
+                "scheduled_time": scheduled_time_normalized,
                 "execution_time": execution_time,
-                "timestamp": get_utc8_now(),
+                "timestamp": get_current_time(),
                 "is_manual": is_manual
             }
 
@@ -954,7 +954,7 @@ class SchedulerService:
                 "action": action,
                 "status": status,
                 "error_message": error_message,
-                "timestamp": get_utc8_now()
+                "timestamp": get_current_time()
             })
         except Exception as e:
             logger.error(f"❌ 记录任务操作历史失败: {e}")
@@ -1007,7 +1007,7 @@ class SchedulerService:
             db = self._get_db()
             update_data = {
                 "job_id": job_id,
-                "updated_at": get_utc8_now()
+                "updated_at": get_current_time()
             }
 
             if display_name is not None:
@@ -1085,12 +1085,8 @@ async def update_job_progress(
         processed_items: 已处理项数
     """
     try:
-        from pymongo import MongoClient
-        from app.core.config import settings
-
-        # 使用同步客户端避免事件循环冲突
-        sync_client = MongoClient(settings.MONGO_URI)
-        sync_db = sync_client[settings.MONGO_DB]
+        # 复用应用级同步连接池，避免每次进度更新都新建连接
+        sync_db = get_mongo_db_sync()
 
         # 查找最近的执行记录
         latest_execution = sync_db.scheduler_executions.find_one(
@@ -1101,7 +1097,6 @@ async def update_job_progress(
         if latest_execution:
             # 检查是否有取消请求
             if latest_execution.get("cancel_requested"):
-                sync_client.close()
                 logger.warning(f"⚠️ 任务 {job_id} 收到取消请求，即将停止")
                 raise TaskCancelledException(f"任务 {job_id} 已被用户取消")
 
@@ -1109,7 +1104,7 @@ async def update_job_progress(
             update_data = {
                 "progress": progress,
                 "status": "running",
-                "updated_at": get_utc8_now()
+                "updated_at": get_current_time()
             }
 
             if message:
@@ -1127,9 +1122,6 @@ async def update_job_progress(
             )
         else:
             # 创建新的执行记录（任务刚开始）
-            from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-            # 获取任务名称
             job_name = job_id
             if _scheduler_instance:
                 job = _scheduler_instance.get_job(job_id)
@@ -1141,8 +1133,8 @@ async def update_job_progress(
                 "job_name": job_name,
                 "status": "running",
                 "progress": progress,
-                "scheduled_time": get_utc8_now(),
-                "timestamp": get_utc8_now()
+                "scheduled_time": get_current_time(),
+                "timestamp": get_current_time()
             }
 
             if message:
@@ -1156,8 +1148,8 @@ async def update_job_progress(
 
             sync_db.scheduler_executions.insert_one(execution_record)
 
-        sync_client.close()
-
+    except TaskCancelledException:
+        raise
     except Exception as e:
         logger.error(f"❌ 更新任务进度失败: {e}")
 

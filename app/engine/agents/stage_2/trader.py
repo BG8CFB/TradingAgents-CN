@@ -1,7 +1,7 @@
 import time
 import json
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
@@ -91,11 +91,6 @@ def create_trader(llm, memory):
 {past_memory_str}
 """
 
-        context = {
-            "role": "user",
-            "content": context_content,
-        }
-
         # 加载基础Prompt
         from app.engine.agents.utils.generic_agent import load_agent_config
         base_prompt = load_agent_config("trader")
@@ -117,7 +112,7 @@ def create_trader(llm, memory):
 
         messages = [
             SystemMessage(content=full_system_prompt),
-            context,
+            HumanMessage(content=context_content),
         ]
 
         logger.debug(f"💰 [DEBUG] 准备调用LLM，系统提示包含货币: {currency}")

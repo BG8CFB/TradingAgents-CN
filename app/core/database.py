@@ -375,6 +375,7 @@ async def close_database():
     global mongo_client, mongo_db, redis_client, redis_pool
 
     await db_manager.close_connections()
+    close_mongo_db_sync()
 
     # 清空全局变量
     mongo_client = None

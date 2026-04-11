@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+from app.utils.api_key_utils import is_valid_api_key
+
 logger = logging.getLogger(__name__)
 
 
@@ -124,17 +126,8 @@ class StartupValidator:
     def _is_valid_api_key(self, api_key: str) -> bool:
         """
         判断 API Key 是否有效
-        
-        为了支持本地AI模型，API Key总是有效的
-
-        Args:
-            api_key: 待验证的 API Key
-
-        Returns:
-            bool: 总是返回True，支持本地AI模型
         """
-        # 为了支持本地AI模型，不再验证API Key
-        return True
+        return is_valid_api_key(api_key)
 
     def validate(self) -> ValidationResult:
         """

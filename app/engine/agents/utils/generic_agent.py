@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import tempfile
 import yaml
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -13,6 +15,75 @@ from app.utils.stock_utils import StockUtils
 from app.utils.time_utils import now_utc
 
 logger = get_logger("agents.generic")
+
+_KNOWN_US_STOCK_NAMES = {
+    "AAPL": "苹果公司",
+    "TSLA": "特斯拉",
+    "NVDA": "英伟达",
+    "MSFT": "微软",
+    "GOOGL": "谷歌",
+    "AMZN": "亚马逊",
+    "META": "Meta",
+    "NFLX": "奈飞",
+}
+
+
+def resolve_company_name(ticker: str, market_info: dict) -> str:
+    """统一解析公司名称，避免各阶段智能体复制脆弱逻辑。"""
+    try:
+        if market_info["is_china"]:
+            try:
+                from app.data.data_source_manager import get_china_stock_info_unified as get_info_dict
+
+                info = get_info_dict(ticker)
+                if info and info.get("name"):
+                    return info["name"]
+            except Exception:
+                pass
+
+            from app.data.interface import get_china_stock_info_unified
+
+            stock_info = get_china_stock_info_unified(ticker)
+            if stock_info and "股票名称:" in stock_info:
+                return stock_info.split("股票名称:")[1].split("\n")[0].strip()
+            return f"股票代码{ticker}"
+
+        if market_info["is_hk"]:
+            try:
+                from app.data.providers.hk.improved_hk import get_hk_company_name_improved
+
+                return get_hk_company_name_improved(ticker)
+            except Exception:
+                clean_ticker = ticker.replace(".HK", "").replace(".hk", "")
+                return f"港股{clean_ticker}"
+
+        if market_info["is_us"]:
+            try:
+                from app.data.providers.us.yfinance import YFinanceUtils
+
+                stock_info = YFinanceUtils.get_stock_info(ticker.upper())
+                company_name = stock_info.get("shortName") or stock_info.get("longName")
+                if company_name:
+                    return company_name
+            except Exception:
+                pass
+
+            return _KNOWN_US_STOCK_NAMES.get(ticker.upper(), f"美股{ticker}")
+
+        return f"股票{ticker}"
+
+    except Exception as exc:
+        logger.error(f"❌ [DEBUG] 获取公司名称失败: {exc}")
+        return f"股票{ticker}"
+
+
+def build_stage3_report_path(task_id: Optional[str], ticker: str, report_slug: str) -> str:
+    """为 Stage 3 报告生成隔离路径，避免并发任务相互覆盖。"""
+    safe_task_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", task_id or ticker or "unknown")
+    safe_ticker = re.sub(r"[^A-Za-z0-9_.-]+", "_", ticker or "unknown")
+    report_dir = os.path.join(tempfile.gettempdir(), "tradingagents_stage3_reports")
+    os.makedirs(report_dir, exist_ok=True)
+    return os.path.join(report_dir, f"{safe_task_id}_{safe_ticker}_{report_slug}.md")
 
 def load_agent_config(slug: str) -> str:
     """从YAML配置加载智能体角色定义"""
@@ -136,39 +207,7 @@ class GenericAgent:
 
     def _get_company_name(self, ticker: str, market_info: dict) -> str:
         """根据股票代码获取公司名称"""
-        try:
-            if market_info["is_china"]:
-                from app.data.interface import get_china_stock_info_unified
-
-                stock_info = get_china_stock_info_unified(ticker)
-                if "股票名称:" in stock_info:
-                    company_name = stock_info.split("股票名称:")[1].split("\n")[0].strip()
-                    logger.debug(f"📊 [DEBUG] 从统一接口获取中国股票名称: {ticker} -> {company_name}")
-                    return company_name
-                return f"股票代码{ticker}"
-
-            if market_info["is_hk"]:
-                try:
-                    from app.data.providers.hk.improved_hk import get_hk_company_name_improved
-                    company_name = get_hk_company_name_improved(ticker)
-                    return company_name
-                except Exception:
-                    clean_ticker = ticker.replace(".HK", "").replace(".hk", "")
-                    return f"港股{clean_ticker}"
-
-            if market_info["is_us"]:
-                us_stock_names = {
-                    "AAPL": "苹果公司", "TSLA": "特斯拉", "NVDA": "英伟达",
-                    "MSFT": "微软", "GOOGL": "谷歌", "AMZN": "亚马逊",
-                    "META": "Meta", "NFLX": "奈飞",
-                }
-                return us_stock_names.get(ticker.upper(), f"美股{ticker}")
-
-            return f"股票{ticker}"
-
-        except Exception as exc:
-            logger.error(f"❌ [DEBUG] 获取公司名称失败: {exc}")
-            return f"股票{ticker}"
+        return resolve_company_name(ticker, market_info)
 
     def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         start_time = now_utc()

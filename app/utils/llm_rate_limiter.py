@@ -187,10 +187,10 @@ class LLMRateLimiter:
             if not success:
                 stats.failed_calls += 1
             
-            # 估算成本
+            # 估算成本（粗略值：假设输入输出 token 各占 50%，实际比例因模型/调用场景而异，偏差可达 2-3 倍）
             costs = TOKEN_COSTS.get(provider.lower(), TOKEN_COSTS["default"])
-            # 假设输入输出各占一半
-            cost = (tokens_estimated / 1000) * (costs["input"] + costs["output"]) / 2
+            avg_cost_per_1k = (costs["input"] + costs["output"]) / 2
+            cost = (tokens_estimated / 1000) * avg_cost_per_1k
             stats.total_cost_estimated += cost
     
     def rate_limited_call(self, provider: str, func, *args, **kwargs):

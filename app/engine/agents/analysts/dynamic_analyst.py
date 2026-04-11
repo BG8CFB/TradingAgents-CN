@@ -345,8 +345,6 @@ class DynamicAnalystFactory:
         Returns:
             Dict[str, Optional[str]] - key 为节点名称，value 为中文显示名称（None 表示跳过）
         """
-        from typing import Optional
-
         agents = cls.get_all_agents(config_path)
         node_mapping = {}
 
@@ -539,31 +537,43 @@ class DynamicAnalystFactory:
                         **kwargs
                     )
 
-                # 在同步环境中运行异步函数 - 使用独立线程隔离事件循环，避免死锁
-                import threading
-                result_container = {}
+                # 在同步环境中运行异步函数
+                # 优先在当前线程直接运行（无线程开销）；仅在事件循环线程中才降级到新线程
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
 
-                def run_in_thread():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
+                result = None
+                if loop is not None and loop.is_running():
+                    # 当前线程已有运行中的事件循环，必须在新线程中隔离运行
+                    import threading
+                    result_container = {}
+
+                    def run_in_thread():
+                        try:
+                            result_container['result'] = asyncio.run(check_and_execute())
+                        except Exception as e:
+                            result_container['error'] = e
+
+                    t = threading.Thread(target=run_in_thread)
+                    t.start()
+                    t.join(timeout=120)
+                    if t.is_alive():
+                        return f"❌ 工具 {tool_name} 执行超时"
+
+                    if 'error' in result_container:
+                        error = result_container['error']
+                        logger.error(f"⚠️ [MCP断路器] 工具 {tool_name} 执行异常: {error}")
+                        return f"❌ 工具 {tool_name} 执行出错: {str(error)}"
+                    result = result_container.get('result')
+                else:
+                    # 当前线程无事件循环，直接运行
                     try:
-                        result_container['result'] = new_loop.run_until_complete(check_and_execute())
+                        result = asyncio.run(check_and_execute())
                     except Exception as e:
-                        result_container['error'] = e
-                    finally:
-                        new_loop.close()
-
-                # 启动独立线程运行异步任务
-                t = threading.Thread(target=run_in_thread)
-                t.start()
-                t.join()  # 等待线程结束
-
-                if 'error' in result_container:
-                    error = result_container['error']
-                    logger.error(f"⚠️ [MCP断路器] 工具 {tool_name} 执行异常: {error}")
-                    return f"❌ 工具 {tool_name} 执行出错: {str(error)}"
-
-                result = result_container.get('result')
+                        logger.error(f"⚠️ [MCP断路器] 工具 {tool_name} 执行异常: {e}")
+                        return f"❌ 工具 {tool_name} 执行出错: {str(e)}"
 
                 # 检查是否为错误状态
                 if isinstance(result, dict) and result.get("status") in ["error", "disabled"]:

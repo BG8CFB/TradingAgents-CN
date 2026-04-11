@@ -15,10 +15,8 @@
 - 缓存时长可配置（默认24小时）
 """
 
-import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Any
+from typing import List, Dict
 from pymongo import UpdateOne
 
 # 导入港股数据提供器
@@ -72,7 +70,7 @@ class HKDataService:
         """
         try:
             import akshare as ak
-            from datetime import datetime, timedelta
+            from datetime import timedelta
 
             # 检查缓存是否有效
             if (self.hk_stock_list and self._stock_list_cache_time and
@@ -246,7 +244,6 @@ class HKDataService:
         """
         try:
             import akshare as ak
-            from datetime import datetime
 
             logger.info("🇭🇰 开始批量同步港股基础信息 (数据源: akshare)")
 
@@ -394,7 +391,14 @@ class HKDataService:
             return {"updated": 0, "inserted": 0, "failed": 0}
         
         logger.info(f"🇭🇰 开始同步港股实时行情 (数据源: {source})")
-        
+
+        if not self.hk_stock_list:
+            self.hk_stock_list = self._get_hk_stock_list_from_akshare()
+            logger.info(f"📋 已自动加载港股列表: {len(self.hk_stock_list)} 只")
+        if not self.hk_stock_list:
+            logger.error("❌ 港股列表为空，无法同步实时行情")
+            return {"updated": 0, "inserted": 0, "failed": 0}
+
         operations = []
         failed_count = 0
         
@@ -465,11 +469,11 @@ class HKDataService:
 
 _hk_sync_service = None
 
-async def get_hk_sync_service() -> HKSyncService:
+async def get_hk_sync_service() -> HKDataService:
     """获取港股同步服务实例"""
     global _hk_sync_service
     if _hk_sync_service is None:
-        _hk_sync_service = HKSyncService()
+        _hk_sync_service = HKDataService()
         await _hk_sync_service.initialize()
     return _hk_sync_service
 

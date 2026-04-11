@@ -3,7 +3,7 @@ Tushare数据同步服务
 负责将Tushare数据同步到MongoDB标准化集合
 """
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time as dt_time
 from typing import List, Dict, Any, Optional
 import logging
 
@@ -15,7 +15,6 @@ from app.core.database import get_mongo_db
 from app.core.config import settings
 from app.core.rate_limiter import get_tushare_rate_limiter
 from app.utils.timezone import now_tz, now_utc, now_config_tz, format_date_short
-from app.utils.time_utils import now_utc as time_now_utc
 from app.engine.config.runtime_settings import get_zoneinfo
 
 logger = logging.getLogger(__name__)
@@ -490,8 +489,6 @@ class TushareSyncService:
 
         注意：此方法不检查节假日，仅检查时间段
         """
-        from app.utils.time_utils import now_config_tz
-
         # 使用配置的时区
         now = now_config_tz()
 
@@ -502,13 +499,11 @@ class TushareSyncService:
         # 检查时间段
         current_time = now.time()
 
-        # 上午交易时间：9:30-11:30
-        morning_start = datetime.strptime("09:30", "%H:%M").time()
-        morning_end = datetime.strptime("11:30", "%H:%M").time()
-
-        # 下午交易时间：13:00-15:00
-        afternoon_start = datetime.strptime("13:00", "%H:%M").time()
-        afternoon_end = datetime.strptime("15:00", "%H:%M").time()
+        # 直接使用 time 对象，避免 strptime 带来的 naive datetime 中间态
+        morning_start = dt_time(9, 30)
+        morning_end = dt_time(11, 30)
+        afternoon_start = dt_time(13, 0)
+        afternoon_end = dt_time(15, 0)
 
         # 判断是否在交易时间段内
         is_morning = morning_start <= current_time <= morning_end
@@ -629,7 +624,7 @@ class TushareSyncService:
             # 4. 批量处理
             for i, symbol in enumerate(symbols):
                 # 记录单个股票开始时间
-                stock_start_time = time_now_utc()
+                stock_start_time = now_utc()
 
                 try:
                     # 检查是否需要退出
@@ -660,28 +655,28 @@ class TushareSyncService:
                     )
 
                     # ⏱️ 性能监控：API 调用
-                    api_start = time_now_utc()
+                    api_start = now_utc()
                     df = await self.provider.get_historical_data(symbol, symbol_start_date, end_date, period=period)
-                    api_duration = (time_now_utc() - api_start).total_seconds()
+                    api_duration = (now_utc() - api_start).total_seconds()
 
                     if df is not None and not df.empty:
                         # ⏱️ 性能监控：数据保存
-                        save_start = time_now_utc()
+                        save_start = now_utc()
                         records_saved = await self._save_historical_data(symbol, df, period=period)
-                        save_duration = (time_now_utc() - save_start).total_seconds()
+                        save_duration = (now_utc() - save_start).total_seconds()
 
                         stats["success_count"] += 1
                         stats["total_records"] += records_saved
 
                         # 计算单个股票耗时
-                        stock_duration = (time_now_utc() - stock_start_time).total_seconds()
+                        stock_duration = (now_utc() - stock_start_time).total_seconds()
                         logger.info(
                             f"✅ {symbol}: 保存 {records_saved} 条{period_name}记录，"
                             f"总耗时 {stock_duration:.2f}秒 "
                             f"(API: {api_duration:.2f}秒, 保存: {save_duration:.2f}秒)"
                         )
                     else:
-                        stock_duration = (time_now_utc() - stock_start_time).total_seconds()
+                        stock_duration = (now_utc() - stock_start_time).total_seconds()
                         logger.warning(
                             f"⚠️ {symbol}: 无{period_name}数据 "
                             f"(start={symbol_start_date}, end={end_date})，耗时 {stock_duration:.2f}秒"
@@ -1213,14 +1208,12 @@ class TushareSyncService:
         """
         try:
             from app.services.scheduler_service import TaskCancelledException
-            from pymongo import MongoClient
-            from app.core.config import settings
+            from app.core.database import get_mongo_db_sync
 
             logger.info(f"📊 [进度更新] 开始更新任务 {job_id} 进度: {progress}% - {message}")
 
-            # 使用同步 PyMongo 客户端（避免事件循环冲突）
-            sync_client = MongoClient(settings.MONGO_URI)
-            sync_db = sync_client[settings.MONGODB_DATABASE]
+            # 复用全局同步连接池，避免高频进度更新反复创建连接
+            sync_db = get_mongo_db_sync()
 
             # 查找最新的 running 记录
             execution = sync_db.scheduler_executions.find_one(
@@ -1230,14 +1223,12 @@ class TushareSyncService:
 
             if not execution:
                 logger.warning(f"⚠️ 未找到任务 {job_id} 的执行记录")
-                sync_client.close()
                 return
 
             logger.info(f"📊 [进度更新] 找到执行记录: _id={execution['_id']}, 当前进度={execution.get('progress', 0)}%")
 
             # 检查是否收到取消请求
             if execution.get("cancel_requested"):
-                sync_client.close()
                 raise TaskCancelledException(f"任务 {job_id} 已被用户取消")
 
             # 更新进度（使用 UTC+8 时间）
@@ -1254,7 +1245,6 @@ class TushareSyncService:
 
             logger.info(f"📊 [进度更新] 更新结果: matched={result.matched_count}, modified={result.modified_count}")
 
-            sync_client.close()
             logger.info(f"✅ 任务 {job_id} 进度更新成功: {progress}% - {message}")
 
         except Exception as e:

@@ -251,7 +251,10 @@ class ForeignStockService:
 
         try:
             # 从 datasource_groupings 集合查询
-            groupings = await self.db.datasource_groupings.find({
+            if self.db is None:
+                logger.debug(f"[{market}数据源优先级] 数据库连接不可用，使用默认顺序")
+            else:
+                groupings = await self.db.datasource_groupings.find({
                 "market_category_id": market_category_id,
                 "enabled": True
             }).sort("priority", -1).to_list(length=None)

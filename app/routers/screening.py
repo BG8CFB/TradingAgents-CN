@@ -4,8 +4,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.routers.auth_db import get_current_user
+from app.core.response import ok
 
-from app.services.screening_service import ScreeningService, ScreeningParams
 from app.services.enhanced_screening_service import get_enhanced_screening_service
 from app.models.screening import (
     ScreeningCondition, ScreeningRequest as NewScreeningRequest,
@@ -39,9 +39,10 @@ class ScreeningResponse(BaseModel):
     total: int
     items: List[dict]
 
-# 服务实例
-svc = ScreeningService()
-enhanced_svc = get_enhanced_screening_service()
+
+def get_enhanced_service():
+    """延迟获取增强筛选服务，避免模块导入时实例化。"""
+    return get_enhanced_screening_service()
 
 
 @router.get("/fields", response_model=FieldConfigResponse)
@@ -61,10 +62,10 @@ async def get_screening_fields(user: dict = Depends(get_current_user)):
             "technical": ["ma20", "rsi14", "kdj_k", "kdj_d", "kdj_j", "dif", "dea", "macd_hist"]
         }
 
-        return FieldConfigResponse(
+        return ok(FieldConfigResponse(
             fields=BASIC_FIELDS_INFO,
             categories=categories
-        )
+        ).model_dump())
 
     except Exception as e:
         logger.error(f"[get_screening_fields] 获取字段配置失败: {e}", exc_info=True)
@@ -164,6 +165,7 @@ async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_
         logger.info(f"[screening] 转换后的条件: {conditions}")
 
         # 使用增强筛选服务
+        enhanced_svc = get_enhanced_service()
         result = await enhanced_svc.screen_stocks(
             conditions=conditions,
             market=req.market,
@@ -182,7 +184,7 @@ async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_
             sample = result['items'][:3]
             logger.info(f"[screening] 返回样例(前3条): {sample}")
 
-        return ScreeningResponse(total=result["total"], items=result["items"])
+        return ok(ScreeningResponse(total=result["total"], items=result["items"]).model_dump())
 
     except Exception as e:
         logger.error(f"[screening] 处理失败: {e}", exc_info=True)
@@ -203,6 +205,7 @@ async def enhanced_screening(req: NewScreeningRequest, user: dict = Depends(get_
         logger.info(f"[enhanced_screening] 排序与分页: order_by={req.order_by}, limit={req.limit}, offset={req.offset}")
 
         # 执行增强筛选
+        enhanced_svc = get_enhanced_service()
         result = await enhanced_svc.screen_stocks(
             conditions=req.conditions,
             market=req.market,
@@ -217,13 +220,13 @@ async def enhanced_screening(req: NewScreeningRequest, user: dict = Depends(get_
         logger.info(f"[enhanced_screening] 筛选完成: total={result.get('total')}, "
                    f"took={result.get('took_ms')}ms, optimization={result.get('optimization_used')}")
 
-        return NewScreeningResponse(
+        return ok(NewScreeningResponse(
             total=result["total"],
             items=result["items"],
             took_ms=result.get("took_ms"),
             optimization_used=result.get("optimization_used"),
             source=result.get("source")
-        )
+        ).model_dump())
 
     except Exception as e:
         logger.error(f"[enhanced_screening] 筛选失败: {e}")
@@ -236,10 +239,11 @@ async def enhanced_screening(req: NewScreeningRequest, user: dict = Depends(get_
 async def get_field_info(field_name: str, user: dict = Depends(get_current_user)):
     """获取指定字段的详细信息"""
     try:
+        enhanced_svc = get_enhanced_service()
         field_info = await enhanced_svc.get_field_info(field_name)
         if not field_info:
             raise HTTPException(status_code=404, detail=f"字段 '{field_name}' 不存在")
-        return field_info
+        return ok(field_info)
     except HTTPException:
         raise
     except Exception as e:
@@ -252,8 +256,9 @@ async def get_field_info(field_name: str, user: dict = Depends(get_current_user)
 async def validate_conditions(conditions: List[ScreeningCondition], user: dict = Depends(get_current_user)):
     """验证筛选条件的有效性"""
     try:
+        enhanced_svc = get_enhanced_service()
         validation_result = await enhanced_svc.validate_conditions(conditions)
-        return validation_result
+        return ok(validation_result)
     except Exception as e:
         logger.error(f"[screening] 验证条件失败: {e}")
         raise HTTPException(status_code=500, detail=f"验证条件失败: {str(e)}")
@@ -357,11 +362,11 @@ async def get_industries(user: dict = Depends(get_current_user)):
 
         logger.info(f"[get_industries] 从数据源 {preferred_source} 返回 {len(industries)} 个行业")
 
-        return {
+        return ok({
             "industries": industries,
             "total": len(industries),
-            "source": preferred_source  # 🔥 返回数据来源
-        }
+            "source": preferred_source
+        })
 
     except Exception as e:
         logger.error(f"[get_industries] 获取行业列表失败: {e}", exc_info=True)

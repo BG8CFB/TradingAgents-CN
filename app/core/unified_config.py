@@ -87,6 +87,29 @@ class UnifiedConfigManager:
         if cache_key:
             self._cache[cache_key] = data
             self._last_modified[cache_key] = self._get_file_mtime(file_path)
+
+    def _normalize_data_source_config(self, ds_config: Dict[str, Any]) -> Dict[str, Any]:
+        """为旧版或不完整的数据源配置补充必填字段。"""
+        normalized = dict(ds_config or {})
+
+        raw_type = normalized.get("type")
+        raw_name = normalized.get("name")
+
+        if not raw_type:
+            inferred_name = str(raw_name or "").strip().lower()
+            if "tushare" in inferred_name:
+                raw_type = DataSourceType.TUSHARE.value
+            elif "finnhub" in inferred_name:
+                raw_type = DataSourceType.FINNHUB.value
+            else:
+                raw_type = DataSourceType.AKSHARE.value
+
+        if not raw_name:
+            raw_name = str(raw_type).strip() or DataSourceType.AKSHARE.value
+
+        normalized["type"] = raw_type
+        normalized["name"] = raw_name
+        return normalized
     
     # ==================== 模型配置管理 ====================
     
@@ -248,7 +271,8 @@ class UnifiedConfigManager:
                 result = []
                 for ds_config in data_source_configs:
                     try:
-                        result.append(DataSourceConfig(**ds_config))
+                        normalized = self._normalize_data_source_config(ds_config)
+                        result.append(DataSourceConfig(**normalized))
                     except Exception:
                         continue
 
@@ -312,7 +336,8 @@ class UnifiedConfigManager:
                 result = []
                 for ds_config in data_source_configs:
                     try:
-                        result.append(DataSourceConfig(**ds_config))
+                        normalized = self._normalize_data_source_config(ds_config)
+                        result.append(DataSourceConfig(**normalized))
                     except Exception:
                         continue
 

@@ -3,6 +3,7 @@ from typing import List
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
+import secrets
 import warnings
 
 # 🔧 延迟导入以避免循环导入：runtime_paths -> logging -> config
@@ -23,6 +24,14 @@ for _legacy, _new in _LEGACY_ENV_ALIASES.items():
             DeprecationWarning,
             stacklevel=2,
         )
+
+
+def _runtime_secret(name: str) -> str:
+    """在未配置环境变量时生成运行期密钥，避免固定默认值。"""
+    configured = os.getenv(name)
+    if configured:
+        return configured
+    return secrets.token_urlsafe(32)
 
 class Settings(BaseSettings):
     # 基础配置
@@ -79,7 +88,7 @@ class Settings(BaseSettings):
             return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     # JWT配置
-    JWT_SECRET: str = Field(default="change-me-in-production")
+    JWT_SECRET: str = Field(default_factory=lambda: _runtime_secret("JWT_SECRET"))
     JWT_ALGORITHM: str = Field(default="HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30)
@@ -131,7 +140,7 @@ class Settings(BaseSettings):
     # 安全配置
     BCRYPT_ROUNDS: int = Field(default=12)
     SESSION_EXPIRE_HOURS: int = Field(default=24)
-    CSRF_SECRET: str = Field(default="change-me-csrf-secret")
+    CSRF_SECRET: str = Field(default_factory=lambda: _runtime_secret("CSRF_SECRET"))
 
     # 外部服务配置
     STOCK_DATA_API_URL: str = Field(default="")
@@ -321,6 +330,37 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()
+
+# 安全检查：生产环境下必须显式配置密钥；开发环境缺失时给出提示
+_INSECURE_DEFAULTS = {
+    "JWT_SECRET": "change-me-in-production",
+    "CSRF_SECRET": "change-me-csrf-secret",
+}
+_REQUIRED_SECRETS = ("JWT_SECRET", "CSRF_SECRET")
+
+for _key in _REQUIRED_SECRETS:
+    if not os.getenv(_key):
+        if settings.is_production:
+            raise RuntimeError(
+                f"❌ 安全错误: 生产环境缺少 {_key}，请在 .env 或环境变量中显式配置后再启动！"
+            )
+        warnings.warn(
+            f"⚠️ 安全提示: 未配置 {_key}，当前使用运行期随机密钥；服务重启后相关会话将失效。",
+            stacklevel=2,
+        )
+
+for _key, _default in _INSECURE_DEFAULTS.items():
+    if os.getenv(_key) == _default:
+        if settings.is_production:
+            raise RuntimeError(
+                f"❌ 安全错误: 生产环境中 {_key} 使用了不安全的默认值，"
+                f"请在 .env 中设置自定义值后再启动！"
+            )
+        warnings.warn(
+            f"⚠️ 安全警告: {_key} 使用了不安全的默认值，请在 .env 中设置自定义值！",
+            UserWarning,
+            stacklevel=2
+        )
 
 # 自动将代理配置设置到环境变量
 # 这样 requests 库可以直接读取 os.environ['NO_PROXY']

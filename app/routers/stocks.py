@@ -439,10 +439,8 @@ async def get_kline(
     - 交易时间内（09:30-15:00）：从 market_quotes 获取实时数据
     - 收盘后：检查历史数据是否有当天数据，没有则从 market_quotes 获取
     """
-    import logging
     from datetime import datetime, timedelta, time as dtime
     from zoneinfo import ZoneInfo
-    logger = logging.getLogger(__name__)
 
     valid_periods = {"day","week","month","5m","15m","30m","60m"}
     if period not in valid_periods:

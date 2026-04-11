@@ -2,6 +2,7 @@ from typing import Annotated, Dict
 import time
 import os
 from datetime import datetime
+from pathlib import Path
 
 # 导入时间工具函数
 from app.utils.time_utils import now_utc
@@ -12,7 +13,7 @@ try:
 except ImportError:
     from .news.reddit import fetch_top_from_category
 
-from .news.google_news import *
+from .news.google_news import getNewsData
 
 
 from .news.chinese_finance import get_chinese_social_sentiment
@@ -27,6 +28,40 @@ from app.utils.logging_init import setup_dataflow_logging
 
 # 导入日志模块
 logger = setup_dataflow_logging()
+
+
+def _resolve_yfin_price_data_file(symbol: str) -> Path:
+    """解析指定股票离线 YFin 价格文件，避免依赖固定日期命名。"""
+    price_data_dir = Path(DATA_DIR) / "market_data" / "price_data"
+    candidates = sorted(
+        price_data_dir.glob(f"{symbol}-YFin-data-*.csv"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        raise FileNotFoundError(
+            f"未找到 {symbol} 的离线 YFin 数据文件，请先同步 market_data/price_data 中的历史行情。"
+        )
+    return candidates[0]
+
+
+def _load_yfin_price_data(symbol: str):
+    """加载离线 YFin 价格数据，并标准化日期列。"""
+    file_path = _resolve_yfin_price_data_file(symbol)
+    data = pd.read_csv(file_path)
+    if "Date" not in data.columns:
+        raise ValueError(f"{file_path} 缺少 Date 列，无法读取离线 YFin 数据。")
+
+    data["DateOnly"] = pd.to_datetime(data["Date"], utc=True, errors="coerce").dt.strftime("%Y-%m-%d")
+    return data, file_path
+
+
+def _get_yfin_available_date_range(data) -> tuple[str, str]:
+    """返回离线 YFin 数据实际可用的起止日期。"""
+    available_dates = data["DateOnly"].dropna()
+    if available_dates.empty:
+        raise ValueError("离线 YFin 数据不包含可用日期，无法完成时间窗口查询。")
+    return available_dates.min(), available_dates.max()
 
 # 导入港股工具
 try:
@@ -174,14 +209,14 @@ def _get_enabled_us_data_sources() -> list:
 
 # 尝试导入yfinance相关模块，如果失败则跳过
 try:
-    from .providers.us.yfinance import *
+    from .providers.us.yfinance import YFinanceUtils
     YFIN_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"⚠️ yfinance工具不可用: {e}")
     YFIN_AVAILABLE = False
 
 try:
-    from .technical.stockstats import *
+    from .technical.stockstats import StockstatsUtils
     STOCKSTATS_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"⚠️ stockstats工具不可用: {e}")
@@ -755,14 +790,8 @@ def get_stock_stats_indicators_window(
 
     if not online:
         # read from YFin data
-        data = pd.read_csv(
-            os.path.join(
-                DATA_DIR,
-                f"market_data/price_data/{symbol}-YFin-data-2015-01-01-2025-03-25.csv",
-            )
-        )
-        data["Date"] = pd.to_datetime(data["Date"], utc=True)
-        dates_in_df = data["Date"].astype(str).str[:10]
+        data, _ = _load_yfin_price_data(symbol)
+        dates_in_df = data["DateOnly"]
 
         ind_string = ""
         while curr_date >= before:
@@ -818,7 +847,7 @@ def get_stockstats_indicator(
             online=online,
         )
     except Exception as e:
-        print(
+        logger.error(
             f"Error getting stockstats indicator data for indicator {indicator} on {curr_date}: {e}"
         )
         return ""
@@ -837,16 +866,9 @@ def get_YFin_data_window(
     start_date = before.strftime("%Y-%m-%d")
 
     # read in data
-    data = pd.read_csv(
-        os.path.join(
-            DATA_DIR,
-            f"market_data/price_data/{symbol}-YFin-data-2015-01-01-2025-03-25.csv",
-        )
-    )
+    data, _ = _load_yfin_price_data(symbol)
 
     # Extract just the date part for comparison
-    data["DateOnly"] = data["Date"].str[:10]
-
     # Filter data between the start and end dates (inclusive)
     filtered_data = data[
         (data["DateOnly"] >= start_date) & (data["DateOnly"] <= curr_date)
@@ -918,20 +940,14 @@ def get_YFin_data(
     end_date: Annotated[str, "End date in yyyy-mm-dd format"],
 ) -> str:
     # read in data
-    data = pd.read_csv(
-        os.path.join(
-            DATA_DIR,
-            f"market_data/price_data/{symbol}-YFin-data-2015-01-01-2025-03-25.csv",
-        )
-    )
+    data, file_path = _load_yfin_price_data(symbol)
+    available_start_date, available_end_date = _get_yfin_available_date_range(data)
 
-    if end_date > "2025-03-25":
+    if start_date < available_start_date or end_date > available_end_date:
         raise Exception(
-            f"Get_YFin_Data: {end_date} is outside of the data range of 2015-01-01 to 2025-03-25"
+            f"Get_YFin_Data: 请求区间 {start_date} 到 {end_date} 超出离线数据范围 "
+            f"{available_start_date} 到 {available_end_date}，数据文件：{file_path.name}"
         )
-
-    # Extract just the date part for comparison
-    data["DateOnly"] = data["Date"].str[:10]
 
     # Filter data between the start and end dates (inclusive)
     filtered_data = data[
@@ -945,6 +961,28 @@ def get_YFin_data(
     filtered_data = filtered_data.reset_index(drop=True)
 
     return filtered_data
+
+
+def _extract_openai_response_text(response) -> str:
+    """
+    从 OpenAI Responses API 返回对象中安全提取文本内容。
+    """
+    try:
+        output = getattr(response, "output", None)
+        if not output:
+            return ""
+        for item in output:
+            content = getattr(item, "content", None)
+            if not content:
+                continue
+            for part in content:
+                if getattr(part, "type", None) == "output_text" and hasattr(part, "text"):
+                    return part.text
+                if hasattr(part, "text"):
+                    return part.text
+    except Exception:
+        pass
+    return ""
 
 
 def get_stock_news_openai(ticker, curr_date):
@@ -979,7 +1017,7 @@ def get_stock_news_openai(ticker, curr_date):
         store=True,
     )
 
-    return response.output[1].content[0].text
+    return _extract_openai_response_text(response)
 
 
 def get_global_news_openai(curr_date):
@@ -1014,7 +1052,7 @@ def get_global_news_openai(curr_date):
         store=True,
     )
 
-    return response.output[1].content[0].text
+    return _extract_openai_response_text(response)
 
 
 def get_fundamentals_finnhub(ticker, curr_date):
@@ -1401,7 +1439,9 @@ def _get_fundamentals_openai_impl(ticker, curr_date, config, cache):
             store=True,
         )
 
-        result = response.output[1].content[0].text
+        result = _extract_openai_response_text(response)
+        if not result:
+            raise ValueError("未能从 OpenAI 响应中提取有效文本内容")
 
         # 保存到缓存
         if result and len(result) > 100:  # 只有当结果有实际内容时才缓存

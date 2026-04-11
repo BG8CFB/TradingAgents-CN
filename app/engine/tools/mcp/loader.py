@@ -327,7 +327,7 @@ class MCPToolLoaderFactory:
     # ------------------------------------------------------------------
     # 子进程跟踪（使用 psutil）
     # ------------------------------------------------------------------
-    def _track_subprocess_for_server(self, server_name: str, command: str) -> None:
+    async def _track_subprocess_for_server(self, server_name: str, command: str) -> None:
         """
         跟踪指定服务器的子进程
 
@@ -348,7 +348,7 @@ class MCPToolLoaderFactory:
             # 这里等待 8 秒，给子进程足够的启动时间
             wait_time = 8.0
             logger.debug(f"[MCP] 等待 {wait_time} 秒以跟踪服务器 {server_name} 的子进程...")
-            time.sleep(wait_time)
+            await asyncio.sleep(wait_time)
 
             # 获取当前进程的所有子进程
             current_process = psutil.Process()
@@ -439,6 +439,37 @@ class MCPToolLoaderFactory:
 
         del self._tracked_pids[server_name]
 
+    def _has_live_stdio_process(self, server_name: str) -> bool:
+        """基于真实进程状态检测 stdio 服务器是否仍然存活。"""
+        tracked_pids = self._tracked_pids.get(server_name) or []
+        if not tracked_pids:
+            logger.debug(f"[MCP] 服务器 {server_name} 未记录可探测的 stdio 进程")
+            return False
+
+        if not PSUTIL_AVAILABLE:
+            logger.warning(f"[MCP] 无法探测服务器 {server_name} 的 stdio 进程状态：psutil 不可用")
+            return False
+
+        live_pids: List[int] = []
+        for pid in tracked_pids:
+            try:
+                process = psutil.Process(pid)
+                if process.is_running() and process.status() != psutil.STATUS_ZOMBIE:
+                    live_pids.append(pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+            except Exception as exc:
+                logger.debug(f"[MCP] 检查服务器 {server_name} 进程 {pid} 失败: {exc}")
+
+        if live_pids:
+            if live_pids != tracked_pids:
+                self._tracked_pids[server_name] = live_pids
+            return True
+
+        logger.warning(f"[MCP] 服务器 {server_name} 的 stdio 进程均不可用: {tracked_pids}")
+        self._tracked_pids.pop(server_name, None)
+        return False
+
     # ------------------------------------------------------------------
     # 重启管理
     # ------------------------------------------------------------------
@@ -481,7 +512,7 @@ class MCPToolLoaderFactory:
                 server_params[name] = {
                     "command": config.command,
                     "args": config.args or [],
-                    "env": {**os.environ, **config.env} if config.env else None,
+                    "env": {**os.environ, **config.env} if config.env is not None else None,
                     "transport": "stdio",
                 }
             elif config.is_http():
@@ -513,7 +544,7 @@ class MCPToolLoaderFactory:
             server_param = {
                 "command": config.command,
                 "args": config.args or [],
-                "env": {**os.environ, **config.env} if config.env else None,
+                "env": {**os.environ, **config.env} if config.env is not None else None,
                 "transport": "stdio",
             }
         elif config.is_http():
@@ -722,7 +753,7 @@ class MCPToolLoaderFactory:
 
             # 跟踪子进程
             if params.get("transport") == "stdio" and params.get("command"):
-                self._track_subprocess_for_server(name, params["command"])
+                await self._track_subprocess_for_server(name, params["command"])
 
             # 更新健康状态
             self._health_monitor._update_status(
@@ -981,36 +1012,29 @@ class MCPToolLoaderFactory:
         if config is None:
             return False
 
-        # 对于非 stdio 类型（HTTP/SSE），尝试简单的连接验证
+        # 对于非 stdio 类型（HTTP/SSE），至少要求客户端实例仍存在
         if not config.is_stdio():
-            # 🔥 增强: 对于 HTTP 类型，可以尝试 ping 或简单请求
-            # 但为了避免过度检查，暂时假设存活
-            return True
+            return server_name in self._mcp_clients
 
-        # 对于 stdio 类型，检查客户端连接
+        # 对于 stdio 类型，必须同时满足客户端实例存在且底层进程存活
         if server_name not in self._mcp_clients:
+            logger.debug(f"[MCP] 服务器 {server_name} 没有客户端实例")
             return False
-        
+
+        if not self._has_live_stdio_process(server_name):
+            logger.warning(f"[MCP] 服务器 {server_name} 的 stdio 进程未存活")
+            return False
+
         client = self._mcp_clients[server_name]
-        
-        # 🔥 增强: 验证客户端连接是否真正可用
         try:
-            # 检查客户端是否有有效的工具列表（表示连接正常）
             if hasattr(client, '_tools') and client._tools:
                 return True
-            
-            # 检查客户端是否有活跃的会话
             if hasattr(client, '_sessions') and client._sessions:
                 return True
-            
-            # 如果客户端存在但没有工具，可能是连接已断开
-            # 尝试获取工具列表来验证连接
-            # 注意：这可能会触发重新连接，所以只在必要时执行
-            logger.debug(f"[MCP] 服务器 {server_name} 客户端存在但状态不明，假设存活")
+            logger.debug(f"[MCP] 服务器 {server_name} 进程存活，但客户端尚未暴露工具或会话")
             return True
-            
         except Exception as e:
-            logger.warning(f"[MCP] 检查服务器 {server_name} 状态时出错: {e}")
+            logger.warning(f"[MCP] 检查服务器 {server_name} 客户端状态时出错: {e}")
             return False
 
     # ------------------------------------------------------------------
