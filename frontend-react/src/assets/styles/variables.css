@@ -1,0 +1,66 @@
+:root {
+  /* ========================================
+     星海雅金主题 (Elegant Gold & Steel Blue)
+     配色灵感：暖金 + 冷蓝 + 暖白
+     保留股票标准红/绿
+     ======================================== */
+
+  /* 背景系统 - 暖白色调，优雅不刺眼 */
+  --bg-base: #FAF8F5;        /* 暖米白底色，整体页面背景 */
+  --bg-card: #FFFFFF;         /* 纯白卡片 */
+  --bg-elevated: #FFFFFF;     /* 浮层（弹窗、下拉） */
+  --bg-sidebar: #FDFBFA;      /* 侧边栏，极微暖 */
+
+  /* 交互状态 - 金色调悬浮 */
+  --bg-hover: rgba(201, 169, 110, 0.08);
+  --bg-active: rgba(201, 169, 110, 0.15);
+
+  /* 强调色系统 */
+  --accent-primary: #C9A96E;    /* 雅金 - 主强调色（按钮、选中、Logo） */
+  --accent-secondary: #D4A574;  /* 浅金 - Hover 状态 */
+  --accent-blue: #4A7DB8;       /* 钢蓝 - 链接、次要强调（非青色） */
+  --accent-blue-light: #5B8FC4; /* 浅蓝 - Hover */
+  --accent-success: #52C41A;    /* 股票绿 - 上涨/成功 */
+  --accent-error: #FF4D4F;      /* 股票红 - 下跌/错误 */
+  --accent-warning: #D48806;    /* 琥珀警告 */
+
+  /* 文字系统 - 高对比度深色 */
+  --text-primary: #2C2C2C;      /* 主文字 - 深炭灰 */
+  --text-secondary: #6B7280;    /* 次要文字 - 中灰 */
+  --text-muted: #9CA3AF;        /* 弱化文字 - 浅灰 */
+
+  /* 边框系统 - 极淡金线 */
+  --border-color: rgba(201, 169, 110, 0.22);
+  --border-hover: rgba(201, 169, 110, 0.45);
+
+  /* 发光效果 - 关闭过度设计 */
+  --glow-primary: none;
+  --glow-secondary: none;
+}
+
+/* 暗色模式 (Dark Mode) */
+[data-theme='dark'] {
+  --bg-base: #131314;           /* 深墨底 */
+  --bg-card: #1A1A1D;           /* 深卡片 */
+  --bg-elevated: #222225;       /* 浮层 */
+  --bg-sidebar: #131314;
+
+  --bg-hover: rgba(201, 169, 110, 0.10);
+  --bg-active: rgba(201, 169, 110, 0.18);
+
+  --text-primary: #EDEDED;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+
+  --border-color: rgba(201, 169, 110, 0.18);
+  --border-hover: rgba(201, 169, 110, 0.40);
+
+  --glow-primary: none;
+  --glow-secondary: none;
+
+  /* 暗色下保持金色主调 */
+  --accent-primary: #C9A96E;
+  --accent-secondary: #D4A574;
+  --accent-blue: #5B8FC4;
+  --accent-blue-light: #6BA3D6;
+}

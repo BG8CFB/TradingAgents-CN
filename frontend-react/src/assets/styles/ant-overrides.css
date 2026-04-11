@@ -1,0 +1,443 @@
+/* ========================================
+   星海雅金主题 - Ant Design 组件覆盖
+   Elegant Gold & Steel Blue Theme
+   ======================================== */
+
+/* ===== 全局菜单 ===== */
+.ant-menu {
+  background: transparent !important;
+  border-inline-end: none !important;
+}
+
+.ant-menu-item {
+  color: var(--text-secondary) !important;
+  border-radius: 4px !important;
+  margin: 4px 12px !important;
+}
+
+.ant-menu-item:hover {
+  color: var(--accent-primary) !important;
+  background: var(--bg-hover) !important;
+}
+
+.ant-menu-item-selected {
+  color: var(--accent-primary) !important;
+  background: var(--bg-active) !important;
+}
+
+/* 子菜单标题 */
+.ant-menu-submenu-title:hover {
+  color: var(--accent-primary) !important;
+  background: var(--bg-hover) !important;
+}
+
+.ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: var(--accent-primary) !important;
+}
+
+/* ===== 卡片 ===== */
+.ant-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.ant-card-head {
+  background: transparent;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+/* ===== 按钮 - 雅金主色，无过度效果 ===== */
+.ant-btn-primary {
+  background: var(--accent-primary) !important;
+  border: none !important;
+  color: #FFFFFF !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+.ant-btn-primary:hover {
+  background: var(--accent-secondary) !important;
+  border: none !important;
+  color: #FFFFFF !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+
+/* 默认按钮 */
+.ant-btn-default {
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.ant-btn-default:hover {
+  border-color: var(--accent-primary) !important;
+  color: var(--accent-primary) !important;
+}
+
+/* 链接按钮 - 使用钢蓝色 */
+.ant-btn-link {
+  color: var(--accent-blue) !important;
+}
+
+.ant-btn-link:hover {
+  color: var(--accent-blue-light) !important;
+}
+
+/* ===== 输入框 ===== */
+.ant-input,
+.ant-input-number,
+.ant-picker,
+.ant-select-selector {
+  background: var(--bg-base) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.ant-input:hover,
+.ant-input-number:hover,
+.ant-picker:hover,
+.ant-select:hover .ant-select-selector {
+  border-color: var(--border-hover) !important;
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-number:focus,
+.ant-input-number-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 2px rgba(201, 169, 110, 0.15) !important;
+}
+
+/* ===== 表格 ===== */
+.ant-table {
+  background: transparent;
+}
+
+.ant-table-thead > tr > th {
+  background: var(--bg-sidebar) !important;
+  color: var(--text-secondary) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  font-weight: 600;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+
+/* 表格分页器 */
+.ant-table-pagination .ant-pagination-item-active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+/* ===== 标签页 ===== */
+.ant-tabs-nav::before {
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+.ant-tabs-tab:hover {
+  color: var(--accent-primary) !important;
+}
+
+.ant-tabs-tab-active .tabs-tab {
+  color: var(--accent-primary) !important;
+}
+
+.ant-tabs-ink-bar {
+  background: var(--accent-primary) !important;
+}
+
+/* ===== 模态框 ===== */
+.ant-modal-content,
+.ant-modal-header {
+  background: var(--bg-card) !important;
+}
+
+.ant-modal-title {
+  color: var(--text-primary) !important;
+}
+
+.ant-modal-close:hover {
+  color: var(--accent-error) !important;
+}
+
+/* ===== 下拉菜单 ===== */
+.ant-dropdown-menu {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.ant-dropdown-menu-item {
+  color: var(--text-primary) !important;
+}
+
+.ant-dropdown-menu-item:hover {
+  background: var(--bg-hover) !important;
+}
+
+/* ===== 抽屉 ===== */
+.ant-drawer-content {
+  background: var(--bg-sidebar) !important;
+}
+
+.ant-drawer-header {
+  background: var(--bg-sidebar) !important;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* ===== 分页 ===== */
+.ant-pagination-item {
+  background: var(--bg-base);
+  border-color: var(--border-color);
+}
+
+.ant-pagination-item a {
+  color: var(--text-primary);
+}
+
+.ant-pagination-item-active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.ant-pagination-item-active a {
+  color: #FFFFFF !important;
+}
+
+.ant-pagination-prev:hover .ant-pagination-item-link,
+.ant-pagination-next:hover .ant-pagination-item-link {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+/* ===== Loading ===== */
+.ant-spin-dot-item {
+  background-color: var(--accent-secondary);
+}
+
+/* ===== 标签 Tag ===== */
+.ant-tag {
+  border-radius: 4px;
+}
+
+/* ===== 消息提示 Message ===== */
+.ant-message-notice-content {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+}
+
+/* ===== 面包屑 Breadcrumb ===== */
+.ant-breadcrumb a {
+  color: var(--accent-blue);
+}
+
+.ant-breadcrumb a:hover {
+  color: var(--accent-blue-light);
+}
+
+/* ===== 头像 Avatar ===== */
+.ant-avatar {
+  border: 2px solid var(--border-color);
+}
+
+/* ===== 徽标 Badge ===== */
+.ant-badge-count {
+  background: var(--accent-error);
+  box-shadow: none;
+}
+
+/* ===== 进度条 Progress ===== */
+.ant-progress-inner {
+  background: rgba(201, 169, 110, 0.15);
+}
+
+/* ===== 开关 Switch ===== */
+.ant-switch-checked {
+  background: var(--accent-primary) !important;
+}
+
+/* ===== 单选/复选 Radio/Checkbox ===== */
+.ant-radio-wrapper-checked .ant-radio-inner,
+.ant-checkbox-checked .ant-checkbox-inner {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+/* ===== 空状态 Empty ===== */
+.ant-empty-description {
+  color: var(--text-muted);
+}
+
+/* ========================================
+   响应式适配 (Responsive)
+   ======================================== */
+
+/* --- 平板 (768px - 1024px) --- */
+@media screen and (max-width: 1024px) {
+  /* 表格横向滚动优化 */
+  .ant-table-wrapper {
+    overflow-x: auto;
+  }
+
+  /* 统计卡片字体缩小 */
+  .ant-statistic-content-value {
+    font-size: 18px !important;
+  }
+}
+
+/* --- 手机 (< 768px) --- */
+@media screen and (max-width: 768px) {
+  /* 全局内边距缩减 */
+  .ant-layout-content {
+    margin: 12px !important;
+    padding: 0 !important;
+  }
+
+  /* 卡片无圆角边距 */
+  .ant-card {
+    border-radius: 4px;
+  }
+
+  .ant-card-body {
+    padding: 12px !important;
+  }
+
+  .ant-card-head {
+    padding: 0 12px !important;
+    min-height: auto;
+  }
+
+  .ant-card-head-title {
+    font-size: 14px !important;
+    padding: 8px 0 !important;
+  }
+
+  /* 表格移动端优化 */
+  .ant-table {
+    font-size: 12px;
+  }
+
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td {
+    padding: 8px 6px !important;
+  }
+
+  /* 隐藏非关键列（通过 data-mobile-hide 属性） */
+  .ant-table [data-mobile-hide] {
+    display: none;
+  }
+
+  /* 分页器紧凑 */
+  .ant-pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* 模态框全屏 */
+  .ant-modal {
+    max-width: 100vw !important;
+    margin: 0 !important;
+    top: 0;
+    padding-bottom: 0;
+  }
+
+  .ant-modal-content {
+    border-radius: 0;
+  }
+
+  /* 抽屉全宽 */
+  .ant-drawer {
+    max-width: 85vw !important;
+  }
+
+  /* 筛选区域工具栏换行（仅限页面级筛选区，非全局） */
+  .page-filter-bar .ant-space,
+  .page-toolbar .ant-space {
+    flex-wrap: wrap;
+  }
+
+  /* 表单标签顶部对齐 */
+  .ant-form-item-label > label {
+    font-size: 13px;
+  }
+
+  /* 描述列表紧凑 */
+  .ant-descriptions-item-label {
+    width: 80px !important;
+    font-size: 12px;
+  }
+
+  .ant-descriptions-item-content {
+    font-size: 12px;
+  }
+
+  /* 筛选区域垂直排列 */
+  .ant-space-wrap {
+    gap: 8px !important;
+  }
+
+  /* 日期选择器宽度自适应 */
+  .ant-picker-range {
+    width: 100% !important;
+  }
+
+  /* 统计概览区域两列布局（限定作用域） */
+  .stats-overview .ant-row > .ant-col {
+    flex: 0 0 calc(50% - 12px) !important;
+    max-width: calc(50% - 12px) !important;
+  }
+  .stats-overview .ant-row {
+    margin-left: -12px !important;
+    margin-right: -12px !important;
+  }
+
+  /* 标签页可滑动 */
+  .ant-tabs-nav {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .ant-tabs-nav-list {
+    flex-wrap: nowrap !important;
+  }
+
+  /* Alert 紧凑 */
+  .ant-alert {
+    padding: 6px 12px !important;
+    font-size: 12px;
+  }
+
+  /* 消息提示全宽 */
+  .ant-message-notice-content {
+    max-width: calc(100vw - 32px) !important;
+  }
+}
+
+/* --- 超小手机 (< 375px) --- */
+@media screen and (max-width: 375px) {
+  .ant-layout-content {
+    margin: 8px !important;
+  }
+
+  .ant-card-body {
+    padding: 10px !important;
+  }
+
+  .ant-statistic-title {
+    font-size: 11px !important;
+  }
+
+  .ant-statistic-content-value {
+    font-size: 16px !important;
+  }
+}
