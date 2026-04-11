@@ -23,9 +23,6 @@
         <el-button type="warning" @click="clearCache" :loading="clearCacheLoading">
           <el-icon><Delete /></el-icon> 清除缓存
         </el-button>
-        <el-button type="success" @click="goPaperTrading">
-          <el-icon><CreditCard /></el-icon> 模拟交易
-        </el-button>
       </div>
     </div>
 
@@ -275,7 +272,6 @@
           <div class="quick-actions">
             <el-button type="primary" @click="onAnalyze" :icon="TrendCharts" plain>发起分析</el-button>
             <el-button @click="onToggleFavorite" :icon="Star">{{ isFav ? '移出自选' : '加入自选' }}</el-button>
-            <el-button type="success" :icon="CreditCard" @click="goPaperTrading">模拟交易</el-button>
           </div>
         </el-card>
       </el-col>
@@ -359,7 +355,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { TrendCharts, Star, Refresh, Link, Document, Clock, Reading, CreditCard, Delete } from '@element-plus/icons-vue'
+import { TrendCharts, Star, Refresh, Link, Document, Clock, Reading, Delete } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { stocksApi } from '@/api/stocks'
 import { analysisApi } from '@/api/analysis'
@@ -939,9 +935,7 @@ async function onToggleFavorite() {
   }
 }
 
-function goPaperTrading() {
-  router.push({ name: 'PaperTradingHome', query: { code: code.value } })
-}
+
 
 // @ts-expect-error
 function _scrollToDetail() {
