@@ -910,41 +910,6 @@ async def submit_batch_analysis(
         logger.error(f"❌ [批量分析] 提交失败: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
 
-# 兼容性：保留原有端点
-@router.post("/analyze")
-async def analyze_single(
-    req: SingleAnalyzeRequest,
-    user: dict = Depends(get_current_user),
-    svc: QueueService = Depends(get_queue_service)
-):
-    """单股分析（兼容性端点）"""
-    try:
-        task_id = await svc.enqueue_task(
-            user_id=user["id"],
-            symbol=req.symbol,
-            params=req.parameters
-        )
-        return {"task_id": task_id, "status": "queued"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.post("/analyze/batch")
-async def analyze_batch(
-    req: BatchAnalyzeRequest,
-    user: dict = Depends(get_current_user),
-    svc: QueueService = Depends(get_queue_service)
-):
-    """批量分析（兼容性端点）"""
-    try:
-        batch_id, submitted = await svc.create_batch(
-            user_id=user["id"],
-            symbols=req.symbols,
-            params=req.parameters
-        )
-        return {"batch_id": batch_id, "submitted": submitted}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
 @router.get("/batches/{batch_id}")
 async def get_batch(batch_id: str, user: dict = Depends(get_current_user), svc: QueueService = Depends(get_queue_service)):
     b = await svc.get_batch(batch_id)

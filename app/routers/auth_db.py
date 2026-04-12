@@ -424,6 +424,76 @@ async def reset_password(
         logger.error(f"重置密码失败: {e}")
         raise HTTPException(status_code=500, detail=f"重置密码失败: {str(e)}")
 
+class RegisterRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+@router.post("/register")
+async def register(payload: RegisterRequest, request: Request):
+    """用户公开注册（无需认证）"""
+    start_time = time.time()
+    ip_address = request.client.host if request.client else "unknown"
+
+    logger.info(f"📝 注册请求 - 用户名: {payload.username}, IP: {ip_address}")
+
+    try:
+        if not payload.username or not payload.email or not payload.password:
+            raise HTTPException(status_code=400, detail="用户名、邮箱和密码不能为空")
+
+        if len(payload.password) < 6:
+            raise HTTPException(status_code=400, detail="密码长度不能少于6位")
+
+        user_create = UserCreate(
+            username=payload.username,
+            email=payload.email,
+            password=payload.password
+        )
+
+        new_user = await user_service.create_user(user_create)
+
+        if not new_user:
+            raise HTTPException(status_code=400, detail="用户名或邮箱已存在")
+
+        # 自动生成 token，注册后直接登录
+        token = AuthService.create_access_token(sub=new_user.username)
+        refresh_token = AuthService.create_access_token(sub=new_user.username, expires_delta=60*60*24*7)
+
+        await log_operation(
+            user_id=str(new_user.id),
+            username=new_user.username,
+            action_type=ActionType.USER_LOGIN,
+            action="用户注册",
+            details={"method": "register"},
+            success=True,
+            duration_ms=int((time.time() - start_time) * 1000),
+            ip_address=ip_address,
+            user_agent=request.headers.get("user-agent", "")
+        )
+
+        return {
+            "success": True,
+            "data": {
+                "access_token": token,
+                "refresh_token": refresh_token,
+                "expires_in": 60 * 60,
+                "user": {
+                    "id": str(new_user.id),
+                    "username": new_user.username,
+                    "email": new_user.email,
+                    "name": new_user.username,
+                    "is_admin": False
+                }
+            },
+            "message": "注册成功"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 注册异常: {e}")
+        raise HTTPException(status_code=500, detail=f"注册过程中发生系统错误")
+
+
 @router.post("/create-user")
 async def create_user(
     payload: CreateUserRequest,

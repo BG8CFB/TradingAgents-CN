@@ -132,11 +132,6 @@ export async function setDefaultLLM(data: SetDefaultRequest): Promise<ApiRespons
   return apiClient.post<{ message: string; default_llm: string }>(`${BASE}/llm/set-default`, data)
 }
 
-/** 设置默认分析大模型（/default/llm，备用端点） */
-export async function setDefaultLLMAlt(data: SetDefaultRequest): Promise<ApiResponse<{ message: string }>> {
-  return apiClient.post<{ message: string }>(`${BASE}/default/llm`, data)
-}
-
 // ========== 数据源配置 ==========
 
 /** 获取所有数据源配置 */
@@ -162,11 +157,6 @@ export async function deleteDataSourceConfig(name: string): Promise<ApiResponse<
 /** 设置默认数据源（/datasource/set-default） */
 export async function setDefaultDataSource(data: SetDefaultRequest): Promise<ApiResponse<{ message: string; default_data_source: string }>> {
   return apiClient.post<{ message: string; default_data_source: string }>(`${BASE}/datasource/set-default`, data)
-}
-
-/** 设置默认数据源（/default/datasource，备用端点） */
-export async function setDefaultDataSourceAlt(data: SetDefaultRequest): Promise<ApiResponse<{ message: string }>> {
-  return apiClient.post<{ message: string }>(`${BASE}/default/datasource`, data)
 }
 
 // ========== 数据库配置 ==========
