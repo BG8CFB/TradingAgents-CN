@@ -4,9 +4,10 @@
 """
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, Depends
 from pydantic import BaseModel, Field
 
+from app.routers.auth_db import get_current_user, require_admin
 from app.services.social_media_service import (
     get_social_media_service,
     SocialMediaQueryParams,
@@ -67,7 +68,7 @@ class SocialMediaQueryRequest(BaseModel):
 
 
 @router.post("/save", response_model=dict)
-async def save_social_media_messages(request: SocialMediaBatchRequest):
+async def save_social_media_messages(request: SocialMediaBatchRequest, current_user: dict = Depends(require_admin)):
     """批量保存社媒消息"""
     try:
         service = await get_social_media_service()
@@ -92,7 +93,7 @@ async def save_social_media_messages(request: SocialMediaBatchRequest):
 
 
 @router.post("/query", response_model=dict)
-async def query_social_media_messages(request: SocialMediaQueryRequest):
+async def query_social_media_messages(request: SocialMediaQueryRequest, current_user: dict = Depends(get_current_user)):
     """查询社媒消息"""
     try:
         service = await get_social_media_service()
@@ -136,7 +137,8 @@ async def query_social_media_messages(request: SocialMediaQueryRequest):
 async def get_latest_messages(
     symbol: str,
     platform: Optional[str] = Query(None, description="平台类型"),
-    limit: int = Query(20, ge=1, le=100, description="返回数量")
+    limit: int = Query(20, ge=1, le=100, description="返回数量"),
+    current_user: dict = Depends(get_current_user)
 ):
     """获取最新社媒消息"""
     try:
@@ -161,7 +163,8 @@ async def search_messages(
     query: str = Query(..., description="搜索关键词"),
     symbol: Optional[str] = Query(None, description="股票代码"),
     platform: Optional[str] = Query(None, description="平台类型"),
-    limit: int = Query(50, ge=1, le=200, description="返回数量")
+    limit: int = Query(50, ge=1, le=200, description="返回数量"),
+    current_user: dict = Depends(get_current_user)
 ):
     """全文搜索社媒消息"""
     try:
@@ -186,7 +189,8 @@ async def search_messages(
 @router.get("/statistics", response_model=dict)
 async def get_statistics(
     symbol: Optional[str] = Query(None, description="股票代码"),
-    hours_back: int = Query(24, ge=1, le=168, description="回溯小时数")
+    hours_back: int = Query(24, ge=1, le=168, description="回溯小时数"),
+    current_user: dict = Depends(get_current_user)
 ):
     """获取社媒消息统计信息"""
     try:
@@ -215,7 +219,7 @@ async def get_statistics(
 
 
 @router.get("/platforms", response_model=dict)
-async def get_supported_platforms():
+async def get_supported_platforms(current_user: dict = Depends(get_current_user)):
     """获取支持的社媒平台列表"""
     platforms = [
         {
@@ -267,7 +271,8 @@ async def get_supported_platforms():
 async def get_sentiment_analysis(
     symbol: str,
     platform: Optional[str] = Query(None, description="平台类型"),
-    hours_back: int = Query(24, ge=1, le=168, description="回溯小时数")
+    hours_back: int = Query(24, ge=1, le=168, description="回溯小时数"),
+    current_user: dict = Depends(get_current_user)
 ):
     """获取股票的社媒情绪分析"""
     try:

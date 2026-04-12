@@ -45,7 +45,7 @@ async def reload_config(current_user: dict = Depends(get_current_user)):
     try:
         from app.core.config_bridge import reload_bridged_config
 
-        success = reload_bridged_config()
+        success = await reload_bridged_config()
 
         if success:
             await log_operation(
@@ -649,7 +649,7 @@ async def add_llm_config(
             # 同步定价配置到 tradingagents
             try:
                 from app.core.config_bridge import sync_pricing_config_now
-                sync_pricing_config_now()
+                await sync_pricing_config_now()
                 logger.info(f"✅ 定价配置已同步到 tradingagents")
             except Exception as e:
                 logger.warning(f"⚠️  同步定价配置失败: {e}")
@@ -959,7 +959,7 @@ async def delete_llm_config(
             # 同步定价配置到 tradingagents
             try:
                 from app.core.config_bridge import sync_pricing_config_now
-                sync_pricing_config_now()
+                await sync_pricing_config_now()
                 logger.info(f"✅ 定价配置已同步到 tradingagents")
             except Exception as e:
                 logger.warning(f"⚠️  同步定价配置失败: {e}")
@@ -1930,10 +1930,10 @@ async def get_database_configs(
 ):
     """获取所有数据库配置"""
     try:
-        logger.info("🔄 获取数据库配置列表...")
+        logger.info("获取数据库配置列表...")
         configs = await config_service.get_database_configs()
-        logger.info(f"✅ 获取到 {len(configs)} 个数据库配置")
-        return configs
+        logger.info(f"获取到 {len(configs)} 个数据库配置")
+        return _sanitize_database_configs(configs)
     except Exception as e:
         logger.error(f"❌ 获取数据库配置失败: {e}")
         raise HTTPException(
@@ -1958,7 +1958,7 @@ async def get_database_config(
                 detail=f"数据库配置 '{db_name}' 不存在"
             )
 
-        return config
+        return _sanitize_database_configs([config])[0]
     except HTTPException:
         raise
     except Exception as e:

@@ -2,69 +2,20 @@
 Redis客户端配置和连接管理
 """
 
-import redis.asyncio as redis
 import logging
 from typing import Optional
-from .config import settings
+from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
-# 全局Redis连接池
-redis_pool: Optional[redis.ConnectionPool] = None
-redis_client: Optional[redis.Redis] = None
 
-
-async def init_redis():
-    """初始化Redis连接"""
-    global redis_pool, redis_client
-
-    try:
-        # 创建连接池
-        redis_pool = redis.ConnectionPool.from_url(
-            settings.REDIS_URL,
-            max_connections=settings.REDIS_MAX_CONNECTIONS,  # 使用配置文件中的值
-            retry_on_timeout=settings.REDIS_RETRY_ON_TIMEOUT,
-            decode_responses=True,
-            socket_keepalive=True,  # 启用 TCP keepalive
-            socket_keepalive_options={
-                1: 60,  # TCP_KEEPIDLE: 60秒后开始发送keepalive探测
-                2: 10,  # TCP_KEEPINTVL: 每10秒发送一次探测
-                3: 3,   # TCP_KEEPCNT: 最多发送3次探测
-            },
-            health_check_interval=30,  # 每30秒检查一次连接健康状态
-        )
-
-        # 创建Redis客户端
-        redis_client = redis.Redis(connection_pool=redis_pool)
-
-        # 测试连接
-        await redis_client.ping()
-        logger.info(f"✅ Redis连接成功建立 (max_connections={settings.REDIS_MAX_CONNECTIONS})")
-
-    except Exception as e:
-        logger.error(f"❌ Redis连接失败: {e}")
-        raise
-
-
-async def close_redis():
-    """关闭Redis连接"""
-    global redis_pool, redis_client
-    
-    try:
-        if redis_client:
-            await redis_client.close()
-        if redis_pool:
-            await redis_pool.disconnect()
-        logger.info("✅ Redis连接已关闭")
-    except Exception as e:
-        logger.error(f"❌ 关闭Redis连接时出错: {e}")
-
-
-def get_redis() -> redis.Redis:
-    """获取Redis客户端实例"""
-    if redis_client is None:
-        raise RuntimeError("Redis客户端未初始化")
-    return redis_client
+def get_redis():
+    """获取 Redis 客户端（统一从 database.py 获取）"""
+    from app.core.database import get_redis_client
+    client = get_redis_client()
+    if client is None:
+        raise RuntimeError("Redis 未初始化，请先调用 init_database()")
+    return client
 
 
 class RedisKeys:
@@ -105,13 +56,14 @@ class RedisService:
     """Redis服务封装类"""
 
     def __init__(self):
-        self._redis = None
+        self._redis: Optional[Redis] = None
 
     @property
-    def redis(self):
-        """延迟获取 Redis 客户端，避免 __init__ 阶段 Redis 未初始化时崩溃"""
-        if self._redis is None:
-            self._redis = get_redis()
+    def redis(self) -> Redis:
+        """始终返回当前全局 Redis 客户端，避免重连后持有过期实例"""
+        current_client = get_redis()
+        if self._redis is not current_client:
+            self._redis = current_client
         return self._redis
     
     async def set_with_ttl(self, key: str, value: str, ttl: int = 3600):
@@ -135,13 +87,17 @@ class RedisService:
         else:
             await self.redis.set(key, json_str)
     
-    async def increment_with_ttl(self, key: str, ttl: int = 3600):
-        """递增计数器并设置TTL"""
-        pipe = self.redis.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, ttl)
-        results = await pipe.execute()
-        return results[0]
+    async def increment_with_ttl(self, key: str, ttl: int = 3600) -> int:
+        """递增计数器，仅在首次创建时设置 TTL（Lua 脚本保证原子性）"""
+        lua_script = """
+        local count = redis.call('INCR', KEYS[1])
+        if count == 1 then
+            redis.call('EXPIRE', KEYS[1], ARGV[1])
+        end
+        return count
+        """
+        result = await self.redis.eval(lua_script, 1, key, ttl)
+        return int(result)
     
     async def add_to_queue(self, queue_key: str, item: dict):
         """添加项目到队列"""

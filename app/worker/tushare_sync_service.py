@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.rate_limiter import get_tushare_rate_limiter
 from app.utils.timezone import now_tz, now_utc, now_config_tz, format_date_short
 from app.engine.config.runtime_settings import get_zoneinfo
+from app.worker.base_sync_service import BaseSyncService
 
 logger = logging.getLogger(__name__)
 
@@ -35,23 +36,19 @@ def get_utc8_now():
     return now_tz().replace(tzinfo=None)
 
 
-class TushareSyncService:
+class TushareSyncService(BaseSyncService):
     """
     Tushare数据同步服务
     负责将Tushare数据同步到MongoDB标准化集合
     """
-    
+
     def __init__(self):
+        super().__init__(data_source="tushare", batch_size=100, rate_limit_delay=0.1)
         self.provider = TushareProvider()
         self.stock_service = get_stock_data_service()
-        self.historical_service = None  # 延迟初始化
         self.news_service = None  # 延迟初始化
         self.db = get_mongo_db()
         self.settings = settings
-
-        # 同步配置
-        self.batch_size = 100  # 批量处理大小
-        self.rate_limit_delay = 0.1  # API调用间隔(秒) - 已弃用，使用rate_limiter
         self.max_retries = 3  # 最大重试次数
 
         # 速率限制器（从环境变量读取配置）
@@ -776,7 +773,7 @@ class TushareSyncService:
 
     async def _get_last_sync_date(self, symbol: str = None) -> str:
         """
-        获取最后同步日期
+        获取最后同步日期（委托给基类）
 
         Args:
             symbol: 股票代码，如果提供则返回该股票的最后日期+1天
@@ -784,51 +781,7 @@ class TushareSyncService:
         Returns:
             日期字符串 (YYYY-MM-DD)
         """
-        try:
-            if self.historical_service is None:
-                self.historical_service = await get_historical_data_service()
-
-            if symbol:
-                # 获取特定股票的最新日期
-                latest_date = await self.historical_service.get_latest_date(symbol, "tushare")
-                if latest_date:
-                    # 返回最后日期的下一天（避免重复同步）
-                    try:
-                        last_date_obj = datetime.strptime(latest_date, '%Y-%m-%d')
-                        next_date = last_date_obj + timedelta(days=1)
-                        return next_date.strftime('%Y-%m-%d')
-                    except:
-                        # 如果日期格式不对，直接返回
-                        return latest_date
-                else:
-                    # 🔥 没有历史数据时，从上市日期开始全量同步
-                    stock_info = await self.db.stock_basic_info.find_one(
-                        {"code": symbol},
-                        {"list_date": 1}
-                    )
-                    if stock_info and stock_info.get("list_date"):
-                        list_date = stock_info["list_date"]
-                        # 处理不同的日期格式
-                        if isinstance(list_date, str):
-                            # 格式可能是 "20100101" 或 "2010-01-01"
-                            if len(list_date) == 8 and list_date.isdigit():
-                                return f"{list_date[:4]}-{list_date[4:6]}-{list_date[6:]}"
-                            else:
-                                return list_date
-                        else:
-                            return list_date.strftime('%Y-%m-%d')
-
-                    # 如果没有上市日期，从1990年开始
-                    logger.warning(f"⚠️ {symbol}: 未找到上市日期，从1990-01-01开始同步")
-                    return "1990-01-01"
-
-            # 默认返回30天前（确保不漏数据）
-            return format_date_short(now_config_tz() - timedelta(days=30))
-
-        except Exception as e:
-            logger.error(f"❌ 获取最后同步日期失败 {symbol}: {e}")
-            # 出错时返回30天前，确保不漏数据
-            return format_date_short(now_config_tz() - timedelta(days=30))
+        return await self.get_last_sync_date(symbol)
 
     # ==================== 财务数据同步 ====================
 
@@ -969,13 +922,9 @@ class TushareSyncService:
 
     # ==================== 辅助方法 ====================
 
-    def _is_data_fresh(self, updated_at: datetime, hours: int = 24) -> bool:
-        """检查数据是否新鲜"""
-        if not updated_at:
-            return False
-
-        threshold = now_utc() - timedelta(hours=hours)
-        return updated_at > threshold
+    def _is_data_fresh(self, updated_at, hours: int = 24) -> bool:
+        """检查数据是否新鲜（委托给基类）"""
+        return self.is_data_fresh(updated_at, hours=hours)
 
     async def get_sync_status(self) -> Dict[str, Any]:
         """获取同步状态"""

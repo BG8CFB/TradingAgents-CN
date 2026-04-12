@@ -79,7 +79,7 @@ async def validate_config():
     try:
         # 🔧 步骤1: 重载配置 - 从 MongoDB 读取配置并桥接到环境变量
         try:
-            bridge_config_to_env()
+            await bridge_config_to_env()
             logger.info("✅ 配置已从 MongoDB 重载到环境变量")
         except Exception as e:
             logger.warning(f"⚠️  配置重载失败: {e}，将验证 .env 文件中的配置")

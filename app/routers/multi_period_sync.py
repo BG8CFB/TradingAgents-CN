@@ -6,9 +6,10 @@
 import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
 
+from app.routers.auth_db import get_current_user, require_admin
 from app.worker.multi_period_sync_service import get_multi_period_sync_service
 from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_iso
 
@@ -37,7 +38,8 @@ class MultiPeriodSyncResponse(BaseModel):
 @router.post("/start", response_model=MultiPeriodSyncResponse)
 async def start_multi_period_sync(
     request: MultiPeriodSyncRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(require_admin)
 ):
     """
     启动多周期数据同步
@@ -74,7 +76,8 @@ async def start_multi_period_sync(
 async def start_daily_sync(
     background_tasks: BackgroundTasks,
     symbols: Optional[List[str]] = None,
-    data_sources: Optional[List[str]] = None
+    data_sources: Optional[List[str]] = None,
+    current_user: dict = Depends(require_admin)
 ):
     """启动日线数据同步"""
     try:
@@ -105,7 +108,8 @@ async def start_daily_sync(
 async def start_weekly_sync(
     background_tasks: BackgroundTasks,
     symbols: Optional[List[str]] = None,
-    data_sources: Optional[List[str]] = None
+    data_sources: Optional[List[str]] = None,
+    current_user: dict = Depends(require_admin)
 ):
     """启动周线数据同步"""
     try:
@@ -136,7 +140,8 @@ async def start_weekly_sync(
 async def start_monthly_sync(
     background_tasks: BackgroundTasks,
     symbols: Optional[List[str]] = None,
-    data_sources: Optional[List[str]] = None
+    data_sources: Optional[List[str]] = None,
+    current_user: dict = Depends(require_admin)
 ):
     """启动月线数据同步"""
     try:
@@ -168,7 +173,8 @@ async def start_all_history_sync(
     background_tasks: BackgroundTasks,
     symbols: Optional[List[str]] = None,
     periods: Optional[List[str]] = None,
-    data_sources: Optional[List[str]] = None
+    data_sources: Optional[List[str]] = None,
+    current_user: dict = Depends(require_admin)
 ):
     """启动全历史数据同步（从1990年开始）"""
     try:
@@ -206,7 +212,8 @@ async def start_incremental_sync(
     symbols: Optional[List[str]] = None,
     periods: Optional[List[str]] = None,
     data_sources: Optional[List[str]] = None,
-    days_back: Optional[int] = 30
+    days_back: Optional[int] = 30,
+    current_user: dict = Depends(require_admin)
 ):
     """启动增量数据同步（最近N天）"""
     try:
@@ -246,7 +253,7 @@ async def start_incremental_sync(
 
 
 @router.get("/statistics")
-async def get_sync_statistics():
+async def get_sync_statistics(current_user: dict = Depends(get_current_user)):
     """获取多周期同步统计信息"""
     try:
         service = await get_multi_period_sync_service()
@@ -267,7 +274,8 @@ async def get_sync_statistics():
 async def compare_period_data(
     symbol: str,
     trade_date: str,
-    data_source: str = "tushare"
+    data_source: str = "tushare",
+    current_user: dict = Depends(get_current_user)
 ):
     """
     对比同一股票不同周期的数据
@@ -312,7 +320,7 @@ async def compare_period_data(
 
 
 @router.get("/supported-periods")
-async def get_supported_periods():
+async def get_supported_periods(current_user: dict = Depends(get_current_user)):
     """获取支持的数据周期"""
     return {
         "success": True,

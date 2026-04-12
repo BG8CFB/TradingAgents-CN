@@ -3,40 +3,45 @@
 将统一配置系统的配置桥接到环境变量，供 TradingAgents 核心库使用
 """
 
+import asyncio
 import os
 import json
 import logging
 from pathlib import Path
 from typing import Optional
 
-from app.core.database import get_mongo_db_sync
+from app.core.database import get_mongo_db
 
 logger = logging.getLogger("app.config_bridge")
 
 
-def _get_sync_db():
+async def _find_active_system_config(config_collection, *, context: str) -> Optional[dict]:
     """
-    复用应用级同步 MongoDB 连接池，避免桥接流程反复建连。
+    查询当前激活的 system_configs 文档，并在数据库异常时返回 None。
+
+    Args:
+        config_collection: MongoDB 的 system_configs 集合
+        context: 当前调用场景，用于日志定位
 
     Returns:
-        Database: 同步 MongoDB 数据库实例
-
-    Raises:
-        RuntimeError: MongoDB 连接不可用或未初始化
+        Optional[dict]: 激活的系统配置文档；查询失败时返回 None
     """
     try:
-        db = get_mongo_db_sync()
-        if db is None:
-            raise RuntimeError("同步 MongoDB 数据库连接返回 None，数据库可能未初始化")
-        return db
-    except RuntimeError:
-        raise
-    except Exception as e:
-        logger.error(f"❌ 获取同步 MongoDB 连接失败: {e}")
-        raise
+        return await config_collection.find_one(
+            {"is_active": True},
+            sort=[("version", -1)]
+        )
+    except Exception as exc:
+        logger.error(
+            "❌ %s：查询激活系统配置失败: %s",
+            context,
+            exc,
+            exc_info=True
+        )
+        return None
 
 
-def bridge_config_to_env():
+async def bridge_config_to_env() -> bool:
     """
     将统一配置桥接到环境变量
 
@@ -83,11 +88,11 @@ def bridge_config_to_env():
         try:
             from app.models.config import LLMProvider
 
-            db = _get_sync_db()
+            db = get_mongo_db()
             providers_collection = db.llm_providers
 
             # 查询所有厂家配置
-            providers_data = list(providers_collection.find())
+            providers_data = await providers_collection.find().to_list(None)
             providers = [LLMProvider(**data) for data in providers_data]
 
             logger.info(f"  📊 从数据库读取到 {len(providers)} 个厂家配置")
@@ -163,13 +168,13 @@ def bridge_config_to_env():
         try:
             from app.models.config import SystemConfig
 
-            db = _get_sync_db()
+            db = get_mongo_db()
             config_collection = db.system_configs
 
             # 查询最新的系统配置
-            config_data = config_collection.find_one(
-                {"is_active": True},
-                sort=[("version", -1)]
+            config_data = await _find_active_system_config(
+                config_collection,
+                context="桥接数据源配置"
             )
 
             if config_data and config_data.get('data_source_configs'):
@@ -239,7 +244,7 @@ def bridge_config_to_env():
         bridged_count += _bridge_datasource_details(data_source_configs)
 
         # 5. 桥接系统运行时配置
-        bridged_count += _bridge_system_settings()
+        bridged_count += await _bridge_system_settings()
 
         # 6. 重新初始化 tradingagents 库的 MongoDB 存储
         # 因为全局 config_manager 实例是在模块导入时创建的，那时环境变量还没有被桥接
@@ -287,19 +292,12 @@ def bridge_config_to_env():
 
         # 7. 同步定价配置到 tradingagents 的 config/pricing.json
         # 注意：这里需要从数据库读取配置，因为文件中的配置没有定价信息
-        # 使用异步方式同步定价配置
         import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            # 在异步上下文中，创建后台任务
-            task = loop.create_task(_sync_pricing_config_from_db())
-            task.add_done_callback(_handle_sync_task_result)
-            logger.info("🔄 定价配置同步任务已创建（后台执行）")
-        except RuntimeError:
-            # 不在异步上下文中，使用 asyncio.run
-            asyncio.run(_sync_pricing_config_from_db())
+        task = asyncio.create_task(_sync_pricing_config_from_db())
+        task.add_done_callback(_handle_sync_task_result)
+        logger.info("定价配置同步任务已创建（后台执行）")
 
-        logger.info(f"✅ 配置桥接完成，共桥接 {bridged_count} 项配置")
+        logger.info(f"配置桥接完成，共桥接 {bridged_count} 项配置")
         return True
 
     except Exception as e:
@@ -368,7 +366,7 @@ def _bridge_datasource_details(data_source_configs) -> int:
     return bridged_count
 
 
-def _bridge_system_settings() -> int:
+async def _bridge_system_settings() -> int:
     """
     桥接系统运行时配置到环境变量
 
@@ -376,11 +374,14 @@ def _bridge_system_settings() -> int:
         int: 桥接的配置项数量
     """
     try:
-        db = _get_sync_db()
+        db = get_mongo_db()
 
         try:
             # 从 system_configs 集合中读取激活的配置
-            config_doc = db.system_configs.find_one({"is_active": True})
+            config_doc = await _find_active_system_config(
+                db.system_configs,
+                context="桥接系统运行时配置"
+            )
 
             if not config_doc or 'system_settings' not in config_doc:
                 logger.debug("  ⚠️  系统设置为空，跳过桥接")
@@ -388,7 +389,7 @@ def _bridge_system_settings() -> int:
 
             system_settings = config_doc['system_settings']
         except Exception as e:
-            logger.debug(f"  ⚠️  无法从数据库获取系统设置: {e}")
+            logger.warning(f"  ⚠️  无法从数据库获取系统设置: {e}")
             import traceback
             logger.debug(traceback.format_exc())
             return 0
@@ -562,7 +563,7 @@ def clear_bridged_config():
     logger.info("✅ 已清除所有桥接的配置")
 
 
-def reload_bridged_config():
+async def reload_bridged_config():
     """
     重新加载桥接的配置
 
@@ -570,7 +571,7 @@ def reload_bridged_config():
     """
     logger.info("🔄 重新加载配置桥接...")
     clear_bridged_config()
-    return bridge_config_to_env()
+    return await bridge_config_to_env()
 
 
 def _sync_pricing_config(llm_configs):
@@ -612,7 +613,7 @@ def _sync_pricing_config(llm_configs):
         logger.warning(f"  ⚠️  同步定价配置失败: {e}")
 
 
-def sync_pricing_config_now():
+async def sync_pricing_config_now():
     """
     立即同步定价配置（用于配置更新后实时同步）
 
@@ -621,19 +622,11 @@ def sync_pricing_config_now():
     import asyncio
 
     try:
-        # 如果在异步上下文中，创建后台任务
-        try:
-            loop = asyncio.get_running_loop()
-            # 在异步上下文中，创建一个后台任务（不等待完成）
-            task = loop.create_task(_sync_pricing_config_from_db())
-            # 添加回调来记录错误
-            task.add_done_callback(_handle_sync_task_result)
-            logger.info("🔄 定价配置同步任务已创建（后台执行）")
-            return True
-        except RuntimeError:
-            # 不在异步上下文中，使用 asyncio.run
-            asyncio.run(_sync_pricing_config_from_db())
-            return True
+        # 在异步上下文中，创建后台任务
+        task = asyncio.create_task(_sync_pricing_config_from_db())
+        task.add_done_callback(_handle_sync_task_result)
+        logger.info("🔄 定价配置同步任务已创建（后台执行）")
+        return True
     except Exception as e:
         logger.error(f"❌ 立即同步定价配置失败: {e}")
         import traceback
@@ -644,9 +637,18 @@ def sync_pricing_config_now():
 def _handle_sync_task_result(task):
     """处理同步任务的结果"""
     try:
+        if task.cancelled():
+            logger.warning("⚠️ 定价配置同步任务已取消")
+            return
         task.result()
+    except asyncio.CancelledError:
+        logger.warning("⚠️ 定价配置同步任务已取消")
     except Exception as e:
         logger.error(f"❌ 定价配置同步任务执行失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+    except BaseException as e:
+        logger.error(f"❌ 定价配置同步任务发生未预期的严重错误: {e}")
         import traceback
         logger.error(traceback.format_exc())
 

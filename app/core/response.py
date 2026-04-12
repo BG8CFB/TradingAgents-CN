@@ -28,3 +28,17 @@ def fail(message: str = "error", code: int = 500, data: Any = None) -> Dict[str,
         "timestamp": now_tz().isoformat()
     }
 
+
+def safe_error_message(e: Exception, default: str = "操作失败，请稍后重试") -> str:
+    """安全的错误消息：生产环境返回通用消息，开发环境返回详细信息
+
+    防止内部异常信息（数据库连接串、API Key、堆栈等）泄露给客户端。
+    """
+    try:
+        from app.core.config import settings
+        if getattr(settings, "DEBUG", False):
+            return f"{default}: {str(e)}"
+    except Exception:
+        pass
+    return default
+

@@ -12,28 +12,26 @@ from app.services.historical_data_service import get_historical_data_service
 from app.services.news_data_service import get_news_data_service
 from app.data.providers.china.akshare import get_akshare_provider
 from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, get_current_date
+from app.worker.base_sync_service import BaseSyncService
 
 logger = logging.getLogger(__name__)
 
 
-class AKShareSyncService:
+class AKShareSyncService(BaseSyncService):
     """
     AKShare数据同步服务
-    
+
     提供完整的数据同步功能：
     - 股票基础信息同步
     - 实时行情同步
     - 历史数据同步
     - 财务数据同步
     """
-    
+
     def __init__(self):
+        super().__init__(data_source="akshare", batch_size=100, rate_limit_delay=0.2)
         self.provider = None
-        self.historical_service = None  # 延迟初始化
         self.news_service = None  # 延迟初始化
-        self.db = None
-        self.batch_size = 100
-        self.rate_limit_delay = 0.2  # AKShare建议的延迟
     
     async def initialize(self):
         """初始化同步服务"""
@@ -205,32 +203,8 @@ class AKShareSyncService:
         return batch_stats
     
     def _is_data_fresh(self, updated_at: Any, hours: int = 24) -> bool:
-        """检查数据是否新鲜"""
-        if not updated_at:
-            return False
-        
-        try:
-            if isinstance(updated_at, str):
-                updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
-            elif isinstance(updated_at, datetime):
-                pass
-            else:
-                return False
-            
-            # 转换为UTC时间进行比较
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=None)
-            else:
-                updated_at = updated_at.replace(tzinfo=None)
-            
-            now = now_utc()
-            time_diff = now - updated_at
-            
-            return time_diff.total_seconds() < (hours * 3600)
-            
-        except Exception as e:
-            logger.debug(f"检查数据新鲜度失败: {e}")
-            return False
+        """检查数据是否新鲜（委托给基类）"""
+        return self.is_data_fresh(updated_at, hours=hours)
     
     async def sync_realtime_quotes(self, symbols: List[str] = None, force: bool = False) -> Dict[str, Any]:
         """
@@ -698,7 +672,7 @@ class AKShareSyncService:
 
     async def _get_last_sync_date(self, symbol: str = None) -> str:
         """
-        获取最后同步日期
+        获取最后同步日期（委托给基类）
 
         Args:
             symbol: 股票代码，如果提供则返回该股票的最后日期+1天
@@ -706,51 +680,7 @@ class AKShareSyncService:
         Returns:
             日期字符串 (YYYY-MM-DD)
         """
-        try:
-            if self.historical_service is None:
-                self.historical_service = await get_historical_data_service()
-
-            if symbol:
-                # 获取特定股票的最新日期
-                latest_date = await self.historical_service.get_latest_date(symbol, "akshare")
-                if latest_date:
-                    # 返回最后日期的下一天（避免重复同步）
-                    try:
-                        last_date_obj = datetime.strptime(latest_date, '%Y-%m-%d')
-                        next_date = last_date_obj + timedelta(days=1)
-                        return next_date.strftime('%Y-%m-%d')
-                    except ValueError:
-                        # 如果日期格式不对，直接返回
-                        return latest_date
-                else:
-                    # 🔥 没有历史数据时，从上市日期开始全量同步
-                    stock_info = await self.db.stock_basic_info.find_one(
-                        {"code": symbol},
-                        {"list_date": 1}
-                    )
-                    if stock_info and stock_info.get("list_date"):
-                        list_date = stock_info["list_date"]
-                        # 处理不同的日期格式
-                        if isinstance(list_date, str):
-                            # 格式可能是 "20100101" 或 "2010-01-01"
-                            if len(list_date) == 8 and list_date.isdigit():
-                                return f"{list_date[:4]}-{list_date[4:6]}-{list_date[6:]}"
-                            else:
-                                return list_date
-                        else:
-                            return list_date.strftime('%Y-%m-%d')
-
-                    # 如果没有上市日期，从1990年开始
-                    logger.warning(f"⚠️ {symbol}: 未找到上市日期，从1990-01-01开始同步")
-                    return "1990-01-01"
-
-            # 默认返回30天前（确保不漏数据）
-            return format_date_short(now_config_tz() - timedelta(days=30))
-
-        except Exception as e:
-            logger.error(f"❌ 获取最后同步日期失败 {symbol}: {e}")
-            # 出错时返回30天前，确保不漏数据
-            return format_date_short(now_config_tz() - timedelta(days=30))
+        return await self.get_last_sync_date(symbol)
 
     async def sync_financial_data(self, symbols: List[str] = None) -> Dict[str, Any]:
         """

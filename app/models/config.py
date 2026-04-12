@@ -134,13 +134,23 @@ class LLMProviderResponse(BaseModel):
     api_secret: Optional[str] = None
     extra_config: Dict[str, Any] = Field(default_factory=dict)
 
-    # 🆕 聚合渠道支持
+    # 聚合渠道支持
     is_aggregator: bool = False
     aggregator_type: Optional[str] = None
     model_name_format: Optional[str] = None
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    @field_serializer("api_key", "api_secret")
+    @classmethod
+    def _sanitize_secret(cls, v: Optional[str]) -> Optional[str]:
+        """自动脱敏：仅保留前6位和后4位，中间用****替代"""
+        if not v:
+            return None
+        if len(v) <= 10:
+            return "****"
+        return f"{v[:6]}****{v[-4:]}"
 
 
 class DataSourceType(str, Enum):

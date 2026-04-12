@@ -14,6 +14,7 @@ from app.core.database import get_database
 from app.services.historical_data_service import get_historical_data_service
 from app.data.providers.china.baostock import BaoStockProvider
 from app.utils.timezone import now_config_tz, format_date_short, format_iso
+from app.worker.base_sync_service import BaseSyncService
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class BaoStockSyncStats:
             self.errors = []
 
 
-class BaoStockSyncService:
+class BaoStockSyncService(BaseSyncService):
     """BaoStock数据同步服务"""
 
     def __init__(self):
@@ -41,15 +42,14 @@ class BaoStockSyncService:
 
         注意：数据库连接在 initialize() 方法中异步初始化
         """
+        super().__init__(data_source="baostock", batch_size=100, rate_limit_delay=0.1)
         try:
             self.settings = get_settings()
             self.provider = BaoStockProvider()
-            self.historical_service = None  # 延迟初始化
-            self.db = None  # 🔥 延迟初始化，在 initialize() 中设置
 
-            logger.info("✅ BaoStock同步服务初始化成功")
+            logger.info("BaoStock同步服务初始化成功")
         except Exception as e:
-            logger.error(f"❌ BaoStock同步服务初始化失败: {e}")
+            logger.error(f"BaoStock同步服务初始化失败: {e}")
             raise
 
     async def initialize(self):
@@ -272,7 +272,7 @@ class BaoStockSyncService:
 
             # 从数据库获取股票列表
             collection = self.db.stock_basic_info
-            cursor = collection.find({"data_source": "baostock"}, {"code": 1})
+            cursor = collection.find({"source": "baostock"}, {"code": 1})
             stock_codes = [doc["code"] async for doc in cursor]
 
             if not stock_codes:
@@ -372,7 +372,7 @@ class BaoStockSyncService:
 
             # 从数据库获取股票列表
             collection = self.db.stock_basic_info
-            cursor = collection.find({"data_source": "baostock"}, {"code": 1})
+            cursor = collection.find({"source": "baostock"}, {"code": 1})
             stock_codes = [doc["code"] async for doc in cursor]
 
             if not stock_codes:
@@ -493,7 +493,7 @@ class BaoStockSyncService:
     
     async def _get_last_sync_date(self, symbol: str = None) -> str:
         """
-        获取最后同步日期
+        获取最后同步日期（委托给基类）
 
         Args:
             symbol: 股票代码，如果提供则返回该股票的最后日期+1天
@@ -501,30 +501,7 @@ class BaoStockSyncService:
         Returns:
             日期字符串 (YYYY-MM-DD)
         """
-        try:
-            if self.historical_service is None:
-                self.historical_service = await get_historical_data_service()
-
-            if symbol:
-                # 获取特定股票的最新日期
-                latest_date = await self.historical_service.get_latest_date(symbol, "baostock")
-                if latest_date:
-                    # 返回最后日期的下一天（避免重复同步）
-                    try:
-                        last_date_obj = datetime.strptime(latest_date, '%Y-%m-%d')
-                        next_date = last_date_obj + timedelta(days=1)
-                        return next_date.strftime('%Y-%m-%d')
-                    except ValueError:
-                        # 如果日期格式不对，直接返回
-                        return latest_date
-
-            # 默认返回30天前（确保不漏数据）
-            return format_date_short(now_config_tz() - timedelta(days=30))
-
-        except Exception as e:
-            logger.error(f"❌ 获取最后同步日期失败 {symbol}: {e}")
-            # 出错时返回30天前，确保不漏数据
-            return format_date_short(now_config_tz() - timedelta(days=30))
+        return await self.get_last_sync_date(symbol)
 
     async def check_service_status(self) -> Dict[str, Any]:
         """检查服务状态"""
@@ -540,7 +517,7 @@ class BaoStockSyncService:
                 db_ok = False
             
             # 统计数据
-            basic_info_count = await self.db.stock_basic_info.count_documents({"data_source": "baostock"})
+            basic_info_count = await self.db.stock_basic_info.count_documents({"source": "baostock"})
             quotes_count = await self.db.market_quotes.count_documents({"data_source": "baostock"})
             
             return {

@@ -5,9 +5,10 @@
 """
 import logging
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
 
+from app.routers.auth_db import get_current_user, require_admin
 from app.worker.financial_data_sync_service import get_financial_sync_service
 from app.services.financial_data_service import get_financial_data_service
 from app.core.response import ok
@@ -52,7 +53,8 @@ async def query_financial_data(
     report_period: Optional[str] = Query(None, description="报告期筛选 (YYYYMMDD)"),
     data_source: Optional[str] = Query(None, description="数据源筛选"),
     report_type: Optional[str] = Query(None, description="报告类型筛选"),
-    limit: Optional[int] = Query(10, description="限制返回数量", ge=1, le=100)
+    limit: Optional[int] = Query(10, description="限制返回数量", ge=1, le=100),
+    current_user: dict = Depends(get_current_user)
 ) -> dict:
     """
     查询股票财务数据
@@ -90,7 +92,8 @@ async def query_financial_data(
 @router.get("/latest/{symbol}", summary="获取最新财务数据")
 async def get_latest_financial_data(
     symbol: str,
-    data_source: Optional[str] = Query(None, description="数据源筛选")
+    data_source: Optional[str] = Query(None, description="数据源筛选"),
+    current_user: dict = Depends(get_current_user)
 ) -> dict:
     """
     获取股票最新财务数据
@@ -121,7 +124,7 @@ async def get_latest_financial_data(
 
 
 @router.get("/statistics", summary="获取财务数据统计")
-async def get_financial_statistics() -> dict:
+async def get_financial_statistics(current_user: dict = Depends(get_current_user)) -> dict:
     """
     获取财务数据统计信息
     
@@ -147,7 +150,8 @@ async def get_financial_statistics() -> dict:
 @router.post("/sync/start", summary="启动财务数据同步")
 async def start_financial_sync(
     request: FinancialSyncRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(require_admin)
 ) -> dict:
     """
     启动财务数据同步任务
@@ -182,7 +186,8 @@ async def start_financial_sync(
 
 @router.post("/sync/single", summary="同步单只股票财务数据")
 async def sync_single_stock_financial(
-    request: SingleStockSyncRequest
+    request: SingleStockSyncRequest,
+    current_user: dict = Depends(require_admin)
 ) -> dict:
     """
     同步单只股票的财务数据
@@ -218,10 +223,10 @@ async def sync_single_stock_financial(
 
 
 @router.get("/sync/statistics", summary="获取同步统计信息")
-async def get_sync_statistics() -> dict:
+async def get_sync_statistics(current_user: dict = Depends(get_current_user)) -> dict:
     """
     获取财务数据同步统计信息
-    
+
     返回各数据源的同步统计，包括记录数、股票数等
     """
     try:

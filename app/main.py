@@ -29,14 +29,14 @@ from app.core.config import settings
 from app.utils.timezone import now_utc
 from app.core.database import init_db, close_db
 from app.core.logging_config import setup_logging
-from app.routers import auth_db as auth, analysis, screening, queue, sse, health, favorites, config, reports, database, operation_logs, tags, historical_data, multi_period_sync, financial_data, news_data, social_media, internal_messages, usage_statistics, model_capabilities, cache, logs
-from app.routers import mcp, prompts, tools
+from app.routers import auth_db as auth, analysis, screening, sse, health, favorites, config, reports, database, operation_logs, tags, news_data, usage_statistics, model_capabilities, cache, logs
+from app.routers import mcp, tools
 from app.routers import agent_configs
 from app.routers import sync as sync_router, multi_source_sync
 from app.routers import stocks as stocks_router
 from app.routers import stock_data as stock_data_router
-from app.routers import stock_sync as stock_sync_router
 from app.routers import multi_market_stocks as multi_market_stocks_router
+from app.routers import stock_sync as stock_sync_router
 from app.routers import notifications as notifications_router
 from app.routers import websocket_notifications as websocket_notifications_router
 from app.routers import scheduler as scheduler_router
@@ -269,7 +269,16 @@ async def lifespan(app: FastAPI):
     #  配置桥接：将统一配置写入环境变量，供 TradingAgents 核心库使用
     try:
         from app.core.config_bridge import bridge_config_to_env
-        bridge_config_to_env()
+
+        bridge_success = await asyncio.wait_for(
+            bridge_config_to_env(),
+            timeout=30
+        )
+        if not bridge_success:
+            logger.warning("⚠️  配置桥接未成功完成，TradingAgents 将使用 .env 文件中的配置")
+    except asyncio.TimeoutError:
+        logger.error("❌ 配置桥接超时（30 秒），启动流程将降级使用 .env 配置")
+        logger.warning("⚠️  TradingAgents 将使用 .env 文件中的配置")
     except Exception as e:
         logger.warning(f"⚠️  配置桥接失败: {e}")
         logger.warning("⚠️  TradingAgents 将使用 .env 文件中的配置")
@@ -359,8 +368,19 @@ async def lifespan(app: FastAPI):
             preferred_sources = ["akshare", "baostock"]
             logger.info(f"📊 股票基础信息同步优先数据源: AKShare > BaoStock (Tushare已禁用)")
 
+        def _handle_basics_sync_task_result(task: asyncio.Task) -> None:
+            """记录启动期基础信息同步任务的执行结果，避免后台异常被静默忽略。"""
+            if task.cancelled():
+                logger.warning("⚠️ 启动期基础信息同步任务已取消")
+                return
+            try:
+                task.result()
+            except Exception as exc:
+                logger.error(f"❌ 启动期基础信息同步任务失败: {exc}", exc_info=True)
+
         # 立即在启动后尝试一次（不阻塞），使用模块级函数
-        asyncio.create_task(_run_basics_sync(preferred_sources=preferred_sources))
+        _basics_sync_task = asyncio.create_task(_run_basics_sync(preferred_sources=preferred_sources))
+        _basics_sync_task.add_done_callback(_handle_basics_sync_task_result)
 
         # 配置调度：优先使用 CRON，其次使用 HH:MM
         # 使用模块级函数 + kwargs 传递参数，确保 APScheduler 可正确序列化 job
@@ -709,7 +729,7 @@ async def lifespan(app: FastAPI):
         # 3. 停止调度器
         if scheduler:
             try:
-                scheduler.shutdown(wait=False)
+                scheduler.shutdown(wait=True)
                 logger.info("🛑 Scheduler stopped")
             except Exception as e:
                 logger.warning(f"Scheduler shutdown error: {e}")
@@ -854,7 +874,6 @@ app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(reports.router, tags=["reports"])
 app.include_router(screening.router, prefix="/api/screening", tags=["screening"])
-app.include_router(queue.router, prefix="/api/queue", tags=["queue"])
 app.include_router(favorites.router, prefix="/api", tags=["favorites"])
 app.include_router(stocks_router.router, prefix="/api", tags=["stocks"])
 app.include_router(multi_market_stocks_router.router, prefix="/api", tags=["multi-market"])
@@ -871,11 +890,10 @@ app.include_router(logs.router, prefix="/api/system", tags=["logs"])
 # 新增：智能体管理
 from app.routers import agents
 app.include_router(agents.router)
-# 新增：系统配置只读摘要
+# 系统配置只读摘要
 from app.routers import system_config as system_config_router
 app.include_router(system_config_router.router, prefix="/api/system", tags=["system"])
 app.include_router(mcp.router)
-app.include_router(prompts.router)
 # 统一工具清单
 app.include_router(tools.router)
 # 按阶段编辑智能体配置
@@ -893,12 +911,7 @@ app.include_router(scheduler_router.router, tags=["scheduler"])
 app.include_router(sse.router, prefix="/api/stream", tags=["streaming"])
 app.include_router(sync_router.router)
 app.include_router(multi_source_sync.router)
-app.include_router(historical_data.router, tags=["historical-data"])
-app.include_router(multi_period_sync.router, tags=["multi-period-sync"])
-app.include_router(financial_data.router, tags=["financial-data"])
 app.include_router(news_data.router, tags=["news-data"])
-app.include_router(social_media.router, tags=["social-media"])
-app.include_router(internal_messages.router, tags=["internal-messages"])
 
 
 @app.get("/")

@@ -345,8 +345,6 @@ class AnalysisService:
         self.memory_manager = get_memory_state_manager()
         self._progress_trackers: Dict[str, RedisProgressTracker] = {}
         self._stock_name_cache: Dict[str, str] = {}
-        self._sync_mongo_client = None
-
         # 线程池
         self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         logger.info(f"🔧 [服务初始化] 线程池最大并发数: 3")
@@ -446,6 +444,23 @@ class AnalysisService:
             logger.warning(f"⚠️ 用户ID转换失败: user_id={user_id}, error={e}")
             raise ValueError(f"无效的用户ID: {user_id}") from e
 
+    async def _convert_user_id_async(self, user_id: str) -> PyObjectId:
+        """异步将字符串用户ID转换为PyObjectId，避免在事件循环中执行同步数据库查询"""
+        try:
+            if user_id == "admin":
+                try:
+                    db = get_mongo_db()
+                    admin_doc = await db.users.find_one({"username": "admin"}, {"_id": 1})
+                    if admin_doc:
+                        return PyObjectId(admin_doc["_id"])
+                except Exception as e:
+                    logger.warning(f"⚠️ 异步查询 admin 用户失败: {e}")
+                raise ValueError("无法确定 admin 用户的 ObjectId")
+            return PyObjectId(ObjectId(user_id))
+        except Exception as e:
+            logger.warning(f"⚠️ 用户ID转换失败: user_id={user_id}, error={e}")
+            raise ValueError(f"无效的用户ID: {user_id}") from e
+
     def _serialize_for_response(self, value: Any) -> Any:
         """递归转换 Mongo 特定类型为可序列化格式"""
         if isinstance(value, ObjectId):
@@ -457,36 +472,9 @@ class AnalysisService:
         return value
 
     def _get_sync_mongo_db(self):
-        """
-        获取同步 MongoDB 客户端（复用连接，避免高频进度更新时反复创建）。
-        """
-        try:
-            if self._sync_mongo_client is None:
-                from pymongo import MongoClient
-                # 使用连接池配置，与主数据库保持一致
-                self._sync_mongo_client = MongoClient(
-                    settings.MONGO_URI,
-                    maxPoolSize=10,  # 限制连接池大小
-                    minPoolSize=1,
-                    maxIdleTimeMS=30000,  # 30秒空闲超时
-                    serverSelectionTimeoutMS=5000
-                )
-            return self._sync_mongo_client[settings.MONGO_DB]
-        except Exception as exc:
-            logger.warning(f"⚠️ [Sync] 获取 Mongo 连接失败: {exc}")
-            return None
-
-    def close_sync_mongo_connection(self):
-        """
-        关闭同步 MongoDB 连接，防止资源泄漏
-        """
-        try:
-            if self._sync_mongo_client is not None:
-                self._sync_mongo_client.close()
-                self._sync_mongo_client = None
-                logger.info("✅ [Sync] MongoDB同步连接已关闭")
-        except Exception as exc:
-            logger.error(f"❌ [Sync] 关闭MongoDB连接失败: {exc}")
+        """获取同步 MongoDB 数据库连接（使用全局统一管理）"""
+        from app.core.database import get_mongo_db_sync
+        return get_mongo_db_sync()
 
     def _get_trading_graph(self, config: Dict[str, Any]) -> TradingAgentsGraph:
         """获取或创建TradingAgents实例 (每次创建新实例以保证线程安全)"""
@@ -777,7 +765,7 @@ class AnalysisService:
         """提交批量分析任务 (保留原功能)"""
         try:
             batch_id = str(uuid.uuid4())
-            converted_user_id = self._convert_user_id(user_id)
+            converted_user_id = await self._convert_user_id_async(user_id)
             
             # 读取配置
             effective_settings = await config_provider.get_effective_system_settings()

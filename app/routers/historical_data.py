@@ -6,9 +6,10 @@
 import logging
 from datetime import datetime, date
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
+from app.routers.auth_db import get_current_user, require_admin
 from app.services.historical_data_service import get_historical_data_service
 from app.utils.timezone import now_utc, format_iso
 
@@ -41,7 +42,8 @@ async def get_historical_data(
     end_date: Optional[str] = Query(None, description="结束日期 (YYYY-MM-DD)"),
     data_source: Optional[str] = Query(None, description="数据源 (tushare/akshare/baostock)"),
     period: Optional[str] = Query(None, description="数据周期 (daily/weekly/monthly)"),
-    limit: Optional[int] = Query(None, ge=1, le=1000, description="限制返回数量")
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="限制返回数量"),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     查询股票历史数据
@@ -93,7 +95,7 @@ async def get_historical_data(
 
 
 @router.post("/query", response_model=HistoricalDataResponse)
-async def query_historical_data(request: HistoricalDataQuery):
+async def query_historical_data(request: HistoricalDataQuery, current_user: dict = Depends(get_current_user)):
     """
     POST方式查询历史数据
     """
@@ -132,7 +134,8 @@ async def query_historical_data(request: HistoricalDataQuery):
 @router.get("/latest-date/{symbol}")
 async def get_latest_date(
     symbol: str,
-    data_source: str = Query(..., description="数据源 (tushare/akshare/baostock)")
+    data_source: str = Query(..., description="数据源 (tushare/akshare/baostock)"),
+    current_user: dict = Depends(get_current_user)
 ):
     """获取股票最新数据日期"""
     try:
@@ -155,7 +158,7 @@ async def get_latest_date(
 
 
 @router.get("/statistics")
-async def get_data_statistics():
+async def get_data_statistics(current_user: dict = Depends(get_current_user)):
     """获取历史数据统计信息"""
     try:
         service = await get_historical_data_service()
@@ -175,7 +178,8 @@ async def get_data_statistics():
 @router.get("/compare/{symbol}")
 async def compare_data_sources(
     symbol: str,
-    trade_date: str = Query(..., description="交易日期 (YYYY-MM-DD)")
+    trade_date: str = Query(..., description="交易日期 (YYYY-MM-DD)"),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     对比不同数据源的同一股票同一日期的数据

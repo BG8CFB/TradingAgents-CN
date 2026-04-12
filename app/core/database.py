@@ -84,6 +84,7 @@ class DatabaseManager:
                 decode_responses=True,
                 socket_connect_timeout=5,  # 5秒连接超时
                 socket_timeout=10,  # 10秒套接字超时
+                socket_keepalive=True,  # 启用 TCP Keepalive 以防连接假死
             )
 
             # 创建Redis客户端
@@ -350,19 +351,91 @@ async def create_database_indexes(db):
     """创建数据库索引"""
     try:
         # stock_basic_info 的索引
-        basic_info = db["stock_basic_info"]
-        await basic_info.create_index([("code", 1), ("source", 1)], unique=True)
-        await basic_info.create_index([("industry", 1)])
-        await basic_info.create_index([("total_mv", -1)])
-        await basic_info.create_index([("pe", 1)])
-        await basic_info.create_index([("pb", 1)])
+        try:
+            basic_info = db["stock_basic_info"]
+            await basic_info.create_index([("code", 1), ("source", 1)], unique=True)
+            await basic_info.create_index([("industry", 1)])
+            await basic_info.create_index([("total_mv", -1)])
+            await basic_info.create_index([("pe", 1)])
+            await basic_info.create_index([("pb", 1)])
+            logger.info("stock_basic_info 索引创建完成")
+        except Exception as e:
+            logger.warning(f"创建 stock_basic_info 索引失败: {e}")
 
         # market_quotes 的索引
-        market_quotes = db["market_quotes"]
-        await market_quotes.create_index([("code", 1)], unique=True)
-        await market_quotes.create_index([("pct_chg", -1)])
-        await market_quotes.create_index([("amount", -1)])
-        await market_quotes.create_index([("updated_at", -1)])
+        try:
+            market_quotes = db["market_quotes"]
+            await market_quotes.create_index([("code", 1)], unique=True)
+            await market_quotes.create_index([("pct_chg", -1)])
+            await market_quotes.create_index([("amount", -1)])
+            await market_quotes.create_index([("updated_at", -1)])
+            logger.info("market_quotes 索引创建完成")
+        except Exception as e:
+            logger.warning(f"创建 market_quotes 索引失败: {e}")
+
+        # === 用户集合索引 ===
+        try:
+            users = db["users"]
+            await users.create_index([("username", 1)], unique=True)
+            await users.create_index([("email", 1)], unique=True)
+            logger.info("✅ users 集合索引创建完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 users 索引失败: {e}")
+
+        # === 分析任务集合索引 ===
+        try:
+            tasks = db["analysis_tasks"]
+            await tasks.create_index([("task_id", 1)], unique=True)
+            await tasks.create_index([("user_id", 1), ("created_at", -1)])
+            await tasks.create_index([("status", 1), ("created_at", -1)])
+            logger.info("✅ analysis_tasks 集合索引创建完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 analysis_tasks 索引失败: {e}")
+
+        # === 分析报告集合索引 ===
+        try:
+            reports = db["analysis_reports"]
+            await reports.create_index([("task_id", 1)])
+            await reports.create_index([("analysis_id", 1)], unique=True)
+            await reports.create_index([("stock_symbol", 1), ("created_at", -1)])
+            await reports.create_index([("created_at", -1)])
+            await reports.create_index([("market_type", 1)])
+            logger.info("✅ analysis_reports 集合索引创建完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 analysis_reports 索引失败: {e}")
+
+        # === 系统配置集合索引 ===
+        try:
+            configs = db["system_configs"]
+            await configs.create_index([("is_active", 1), ("version", -1)])
+            logger.info("✅ system_configs 集合索引创建完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 system_configs 索引失败: {e}")
+
+        # === LLM 厂家集合索引 ===
+        try:
+            providers = db["llm_providers"]
+            await providers.create_index([("name", 1)], unique=True)
+            logger.info("✅ llm_providers 集合索引创建完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 llm_providers 索引失败: {e}")
+
+        # === 通知集合索引 ===
+        try:
+            notifs = db["notifications"]
+            await notifs.create_index([("user_id", 1), ("created_at", -1)])
+            await notifs.create_index([("user_id", 1), ("status", 1)])
+            logger.info("✅ notifications 集合索引创建完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 notifications 索引失败: {e}")
+
+        # === Token 用量集合索引 ===
+        try:
+            token_usage = db["token_usage"]
+            await token_usage.create_index([("timestamp", -1), ("provider", 1)])
+            logger.info("✅ token_usage 集合索引创建完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 token_usage 索引失败: {e}")
 
         logger.info("✅ 数据库索引创建完成")
 

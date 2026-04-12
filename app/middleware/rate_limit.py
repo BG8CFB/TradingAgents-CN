@@ -34,15 +34,20 @@ def _get_redis_service_safe():
 
 
 def _get_client_ip(request: Request) -> str:
-    """获取客户端真实 IP，优先检查代理头"""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        # X-Forwarded-For 可能有多个 IP，取第一个（最原始的客户端 IP）
-        return forwarded.split(",")[0].strip()
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
-    return request.client.host if request.client else "unknown"
+    """获取客户端真实 IP，仅在可信代理后读取转发头"""
+    client_host = request.client.host if request.client else "unknown"
+
+    # 仅当请求来自可信代理时才读取 X-Forwarded-For / X-Real-IP
+    trusted_proxies = {"127.0.0.1", "::1"}
+    if client_host in trusted_proxies:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip.strip()
+
+    return client_host
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

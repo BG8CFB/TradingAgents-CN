@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.services.auth_service import AuthService
 from app.services.user_service import user_service
+from app.core.response import safe_error_message
 from app.models.user import UserCreate, UserUpdate
 from app.services.operation_log_service import log_operation
 from app.models.operation_log import ActionType
@@ -112,6 +113,13 @@ async def get_current_user(authorization: Optional[str] = Header(default=None)) 
         "roles": ["admin"] if user.is_admin else ["user"],
         "preferences": user.preferences.model_dump() if user.preferences else {}
     }
+
+
+async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """要求管理员权限的依赖"""
+    if not current_user.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return current_user
 
 @router.post("/login")
 async def login(payload: LoginRequest, request: Request):
@@ -262,7 +270,7 @@ async def refresh_token(payload: RefreshTokenRequest):
         raise
     except Exception as e:
         logger.error(f"❌ Refresh token处理异常: {str(e)}")
-        raise HTTPException(status_code=401, detail=f"Token refresh failed: {str(e)}")
+        raise HTTPException(status_code=401, detail=safe_error_message(e, "Token刷新失败"))
 
 @router.post("/logout")
 async def logout(request: Request, user: dict = Depends(get_current_user)):
@@ -364,7 +372,7 @@ async def update_me(
         raise
     except Exception as e:
         logger.error(f"更新用户信息失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"更新用户信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "更新用户信息失败"))
 
 @router.post("/change-password")
 async def change_password(
@@ -393,7 +401,7 @@ async def change_password(
         raise
     except Exception as e:
         logger.error(f"修改密码失败: {e}")
-        raise HTTPException(status_code=500, detail=f"修改密码失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "修改密码失败"))
 
 @router.post("/reset-password")
 async def reset_password(
@@ -422,7 +430,7 @@ async def reset_password(
         raise
     except Exception as e:
         logger.error(f"重置密码失败: {e}")
-        raise HTTPException(status_code=500, detail=f"重置密码失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "重置密码失败"))
 
 class RegisterRequest(BaseModel):
     username: str
@@ -538,7 +546,7 @@ async def create_user(
         raise
     except Exception as e:
         logger.error(f"创建用户失败: {e}")
-        raise HTTPException(status_code=500, detail=f"创建用户失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "创建用户失败"))
 
 @router.get("/users")
 async def list_users(
@@ -566,4 +574,4 @@ async def list_users(
         raise
     except Exception as e:
         logger.error(f"获取用户列表失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取用户列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取用户列表失败"))

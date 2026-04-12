@@ -8,6 +8,30 @@ from app.services.config_service import config_service
 from app.utils.time_utils import now_utc
 
 
+def _flatten_config(settings: Dict[str, Any]) -> Dict[str, Any]:
+    """展平嵌套的 config 键，兼容旧格式 settings.json。
+
+    旧格式中 settings 可能包含嵌套的 {"config": {"config": {...}}} 结构，
+    本函数递归移除所有嵌套的 config 键，只保留最外层的非 config 键值对。
+    """
+    if not isinstance(settings, dict):
+        return settings
+
+    flat: Dict[str, Any] = {}
+    for key, value in settings.items():
+        if key == "config":
+            # 递归展平嵌套的 config 值
+            inner = _flatten_config(value) if isinstance(value, dict) else value
+            if isinstance(inner, dict):
+                # 用内层值覆盖（内层通常是更旧的，外层更新）
+                # 但如果内层有外层缺少的键，也要保留
+                for ik, iv in inner.items():
+                    flat.setdefault(ik, iv)
+        else:
+            flat[key] = value
+    return flat
+
+
 class ConfigProvider:
     """Effective configuration provider with simple env→DB merge and TTL cache.
 
@@ -59,6 +83,9 @@ class ConfigProvider:
             except Exception:
                 base = {}
 
+        # 兼容旧格式：展平嵌套的 config 键
+        base = _flatten_config(base)
+
         # Merge ENV over DB (best-effort heuristics):
         # - if ENV with exact key exists -> override
         # - try uppercased and dot/space to underscore variants
@@ -103,6 +130,9 @@ class ConfigProvider:
                 db_settings = dict(cfg.system_settings)
             except Exception:
                 db_settings = {}
+
+        # 兼容旧格式：展平嵌套的 config 键
+        db_settings = _flatten_config(db_settings)
 
         def _env_override_for_key(key: str) -> Optional[Any]:
             candidates = [

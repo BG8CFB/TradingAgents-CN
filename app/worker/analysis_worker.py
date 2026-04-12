@@ -20,7 +20,7 @@ sys.path.insert(0, str(project_root))
 from app.services.queue_service import get_queue_service
 from app.services.analysis_service import get_analysis_service
 from app.core.database import init_database, close_database
-from app.core.redis_client import init_redis, close_redis
+# Redis 连接由 init_database() 统一管理，不再单独初始化
 from app.core.config import settings
 from app.models.analysis import AnalysisTask, AnalysisParameters
 from app.services.config_provider import provider as config_provider
@@ -59,9 +59,8 @@ class AnalysisWorker:
         try:
             logger.info(f"🚀 启动分析Worker: {self.worker_id}")
 
-            # 初始化数据库连接
+            # 初始化数据库连接（Redis 由 database.py 统一管理）
             await init_database()
-            await init_redis()
 
             # 读取系统设置（ENV 优先 → DB）
             try:
@@ -248,9 +247,8 @@ class AnalysisWorker:
             logger.error(f"清理心跳记录失败: {e}")
 
         try:
-            # 关闭数据库连接
+            # 关闭数据库连接（Redis 由 database.py 统一管理）
             await close_database()
-            await close_redis()
         except Exception as e:
             logger.error(f"关闭数据库连接失败: {e}")
 

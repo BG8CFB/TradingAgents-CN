@@ -8,7 +8,7 @@
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime, date
 from decimal import Decimal
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict, field_serializer
 from enum import Enum
 
 # 导入日志模块
@@ -58,18 +58,20 @@ class BaseStockModel(BaseModel):
     data_source: str = Field(..., description="数据来源")
     version: int = Field(default=1, description="数据版本")
 
-    class Config:
-        use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            date: lambda v: v.isoformat(),
-            Decimal: lambda v: float(v)
-        }
+    model_config = ConfigDict(
+        use_enum_values=True,
+        ser_json_timedelta='iso8601',
+    )
+
+    @field_serializer('created_at', 'updated_at')
+    @classmethod
+    def serialize_datetime(cls, v: datetime) -> str:
+        return v.isoformat()
 
 
 class StockBasicInfo(BaseStockModel):
     """股票基础信息模型"""
-    symbol: str = Field(..., description="标准化股票代码", regex=r"^\d{6}$")
+    symbol: str = Field(..., description="标准化股票代码", pattern=r"^\d{6}$")
     exchange_symbol: str = Field(..., description="交易所完整代码")
     name: str = Field(..., description="股票名称")
     name_en: Optional[str] = Field(None, description="英文名称")
@@ -89,7 +91,8 @@ class StockBasicInfo(BaseStockModel):
     status: StockStatus = Field(default=StockStatus.LISTED, description="上市状态")
     is_hs: bool = Field(default=False, description="是否沪深港通标的")
 
-    @validator('symbol')
+    @field_validator('symbol')
+    @classmethod
     def validate_symbol(cls, v):
         if not v.isdigit() or len(v) != 6:
             raise ValueError('股票代码必须是6位数字')
@@ -196,7 +199,7 @@ class FinancialIndicators(BaseModel):
 class StockFinancialData(BaseStockModel):
     """股票财务数据模型"""
     symbol: str = Field(..., description="股票代码")
-    report_period: str = Field(..., description="报告期", regex=r"^\d{8}$")
+    report_period: str = Field(..., description="报告期", pattern=r"^\d{8}$")
     report_type: ReportType = Field(..., description="报告类型")
     ann_date: date = Field(..., description="公告日期")
     f_ann_date: Optional[date] = Field(None, description="实际公告日期")
