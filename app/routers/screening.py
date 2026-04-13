@@ -45,7 +45,7 @@ def get_enhanced_service():
     return get_enhanced_screening_service()
 
 
-@router.get("/fields", response_model=FieldConfigResponse)
+@router.get("/fields")
 async def get_screening_fields(user: dict = Depends(get_current_user)):
     """
     获取筛选字段配置
@@ -62,10 +62,10 @@ async def get_screening_fields(user: dict = Depends(get_current_user)):
             "technical": ["ma20", "rsi14", "kdj_k", "kdj_d", "kdj_j", "dif", "dea", "macd_hist"]
         }
 
-        return FieldConfigResponse(
+        return ok(FieldConfigResponse(
             fields=BASIC_FIELDS_INFO,
             categories=categories
-        )
+        ).model_dump(mode='json'))
 
     except Exception as e:
         logger.error(f"[get_screening_fields] 获取字段配置失败: {e}", exc_info=True)
@@ -154,7 +154,7 @@ def _convert_legacy_conditions_to_new_format(legacy_conditions: Dict[str, Any]) 
 
 
 # 传统筛选接口（保持向后兼容，但使用增强服务）
-@router.post("/run", response_model=ScreeningResponse)
+@router.post("/run")
 async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_user)):
     try:
         logger.info(f"[screening] 请求条件: {req.conditions}")
@@ -184,7 +184,7 @@ async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_
             sample = result['items'][:3]
             logger.info(f"[screening] 返回样例(前3条): {sample}")
 
-        return ScreeningResponse(total=result["total"], items=result["items"])
+        return ok(ScreeningResponse(total=result["total"], items=result["items"]).model_dump(mode='json'))
 
     except Exception as e:
         logger.error(f"[screening] 处理失败: {e}", exc_info=True)
@@ -192,7 +192,7 @@ async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_
 
 
 # 新的优化筛选接口
-@router.post("/enhanced", response_model=NewScreeningResponse)
+@router.post("/enhanced")
 async def enhanced_screening(req: NewScreeningRequest, user: dict = Depends(get_current_user)):
     """
     增强的股票筛选接口
@@ -220,13 +220,13 @@ async def enhanced_screening(req: NewScreeningRequest, user: dict = Depends(get_
         logger.info(f"[enhanced_screening] 筛选完成: total={result.get('total')}, "
                    f"took={result.get('took_ms')}ms, optimization={result.get('optimization_used')}")
 
-        return NewScreeningResponse(
+        return ok(NewScreeningResponse(
             total=result["total"],
             items=result["items"],
             took_ms=result.get("took_ms"),
             optimization_used=result.get("optimization_used"),
             source=result.get("source")
-        )
+        ).model_dump(mode='json'))
 
     except Exception as e:
         logger.error(f"[enhanced_screening] 筛选失败: {e}")
@@ -235,7 +235,7 @@ async def enhanced_screening(req: NewScreeningRequest, user: dict = Depends(get_
 
 
 # 获取单个字段的详细信息
-@router.get("/fields/{field_name}", response_model=Dict[str, Any])
+@router.get("/fields/{field_name}")
 async def get_field_info(field_name: str, user: dict = Depends(get_current_user)):
     """获取指定字段的详细信息"""
     try:
@@ -252,7 +252,7 @@ async def get_field_info(field_name: str, user: dict = Depends(get_current_user)
 
 
 # 验证筛选条件
-@router.post("/validate", response_model=Dict[str, Any])
+@router.post("/validate")
 async def validate_conditions(conditions: List[ScreeningCondition], user: dict = Depends(get_current_user)):
     """验证筛选条件的有效性"""
     try:
