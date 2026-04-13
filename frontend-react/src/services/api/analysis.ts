@@ -17,6 +17,7 @@ import type {
   TaskListResponse,
 } from '@/types/analysis.types'
 import apiClient from '../http/client'
+import type { RequestConfig } from '@/types/common.types'
 
 // Re-export types for convenience
 export type { AnalysisStats, QueueStatus } from '@/types/analysis.types'
@@ -97,8 +98,8 @@ export function getUserHistory(params?: {
 }
 
 /** 获取用户队列状态 */
-export function getUserQueueStatus(): Promise<ApiResponse<QueueStatus>> {
-  return apiClient.get('/api/analysis/user/queue-status')
+export function getUserQueueStatus(config?: RequestConfig): Promise<ApiResponse<QueueStatus>> {
+  return apiClient.get('/api/analysis/user/queue-status', undefined, config)
 }
 
 /** 获取分析统计 */
@@ -106,8 +107,8 @@ export function getAnalysisStats(params?: {
   start_date?: string
   end_date?: string
   market_type?: string
-}): Promise<ApiResponse<AnalysisStats>> {
-  return apiClient.get('/api/analysis/stats', params)
+}, config?: RequestConfig): Promise<ApiResponse<AnalysisStats>> {
+  return apiClient.get('/api/analysis/stats', params, config)
 }
 
 /** 获取股票基础信息 */

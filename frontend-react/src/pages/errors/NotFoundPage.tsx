@@ -6,13 +6,13 @@ export default function NotFoundPage() {
     <Result
       status="404"
       title="404"
-      subTitle="抱歉，您访问的页面不存在"
+      subTitle="页面走丢了，试试返回首页重新开始"
       extra={
         <Link to="/dashboard">
-          <Button type="primary">返回首页</Button>
+          <Button type="primary" size="large">返回首页</Button>
         </Link>
       }
-      style={{ padding: '64px 24px', color: 'var(--text-primary)' }}
+      style={{ padding: '80px 24px', color: 'var(--text-primary)' }}
     />
   )
 }

@@ -36,10 +36,12 @@ function AuthRoot() {
 function ProtectedRoot() {
   const hasRehydrated = useAuthStore((state) => state.hasRehydrated)
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const devBypass = import.meta.env.DEV && import.meta.env.VITE_BYPASS_AUTH === 'true'
+
   if (!hasRehydrated) {
     return <PageLoading />
   }
-  if (!isAuthenticated || !checkAuth()) {
+  if (!devBypass && (!isAuthenticated || !checkAuth())) {
     return <Navigate to="/login" replace />
   }
   return (
@@ -66,12 +68,14 @@ const routes: RouteObject[] = [
   // 认证相关
   {
     element: <AuthRoot />,
+    hydrateFallbackElement: <PageLoading />,
     children: authRoutes,
   },
 
   // 主应用（受保护）
   {
     element: <ProtectedRoot />,
+    hydrateFallbackElement: <PageLoading />,
     children: [
       {
         index: true,
@@ -122,6 +126,7 @@ const routes: RouteObject[] = [
   // 学习中心（公开访问）
   {
     element: <MainRoot />,
+    hydrateFallbackElement: <PageLoading />,
     children: [
       {
         path: '/learning',
@@ -136,6 +141,7 @@ const routes: RouteObject[] = [
   // 404
   {
     path: '*',
+    hydrateFallbackElement: <PageLoading />,
     lazy: async () => {
       const { default: NotFoundPage } = await import('@/pages/errors/NotFoundPage')
       return { Component: NotFoundPage }

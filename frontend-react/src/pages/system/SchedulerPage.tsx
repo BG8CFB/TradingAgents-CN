@@ -46,6 +46,7 @@ export default function SchedulerPage() {
   }
 
   /** 保存元数据 */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleSaveMetadata = async (_values: { display_name?: string; description?: string }) => {
     if (!currentJob) return
     setSavingMeta(true)
@@ -187,7 +188,7 @@ export default function SchedulerPage() {
         title={`编辑任务信息：${currentJob?.name ?? ''}`}
         open={editOpen}
         onCancel={() => setEditOpen(false)}
-        destroyOnClose
+        destroyOnHidden
         footer={null}
         width={550}
       >

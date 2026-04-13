@@ -279,7 +279,7 @@ export default function SyncManagementPage() {
                       type="info"
                       showIcon
                       style={{ marginBottom: 12 }}
-                      message={`当前数据源：${currentSource.name}`}
+                      title={`当前数据源：${currentSource.name}`}
                       description={`优先级: ${currentSource.priority} | ${currentSource.description}`}
                     />
                   )}
@@ -323,7 +323,7 @@ export default function SyncManagementPage() {
                   showIcon
                   icon={<WarningOutlined />}
                   style={{ marginBottom: 12 }}
-                  message="注意事项"
+                  title="注意事项"
                   description={
                     <ul style={{ margin: 0, paddingLeft: 16 }}>
                       {recommendations.warnings.map((w, i) => <li key={i}>{w}</li>)}
@@ -341,7 +341,7 @@ export default function SyncManagementPage() {
                   type="success"
                   showIcon
                   style={{ marginTop: 8 }}
-                  message={`推荐主数据源：${recommendations.primary_source.name}（优先级 ${recommendations.primary_source.priority}）`}
+                  title={`推荐主数据源：${recommendations.primary_source.name}（优先级 ${recommendations.primary_source.priority}）`}
                 />
               )}
             </Card>
@@ -356,7 +356,7 @@ export default function SyncManagementPage() {
             size="small"
             style={{ marginBottom: 16 }}
           >
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Space orientation="vertical" style={{ width: '100%' }} size="middle">
               <div>
                 <Text strong>股票基础数据同步</Text>
                 <br />
@@ -417,7 +417,7 @@ export default function SyncManagementPage() {
             <Table
               dataSource={history}
               columns={historyColumns}
-              rowKey={(_, idx) => String(idx)}
+              rowKey="name"
               pagination={false}
               size="small"
               scroll={{ x: 700 }}
@@ -451,14 +451,14 @@ export default function SyncManagementPage() {
             <Alert
               type={testResults.some(r => !r.available) ? 'warning' : 'success'}
               showIcon
-              message={`测试完成，共测试 ${testResults.length} 个数据源`}
+              title={`测试完成，共测试 ${testResults.length} 个数据源`}
               style={{ marginBottom: 16 }}
             />
             <Row gutter={[12, 12]}>
               {testResults.map(r => (
                 <Col key={r.name} span={8}>
                   <Card size="small">
-                    <Space direction="vertical" size={0}>
+                    <Space orientation="vertical" size={0}>
                       <Tag color={r.available ? 'success' : 'error'} style={{ fontSize: 14, padding: '2px 8px' }}>
                         {r.name.toUpperCase()}
                       </Tag>
@@ -466,7 +466,7 @@ export default function SyncManagementPage() {
                       <Alert
                         type={r.available ? 'success' : 'error'}
                         showIcon={false}
-                        message={r.message}
+                        title={r.message}
                         style={{ marginTop: 4, padding: '4px 8px' }}
                       />
                     </Space>

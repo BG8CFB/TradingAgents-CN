@@ -17,7 +17,7 @@ export default function LazyPieChart(props: Parameters<typeof PieChart>[0]) {
           background: 'var(--bg-card)',
           borderRadius: 12,
         }}>
-          <Spin tip="图表加载中..." />
+          <Spin description="图表加载中..." />
         </div>
       }
     >

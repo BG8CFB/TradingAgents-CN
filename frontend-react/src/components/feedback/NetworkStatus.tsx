@@ -11,6 +11,7 @@ export default function NetworkStatus() {
   useEffect(() => {
     // 初始化网络状态，离线时直接显示横幅
     setNetworkStatus(navigator.onLine ? 'online' : 'offline')
+    const timer = timerRef.current
 
     const handleOnline = () => {
       setNetworkStatus('online')
@@ -31,7 +32,7 @@ export default function NetworkStatus() {
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
-      if (timerRef.current) clearTimeout(timerRef.current)
+      if (timer) clearTimeout(timer)
     }
   }, [setNetworkStatus])
 
@@ -55,7 +56,7 @@ export default function NetworkStatus() {
         type="warning"
         banner
         icon={<AntDisconnectOutlined />}
-        message={
+        title={
           <Space>
             <span>网络已断开</span>
             <span style={{ color: '#8C8C8C', fontSize: 12 }}>

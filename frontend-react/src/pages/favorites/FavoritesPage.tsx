@@ -14,7 +14,7 @@ export default function FavoritesPage() {
       title: '股票',
       dataIndex: 'stock_code',
       render: (_: unknown, record: FavoriteStock) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Text strong style={{ color: 'var(--text-primary)' }}>{record.stock_name}</Text>
           <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{record.stock_code}</Text>
         </Space>

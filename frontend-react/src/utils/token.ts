@@ -50,9 +50,13 @@ export function isMockToken(token: string): boolean {
  */
 export function isTokenExpired(token: string, bufferSeconds = 300): boolean {
   const payload = parseJwtPayload(token)
-  if (!payload?.exp) return true
-
-  return Date.now() / 1000 > payload.exp - bufferSeconds
+  if (!payload?.exp) {
+    console.warn('isTokenExpired: no payload or exp', payload)
+    return true
+  }
+  const expired = Date.now() / 1000 > payload.exp - bufferSeconds
+  console.log('isTokenExpired check', { exp: payload.exp, now: Date.now() / 1000, expired })
+  return expired
 }
 
 /**

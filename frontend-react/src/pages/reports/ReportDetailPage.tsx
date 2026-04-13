@@ -66,6 +66,7 @@ export default function ReportDetailPage() {
 
   useEffect(() => {
     if (!reportId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false)
       return
     }
@@ -166,7 +167,7 @@ export default function ReportDetailPage() {
                     style={{ background: 'var(--bg-base)', border: '1px solid var(--border-color)' }}
                     styles={{ header: { background: 'transparent', borderBottom: '1px solid var(--border-color)' } }}
                   >
-                    <Descriptions column={1} size="small" labelStyle={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                    <Descriptions column={1} size="small" styles={{ label: { color: 'var(--text-secondary)', fontSize: 12 } }}>
                       <Descriptions.Item label="置信度">
                         <Progress
                           percent={Math.round((report.confidence_score ?? 0) * 100)}

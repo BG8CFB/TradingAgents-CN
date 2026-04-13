@@ -36,7 +36,7 @@ export default function StockQuoteCard({ quote, fundamentals, loading }: StockQu
     >
       <Row gutter={[24, 16]} align="middle">
         <Col xs={24} md={8}>
-          <Space direction="vertical" size={4}>
+          <Space orientation="vertical" size={4}>
             <Text strong style={{ color: 'var(--text-primary)', fontSize: 20 }}>
               {name}
             </Text>
@@ -70,7 +70,7 @@ export default function StockQuoteCard({ quote, fundamentals, loading }: StockQu
               <Statistic
                 title={<Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>成交量</Text>}
                 value={quote.volume ?? 0}
-                valueStyle={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 }}
+                styles={{ content: { color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 } }}
                 formatter={(v) => formatVolume(Number(v))}
               />
             </Col>
@@ -78,7 +78,7 @@ export default function StockQuoteCard({ quote, fundamentals, loading }: StockQu
               <Statistic
                 title={<Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>成交额</Text>}
                 value={quote.amount ?? 0}
-                valueStyle={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 }}
+                styles={{ content: { color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 } }}
                 formatter={(v) => formatAmount(Number(v))}
               />
             </Col>
@@ -87,7 +87,7 @@ export default function StockQuoteCard({ quote, fundamentals, loading }: StockQu
                 title={<Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>换手率</Text>}
                 value={quote.turnover_rate ?? '-'}
                 suffix="%"
-                valueStyle={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 }}
+                styles={{ content: { color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 } }}
               />
             </Col>
             <Col span={12}>
@@ -95,7 +95,7 @@ export default function StockQuoteCard({ quote, fundamentals, loading }: StockQu
                 title={<Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>振幅</Text>}
                 value={quote.amplitude ?? '-'}
                 suffix="%"
-                valueStyle={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 }}
+                styles={{ content: { color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 } }}
               />
             </Col>
           </Row>

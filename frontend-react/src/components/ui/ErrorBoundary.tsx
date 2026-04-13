@@ -111,7 +111,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                 <Alert
                   type="error"
                   showIcon
-                  message="错误信息"
+                  title="错误信息"
                   description={
                     <Collapse
                       ghost

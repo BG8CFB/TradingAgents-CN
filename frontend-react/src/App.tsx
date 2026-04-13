@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { ConfigProvider, theme } from 'antd'
+import { ConfigProvider, theme, App as AntApp } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { RouterProvider } from 'react-router-dom'
 import { router } from './router'
@@ -7,14 +7,23 @@ import { startAuthRefreshTimer } from '@/stores/auth.store'
 import { useAppStore, getEffectiveTheme } from '@/stores/app.store'
 import ErrorBoundary from '@/components/ui/ErrorBoundary'
 import NetworkStatus from '@/components/feedback/NetworkStatus'
+import { setGlobalMessage } from '@/services/http/message-ref'
 
 function App() {
   const appTheme = useAppStore((state) => state.theme)
+  const { message } = AntApp.useApp()
 
   useEffect(() => {
     const stopTimer = startAuthRefreshTimer()
     return () => stopTimer()
   }, [])
+
+  useEffect(() => {
+    // antd AppContext 默认 message 为 {}，需校验 methods 存在才注册
+    if (message && typeof message.error === 'function') {
+      setGlobalMessage(message)
+    }
+  }, [message])
 
   const effectiveTheme = getEffectiveTheme(appTheme)
 
@@ -95,10 +104,12 @@ function App() {
 
   return (
     <ConfigProvider locale={zhCN} theme={antTheme}>
-      <ErrorBoundary>
-        <NetworkStatus />
-        <RouterProvider router={router} />
-      </ErrorBoundary>
+      <AntApp>
+        <ErrorBoundary>
+          <NetworkStatus />
+          <RouterProvider router={router} />
+        </ErrorBoundary>
+      </AntApp>
     </ConfigProvider>
   )
 }

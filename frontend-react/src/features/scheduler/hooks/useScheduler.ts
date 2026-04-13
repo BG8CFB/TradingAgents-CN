@@ -3,7 +3,7 @@
  * 封装任务的 CRUD 操作、执行历史、统计等
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { message } from 'antd'
 import {
   listSchedulerJobs,
@@ -50,7 +50,10 @@ export function useScheduler(): UseSchedulerReturn {
   const [loading, setLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
 
+  const fetchingRef = useRef(false)
   const fetchJobs = useCallback(async () => {
+    if (fetchingRef.current) return
+    fetchingRef.current = true
     setLoading(true)
     try {
       const [jobsRes, statsRes] = await Promise.all([
@@ -65,6 +68,7 @@ export function useScheduler(): UseSchedulerReturn {
       setStats(null)
     } finally {
       setLoading(false)
+      fetchingRef.current = false
     }
   }, [])
 

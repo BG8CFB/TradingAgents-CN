@@ -156,7 +156,7 @@ export default function ConfigManagementPage() {
       case 'validator':
         return (
           <div>
-            <ConfigValidator lastRefresh={Date.now()} />
+            <ConfigValidator key={`validator-${activeMenu}`} />
             <ImportExportPanel onImported={handleGlobalRefresh} />
           </div>
         )
@@ -437,7 +437,7 @@ export default function ConfigManagementPage() {
           onCancel={() => setDbDialogOpen(false)}
           onOk={() => { /* 由 DBForm 内部 Form.onFinish 触发提交 */ }}
           width={560}
-          destroyOnClose
+          destroyOnHidden
         >
           <DBForm initialValues={editingDB} onSubmit={handleSaveDB} />
         </Modal>
@@ -465,7 +465,7 @@ export default function ConfigManagementPage() {
         <Alert
           type="info"
           showIcon
-          message="修改系统设置后将立即生效，部分设置可能需要重载配置才能完全生效。"
+          title="修改系统设置后将立即生效，部分设置可能需要重载配置才能完全生效。"
           style={{ marginBottom: 16 }}
         />
 

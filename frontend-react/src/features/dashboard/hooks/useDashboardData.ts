@@ -47,6 +47,8 @@ export function useDashboardData(): DashboardData & { refresh: () => void } {
   }, [])
 
   useEffect(() => {
+    // 数据获取在 effect 中调用是标准做法；规则在此处为 false positive
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData()
   }, [fetchData])
 

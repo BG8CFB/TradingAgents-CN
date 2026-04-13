@@ -31,7 +31,7 @@ export default function SchedulerStats({ stats }: SchedulerStatsProps) {
           <Statistic
             title="运行中"
             value={stats.active_jobs}
-            valueStyle={{ color: '#52C41A' }}
+            styles={{ content: { color: '#52C41A' } }}
             prefix={<PlayCircleOutlined />}
           />
         </Col>
@@ -39,7 +39,7 @@ export default function SchedulerStats({ stats }: SchedulerStatsProps) {
           <Statistic
             title="已暂停"
             value={stats.paused_jobs}
-            valueStyle={{ color: '#D48806' }}
+            styles={{ content: { color: '#D48806' } }}
             prefix={<PauseCircleOutlined />}
           />
         </Col>
@@ -56,9 +56,9 @@ export default function SchedulerStats({ stats }: SchedulerStatsProps) {
             value={stats.success_rate}
             precision={1}
             suffix="%"
-            valueStyle={{
+            styles={{ content: {
               color: stats.success_rate >= 80 ? '#52C41A' : stats.success_rate >= 50 ? '#D48806' : '#FF4D4F',
-            }}
+            } }}
             prefix={<CheckCircleOutlined />}
           />
         </Col>

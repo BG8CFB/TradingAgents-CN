@@ -49,8 +49,7 @@ export default function FundamentalsTable({ data, loading }: FundamentalsTablePr
       <Descriptions
         column={{ xs: 1, sm: 2, md: 3 }}
         items={items}
-        labelStyle={{ color: 'var(--text-secondary)' }}
-        contentStyle={{ color: 'var(--text-primary)' }}
+        styles={{ label: { color: 'var(--text-secondary)' }, content: { color: 'var(--text-primary)' } }}
       />
     </Card>
   )

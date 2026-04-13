@@ -134,7 +134,7 @@ export default function ConnectorCard({
               }
               showIcon
               style={{ marginBottom: 12 }}
-              message={
+              title={
                 <Descriptions size="small" column={2} colon={false}>
                   {(Object.entries(connector.healthInfo) as [string, unknown][]).map(([key, val]) => (
                     <Descriptions.Item key={key} label={key}>

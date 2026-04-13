@@ -224,7 +224,7 @@ export default function AgentManagementPage() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="智能体说明"
+        title="智能体说明"
         description={
           <span>
             系统内置了研究阶段（Bull/Bear Researcher + Research Manager）、风险阶段（Risk Manager）和交易阶段（Trader）共 5 个智能体。
@@ -256,7 +256,7 @@ export default function AgentManagementPage() {
         title={editingAgent ? `编辑智能体：${editingAgent.name}` : '添加智能体'}
         open={editOpen}
         onCancel={() => setEditOpen(false)}
-        destroyOnClose
+        destroyOnHidden
         footer={null}
         width={600}
       >

@@ -56,16 +56,16 @@ export default function TokenStatisticsPage() {
       if (statsRes?.data) setStats(statsRes.data as UsageStatistics)
 
       if (providerRes?.data) {
-        const pd = Object.entries(providerRes.data).map(([name, v]) => ({
+        const pd = Object.entries(providerRes.data as Record<string, number | { cost?: number }>).map(([name, v]) => ({
           name,
-          value: typeof v === 'number' ? v : (v as any)?.cost ?? 0,
+          value: typeof v === 'number' ? v : v?.cost ?? 0,
         }))
         setProviderData(pd)
       }
 
       if (modelRes?.data) {
-        const md = Object.entries(modelRes.data)
-          .map(([name, v]) => ({ name, value: typeof v === 'number' ? v : (v as any)?.cost ?? 0 }))
+        const md = Object.entries(modelRes.data as Record<string, number | { cost?: number }>)
+          .map(([name, v]) => ({ name, value: typeof v === 'number' ? v : v?.cost ?? 0 }))
           .sort((a, b) => b.value - a.value)
           .slice(0, 10)
         setModelData(md)
@@ -117,7 +117,7 @@ export default function TokenStatisticsPage() {
                 title={<Text type="secondary" style={{ fontSize: 12 }}>总请求数</Text>}
                 value={stats?.total_requests ?? 0}
                 prefix={<FileTextOutlined />}
-                valueStyle={{ color: 'var(--accent-blue)', fontSize: 20 }}
+                styles={{ content: { color: 'var(--accent-blue)', fontSize: 20 } }}
               />
             </Card>
           </Col>
@@ -127,7 +127,7 @@ export default function TokenStatisticsPage() {
                 title={<Text type="secondary" style={{ fontSize: 12 }}>输入 Token</Text>}
                 value={formatTokens(stats?.total_input_tokens ?? 0)}
                 prefix={<ThunderboltOutlined />}
-                valueStyle={{ color: 'var(--accent-primary)', fontSize: 20 }}
+                styles={{ content: { color: 'var(--accent-primary)', fontSize: 20 } }}
               />
             </Card>
           </Col>
@@ -137,7 +137,7 @@ export default function TokenStatisticsPage() {
                 title={<Text type="secondary" style={{ fontSize: 12 }}>输出 Token</Text>}
                 value={formatTokens(stats?.total_output_tokens ?? 0)}
                 prefix={<ThunderboltOutlined />}
-                valueStyle={{ color: '#D4A574', fontSize: 20 }}
+                styles={{ content: { color: '#D4A574', fontSize: 20 } }}
               />
             </Card>
           </Col>
@@ -147,7 +147,7 @@ export default function TokenStatisticsPage() {
                 title={<Text type="secondary" style={{ fontSize: 12 }}>总花费</Text>}
                 value={`¥${(stats?.cost_by_currency?.CNY ?? stats?.total_cost ?? 0).toFixed(2)}`}
                 prefix={<DollarOutlined />}
-                valueStyle={{ color: 'var(--text-primary)', fontSize: 20 }}
+                styles={{ content: { color: 'var(--text-primary)', fontSize: 20 } }}
               />
             </Card>
           </Col>
@@ -210,8 +210,8 @@ export default function TokenStatisticsPage() {
                   style={{ background: 'var(--bg-card)', border: 'none' }}
                   styles={{ header: { borderBottom: '1px solid var(--border-color)' } }}
                 >
-                  <Table
-                    dataSource={Object.entries(stats.by_provider).map(([name, v]: [string, any]) => ({
+                  <Table<Record<string, string | number>>
+                    dataSource={Object.entries(stats.by_provider as Record<string, { requests?: number; tokens?: number; cost?: number }>).map(([name, v]) => ({
                       key: name,
                       provider: name,
                       requests: v.requests || 0,
@@ -238,16 +238,16 @@ export default function TokenStatisticsPage() {
                   style={{ background: 'var(--bg-card)', border: 'none' }}
                   styles={{ header: { borderBottom: '1px solid var(--border-color)' } }}
                 >
-                  <Table
-                    dataSource={Object.entries(stats.by_model)
-                      .map(([name, v]: [string, any]) => ({
+                  <Table<Record<string, string | number>>
+                    dataSource={Object.entries(stats.by_model as Record<string, { requests?: number; tokens?: number; cost?: number }>)
+                      .map(([name, v]) => ({
                         key: name,
                         model: name,
                         requests: v.requests || 0,
                         tokens: formatTokens(v.tokens || 0),
                         cost: `¥${(v.cost || 0).toFixed(4)}`,
                       }))
-                      .sort((a: any, b: any) => parseFloat(b.cost.slice(1)) - parseFloat(a.cost.slice(1)))}
+                      .sort((a, b) => parseFloat(String(b.cost).slice(1)) - parseFloat(String(a.cost).slice(1)))}
                     columns={[
                       { title: '模型名称', dataIndex: 'model', key: 'model', ellipsis: true },
                       { title: '请求数', dataIndex: 'requests', key: 'requests' },

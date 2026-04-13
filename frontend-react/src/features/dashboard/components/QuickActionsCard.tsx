@@ -1,4 +1,4 @@
-import { Card, Typography, Row, Col, Button } from 'antd'
+import { Card, Button } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import {
   LineChartOutlined,
@@ -6,8 +6,6 @@ import {
   StarOutlined,
   FileTextOutlined,
 } from '@ant-design/icons'
-
-const {} = Typography
 
 interface ActionItem {
   icon: React.ReactNode
@@ -33,32 +31,32 @@ export default function QuickActionsCard() {
       style={{ background: 'var(--bg-card)', border: 'none' }}
       styles={{ header: { borderBottom: '1px solid var(--border-color)' } }}
     >
-      <Row gutter={[16, 16]}>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         {actions.map((item) => (
-          <Col xs={12} sm={8} md={4} key={item.path}>
-            <Button
-              block
-              size="large"
-              onClick={() => navigate(item.path)}
-              style={{
-                height: 80,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                background: 'var(--bg-base)',
-                borderColor: 'var(--border-color)',
-                color: 'var(--text-primary)',
-              }}
-            >
-              <span style={{ fontSize: 22, color: 'var(--accent-primary)' }}>{item.icon}</span>
-              <span style={{ fontWeight: 500 }}>{item.label}</span>
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.desc}</span>
-            </Button>
-          </Col>
+          <Button
+            key={item.path}
+            size="large"
+            onClick={() => navigate(item.path)}
+            style={{
+              flex: '1 1 120px',
+              minWidth: 120,
+              height: 80,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              background: 'var(--bg-base)',
+              borderColor: 'var(--border-color)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <span style={{ fontSize: 22, color: 'var(--accent-primary)' }}>{item.icon}</span>
+            <span style={{ fontWeight: 500 }}>{item.label}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.desc}</span>
+          </Button>
         ))}
-      </Row>
+      </div>
     </Card>
   )
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Card, List, Typography, Tag, Empty, Button } from 'antd'
+import { Card, Typography, Tag, Empty, Button } from 'antd'
 import { getStockNews } from '@/services/api/stocks'
 import type { NewsItem } from '@/types/stocks.types'
 
@@ -45,10 +45,12 @@ export default function NewsList({ code, limit = 20 }: NewsListProps) {
       {news.length === 0 ? (
         <Empty description="暂无新闻" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       ) : (
-        <List
-          dataSource={news}
-          renderItem={(item) => (
-            <List.Item style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+        <div>
+          {news.map((item, index) => (
+            <div
+              key={`${item.title}-${index}`}
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', padding: '12px 0' }}
+            >
               <div style={{ width: '100%' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <Text strong style={{ color: 'var(--text-primary)', flex: 1, marginRight: 12 }}>
@@ -73,9 +75,9 @@ export default function NewsList({ code, limit = 20 }: NewsListProps) {
                   </div>
                 )}
               </div>
-            </List.Item>
-          )}
-        />
+            </div>
+          ))}
+        </div>
       )}
     </Card>
   )

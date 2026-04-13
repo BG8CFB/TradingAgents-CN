@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import { Card, Alert, List, Tag, Button, Space, Typography, Spin, Empty, Descriptions } from 'antd'
+import { Card, Alert, Tag, Button, Space, Typography, Spin, Empty, Descriptions } from 'antd'
 import {
   WarningOutlined, CheckCircleOutlined, InfoCircleOutlined, ReloadOutlined,
 } from '@ant-design/icons'
@@ -27,8 +27,8 @@ interface ConfigValidatorProps {
 export default function ConfigValidator({ lastRefresh }: ConfigValidatorProps) {
   const [issues, setIssues] = useState<ValidationIssue[]>([])
   const [loading, setLoading] = useState(false)
-  const [_systemConfig, setSystemConfig] = useState<SystemConfigResponse | null>(null)
-  const [_settingsMeta, setSettingsMeta] = useState<SettingMetaItem[]>([])
+  const [, setSystemConfig] = useState<SystemConfigResponse | null>(null)
+  const [, setSettingsMeta] = useState<SettingMetaItem[]>([])
 
   const validate = async () => {
     setLoading(true)
@@ -163,16 +163,14 @@ export default function ConfigValidator({ lastRefresh }: ConfigValidatorProps) {
             }
           />
         ) : (
-          <List
-            size="small"
-            dataSource={issues}
-            renderItem={(item) => (
-              <List.Item style={{ padding: '8px 0' }}>
+          <div>
+            {issues.map((item, idx) => (
+              <div key={`${item.category}-${item.message}-${idx}`} style={{ padding: '8px 0' }}>
                 <Alert
                   type={item.type === 'error' ? 'error' : item.type === 'warning' ? 'warning' : 'info'}
                   showIcon
                   banner
-                  message={
+                  title={
                     <span>
                       <Tag>{item.category}</Tag>
                       <Text strong>{item.message}</Text>
@@ -181,9 +179,9 @@ export default function ConfigValidator({ lastRefresh }: ConfigValidatorProps) {
                   }
                   style={{ margin: 0 }}
                 />
-              </List.Item>
-            )}
-          />
+              </div>
+            ))}
+          </div>
         )}
       </Spin>
     </Card>

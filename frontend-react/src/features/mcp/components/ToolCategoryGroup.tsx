@@ -36,7 +36,7 @@ export default function ToolCategoryGroup({
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: 40 }}>
-        <Spin tip="加载工具列表..." />
+        <Spin description="加载工具列表..." />
       </div>
     )
   }

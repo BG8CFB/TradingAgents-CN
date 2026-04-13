@@ -114,7 +114,7 @@ export default function SingleAnalysisPage() {
               />
 
               {submitError && (
-                <Alert message={submitError} type="error" showIcon />
+                <Alert title={submitError} type="error" showIcon />
               )}
 
               <Space style={{ width: '100%', justifyContent: 'flex-end', marginTop: 8 }}>
@@ -165,7 +165,7 @@ export default function SingleAnalysisPage() {
                 </div>
 
                 {progressError && (
-                  <Alert message={progressError} type="error" showIcon />
+                  <Alert title={progressError} type="error" showIcon />
                 )}
 
                 <AnalysisStepTimeline currentStepName={currentStep} />

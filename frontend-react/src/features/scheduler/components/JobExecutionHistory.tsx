@@ -209,7 +209,7 @@ export default function JobExecutionHistory({
         onCancel={onClose}
         width={1100}
         footer={<Button onClick={onClose}>关闭</Button>}
-        destroyOnClose
+        destroyOnHidden
       >
         <Tabs
           activeKey={activeTab}
@@ -285,7 +285,7 @@ export default function JobExecutionHistory({
                 currentExecution.status === 'running' ? 'info' : 'warning'
               }
               showIcon
-              message={formatStatus(currentExecution.status).label}
+              title={formatStatus(currentExecution.status).label}
               style={{ marginBottom: 16 }}
             />
 
@@ -324,7 +324,7 @@ export default function JobExecutionHistory({
                 type="error"
                 showIcon
                 style={{ marginTop: 12 }}
-                message="错误信息"
+                title="错误信息"
                 description={<pre style={{ margin: 0, fontSize: 12 }}>{currentExecution.error}</pre>}
               />
             )}

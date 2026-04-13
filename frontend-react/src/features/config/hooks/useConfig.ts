@@ -3,7 +3,7 @@
  * 封装系统配置、数据源、数据库、市场分类、系统设置等 CRUD 操作
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { message } from 'antd'
 import type {
   SystemConfigResponse,
@@ -88,8 +88,13 @@ export function useConfig(): UseConfigReturn {
     }
   }, [])
 
-  // 初始加载
-  useEffect(() => { loadAll() }, [])
+  // 初始加载（ guarded 防止 StrictMode 双调）
+  const initializedRef = useRef(false)
+  useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
+    loadAll()
+  }, [loadAll])
 
   const refresh = useCallback(async () => {
     await loadAll()

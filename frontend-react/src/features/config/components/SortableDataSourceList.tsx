@@ -3,7 +3,7 @@
  * 在指定市场分类下展示关联的数据源，支持拖拽调整优先级、启用/禁用切换
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Table, Button, Switch, Space, Tag, message, Typography, Card, Empty,
 } from 'antd'
@@ -46,7 +46,16 @@ export default function SortableDataSourceList({ category, onRefresh }: Sortable
     }
   }, [category])
 
-  useEffect(() => { loadData() }, [category])
+  const initializedRef = useRef(false)
+  useEffect(() => {
+    if (!category) return
+    if (initializedRef.current) {
+      loadData()
+      return
+    }
+    initializedRef.current = true
+    loadData()
+  }, [category, loadData])
 
   /** 获取当前分类的分组关系（按 priority 排序） */
   const currentGroupings = category

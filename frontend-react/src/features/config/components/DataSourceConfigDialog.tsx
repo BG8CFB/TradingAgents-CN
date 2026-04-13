@@ -105,7 +105,7 @@ export default function DataSourceConfigDialog({
       onOk={handleOk}
       confirmLoading={saving}
       width={620}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form form={form} layout="vertical">
         <Space size="middle" wrap style={{ width: '100%' }}>

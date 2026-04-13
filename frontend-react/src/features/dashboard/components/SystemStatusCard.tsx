@@ -21,7 +21,10 @@ export default function SystemStatusCard({ refreshTrigger }: SystemStatusCardPro
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([getAnalysisStats({}), getUserQueueStatus()])
+    Promise.all([
+      getAnalysisStats({}, { skipErrorHandler: true }),
+      getUserQueueStatus({ skipErrorHandler: true }),
+    ])
       .then(([statsRes, queueRes]) => {
         setStats(statsRes.data ?? null)
         setQueue(queueRes.data ?? null)
@@ -54,12 +57,12 @@ export default function SystemStatusCard({ refreshTrigger }: SystemStatusCardPro
       styles={{ header: { borderBottom: '1px solid var(--border-color)' } }}
     >
       <Spin spinning={loading}>
-        <Row gutter={[16, 16]}>
+        <Row gutter={[24, 16]}>
           <Col xs={12} sm={6}>
             <Statistic
               title={<Text type="secondary" style={{ fontSize: 12 }}>总分析数</Text>}
               value={stats?.total_analyses ?? 0}
-              valueStyle={{ color: 'var(--accent-primary)', fontSize: 22 }}
+              styles={{ content: { color: 'var(--accent-primary)', fontSize: 22 } }}
             />
           </Col>
           <Col xs={12} sm={6}>
@@ -67,24 +70,24 @@ export default function SystemStatusCard({ refreshTrigger }: SystemStatusCardPro
               title={<Text type="secondary" style={{ fontSize: 12 }}>成功率</Text>}
               value={successRate}
               suffix="%"
-              valueStyle={{
-                color: successRate >= 80 ? 'var(--accent-success)' : successRate >= 50 ? '#D48806' : 'var(--accent-error)',
+              styles={{ content: {
+                color: successRate >= 80 ? 'var(--accent-success)' : successRate >= 50 ? '#D48806' : (stats?.total_analyses ? 'var(--accent-error)' : 'var(--text-primary)'),
                 fontSize: 22,
-              }}
+              } }}
             />
           </Col>
           <Col xs={12} sm={6}>
             <Statistic
               title={<Text type="secondary" style={{ fontSize: 12 }}>Token 消耗</Text>}
               value={formatTokens(stats?.total_tokens ?? 0)}
-              valueStyle={{ color: 'var(--accent-blue)', fontSize: 22 }}
+              styles={{ content: { color: 'var(--accent-blue)', fontSize: 22 } }}
             />
           </Col>
           <Col xs={12} sm={6}>
             <Statistic
               title={<Text type="secondary" style={{ fontSize: 12 }}>总花费</Text>}
               value={formatCost(stats?.total_cost ?? 0)}
-              valueStyle={{ color: 'var(--text-primary)', fontSize: 22 }}
+              styles={{ content: { color: 'var(--text-primary)', fontSize: 22 } }}
             />
           </Col>
         </Row>

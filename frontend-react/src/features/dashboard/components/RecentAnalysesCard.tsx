@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Typography, List, Tag, Empty, Spin, Space } from 'antd'
+import { Card, Typography, Tag, Empty, Spin, Space, Button } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { getReportList, type ReportItem } from '@/services/api/reports'
 
@@ -11,7 +11,7 @@ export default function RecentAnalysesCard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getReportList({ page: 1, page_size: 5 })
+    getReportList({ page: 1, page_size: 5 }, { skipErrorHandler: true })
       .then((res) => {
         setReports(res.data?.reports ?? [])
       })
@@ -38,33 +38,36 @@ export default function RecentAnalysesCard() {
     >
       <Spin spinning={loading}>
         {reports.length === 0 ? (
-          <Empty description="暂无分析记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          <Empty
+            description="暂无分析记录"
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          >
+            <Button type="primary" size="small" onClick={() => navigate('/analysis/single')}>
+              开始单股分析
+            </Button>
+          </Empty>
         ) : (
-          <List
-            dataSource={reports}
-            renderItem={(item) => (
-              <List.Item
+          <div>
+            {reports.map((item) => (
+              <div
+                key={item.id}
                 style={{ cursor: 'pointer', padding: '10px 0', borderBottom: '1px solid var(--border-color)' }}
                 onClick={() => navigate(`/reports/view?id=${item.id}`)}
               >
-                <List.Item.Meta
-                  title={
-                    <span style={{ color: 'var(--text-primary)', fontSize: 13 }}>{item.title}</span>
-                  }
-                  description={
-                    <Space size={8}>
-                      <Tag color={item.status === 'completed' ? 'success' : 'processing'} style={{ fontSize: 11 }}>
-                        {item.status === 'completed' ? '已完成' : '进行中'}
-                      </Tag>
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        {item.market_type} · {item.created_at?.slice(0, 10)}
-                      </Text>
-                    </Space>
-                  }
-                />
-              </List.Item>
-            )}
-          />
+                <div style={{ marginBottom: 4 }}>
+                  <span style={{ color: 'var(--text-primary)', fontSize: 13 }}>{item.title}</span>
+                </div>
+                <Space size={8}>
+                  <Tag color={item.status === 'completed' ? 'success' : 'processing'} style={{ fontSize: 11 }}>
+                    {item.status === 'completed' ? '已完成' : '进行中'}
+                  </Tag>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {item.market_type} · {item.created_at?.slice(0, 10)}
+                  </Text>
+                </Space>
+              </div>
+            ))}
+          </div>
         )}
       </Spin>
     </Card>

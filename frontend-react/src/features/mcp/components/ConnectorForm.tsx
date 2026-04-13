@@ -68,7 +68,7 @@ export default function ConnectorForm({ open, onClose, onSubmit, submitting = fa
       okText="确认添加"
       cancelText="取消"
       width={640}
-      destroyOnClose
+      destroyOnHidden
     >
       <div style={{ marginBottom: 16 }}>
         <Paragraph type="secondary" style={{ marginBottom: 12 }}>
@@ -91,7 +91,7 @@ export default function ConnectorForm({ open, onClose, onSubmit, submitting = fa
         />
 
         {parseError && (
-          <Alert type="error" showIcon message={parseError} style={{ marginTop: 8 }} />
+          <Alert type="error" showIcon title={parseError} style={{ marginTop: 8 }} />
         )}
 
         <Alert
@@ -99,7 +99,7 @@ export default function ConnectorForm({ open, onClose, onSubmit, submitting = fa
           showIcon
           icon={<WarningFilled />}
           style={{ marginTop: 12 }}
-          message="配置前请确认来源，甄别风险"
+          title="配置前请确认来源，甄别风险"
         />
       </div>
     </Modal>

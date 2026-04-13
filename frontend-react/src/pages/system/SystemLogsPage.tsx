@@ -291,7 +291,7 @@ export default function SystemLogsPage() {
               <Statistic
                 title="日志文件数"
                 value={stats.total_files}
-                valueStyle={{ fontSize: 20 }}
+                styles={{ content: { fontSize: 20 } }}
                 prefix={<FileTextOutlined />}
               />
             </Col>
@@ -300,14 +300,14 @@ export default function SystemLogsPage() {
                 title="总大小"
                 value={stats.total_size_mb}
                 suffix="MB"
-                valueStyle={{ fontSize: 20 }}
+                styles={{ content: { fontSize: 20 } }}
               />
             </Col>
             <Col span={6}>
               <Statistic
                 title="异常文件数"
                 value={stats.error_files}
-                valueStyle={{ fontSize: 20, color: stats.error_files > 0 ? '#FF4D4F' : '#52C41A' }}
+                styles={{ content: { fontSize: 20, color: stats.error_files > 0 ? '#FF4D4F' : '#52C41A' } }}
                 prefix={<WarningOutlined />}
               />
             </Col>
@@ -336,7 +336,7 @@ export default function SystemLogsPage() {
             showIcon
             icon={<WarningOutlined />}
             style={{ marginTop: 12 }}
-            message="最近检测到异常"
+            title="最近检测到异常"
             description={
               <ul style={{ margin: 0, paddingLeft: 16, maxHeight: 80, overflow: 'auto' }}>
                 {stats.recent_errors.map((err, i) => (
@@ -447,7 +447,7 @@ export default function SystemLogsPage() {
               type="info"
               showIcon={false}
               style={{ marginBottom: 8, padding: '4px 12px' }}
-              message={
+              title={
                 <Space size="large" style={{ fontSize: 12 }}>
                   {(Object.entries(logStats) as [string, unknown][]).map(([k, v]) => (
                     <span key={k}><Text type="secondary">{k}: </Text><strong>{String(v)}</strong></span>

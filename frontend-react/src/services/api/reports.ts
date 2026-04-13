@@ -1,5 +1,5 @@
 import apiClient from '../http/client'
-import type { ApiResponse } from '@/types/common.types'
+import type { ApiResponse, RequestConfig } from '@/types/common.types'
 
 export interface ReportItem {
   id: string
@@ -65,8 +65,8 @@ export interface ReportListResponse {
 }
 
 /** 获取报告列表 */
-export async function getReportList(params: ReportListParams = {}): Promise<ApiResponse<ReportListResponse>> {
-  return apiClient.get<ReportListResponse>('/api/reports/list', params as unknown as Record<string, unknown>)
+export async function getReportList(params: ReportListParams = {}, config?: RequestConfig): Promise<ApiResponse<ReportListResponse>> {
+  return apiClient.get<ReportListResponse>('/api/reports/list', params as unknown as Record<string, unknown>, config)
 }
 
 /** 获取报告详情 */

@@ -3,7 +3,7 @@
  * CRUD 操作 + 与数据源的关联展示
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Table, Button, Modal, Form, Input, InputNumber, Switch, Space, message, Popconfirm, Typography, Tag,
 } from 'antd'
@@ -53,7 +53,12 @@ export default function MarketCategoryManager({ onRefresh }: MarketCategoryManag
     }
   }, [])
 
-  useEffect(() => { loadData() }, [])
+  const initializedRef = useRef(false)
+  useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
+    loadData()
+  }, [loadData])
 
   const handleAdd = () => {
     setEditingCategory(null)
@@ -185,7 +190,7 @@ export default function MarketCategoryManager({ onRefresh }: MarketCategoryManag
         onCancel={() => setModalOpen(false)}
         onOk={handleSave}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="id" label="ID" rules={[{ required: true, message: '请输入唯一 ID' }]}>

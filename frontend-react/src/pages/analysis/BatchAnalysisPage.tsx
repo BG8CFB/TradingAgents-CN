@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Card, Button, Row, Col, Typography, Alert, Space, Input, Tag, List, message } from 'antd'
+import { Card, Button, Row, Col, Typography, Alert, Space, Input, Tag, message } from 'antd'
 import { RocketOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useAnalysisSubmit } from '@/features/analysis/hooks/useAnalysisSubmit'
 import BatchStockInput from '@/features/analysis/components/BatchStockInput'
@@ -140,7 +140,7 @@ export default function BatchAnalysisPage() {
               />
 
               {submitError && (
-                <Alert message={submitError} type="error" showIcon />
+                <Alert title={submitError} type="error" showIcon />
               )}
 
               <Space style={{ width: '100%', justifyContent: 'flex-end', marginTop: 8 }}>
@@ -183,20 +183,30 @@ export default function BatchAnalysisPage() {
 
                 <AnalysisProgressBar progress={0} status="active" />
 
-                <List
-                  size="small"
-                  bordered
-                  dataSource={batchData.mapping || []}
-                  style={{ background: 'transparent', borderColor: 'rgba(255,255,255,0.08)' }}
-                  renderItem={(item) => (
-                    <List.Item style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <div
+                  style={{
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 4,
+                    background: 'transparent',
+                  }}
+                >
+                  {(batchData.mapping || []).map((item, idx) => (
+                    <div
+                      key={`${item.symbol}-${idx}`}
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        padding: '8px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
                       <Space>
                         <Text style={{ color: 'var(--text-primary)', minWidth: 80 }}>{item.symbol}</Text>
                         <TaskStatusBadge status={batchData.status} />
                       </Space>
-                    </List.Item>
-                  )}
-                />
+                    </div>
+                  ))}
+                </div>
 
                 <Button icon={<ReloadOutlined />} onClick={handleReset}>
                   新建批次

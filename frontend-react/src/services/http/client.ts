@@ -29,15 +29,23 @@ type AuthSnapshot = {
 }
 
 const authSnapshot: AuthSnapshot = {
-  token: useAuthStore.getState().token,
-  refreshToken: useAuthStore.getState().refreshToken,
+  token: null,
+  refreshToken: null,
 }
 
-// 通过订阅维护模块内快照，避免每次请求都与 store 读取时机强耦合。
-useAuthStore.subscribe((state) => {
-  authSnapshot.token = state.token
-  authSnapshot.refreshToken = state.refreshToken
-})
+let unsubStore: (() => void) | null = null
+
+/** 延迟订阅，避免模块顶层循环依赖初始化问题 */
+function ensureAuthStoreSubscribed(): void {
+  if (unsubStore) return
+  const store = useAuthStore
+  authSnapshot.token = store.getState().token
+  authSnapshot.refreshToken = store.getState().refreshToken
+  unsubStore = store.subscribe((state) => {
+    authSnapshot.token = state.token
+    authSnapshot.refreshToken = state.refreshToken
+  })
+}
 
 /** 获取存储的 Token（从 Zustand persist 读取） */
 function getStoredToken(): string | null {
@@ -108,6 +116,7 @@ async function handle401(): Promise<void> {
 // ========== 请求拦截器 ==========
 instance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    ensureAuthStoreSubscribed()
     const internalConfig = config as InternalAxiosRequestConfig & InternalRequestConfig
 
     // 注入认证 Token

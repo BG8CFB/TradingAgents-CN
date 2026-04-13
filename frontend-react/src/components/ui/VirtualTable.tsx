@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, type ReactNode } from 'react'
+import { useRef, useState, useCallback, useLayoutEffect, type ReactNode } from 'react'
 import { Spin, Empty } from 'antd'
 
 /**
@@ -86,10 +86,12 @@ export default function VirtualTable<T>({
 
   // 当数据变化时，重置加载更多守卫（允许再次触发）
   const prevDataLengthRef = useRef(data.length)
-  if (data.length !== prevDataLengthRef.current) {
-    prevDataLengthRef.current = data.length
-    loadingMoreRef.current = false
-  }
+  useLayoutEffect(() => {
+    if (data.length !== prevDataLengthRef.current) {
+      prevDataLengthRef.current = data.length
+      loadingMoreRef.current = false
+    }
+  }, [data.length])
 
   // 数据量较小时不使用虚拟滚动（直接渲染全部）
   const useVirtual = data.length > 50

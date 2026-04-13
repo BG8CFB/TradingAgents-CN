@@ -3,7 +3,7 @@
  * 按供应商展示/编辑模型列表，支持从 API 拉取、手动编辑、初始化默认目录
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Card, Table, Button, Modal, Input, Space, Tag, message, Popconfirm, Typography, Empty, Tabs,
 } from 'antd'
@@ -45,8 +45,13 @@ export default function ModelCatalogManager({ providers = [], onRefresh }: Model
     }
   }, [])
 
-  // 首次加载
-  useEffect(() => { loadCatalogs() }, [])
+  // 首次加载（ guarded 防止 StrictMode 双调）
+  const initializedRef = useRef(false)
+  useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
+    loadCatalogs()
+  }, [loadCatalogs])
 
   const handleInitDefault = async () => {
     try {
@@ -246,7 +251,7 @@ export default function ModelCatalogManager({ providers = [], onRefresh }: Model
         onCancel={() => setEditModalOpen(false)}
         onOk={handleSaveCatalog}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end' }}>
           <Button size="small" icon={<PlusOutlined />} onClick={addModelRow}>
@@ -254,8 +259,8 @@ export default function ModelCatalogManager({ providers = [], onRefresh }: Model
           </Button>
         </div>
         <Table
-          dataSource={editingModels}
-          rowKey={(_record, index) => String(index)}
+          dataSource={editingModels.map((m, i) => ({ ...m, _key: `model-${i}` }))}
+          rowKey="_key"
           pagination={false}
           size="small"
           scroll={{ x: 800 }}

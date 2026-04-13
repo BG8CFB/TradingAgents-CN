@@ -120,7 +120,7 @@ export default function MCPManagementPage() {
           closable
           onClose={() => void 0}
           style={{ marginTop: 16 }}
-          message="健康检查结果"
+          title="健康检查结果"
           description={
             <pre style={{ margin: 0, fontSize: 12, maxHeight: 200, overflow: 'auto' }}>
               {JSON.stringify(mcp.healthData, null, 2)}

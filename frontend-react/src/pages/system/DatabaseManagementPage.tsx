@@ -419,7 +419,7 @@ export default function DatabaseManagementPage() {
               <Statistic
                 title="集合数"
                 value={dbStats.total_collections}
-                valueStyle={{ fontSize: 22 }}
+                styles={{ content: { fontSize: 22 } }}
               />
             </Card>
           </Col>
@@ -428,7 +428,7 @@ export default function DatabaseManagementPage() {
               <Statistic
                 title="总文档数"
                 value={dbStats.total_documents}
-                valueStyle={{ fontSize: 22 }}
+                styles={{ content: { fontSize: 22 } }}
               />
             </Card>
           </Col>
@@ -437,7 +437,7 @@ export default function DatabaseManagementPage() {
               <Statistic
                 title="数据库大小"
                 value={formatBytes(dbStats.total_size)}
-                valueStyle={{ fontSize: 18 }}
+                styles={{ content: { fontSize: 18 } }}
               />
             </Card>
           </Col>
@@ -471,7 +471,7 @@ export default function DatabaseManagementPage() {
               <br />
               <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>导出数据库数据到文件</Paragraph>
 
-              <Space direction="vertical" style={{ width: '100%' }} size="small">
+              <Space orientation="vertical" style={{ width: '100%' }} size="small">
                 <div>
                   <Text type="secondary">导出格式</Text>
                   <Select
@@ -542,7 +542,7 @@ export default function DatabaseManagementPage() {
                 <span style={{ fontSize: 13 }}>覆盖现有数据</span>
               </div>
               {importOverwrite && (
-                <Alert type="warning" showIcon style={{ marginTop: 4, padding: '2px 8px' }} message="勾选后将删除现有数据再导入" />
+                <Alert type="warning" showIcon style={{ marginTop: 4, padding: '2px 8px' }} title="勾选后将删除现有数据再导入" />
               )}
 
               <Button
@@ -565,7 +565,7 @@ export default function DatabaseManagementPage() {
           type="info"
           showIcon
           style={{ marginTop: 16 }}
-          message="数据备份与还原"
+          title="数据备份与还原"
           description={
             <div style={{ lineHeight: 1.8 }}>
               <p style={{ margin: '4px 0' }}>由于数据量较大，Web 界面备份体验较差，建议使用 MongoDB 原生工具：</p>
@@ -619,7 +619,7 @@ export default function DatabaseManagementPage() {
         <Alert
           type="warning"
           showIcon
-          message="危险操作"
+          title="危险操作"
           description="以下操作将永久删除数据，请谨慎操作"
           style={{ marginBottom: 16 }}
         />

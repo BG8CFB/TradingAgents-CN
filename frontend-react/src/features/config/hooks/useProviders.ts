@@ -3,7 +3,7 @@
  * 封装厂家的 CRUD、启用/禁用切换、API 测试、模型拉取等操作
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { message } from 'antd'
 import type { LLMProviderResponse, LLMProviderRequest } from '@/types/config.types'
 import * as configApi from '@/services/api/config'
@@ -39,8 +39,13 @@ export function useProviders(): UseProvidersReturn {
     }
   }, [])
 
-  // 初始加载
-  useEffect(() => { loadProviders() }, [])
+  // 初始加载（ guarded 防止 StrictMode 双调）
+  const initializedRef = useRef(false)
+  useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
+    loadProviders()
+  }, [loadProviders])
 
   const refresh = useCallback(async () => {
     await loadProviders()

@@ -101,7 +101,7 @@ export default function ImportExportPanel({ onImported }: ImportExportPanelProps
       title="配置导入 / 导出"
       style={{ marginBottom: 16 }}
     >
-      <Space direction="vertical" style={{ width: '100%' }} size="middle">
+      <Space orientation="vertical" style={{ width: '100%' }} size="middle">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <Text type="secondary">将当前全部配置导出为 JSON 文件，或从备份文件恢复配置。</Text>
@@ -133,7 +133,7 @@ export default function ImportExportPanel({ onImported }: ImportExportPanelProps
           type="warning"
           showIcon
           icon={<ExclamationCircleOutlined />}
-          message="导入将覆盖现有配置，建议先导出当前配置作为备份"
+          title="导入将覆盖现有配置，建议先导出当前配置作为备份"
           style={{ marginBottom: 0 }}
         />
       </Space>
@@ -152,7 +152,7 @@ export default function ImportExportPanel({ onImported }: ImportExportPanelProps
         <Alert
           type="error"
           showIcon
-          message="此操作将覆盖当前所有配置，且不可撤销！"
+          title="此操作将覆盖当前所有配置，且不可撤销！"
           style={{ marginBottom: 16 }}
         />
 

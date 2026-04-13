@@ -29,7 +29,7 @@ export default function AnalysisResultView({ result }: AnalysisResultViewProps) 
               title={<Text style={{ color: 'var(--text-secondary)' }}>置信度</Text>}
               value={(confidence * 100).toFixed(1)}
               suffix="%"
-              valueStyle={{ color: recommendationColor, fontWeight: 700 }}
+              styles={{ content: { color: recommendationColor, fontWeight: 700 } }}
             />
           </Card>
         </Col>
@@ -41,7 +41,7 @@ export default function AnalysisResultView({ result }: AnalysisResultViewProps) 
             <Statistic
               title={<Text style={{ color: 'var(--text-secondary)' }}>风险等级</Text>}
               value={result.risk_level || '中等'}
-              valueStyle={{ color: 'var(--text-primary)', fontWeight: 700 }}
+              styles={{ content: { color: 'var(--text-primary)', fontWeight: 700 } }}
             />
           </Card>
         </Col>
@@ -55,7 +55,7 @@ export default function AnalysisResultView({ result }: AnalysisResultViewProps) 
               value={result.execution_time}
               suffix="s"
               prefix={<FieldTimeOutlined />}
-              valueStyle={{ color: 'var(--text-primary)', fontWeight: 700 }}
+              styles={{ content: { color: 'var(--text-primary)', fontWeight: 700 } }}
             />
           </Card>
         </Col>
@@ -67,7 +67,7 @@ export default function AnalysisResultView({ result }: AnalysisResultViewProps) 
             <Statistic
               title={<Text style={{ color: 'var(--text-secondary)' }}>Token 消耗</Text>}
               value={result.tokens_used}
-              valueStyle={{ color: 'var(--text-primary)', fontWeight: 700 }}
+              styles={{ content: { color: 'var(--text-primary)', fontWeight: 700 } }}
             />
           </Card>
         </Col>

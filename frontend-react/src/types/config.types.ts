@@ -141,7 +141,7 @@ export interface DataSourceConfig {
   provider?: string
 }
 
-export interface DataSourceConfigRequest extends DataSourceConfig {}
+export type DataSourceConfigRequest = DataSourceConfig
 
 // ========== 数据库配置 ==========
 
@@ -164,7 +164,7 @@ export interface DatabaseConfig {
   description?: string
 }
 
-export interface DatabaseConfigRequest extends DatabaseConfig {}
+export type DatabaseConfigRequest = DatabaseConfig
 
 // ========== 市场分类 ==========
 

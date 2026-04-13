@@ -113,7 +113,7 @@ export default function ProviderDialog({ open, provider, onClose, onSave }: Prov
       onOk={handleOk}
       confirmLoading={saving}
       width={640}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}

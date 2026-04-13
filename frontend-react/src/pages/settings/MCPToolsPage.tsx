@@ -95,7 +95,7 @@ export default function MCPToolsPage() {
               <Statistic
                 title="可用"
                 value={summary.available}
-                valueStyle={{ color: '#52C41A' }}
+                styles={{ content: { color: '#52C41A' } }}
                 prefix={<CheckCircleOutlined />}
               />
             </Col>
@@ -103,7 +103,7 @@ export default function MCPToolsPage() {
               <Statistic
                 title="不可用"
                 value={summary.unavailable}
-                valueStyle={{ color: '#FF4D4F' }}
+                styles={{ content: { color: '#FF4D4F' } }}
                 prefix={<CloseCircleOutlined />}
               />
             </Col>
@@ -111,14 +111,14 @@ export default function MCPToolsPage() {
               <Statistic
                 title="已启用"
                 value={summary.enabled}
-                valueStyle={{ color: '#C9A96E' }}
+                styles={{ content: { color: '#C9A96E' } }}
               />
             </Col>
             <Col span={4}>
               <Statistic
                 title="已禁用"
                 value={summary.disabled}
-                valueStyle={{ color: '#9CA3AF' }}
+                styles={{ content: { color: '#9CA3AF' } }}
               />
             </Col>
             <Col span={4}>
@@ -138,7 +138,7 @@ export default function MCPToolsPage() {
               type="warning"
               showIcon
               style={{ marginTop: 12 }}
-              message={`以下 ${summary.disabled_tools.length} 个工具已被禁用`}
+              title={`以下 ${summary.disabled_tools.length} 个工具已被禁用`}
               description={
                 <Space wrap size={[4, 4]}>
                   {summary.disabled_tools.map(t => (

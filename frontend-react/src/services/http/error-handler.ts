@@ -18,9 +18,16 @@ export function showError(message: string): boolean {
   recentMessages.set(message, now)
 
   // 使用 Ant Design message 组件（延迟导入避免循环依赖）
-  import('antd').then(({ message: antMessage }) => {
-    antMessage.error(message)
-  })
+  import('./message-ref').then(({ globalMessage: gMessage }) => {
+    // antd AppContext 默认 message 为 {}，必须校验 error 是否为函数
+    if (gMessage && typeof gMessage.error === 'function') {
+      gMessage.error(message)
+    } else {
+      import('antd').then(({ message: antMessage }) => {
+        antMessage.error(message)
+      }).catch(() => {})
+    }
+  }).catch(() => {})
 
   return true
 }

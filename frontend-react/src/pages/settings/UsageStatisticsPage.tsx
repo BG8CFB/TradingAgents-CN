@@ -3,7 +3,7 @@
  * Token 使用量、成本统计、按供应商/模型/日期维度展示图表
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Card, Row, Col, Statistic, Table, Select, Space,
   Typography, Empty, Button,
@@ -31,7 +31,10 @@ export default function UsageStatisticsPage() {
   const [dailyCost, setDailyCost] = useState<Array<{ date: string; cost: number; tokens: number }>>([])
   const [records, setRecords] = useState<UsageRecord[]>([])
 
+  const loadingRef = useRef(false)
   const loadData = useCallback(async () => {
+    if (loadingRef.current) return
+    loadingRef.current = true
     setLoading(true)
     try {
       const [statsRes, providerRes, modelRes, dailyRes] = await Promise.all([
@@ -43,13 +46,14 @@ export default function UsageStatisticsPage() {
       setStatistics(statsRes?.data ?? null)
       setCostByProvider(providerRes?.data ?? null)
       setCostByModel(modelRes?.data ?? null)
-      setDailyCost(dailyRes?.data ?? [])
+      setDailyCost(Array.isArray(dailyRes?.data) ? dailyRes.data : [])
     } finally {
       setLoading(false)
+      loadingRef.current = false
     }
   }, [days])
 
-  useEffect(() => { loadData() }, [days])
+  useEffect(() => { loadData() }, [days, loadData])
 
   /** 加载详细记录 */
   const loadRecords = async (provider?: string, model?: string) => {
@@ -213,7 +217,7 @@ export default function UsageStatisticsPage() {
         <Table<UsageRecord>
           dataSource={records}
           columns={recordColumns}
-          rowKey={(_, i) => String(i)}
+          rowKey={(record) => record.id ?? `${record.timestamp}-${record.model_name}`}
           loading={loading}
           pagination={{ pageSize: 15 }}
           size="small"

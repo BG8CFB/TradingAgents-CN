@@ -3,7 +3,7 @@
  * 功能：日志列表（分页/筛选）、统计概览、详情查看、清空日志
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Card, Button, Space, Typography, Table, Tag, DatePicker,
   Select, Input, Row, Col, Statistic, Modal, Descriptions,
@@ -107,6 +107,7 @@ export default function OperationLogsPage() {
     } finally {
       setLoading(false)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageSize]) // 仅依赖 pageSize（稳定值），筛选参数通过参数传入
 
   /** 加载统计数据 */
@@ -119,8 +120,11 @@ export default function OperationLogsPage() {
     }
   }, [])
 
-  // 首次加载（仅执行一次）
+  // 首次加载（ guarded 防止 StrictMode 双调）
+  const initializedRef = useRef(false)
   useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
     loadLogs()
     loadStats()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,7 +308,7 @@ export default function OperationLogsPage() {
               <Statistic
                 title="总记录数"
                 value={stats.total_count}
-                valueStyle={{ fontSize: 20 }}
+                styles={{ content: { fontSize: 20 } }}
                 prefix={<BarChartOutlined />}
               />
             </Col>
@@ -312,7 +316,7 @@ export default function OperationLogsPage() {
               <Statistic
                 title="成功"
                 value={stats.success_count}
-                valueStyle={{ fontSize: 20, color: '#52C41A' }}
+                styles={{ content: { fontSize: 20, color: '#52C41A' } }}
                 prefix={<CheckCircleOutlined />}
               />
             </Col>
@@ -320,7 +324,7 @@ export default function OperationLogsPage() {
               <Statistic
                 title="失败"
                 value={stats.failed_count}
-                valueStyle={{ fontSize: 20, color: '#FF4D4F' }}
+                styles={{ content: { fontSize: 20, color: '#FF4D4F' } }}
                 prefix={<CloseCircleOutlined />}
               />
             </Col>
@@ -331,7 +335,7 @@ export default function OperationLogsPage() {
                   ? ((stats.success_count / stats.total_count) * 100).toFixed(1)
                   : 0}
                 suffix="%"
-                valueStyle={{ fontSize: 20 }}
+                styles={{ content: { fontSize: 20 } }}
               />
             </Col>
           </Row>
@@ -451,7 +455,7 @@ export default function OperationLogsPage() {
                     type="error"
                     showIcon
                     icon={<WarningOutlined />}
-                    message={currentLog.error_message}
+                    title={currentLog.error_message}
                     style={{ margin: 0 }}
                   />
                 </Descriptions.Item>

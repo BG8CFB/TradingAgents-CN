@@ -96,7 +96,7 @@ export default function ReportListPage() {
     }
   }
 
-  const handleDownload = (id: string, _title: string) => {
+  const handleDownload = (id: string) => {
     window.open(getReportDownloadUrl(id, 'markdown'), '_blank')
   }
 
@@ -177,7 +177,7 @@ export default function ReportListPage() {
             type="link"
             size="small"
             icon={<DownloadOutlined />}
-            onClick={() => handleDownload(record.id, record.title)}
+            onClick={() => handleDownload(record.id)}
           >
             下载
           </Button>
