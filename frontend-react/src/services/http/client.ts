@@ -147,6 +147,12 @@ instance.interceptors.response.use(
     // 检查业务层错误码（40101/40102/40103 等同 401）
     if (data.code && [40101, 40102, 40103].includes(data.code)) {
       const config = response.config as InternalAxiosRequestConfig & InternalRequestConfig
+
+      // 登录/注册等 skipAuth 请求直接透传错误，不要走刷新 token 逻辑
+      if (config.skipAuth) {
+        return Promise.reject(new Error(data.message || '认证失败'))
+      }
+
       if (!config._retry) {
         config._retry = true
         await handle401()
@@ -168,8 +174,15 @@ instance.interceptors.response.use(
     if (!config) return Promise.reject(error)
 
     const status = error.response?.status
+    const responseData = error.response?.data
+    const businessMessage = responseData?.message ?? responseData?.detail
 
     // 401 处理：尝试刷新 Token 后重试
+    // 但登录/注册等 skipAuth 请求直接透传后端错误消息，不要走刷新逻辑，也不显示全局错误
+    if (status === 401 && config.skipAuth) {
+      return Promise.reject(new Error(businessMessage || '认证失败'))
+    }
+
     if (status === 401 && !config._retry) {
       config._retry = true
       await handle401()
@@ -194,8 +207,9 @@ instance.interceptors.response.use(
     // 错误提示
     if (!config.skipErrorHandler) {
       if (error.response) {
-        const businessMessage = error.response.data?.message
-        showError(businessMessage ?? getHttpErrorMessage(status ?? 500))
+        // 优先显示后端返回的具体业务错误消息
+        const displayMessage = businessMessage ?? getHttpErrorMessage(status ?? 500)
+        showError(displayMessage)
       } else if (error.code === 'ECONNABORTED') {
         showError('请求超时，请检查网络连接')
       } else if (error.message?.includes('Network Error')) {
