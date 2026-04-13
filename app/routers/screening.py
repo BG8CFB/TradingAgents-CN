@@ -62,10 +62,10 @@ async def get_screening_fields(user: dict = Depends(get_current_user)):
             "technical": ["ma20", "rsi14", "kdj_k", "kdj_d", "kdj_j", "dif", "dea", "macd_hist"]
         }
 
-        return ok(FieldConfigResponse(
+        return FieldConfigResponse(
             fields=BASIC_FIELDS_INFO,
             categories=categories
-        ).model_dump())
+        )
 
     except Exception as e:
         logger.error(f"[get_screening_fields] 获取字段配置失败: {e}", exc_info=True)
@@ -184,7 +184,7 @@ async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_
             sample = result['items'][:3]
             logger.info(f"[screening] 返回样例(前3条): {sample}")
 
-        return ok(ScreeningResponse(total=result["total"], items=result["items"]).model_dump())
+        return ScreeningResponse(total=result["total"], items=result["items"])
 
     except Exception as e:
         logger.error(f"[screening] 处理失败: {e}", exc_info=True)
@@ -220,13 +220,13 @@ async def enhanced_screening(req: NewScreeningRequest, user: dict = Depends(get_
         logger.info(f"[enhanced_screening] 筛选完成: total={result.get('total')}, "
                    f"took={result.get('took_ms')}ms, optimization={result.get('optimization_used')}")
 
-        return ok(NewScreeningResponse(
+        return NewScreeningResponse(
             total=result["total"],
             items=result["items"],
             took_ms=result.get("took_ms"),
             optimization_used=result.get("optimization_used"),
             source=result.get("source")
-        ).model_dump())
+        )
 
     except Exception as e:
         logger.error(f"[enhanced_screening] 筛选失败: {e}")

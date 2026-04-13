@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.utils.api_key_utils import is_valid_api_key
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -158,12 +159,12 @@ class StartupValidator:
     def _validate_required_configs(self):
         """验证必需配置"""
         for config in self.REQUIRED_CONFIGS:
-            value = os.getenv(config.key)
-            
+            value = getattr(settings, config.key, None)
+
             if not value:
                 self.result.missing_required.append(config)
                 logger.error(f"❌ 缺少必需配置: {config.key}")
-            elif config.validator and not config.validator(value):
+            elif config.validator and not config.validator(str(value)):
                 self.result.invalid_configs.append((config, "配置值格式不正确"))
                 logger.error(f"❌ 配置格式错误: {config.key}")
             else:
@@ -172,12 +173,12 @@ class StartupValidator:
     def _validate_recommended_configs(self):
         """验证推荐配置"""
         for config in self.RECOMMENDED_CONFIGS:
-            value = os.getenv(config.key)
+            value = getattr(settings, config.key, None)
 
             if not value:
                 self.result.missing_recommended.append(config)
                 logger.warning(f"⚠️  缺少推荐配置: {config.key}")
-            elif not self._is_valid_api_key(value):
+            elif not self._is_valid_api_key(str(value)):
                 # API Key 存在但是占位符，视为未配置
                 self.result.missing_recommended.append(config)
                 logger.warning(f"⚠️  {config.key} 配置为占位符，视为未配置")
@@ -187,21 +188,21 @@ class StartupValidator:
     def _check_security_configs(self):
         """检查安全配置"""
         # 检查JWT密钥是否使用默认值
-        jwt_secret = os.getenv("JWT_SECRET", "")
+        jwt_secret = getattr(settings, "JWT_SECRET", "")
         if jwt_secret in ["change-me-in-production", "your-super-secret-jwt-key-change-in-production"]:
             self.result.warnings.append(
                 "⚠️  JWT_SECRET 使用默认值，生产环境请务必修改！"
             )
-        
+
         # 检查CSRF密钥是否使用默认值
-        csrf_secret = os.getenv("CSRF_SECRET", "")
+        csrf_secret = getattr(settings, "CSRF_SECRET", "")
         if csrf_secret in ["change-me-csrf-secret", "your-csrf-secret-key-change-in-production"]:
             self.result.warnings.append(
                 "⚠️  CSRF_SECRET 使用默认值，生产环境请务必修改！"
             )
-        
+
         # 检查是否在生产环境使用DEBUG模式
-        debug = os.getenv("DEBUG", "true").lower() in ("true", "1", "yes", "on")
+        debug = getattr(settings, "DEBUG", True)
         if not debug:
             logger.info("ℹ️  生产环境模式")
         else:
