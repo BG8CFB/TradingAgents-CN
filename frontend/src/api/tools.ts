@@ -20,7 +20,7 @@ export const toolsApi = {
   /**
    * 列出所有 MCP 工具
    */
-  listMCP(): Promise<ApiResponse<MCPToolsResponse>> {
+  listMCP(): Promise<MCPToolsResponse> {
     return request.get('/api/tools/mcp')
   },
 
