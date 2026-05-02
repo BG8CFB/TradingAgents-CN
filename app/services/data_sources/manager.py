@@ -37,7 +37,7 @@ class DataSourceManager:
         self.adapters.sort(key=lambda x: x.priority, reverse=True)
 
         try:
-            from .data_consistency_checker import DataConsistencyChecker  # type: ignore
+            from app.services.data_consistency_checker import DataConsistencyChecker
             self.consistency_checker = DataConsistencyChecker()
         except Exception:
             logger.warning("⚠️ 数据一致性检查器不可用")

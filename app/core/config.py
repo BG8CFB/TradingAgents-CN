@@ -116,7 +116,10 @@ class Settings(BaseSettings):
     # 日志配置
     LOG_LEVEL: str = Field(default="INFO")
     LOG_FORMAT: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    LOG_FILE: str = Field(default="logs/tradingagents.log")
+    LOG_FILE: str = Field(
+        default="logs/tradingagents.log",
+        description="日志文件名，实际落盘路径由 settings.log_file_path 解析到 runtime/ 下",
+    )
 
     # 代理配置
     # 用于配置需要绕过代理的域名（国内数据源）

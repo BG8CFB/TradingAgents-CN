@@ -19,6 +19,7 @@ from app.constants.model_capabilities import (
 )
 from app.core.unified_config import unified_config
 from app.core.response import ok, fail
+from app.services.config_service import config_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -289,10 +290,12 @@ async def batch_init_capabilities(request: BatchInitRequest):
                 config.recommended_depths = default_config["recommended_depths"]
                 config.performance_metrics = default_config.get("performance_metrics")
 
-                # 保存到数据库
-                # TODO: 实现保存逻辑
-                updated_count += 1
-                logger.info(f"已初始化模型 {model_name} 的能力参数")
+                saved = await config_service.update_llm_config(config)
+                if saved:
+                    updated_count += 1
+                    logger.info(f"已初始化并保存模型 {model_name} 的能力参数")
+                else:
+                    logger.error(f"保存模型 {model_name} 能力参数失败")
             else:
                 logger.warning(f"模型 {model_name} 没有默认配置，跳过")
                 skipped_count += 1

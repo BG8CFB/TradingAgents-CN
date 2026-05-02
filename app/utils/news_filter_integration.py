@@ -116,69 +116,34 @@ def patch_akshare_utils():
 
 def create_filtered_realtime_news_function():
     """
-    创建增强版的实时新闻获取函数
+    创建实时新闻获取函数（带过滤预留接口）。
+    注意：新闻过滤功能尚未实现，当前直接使用原始新闻获取。
     """
-    def get_filtered_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6, 
+    def get_filtered_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6,
                                        enable_filter: bool = True, min_score: float = 30) -> str:
         """
-        增强版实时新闻获取函数，集成新闻过滤
-        
+        实时新闻获取函数
+
         Args:
             ticker: 股票代码
             curr_date: 当前日期
             hours_back: 回溯小时数
-            enable_filter: 是否启用新闻过滤
-            min_score: 最低相关性评分阈值
-            
+            enable_filter: 是否启用新闻过滤（当前未实现，参数预留）
+            min_score: 最低相关性评分阈值（当前未实现，参数预留）
+
         Returns:
             str: 格式化的新闻报告
         """
-        logger.info(f"[增强实时新闻] 开始获取 {ticker} 的过滤新闻")
-        
+        logger.info(f"[实时新闻] 开始获取 {ticker} 的新闻")
+
         try:
-            # 导入原始函数
             from app.data.news.realtime_news import get_realtime_stock_news
+            return get_realtime_stock_news(ticker, curr_date, hours_back)
 
-            # 调用原始函数获取新闻
-            original_report = get_realtime_stock_news(ticker, curr_date, hours_back)
-            
-            if not enable_filter:
-                logger.info(f"[增强实时新闻] 过滤功能已禁用，返回原始报告")
-                return original_report
-            
-            # 如果启用过滤且是A股，尝试重新获取并过滤
-            if any(suffix in ticker for suffix in ['.SH', '.SZ', '.SS', '.XSHE', '.XSHG']) or \
-               (not '.' in ticker and ticker.isdigit()):
-                
-                logger.info(f"[增强实时新闻] 检测到A股代码，尝试使用过滤版东方财富新闻")
-                
-                try:
-                    # 注意：akshare_utils 已废弃，使用 AKShareProvider 替代
-                    from app.data.providers.china.akshare import get_akshare_provider
-
-                    # 清理股票代码
-                    clean_ticker = ticker.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
-                                    .replace('.XSHE', '').replace('.XSHG', '')
-
-                    # 使用 AKShareProvider 获取新闻（如果有相应方法）
-                    provider = get_akshare_provider()
-                    # TODO: 需要实现 get_stock_news 方法
-                    # original_news_df = provider.get_stock_news(clean_ticker)
-                    # 暂时跳过，返回原始报告
-                    logger.warning(f"[增强实时新闻] AKShare新闻功能暂未实现，返回原始报告")
-                    return original_report
-                        
-                except Exception as filter_error:
-                    logger.error(f"[增强实时新闻] 新闻过滤失败: {filter_error}")
-                    return original_report
-            else:
-                logger.info(f"[增强实时新闻] 非A股代码，返回原始报告")
-                return original_report
-                
         except Exception as e:
-            logger.error(f"[增强实时新闻] 增强新闻获取失败: {e}")
+            logger.error(f"[实时新闻] 新闻获取失败: {e}")
             return f"❌ 新闻获取失败: {str(e)}"
-    
+
     return get_filtered_realtime_stock_news
 
 

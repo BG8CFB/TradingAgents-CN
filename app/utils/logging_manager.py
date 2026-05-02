@@ -194,9 +194,12 @@ class TradingAgentsLogger:
     
     def _setup_logging(self):
         """设置日志系统"""
-        # 创建日志目录
+        # 创建日志目录（确保路径经 resolve_path 防御性处理）
         if self.config['handlers']['file']['enabled']:
-            log_dir = Path(self.config['handlers']['file']['directory'])
+            log_dir_raw = self.config['handlers']['file']['directory']
+            log_dir = Path(log_dir_raw)
+            if not log_dir.is_absolute():
+                log_dir = resolve_path(log_dir_raw, get_runtime_base_dir())
             log_dir.mkdir(parents=True, exist_ok=True)
         
         # 设置根日志级别

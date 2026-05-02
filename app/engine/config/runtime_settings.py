@@ -11,10 +11,25 @@ from __future__ import annotations
 
 import os
 import asyncio
+import threading
 from typing import Any, Optional, Callable
 
 import logging
 _logger = logging.getLogger("tradingagents.config")
+
+# 模块级缓存：启动时从 async 上下文注入，运行时从 sync 上下文读取
+_cached_settings: dict = {}
+_cache_lock = threading.Lock()
+
+
+def set_cached_settings(settings: dict) -> None:
+    """从 async 上下文（如 FastAPI lifespan）注入动态配置缓存。
+    只需在启动阶段调用一次即可。
+    """
+    global _cached_settings
+    with _cache_lock:
+        _cached_settings = dict(settings) if settings else {}
+    _logger.info(f"[runtime_settings] 动态配置缓存已更新，共 {len(_cached_settings)} 项")
 
 
 def _get_event_loop_running() -> bool:
@@ -31,61 +46,14 @@ def _get_event_loop_running() -> bool:
 
 
 def _get_system_settings_sync() -> dict:
-    """最佳努力获取后端动态 system_settings。
-    - 若后端不可用/未安装，返回空 dict
-    - 若当前有事件循环在运行，为避免死锁/嵌套，直接返回空 dict
-
-    注意：为了避免事件循环冲突，当前实现总是返回空字典，
-    依赖环境变量和默认值进行配置。
+    """获取后端动态 system_settings。
+    配置在启动时通过 set_cached_settings() 注入缓存，此函数从缓存读取。
+    若缓存为空（启动前或未调用注入），则回退到环境变量和默认值。
     """
-    # 临时解决方案：完全禁用动态配置获取，避免事件循环冲突
-    # TODO: 未来可以考虑使用线程池或其他方式来安全获取动态配置
-    _logger.debug("动态配置获取已禁用，使用环境变量和默认值")
+    if _cached_settings:
+        return _cached_settings
+    _logger.debug("动态配置缓存为空，使用环境变量和默认值")
     return {}
-
-    # 以下代码暂时注释，避免事件循环冲突
-    # # 第一次检查
-    # if _get_event_loop_running():
-    #     _logger.debug("事件循环正在运行，跳过动态配置获取")
-    #     return {}
-
-    # try:
-    #     # 延迟导入，避免硬依赖
-    #     from app.services.config_provider import provider as config_provider  # type: ignore
-
-    #     # 第二次检查：确保导入过程中没有启动事件循环
-    #     if _get_event_loop_running():
-    #         _logger.debug("导入后检测到事件循环，跳过动态配置获取")
-    #         return {}
-
-    #     # 第三次检查：在调用asyncio.run之前再次确认
-    #     try:
-    #         # 尝试获取当前事件循环，如果成功说明有循环在运行
-    #         current_loop = asyncio.get_running_loop()
-    #         if current_loop and current_loop.is_running():
-    #             _logger.debug("asyncio.run调用前检测到运行中的事件循环，跳过")
-    #             return {}
-    #     except RuntimeError:
-    #         # 没有运行中的事件循环，可以安全调用asyncio.run
-    #         pass
-
-    #     # 使用 asyncio.run 进行一次性同步调用
-    #     return asyncio.run(config_provider.get_effective_system_settings()) or {}
-
-    # except RuntimeError as e:
-    #     error_msg = str(e).lower()
-    #     if any(keyword in error_msg for keyword in [
-    #         "cannot be called from a running event loop",
-    #         "got future attached to a different loop",
-    #         "task was destroyed but it is pending"
-    #     ]):
-    #         _logger.debug(f"检测到事件循环冲突，跳过动态配置获取: {e}")
-    #         return {}
-    #     _logger.debug(f"获取动态配置失败（RuntimeError）: {e}")
-    #     return {}
-    # except Exception as e:
-    #     _logger.debug(f"获取动态配置失败: {e}")
-    #     return {}
 
 
 def _coerce(value: Any, caster: Callable[[Any], Any], default: Any) -> Any:
@@ -220,4 +188,5 @@ __all__ = [
     "use_app_cache_enabled",
     "get_timezone_name",
     "get_zoneinfo",
+    "set_cached_settings",
 ]

@@ -21,7 +21,7 @@ def _resolve_env_path(env_key: str, default_path: Path) -> str:
 
 
 DEFAULT_CONFIG = {
-    "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
+    "project_dir": str(Path(__file__).resolve().parents[2]),
     "results_dir": _resolve_env_path("TRADINGAGENTS_RESULTS_DIR", get_results_dir(_RUNTIME_BASE)),
     "data_dir": _resolve_env_path("TRADINGAGENTS_DATA_DIR", get_data_dir(_RUNTIME_BASE)),
     "data_cache_dir": _resolve_env_path(

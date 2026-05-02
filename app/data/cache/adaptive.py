@@ -16,10 +16,11 @@ from typing import Any, Dict, Optional, Union
 import pandas as pd
 
 from app.engine.config.database_manager import get_database_manager
+from app.utils.runtime_paths import get_cache_dir
 
 class AdaptiveCacheSystem:
     """自适应缓存系统"""
-    
+
     def __init__(self, cache_dir: str = None):
         self.logger = logging.getLogger(__name__)
 
@@ -28,8 +29,8 @@ class AdaptiveCacheSystem:
 
         # 设置缓存目录
         if cache_dir is None:
-            # 默认使用 data/cache 目录
-            cache_dir = "data/cache"
+            # 默认使用统一的 runtime/cache/adaptive 目录
+            cache_dir = str(get_cache_dir() / "adaptive")
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         

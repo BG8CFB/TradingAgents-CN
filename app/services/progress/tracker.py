@@ -9,6 +9,7 @@ import os
 import logging
 import time
 
+from app.utils.runtime_paths import get_data_dir
 
 
 logger = logging.getLogger("app.services.progress.tracker")
@@ -446,8 +447,9 @@ class RedisProgressTracker:
                 self.redis_client.set(key, serialized)
                 self.redis_client.expire(key, 3600)
             else:
-                os.makedirs("./data/progress", exist_ok=True)
-                with open(f"./data/progress/{self.task_id}.json", 'w', encoding='utf-8') as f:
+                progress_dir = get_data_dir() / "progress"
+                progress_dir.mkdir(parents=True, exist_ok=True)
+                with open(progress_dir / f"{self.task_id}.json", 'w', encoding='utf-8') as f:
                     f.write(serialized)
             return True
         except Exception as e:
@@ -557,7 +559,7 @@ def get_progress_by_id(task_id: str) -> Optional[Dict[str, Any]]:
                 logger.debug(f"📊 [Redis进度] Redis读取失败: {e}")
 
         # 尝试从文件读取
-        progress_file = f"./data/progress/{task_id}.json"
+        progress_file = str(get_data_dir() / "progress" / f"{task_id}.json")
         if os.path.exists(progress_file):
             with open(progress_file, 'r', encoding='utf-8') as f:
                 progress_data = json.load(f)
@@ -565,7 +567,7 @@ def get_progress_by_id(task_id: str) -> Optional[Dict[str, Any]]:
                 return progress_data
 
         # 尝试备用文件位置
-        backup_file = f"./data/progress_{task_id}.json"
+        backup_file = str(get_data_dir() / f"progress_{task_id}.json")
         if os.path.exists(backup_file):
             with open(backup_file, 'r', encoding='utf-8') as f:
                 progress_data = json.load(f)

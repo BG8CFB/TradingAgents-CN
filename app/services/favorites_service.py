@@ -386,23 +386,6 @@ class FavoritesService:
 
         return [item["_id"] for item in result if item.get("_id")]
 
-    def _get_mock_price(self, stock_code: str) -> float:
-        """获取模拟股价"""
-        # 基于股票代码生成模拟价格
-        base_price = hash(stock_code) % 100 + 10
-        return round(base_price + (hash(stock_code) % 1000) / 100, 2)
-    
-    def _get_mock_change(self, stock_code: str) -> float:
-        """获取模拟涨跌幅"""
-        # 基于股票代码生成模拟涨跌幅
-        change = (hash(stock_code) % 2000 - 1000) / 100
-        return round(change, 2)
-    
-    def _get_mock_volume(self, stock_code: str) -> int:
-        """获取模拟成交量"""
-        # 基于股票代码生成模拟成交量
-        return (hash(stock_code) % 10000 + 1000) * 100
-
 
 # 创建全局实例
 favorites_service = FavoritesService()

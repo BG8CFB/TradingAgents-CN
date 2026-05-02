@@ -189,15 +189,15 @@ async def get_log_statistics(
         service = get_log_export_service()
         stats = service.get_log_statistics(days=days)
 
-        # 防御性检查:确保返回值不为空
         if not stats:
-            logger.warning("⚠️ 服务层返回空统计数据,使用默认值")
-            stats = {
+            logger.warning("Service returned empty stats")
+            return {
                 "total_files": 0,
                 "total_size_mb": 0.0,
                 "error_files": 0,
                 "recent_errors": [],
-                "log_types": {}
+                "log_types": {},
+                "_warning": "Unable to retrieve log statistics"
             }
 
         return stats

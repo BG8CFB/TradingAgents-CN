@@ -633,15 +633,15 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
         result = await service.get_us_news(normalized_code, days=days, limit=limit)
         return ok(result)
     elif market == 'HK':
-        # 港股：暂时返回空数据（TODO: 实现港股新闻）
-        data = {
-            "code": normalized_code,
-            "days": days,
-            "limit": limit,
-            "source": "none",
-            "items": []
-        }
-        return ok(data)
+        # 港股新闻功能尚未实现
+        return ok(
+            data={
+                "code": normalized_code,
+                "items": [],
+                "supported": False,
+            },
+            message="港股新闻功能尚未实现，当前仅支持A股和美股新闻"
+        )
     else:
         # A股：直接调用同步服务的查询方法（包含智能回退逻辑）
         try:

@@ -7,7 +7,7 @@ import platform
 
 from app.core.logging_context import LoggingContextFilter, trace_id_var
 from app.core.config import settings
-from app.utils.runtime_paths import get_logs_dir, get_runtime_base_dir
+from app.utils.runtime_paths import get_logs_dir, get_runtime_base_dir, resolve_path
 
 # 🔥 在 Windows 上使用 concurrent-log-handler 避免文件占用问题
 _IS_WINDOWS = platform.system() == "Windows"
@@ -67,13 +67,14 @@ def _parse_size(size_str: str) -> int:
 
 
 def _resolve_logs_dir(dir_value: str | Path) -> Path:
-    """将日志目录解析到统一的运行时目录下"""
-    base = get_runtime_base_dir(settings.RUNTIME_BASE_DIR)
+    """将日志目录解析到统一的运行时目录下（防御 runtime/runtime 双层）"""
     dir_path = Path(dir_value)
-    if not dir_path.is_absolute():
-        dir_path = base / dir_path
-    dir_path.mkdir(parents=True, exist_ok=True)
-    return dir_path
+    if dir_path.is_absolute():
+        dir_path.mkdir(parents=True, exist_ok=True)
+        return dir_path
+    resolved = resolve_path(dir_value, settings.RUNTIME_BASE_DIR)
+    resolved.mkdir(parents=True, exist_ok=True)
+    return resolved
 
 
 def _resolve_log_file(file_value: str | Path, default_dir: Path) -> str:

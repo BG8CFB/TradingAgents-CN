@@ -98,15 +98,15 @@ class USSyncService:
             # 获取 Finnhub 客户端
             client = self._get_finnhub_client()
             if not client:
-                logger.warning("⚠️ Finnhub 客户端不可用，使用备用列表")
-                return self._get_fallback_stock_list()
+                logger.error("❌ Finnhub 客户端不可用，无法获取美股列表")
+                return []
 
             # 获取美股列表（US 交易所）
             symbols = client.stock_symbols('US')
 
             if not symbols:
-                logger.warning("⚠️ Finnhub 返回空数据，使用备用列表")
-                return self._get_fallback_stock_list()
+                logger.error("❌ Finnhub 返回空数据，无法获取美股列表")
+                return []
 
             # 提取股票代码列表（只保留普通股票，过滤掉 ETF、基金等）
             stock_codes = []
@@ -128,49 +128,8 @@ class USSyncService:
 
         except Exception as e:
             logger.error(f"❌ 从 Finnhub 获取美股列表失败: {e}")
-            logger.info("📋 使用备用美股列表")
-            return self._get_fallback_stock_list()
+            return []
 
-    def _get_fallback_stock_list(self) -> List[str]:
-        """
-        获取备用美股列表（主要美股标的）
-
-        Returns:
-            List[str]: 美股代码列表
-        """
-        return [
-            # 科技巨头
-            "AAPL",   # 苹果
-            "MSFT",   # 微软
-            "GOOGL",  # 谷歌
-            "AMZN",   # 亚马逊
-            "META",   # Meta
-            "TSLA",   # 特斯拉
-            "NVDA",   # 英伟达
-            "AMD",    # AMD
-            "INTC",   # 英特尔
-            "NFLX",   # 奈飞
-            # 金融
-            "JPM",    # 摩根大通
-            "BAC",    # 美国银行
-            "WFC",    # 富国银行
-            "GS",     # 高盛
-            "MS",     # 摩根士丹利
-            # 消费
-            "KO",     # 可口可乐
-            "PEP",    # 百事可乐
-            "WMT",    # 沃尔玛
-            "HD",     # 家得宝
-            "MCD",    # 麦当劳
-            # 医疗
-            "JNJ",    # 强生
-            "PFE",    # 辉瑞
-            "UNH",    # 联合健康
-            "ABBV",   # 艾伯维
-            # 能源
-            "XOM",    # 埃克森美孚
-            "CVX",    # 雪佛龙
-        ]
 
     async def sync_basic_info_from_source(
         self,

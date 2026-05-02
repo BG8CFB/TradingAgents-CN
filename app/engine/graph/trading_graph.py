@@ -22,7 +22,7 @@ from langchain_core.tools import StructuredTool, BaseTool
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
-from app.utils.runtime_paths import get_eval_results_dir
+from app.utils.runtime_paths import get_cache_dir, get_eval_results_dir
 logger = get_logger('agents')
 from app.engine.agents.utils.agent_states import (
     AgentState,
@@ -235,10 +235,8 @@ class TradingAgentsGraph:
         set_config(self.config)
 
         # Create necessary directories
-        os.makedirs(
-            os.path.join(self.config["project_dir"], "dataflows/data_cache"),
-            exist_ok=True,
-        )
+        cache_root = self.config.get("data_cache_dir") or str(get_cache_dir() / "dataflows")
+        os.makedirs(cache_root, exist_ok=True)
 
         # Initialize LLMs
         # 🔧 从配置中读取模型参数（优先使用用户配置，否则使用默认值）

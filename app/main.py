@@ -287,6 +287,11 @@ async def lifespan(app: FastAPI):
     try:
         from app.services.config_provider import provider as config_provider  # local import to avoid early DB init issues
         eff = await config_provider.get_effective_system_settings()
+
+        # 将动态配置注入引擎层缓存，供 sync 上下文读取
+        from app.engine.config.runtime_settings import set_cached_settings
+        set_cached_settings(eff)
+
         desired_level = str(eff.get("log_level", "INFO")).upper()
         setup_logging(log_level=desired_level)
         for name in ("webapi", "worker", "uvicorn", "fastapi"):

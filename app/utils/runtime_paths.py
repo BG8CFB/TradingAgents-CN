@@ -40,6 +40,10 @@ def resolve_path(path: PathLike, runtime_dir: Optional[PathLike] = None) -> Path
     """
     将相对路径解析到运行时根目录下，并确保父目录存在。
     绝对路径会被直接返回。
+
+    防御性处理：若调用方传入的相对路径已经包含 runtime 前缀
+    （如 "./runtime/logs" 或 "runtime/logs"），则剥离该前缀，
+    避免出现 runtime/runtime/ 双层目录的历史 Bug。
     """
     candidate = Path(path)
     if candidate.is_absolute():
@@ -47,6 +51,14 @@ def resolve_path(path: PathLike, runtime_dir: Optional[PathLike] = None) -> Path
         return candidate
 
     base = _resolve_base_dir(runtime_dir)
+
+    # 防御：剥掉用户传入的 "./" 与 runtime base 前缀，避免双层路径
+    parts = list(candidate.parts)
+    base_name = base.name
+    while parts and parts[0] in (".", base_name):
+        parts.pop(0)
+    candidate = Path(*parts) if parts else Path(".")
+
     target = base / candidate
     target.parent.mkdir(parents=True, exist_ok=True)
     return target

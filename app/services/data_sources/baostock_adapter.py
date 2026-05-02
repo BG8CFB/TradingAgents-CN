@@ -249,10 +249,6 @@ class BaoStockAdapter(DataSourceAdapter):
             return None
         return None
 
-        """Placeholder: BaoStock  does not provide full-market realtime snapshot in our adapter.
-        Return None to allow fallback to higher-priority sources.
-        """
-
     def find_latest_trade_date(self) -> Optional[str]:
         yesterday = (now_utc() - timedelta(days=1)).strftime("%Y%m%d")
         logger.info(f"BaoStock: Using yesterday as trade date: {yesterday}")

@@ -210,70 +210,6 @@ async def websocket_notifications_endpoint(
         await manager.disconnect(websocket, user_id)
 
 
-@router.websocket("/ws/tasks/{task_id}")
-async def websocket_task_progress_endpoint(
-    websocket: WebSocket,
-    task_id: str,
-    token: str = Query(...)
-):
-    """
-    WebSocket 任务进度端点
-    
-    客户端连接: ws://localhost:8000/api/ws/tasks/<task_id>?token=<jwt_token>
-    
-    消息格式:
-    {
-        "type": "progress",  // 消息类型: progress, completed, error, heartbeat
-        "data": {
-            "task_id": "...",
-            "message": "正在分析...",
-            "step": 1,
-            "total_steps": 5,
-            "progress": 20.0,
-            "timestamp": "2025-10-23T12:00:00"
-        }
-    }
-    """
-    # 验证 token
-    user_id = await _resolve_authenticated_user_id(token)
-    if not user_id:
-        await websocket.close(code=1008, reason="Unauthorized")
-        return
-
-    channel = f"task_progress:{task_id}"
-    
-    # 连接 WebSocket
-    await websocket.accept()
-    logger.info(f"✅ [WS-Task] 新连接: task={task_id}, user={user_id}")
-    
-    # 发送连接确认
-    await websocket.send_json({
-        "type": "connected",
-        "data": {
-            "task_id": task_id,
-            "timestamp": format_iso(now_utc()),
-            "message": "已连接任务进度流"
-        }
-    })
-    
-    try:
-        # 这里可以从 Redis 或数据库获取任务进度
-        # 暂时保持连接，等待任务完成
-        while True:
-            try:
-                data = await websocket.receive_text()
-                logger.debug(f"📥 [WS-Task] 收到客户端消息: task={task_id}, data={data}")
-            except WebSocketDisconnect:
-                logger.info(f"🔌 [WS-Task] 客户端主动断开: task={task_id}")
-                break
-            except Exception as e:
-                logger.error(f"❌ [WS-Task] 接收消息错误: {e}")
-                break
-    
-    finally:
-        logger.info(f"🔌 [WS-Task] 断开连接: task={task_id}")
-
-
 @router.get("/ws/stats")
 async def get_websocket_stats():
     """获取 WebSocket 连接统计"""
@@ -284,7 +220,7 @@ async def get_websocket_stats():
 async def send_notification_via_websocket(user_id: str, notification: dict):
     """
     通过 WebSocket 发送通知
-    
+
     Args:
         user_id: 用户 ID
         notification: 通知数据
@@ -294,23 +230,4 @@ async def send_notification_via_websocket(user_id: str, notification: dict):
         "data": notification
     }
     await manager.send_personal_message(message, user_id)
-
-
-async def send_task_progress_via_websocket(task_id: str, progress_data: dict):
-    """
-    通过 WebSocket 发送任务进度
-    
-    Args:
-        task_id: 任务 ID
-        progress_data: 进度数据
-    """
-    # 注意：这里需要知道任务属于哪个用户
-    # 可以从数据库查询或在 progress_data 中传递
-    # 暂时简化处理
-    message = {
-        "type": "progress",
-        "data": progress_data
-    }
-    # 广播给所有连接（生产环境应该只发给任务所属用户）
-    await manager.broadcast(message)
 

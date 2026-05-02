@@ -85,8 +85,8 @@ class HKDataService:
             df = ak.stock_hk_spot()
 
             if df is None or df.empty:
-                logger.warning("⚠️ AKShare 返回空数据，使用备用列表")
-                return self._get_fallback_stock_list()
+                logger.error("❌ AKShare 返回空数据，无法获取港股列表")
+                return []
 
             # 提取股票代码列表
             stock_codes = df['代码'].tolist()
@@ -104,39 +104,9 @@ class HKDataService:
 
         except Exception as e:
             logger.error(f"❌ 从 AKShare 获取港股列表失败: {e}")
-            logger.info("📋 使用备用港股列表")
-            return self._get_fallback_stock_list()
+            return []
 
-    def _get_fallback_stock_list(self) -> List[str]:
-        """
-        获取备用港股列表（主要港股标的）
 
-        Returns:
-            List[str]: 港股代码列表
-        """
-        return [
-            "00700",  # 腾讯控股
-            "09988",  # 阿里巴巴
-            "03690",  # 美团
-            "01810",  # 小米集团
-            "00941",  # 中国移动
-            "00762",  # 中国联通
-            "00728",  # 中国电信
-            "00939",  # 建设银行
-            "01398",  # 工商银行
-            "03988",  # 中国银行
-            "00005",  # 汇丰控股
-            "01299",  # 友邦保险
-            "02318",  # 中国平安
-            "02628",  # 中国人寿
-            "00857",  # 中国石油
-            "00386",  # 中国石化
-            "01211",  # 比亚迪
-            "02015",  # 理想汽车
-            "09868",  # 小鹏汽车
-            "09866",  # 蔚来汽车
-        ]
-    
     async def sync_basic_info_from_source(
         self,
         source: str,
