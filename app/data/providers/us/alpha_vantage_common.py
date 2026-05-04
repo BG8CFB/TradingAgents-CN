@@ -116,12 +116,10 @@ def get_api_key() -> str:
     else:
         logger.debug("⚠️ [步骤2] .env 中未找到 API Key")
 
-    # 3. 从配置文件获取
-    logger.debug("🔍 [步骤3] 读取配置文件中的 API Key...")
+    # 3. 从配置文件获取 - 使用环境变量
+    logger.debug("🔍 [步骤3] 读取环境变量中的 API Key...")
     try:
-        from app.engine.config.config_manager import ConfigManager
-        config_manager = ConfigManager()
-        api_key = config_manager.get("ALPHA_VANTAGE_API_KEY")
+        api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
         if api_key:
             logger.debug(f"✅ [步骤3] 配置文件中找到 API Key (长度: {len(api_key)})")
             return api_key

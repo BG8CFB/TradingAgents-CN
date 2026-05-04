@@ -3,11 +3,13 @@ import yfinance as yf
 from stockstats import wrap
 from typing import Annotated
 import os
-from app.engine.config.config_manager import config_manager
+from app.core.config import settings
 
 def get_config():
     """兼容性包装函数"""
-    return config_manager.load_settings()
+    return {
+        "data_cache_dir": os.path.join(settings.data_dir, "cache"),
+    }
 
 
 class StockstatsUtils:

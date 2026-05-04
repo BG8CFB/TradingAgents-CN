@@ -11,7 +11,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import LLMResult
 from pydantic import Field, SecretStr
-from ..config.config_manager import token_tracker
+from app.services.usage_statistics_service import token_tracker
 
 # 导入日志模块
 from app.utils.logging_manager import get_logger
@@ -68,7 +68,7 @@ class ChatGoogleOpenAI(ChatGoogleGenerativeAI):
 
             # 验证环境变量中的 API Key 是否有效（排除占位符）
             if env_api_key and is_valid_api_key(env_api_key):
-                logger.info(f"✅ [Google初始化] 环境变量中的 API Key 有效，长度: {len(env_api_key)}, 前10位: {env_api_key[:10]}...")
+                logger.info(f"✅ [Google初始化] 环境变量中的 API Key 有效，长度: {len(env_api_key)}")
                 google_api_key = env_api_key
             elif env_api_key:
                 logger.warning("⚠️ [Google初始化] 环境变量中的 API Key 无效（可能是占位符），将被忽略")

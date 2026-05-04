@@ -335,6 +335,113 @@ class EnhancedScreeningService:
 
         return validation_result
 
+    async def get_industries(self) -> Dict[str, Any]:
+        """
+        获取数据库中所有可用的行业列表
+
+        根据系统配置的数据源优先级，从优先级最高的数据源获取行业分类数据。
+        返回按股票数量排序的行业列表。
+
+        Returns:
+            Dict: {"industries": [...], "total": int, "source": str}
+        """
+        try:
+            from app.core.unified_config import UnifiedConfigManager
+
+            db = get_mongo_db()
+            collection = db["stock_basic_info"]
+
+            # 获取数据源优先级配置
+            config = UnifiedConfigManager()
+            data_source_configs = await config.get_data_source_configs_async()
+
+            # 提取启用的数据源，按优先级排序
+            enabled_sources = [
+                ds.type.lower() for ds in data_source_configs
+                if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
+            ]
+
+            if not enabled_sources:
+                enabled_sources = ['tushare', 'akshare', 'baostock']
+
+            logger.info(f"[get_industries] 数据源优先级: {enabled_sources}")
+
+            # 按优先级查询：优先使用优先级最高的数据源
+            preferred_source = enabled_sources[0] if enabled_sources else 'tushare'
+
+            # 聚合查询：按行业分组并统计股票数量（只查询指定数据源）
+            pipeline = [
+                {
+                    "$match": {
+                        "source": preferred_source,
+                        "industry": {"$ne": None}
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$industry",
+                        "count": {"$sum": 1}
+                    }
+                },
+                {"$sort": {"count": -1}},
+                {
+                    "$project": {
+                        "industry": "$_id",
+                        "count": 1,
+                        "_id": 0
+                    }
+                }
+            ]
+
+            industries = []
+            async for doc in collection.aggregate(pipeline):
+                # 清洗字段，避免 NaN/Inf 导致 JSON 序列化失败
+                raw_industry = doc.get("industry")
+                safe_industry = ""
+                try:
+                    if raw_industry is None:
+                        safe_industry = ""
+                    elif isinstance(raw_industry, float):
+                        if raw_industry != raw_industry or raw_industry in (float("inf"), float("-inf")):
+                            safe_industry = ""
+                        else:
+                            safe_industry = str(raw_industry)
+                    else:
+                        safe_industry = str(raw_industry)
+                except Exception:
+                    safe_industry = ""
+
+                raw_count = doc.get("count", 0)
+                safe_count = 0
+                try:
+                    if isinstance(raw_count, float):
+                        if raw_count != raw_count or raw_count in (float("inf"), float("-inf")):
+                            safe_count = 0
+                        else:
+                            safe_count = int(raw_count)
+                    else:
+                        safe_count = int(raw_count)
+                except Exception:
+                    safe_count = 0
+
+                industries.append({
+                    "value": safe_industry,
+                    "label": safe_industry,
+                    "count": safe_count,
+                })
+
+            logger.info(f"[get_industries] 从数据源 {preferred_source} 返回 {len(industries)} 个行业")
+
+            return {
+                "industries": industries,
+                "total": len(industries),
+                "source": preferred_source
+            }
+
+        except Exception as e:
+            logger.error(f"[get_industries] 获取行业列表失败: {e}", exc_info=True)
+            raise
+
 
 # 全局服务实例
 _enhanced_screening_service: Optional[EnhancedScreeningService] = None

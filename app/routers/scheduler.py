@@ -14,7 +14,7 @@ from app.routers.auth_db import get_current_user
 from app.services.scheduler_service import get_scheduler_service, SchedulerService
 from app.core.response import ok
 
-router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
+router = APIRouter(prefix="/api/scheduler", tags=["Scheduler"])
 
 
 class JobTriggerRequest(BaseModel):

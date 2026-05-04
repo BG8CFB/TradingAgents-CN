@@ -15,8 +15,28 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 import pandas as pd
 
-from app.engine.config.database_manager import get_database_manager
+from app.core.config import settings
+from app.core.database import get_mongo_db_sync, get_redis_client
 from app.utils.runtime_paths import get_cache_dir
+
+
+def _detect_cache_backend() -> str:
+    """检测最佳缓存后端"""
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            return "redis"
+    except Exception:
+        pass
+
+    try:
+        get_mongo_db_sync()
+        return "mongodb"
+    except Exception:
+        pass
+
+    return "file"
+
 
 class AdaptiveCacheSystem:
     """自适应缓存系统"""
@@ -24,24 +44,31 @@ class AdaptiveCacheSystem:
     def __init__(self, cache_dir: str = None):
         self.logger = logging.getLogger(__name__)
 
-        # 获取数据库管理器
-        self.db_manager = get_database_manager()
-
         # 设置缓存目录
         if cache_dir is None:
             # 默认使用统一的 runtime/cache/adaptive 目录
             cache_dir = str(get_cache_dir() / "adaptive")
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 获取配置
-        self.config = self.db_manager.get_config()
-        self.cache_config = self.config["cache"]
-        
-        # 初始化缓存后端
-        self.primary_backend = self.cache_config["primary_backend"]
-        self.fallback_enabled = self.cache_config["fallback_enabled"]
-        
+
+        # 缓存配置（使用 settings 和运行时检测）
+        self.primary_backend = _detect_cache_backend()
+        self.fallback_enabled = True  # 总是启用降级
+
+        # TTL 配置（从 settings 获取，保留合理的默认值）
+        self.cache_config = {
+            "primary_backend": self.primary_backend,
+            "fallback_enabled": self.fallback_enabled,
+            "ttl_settings": {
+                "us_stock_data": 7200,
+                "us_news": 21600,
+                "us_fundamentals": 86400,
+                "china_stock_data": 3600,
+                "china_news": 14400,
+                "china_fundamentals": 43200,
+            }
+        }
+
         self.logger.info(f"自适应缓存系统初始化 - 主要后端: {self.primary_backend}")
     
     def _get_cache_key(self, symbol: str, start_date: str = "", end_date: str = "", 
@@ -111,7 +138,10 @@ class AdaptiveCacheSystem:
     
     def _save_to_redis(self, cache_key: str, data: Any, metadata: Dict, ttl_seconds: int) -> bool:
         """保存到Redis缓存"""
-        redis_client = self.db_manager.get_redis_client()
+        try:
+            redis_client = get_redis_client()
+        except Exception:
+            return False
         if not redis_client:
             return False
         
@@ -135,7 +165,10 @@ class AdaptiveCacheSystem:
     
     def _load_from_redis(self, cache_key: str) -> Optional[Dict]:
         """从Redis缓存加载"""
-        redis_client = self.db_manager.get_redis_client()
+        try:
+            redis_client = get_redis_client()
+        except Exception:
+            return None
         if not redis_client:
             return None
         
@@ -159,12 +192,15 @@ class AdaptiveCacheSystem:
     
     def _save_to_mongodb(self, cache_key: str, data: Any, metadata: Dict, ttl_seconds: int) -> bool:
         """保存到MongoDB缓存"""
-        mongodb_client = self.db_manager.get_mongodb_client()
-        if not mongodb_client:
-            return False
-        
         try:
-            db = mongodb_client.tradingagents
+            db = get_mongo_db_sync()
+        except Exception:
+            return False
+        if not db:
+            return False
+
+        try:
+            collection = db.cache
             collection = db.cache
             
             # 序列化数据
@@ -196,12 +232,14 @@ class AdaptiveCacheSystem:
     
     def _load_from_mongodb(self, cache_key: str) -> Optional[Dict]:
         """从MongoDB缓存加载"""
-        mongodb_client = self.db_manager.get_mongodb_client()
-        if not mongodb_client:
-            return None
-        
         try:
-            db = mongodb_client.tradingagents
+            db = get_mongo_db_sync()
+        except Exception:
+            return None
+        if not db:
+            return None
+
+        try:
             collection = db.cache
             
             doc = collection.find_one({'_id': cache_key})
@@ -342,12 +380,24 @@ class AdaptiveCacheSystem:
         }
 
         # 后端信息
+        mongodb_available = False
+        redis_available = False
+        try:
+            get_mongo_db_sync()
+            mongodb_available = True
+        except Exception:
+            pass
+        try:
+            redis_available = get_redis_client() is not None
+        except Exception:
+            pass
+
         backend_info = {
             'primary_backend': self.primary_backend,
             'fallback_enabled': self.fallback_enabled,
-            'database_available': self.db_manager.is_database_available(),
-            'mongodb_available': self.db_manager.is_mongodb_available(),
-            'redis_available': self.db_manager.is_redis_available(),
+            'database_available': mongodb_available or redis_available,
+            'mongodb_available': mongodb_available,
+            'redis_available': redis_available,
             'file_cache_directory': str(self.cache_dir),
             'file_cache_count': len(list(self.cache_dir.glob("*.pkl"))),
         }
@@ -355,10 +405,9 @@ class AdaptiveCacheSystem:
         total_size_bytes = 0
 
         # MongoDB统计
-        mongodb_client = self.db_manager.get_mongodb_client()
-        if mongodb_client:
+        if mongodb_available:
             try:
-                db = mongodb_client.tradingagents
+                db = get_mongo_db_sync()
 
                 # 统计各个集合
                 for collection_name in ["stock_data", "news_data", "fundamentals_data"]:
@@ -389,9 +438,9 @@ class AdaptiveCacheSystem:
                 backend_info['mongodb_status'] = 'Error'
 
         # Redis统计
-        redis_client = self.db_manager.get_redis_client()
-        if redis_client:
+        if redis_available:
             try:
+                redis_client = get_redis_client()
                 redis_info = redis_client.info()
                 backend_info['redis_memory_used'] = redis_info.get('used_memory_human', 'N/A')
                 backend_info['redis_keys'] = redis_client.dbsize()

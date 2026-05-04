@@ -18,7 +18,7 @@ from app.engine.tools.mcp.config_utils import (
 )
 from app.engine.tools.mcp.health_monitor import ServerStatus
 
-router = APIRouter(prefix="/api/mcp", tags=["mcp"])
+router = APIRouter(prefix="/api/mcp", tags=["MCP"])
 CONFIG_FILE = get_config_path()
 logger = logging.getLogger("app.routers.mcp")
 

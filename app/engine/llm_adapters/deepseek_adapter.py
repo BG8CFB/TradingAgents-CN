@@ -16,7 +16,7 @@ logger = get_logger('agents')
 
 # 导入token跟踪器
 try:
-    from app.engine.config.config_manager import token_tracker
+    from app.services.usage_statistics_service import token_tracker
     TOKEN_TRACKING_ENABLED = True
 except ImportError:
     token_tracker = None

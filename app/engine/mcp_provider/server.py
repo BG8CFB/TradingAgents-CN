@@ -28,9 +28,9 @@ manager = DataSourceManager()
 
 # Let's try to keep it simple: Define logic in `tools/finance/` and wrap them here.
 
-from app.engine.mcp_server.tools.finance.market_data import get_stock_kline_logic
-from app.engine.mcp_server.tools.finance.fundamental import get_company_metrics_logic
-from app.engine.mcp_server.tools.finance.news import get_finance_news_logic
+from app.engine.mcp_provider.tools.finance.market_data import get_stock_kline_logic
+from app.engine.mcp_provider.tools.finance.fundamental import get_company_metrics_logic
+from app.engine.mcp_provider.tools.finance.news import get_finance_news_logic
 
 
 @mcp.tool()

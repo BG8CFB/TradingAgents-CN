@@ -9,7 +9,7 @@ import asyncio
 import logging
 
 from ..base_provider import BaseStockDataProvider
-from app.engine.config.providers_config import get_provider_config
+from app.core.config import settings
 from app.utils.stock_utils import StockUtils, StockMarket
 from app.utils.time_utils import now_utc, now_config_tz, format_date_compact
 
@@ -33,7 +33,15 @@ class TushareProvider(BaseStockDataProvider):
     def __init__(self):
         super().__init__("Tushare")
         self.api = None
-        self.config = get_provider_config("tushare")
+        self.config = {
+            "enabled": settings.TUSHARE_ENABLED,
+            "token": settings.TUSHARE_TOKEN,
+            "timeout": 30,
+            "rate_limit": settings.TUSHARE_RATE_LIMIT_SAFETY_MARGIN,
+            "max_retries": 3,
+            "cache_enabled": True,
+            "cache_ttl": 3600,
+        }
         self.token_source = None  # 记录 Token 来源: 'database' 或 'env'
 
         if not TUSHARE_AVAILABLE:

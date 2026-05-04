@@ -56,7 +56,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Search, Loading } from '@element-plus/icons-vue'
-import { searchStocks, type StockInfo } from '@/api/multiMarket'
+import { stocksApi, type StockInfo } from '@/api/stocks'
 import { ElMessage } from 'element-plus'
 import MarketSelector from './MarketSelector.vue'
 
@@ -128,7 +128,7 @@ const performSearch = async () => {
 
   loading.value = true
   try {
-    const response = await searchStocks(selectedMarket.value, searchQuery.value.trim(), 20)
+    const response = await stocksApi.searchStocks(selectedMarket.value, searchQuery.value.trim(), 20)
     searchResults.value = response.data?.stocks || []
   } catch (error: any) {
     console.error('搜索失败:', error)

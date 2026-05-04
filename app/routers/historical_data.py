@@ -15,7 +15,7 @@ from app.utils.timezone import now_utc, format_iso
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/historical-data", tags=["历史数据"])
+router = APIRouter(prefix="/api/historical-data", tags=["Historical Data"])
 
 
 class HistoricalDataQuery(BaseModel):

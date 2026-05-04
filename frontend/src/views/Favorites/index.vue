@@ -512,6 +512,7 @@ import {
 import { favoritesApi } from '@/api/favorites'
 import { tagsApi } from '@/api/tags'
 import { stockSyncApi } from '@/api/stockSync'
+import { stocksApi } from '@/api/stocks'
 import { normalizeMarketForAnalysis } from '@/utils/market'
 import { ApiClient } from '@/api/request'
 
@@ -913,7 +914,7 @@ const fetchStockInfo = async () => {
     // 🔥 只有A股支持自动获取股票名称
     if (market === 'A股') {
       // 从后台获取股票基础信息
-      const res = await ApiClient.get(`/api/stock-data/basic-info/${symbol}`)
+      const res = await stocksApi.getBasicInfo(symbol)
 
       if ((res as any)?.success && (res as any)?.data) {
         const stockInfo = (res as any).data

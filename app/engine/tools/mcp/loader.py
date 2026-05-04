@@ -29,6 +29,7 @@ from app.engine.tools.mcp.config_utils import (
     MCPServerType,
     get_config_path,
     load_mcp_config,
+    resolve_command,
 )
 from app.engine.tools.mcp.health_monitor import HealthMonitor, ServerStatus
 
@@ -509,8 +510,16 @@ class MCPToolLoaderFactory:
                 continue
 
             if config.is_stdio():
+                resolved_cmd, cmd_error = resolve_command(config.command)
+                if cmd_error:
+                    logger.warning(f"[MCP] 服务器 {name} 命令解析失败: {cmd_error}")
+                    self._health_monitor._update_status(
+                        name, ServerStatus.UNREACHABLE, error=cmd_error
+                    )
+                    continue
+
                 server_params[name] = {
-                    "command": config.command,
+                    "command": resolved_cmd,
                     "args": config.args or [],
                     "env": {**os.environ, **config.env} if config.env is not None else None,
                     "transport": "stdio",
@@ -541,8 +550,13 @@ class MCPToolLoaderFactory:
 
         server_param = {}
         if config.is_stdio():
+            resolved_cmd, cmd_error = resolve_command(config.command)
+            if cmd_error:
+                logger.warning(f"[MCP] 服务器 {name} 命令解析失败: {cmd_error}")
+                return None
+
             server_param = {
-                "command": config.command,
+                "command": resolved_cmd,
                 "args": config.args or [],
                 "env": {**os.environ, **config.env} if config.env is not None else None,
                 "transport": "stdio",

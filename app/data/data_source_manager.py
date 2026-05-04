@@ -1645,10 +1645,10 @@ class DataSourceManager:
             logger.info("📊 获取所有股票列表")
             try:
                 # 尝试从 MongoDB 获取
-                from app.engine.config.database_manager import get_database_manager
-                db_manager = get_database_manager()
-                if db_manager and db_manager.is_mongodb_available():
-                    collection = db_manager.mongodb_db['stock_basic_info']
+                from app.core.database import get_mongo_db_sync
+                db = get_mongo_db_sync()
+                if db:
+                    collection = db['stock_basic_info']
                     stocks = list(collection.find({}, {'_id': 0}))
                     if stocks:
                         logger.info(f"✅ 从MongoDB获取所有股票: {len(stocks)}条")
@@ -2044,13 +2044,11 @@ class DataSourceManager:
     def _get_valuation_indicators(self, symbol: str) -> Dict:
         """从stock_basic_info集合获取估值指标"""
         try:
-            db_manager = get_database_manager()
-            if not db_manager.is_mongodb_available():
+            from app.core.database import get_mongo_db_sync
+            db = get_mongo_db_sync()
+            if not db:
                 return {}
-                
-            client = db_manager.get_mongodb_client()
-            db = client[db_manager.config.mongodb_config.database_name]
-            
+
             # 从stock_basic_info集合获取估值指标
             collection = db['stock_basic_info']
             result = collection.find_one({'ts_code': symbol})

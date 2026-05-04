@@ -14,7 +14,7 @@ from app.core.response import ok
 
 logger = logging.getLogger("webapi")
 
-router = APIRouter(prefix="/favorites", tags=["自选股管理"])
+router = APIRouter(prefix="/api/favorites", tags=["Favorites"])
 
 
 class AddFavoriteRequest(BaseModel):

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Union, Sequence
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import BaseTool
 from pydantic import Field, SecretStr
-from ..config.config_manager import token_tracker
+from app.services.usage_statistics_service import token_tracker
 
 # 导入日志模块
 from app.utils.logging_manager import get_logger
@@ -52,7 +52,7 @@ class ChatDashScopeOpenAI(ChatOpenAI):
 
             # 验证环境变量中的 API Key 是否有效（排除占位符）
             if env_api_key and is_valid_api_key(env_api_key):
-                logger.info(f"✅ [DashScope初始化] 环境变量中的 API Key 有效，长度: {len(env_api_key)}, 前10位: {env_api_key[:10]}...")
+                logger.info(f"✅ [DashScope初始化] 环境变量中的 API Key 有效，长度: {len(env_api_key)}")
                 api_key_from_kwargs = env_api_key
             elif env_api_key:
                 logger.warning(f"⚠️ [DashScope初始化] 环境变量中的 API Key 无效（可能是占位符），将被忽略")

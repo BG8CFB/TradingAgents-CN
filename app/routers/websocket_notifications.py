@@ -13,7 +13,7 @@ from app.services.auth_service import AuthService
 from app.services.user_service import user_service
 from app.utils.time_utils import now_utc, format_iso
 
-router = APIRouter()
+router = APIRouter(prefix="/api/ws", tags=["WebSocket"])
 logger = logging.getLogger("webapi.websocket")
 
 

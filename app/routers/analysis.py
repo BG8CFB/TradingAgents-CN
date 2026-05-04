@@ -14,7 +14,6 @@ import asyncio
 
 from app.routers.auth_db import get_current_user
 from app.services.queue_service import get_queue_service, QueueService
-# from app.services.analysis_service import get_analysis_service # 移除顶层导入
 from app.services.websocket_manager import get_websocket_manager
 from app.models.analysis import (
     SingleAnalysisRequest, BatchAnalysisRequest, AnalysisParameters,
@@ -24,7 +23,7 @@ from app.core.config import settings
 from app.utils.runtime_paths import get_analysis_results_dir, resolve_path
 from app.utils.timezone import now_utc
 
-router = APIRouter()
+router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 logger = logging.getLogger("webapi")
 
 # 保存后台任务的引用，防止 GC 提前回收
@@ -123,113 +122,23 @@ async def get_task_status_new(
         from app.services.analysis_service import get_analysis_service
         analysis_service = get_analysis_service()
 
-        result = await analysis_service.get_task_status(task_id)
-        
+        result = await analysis_service.get_task_with_status_fallback(task_id)
+
         if result:
+            message = "任务状态获取成功"
+            source = result.get("source", "")
+            if source == "mongodb_tasks":
+                message = "任务状态获取成功（从任务记录恢复）"
+            elif source == "mongodb_reports":
+                message = "任务状态获取成功（从历史记录恢复）"
             return {
                 "success": True,
                 "data": result,
-                "message": "任务状态获取成功"
+                "message": message,
             }
         else:
-            # 内存中没有找到，尝试从MongoDB中查找
-            logger.info(f"📊 [STATUS] 内存中未找到，尝试从MongoDB查找: {task_id}")
-
-            from app.core.database import get_mongo_db
-            db = get_mongo_db()
-
-            # 首先从analysis_tasks集合中查找（正在进行的任务）
-            task_result = await db.analysis_tasks.find_one({"task_id": task_id})
-
-            if task_result:
-                logger.info(f"✅ [STATUS] 从analysis_tasks找到任务: {task_id}")
-
-                # 构造状态响应（正在进行的任务）
-                status = task_result.get("status", "pending")
-                progress = task_result.get("progress", 0)
-
-                # 计算时间信息
-                start_time = task_result.get("started_at") or task_result.get("created_at")
-                current_time = now_utc()
-                elapsed_time = 0
-                if start_time:
-                    elapsed_time = (current_time - start_time).total_seconds()
-
-                status_data = {
-                    "task_id": task_id,
-                    "status": status,
-                    "progress": progress,
-                    "message": f"任务{status}中...",
-                    "current_step": status,
-                    "start_time": start_time,
-                    "end_time": task_result.get("completed_at"),
-                    "elapsed_time": elapsed_time,
-                    "remaining_time": 0,  # 无法准确估算
-                    "estimated_total_time": 0,
-                    "symbol": task_result.get("symbol") or task_result.get("stock_code"),
-                    "stock_code": task_result.get("symbol") or task_result.get("stock_code"),  # 兼容字段
-                    "stock_symbol": task_result.get("symbol") or task_result.get("stock_code"),
-                    "source": "mongodb_tasks"  # 标记数据来源
-                }
-
-                return {
-                    "success": True,
-                    "data": status_data,
-                    "message": "任务状态获取成功（从任务记录恢复）"
-                }
-
-            # 如果analysis_tasks中没有找到，再从analysis_reports集合中查找（已完成的任务）
-            mongo_result = await db.analysis_reports.find_one({"task_id": task_id})
-
-            if not mongo_result:
-                # 兼容旧数据：旧记录可能没有 task_id，尝试通过 analysis_id 查找
-                tasks_doc_for_id = await db.analysis_tasks.find_one(
-                    {"task_id": task_id},
-                    {"result.analysis_id": 1}
-                )
-                if tasks_doc_for_id:
-                    analysis_id = tasks_doc_for_id.get("result", {}).get("analysis_id")
-                    if analysis_id:
-                        logger.info(f"🔎 [STATUS] 按analysis_id兜底查询: {analysis_id}")
-                        mongo_result = await db.analysis_reports.find_one({"analysis_id": analysis_id})
-
-            if mongo_result:
-                logger.info(f"✅ [STATUS] 从analysis_reports找到任务: {task_id}")
-
-                # 构造状态响应（模拟已完成的任务）
-                # 计算已完成任务的时间信息
-                start_time = mongo_result.get("created_at")
-                end_time = mongo_result.get("updated_at")
-                elapsed_time = 0
-                if start_time and end_time:
-                    elapsed_time = (end_time - start_time).total_seconds()
-
-                status_data = {
-                    "task_id": task_id,
-                    "status": "completed",
-                    "progress": 100,
-                    "message": "分析完成（从历史记录恢复）",
-                    "current_step": "completed",
-                    "start_time": start_time,
-                    "end_time": end_time,
-                    "elapsed_time": elapsed_time,
-                    "remaining_time": 0,
-                    "estimated_total_time": elapsed_time,  # 已完成任务的总时长就是已用时间
-                    "stock_code": mongo_result.get("stock_symbol"),
-                    "stock_symbol": mongo_result.get("stock_symbol"),
-                    "analysts": mongo_result.get("analysts", []),
-                    "research_depth": mongo_result.get("research_depth", "快速"),
-                    "source": "mongodb_reports"  # 标记数据来源
-                }
-
-                return {
-                    "success": True,
-                    "data": status_data,
-                    "message": "任务状态获取成功（从历史记录恢复）"
-                }
-            else:
-                logger.warning(f"❌ [STATUS] MongoDB中也未找到任务: {task_id}")
-                raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+            logger.warning(f"❌ [STATUS] 所有数据源都未找到任务: {task_id}")
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
 
     except HTTPException:
         raise
@@ -245,119 +154,12 @@ async def get_task_result(
     """获取分析任务结果"""
     try:
         logger.info(f"🔍 [RESULT] 获取任务结果: {task_id}")
-        
+
         # 延迟导入，避免循环引用
         from app.services.analysis_service import get_analysis_service
         analysis_service = get_analysis_service()
-        
-        task_status = await analysis_service.get_task_status(task_id)
 
-        result_data = None
-
-        if task_status and task_status.get('status') == 'completed':
-            # 从内存中获取结果数据
-            result_data = task_status.get('result_data')
-            logger.info(f"📊 [RESULT] 从内存中获取到结果数据")
-
-            # 🔍 调试：检查内存中的数据结构
-            if result_data:
-                logger.info(f"📊 [RESULT] 内存数据键: {list(result_data.keys())}")
-                logger.info(f"📊 [RESULT] 内存中有decision字段: {bool(result_data.get('decision'))}")
-                logger.info(f"📊 [RESULT] 内存中summary长度: {len(result_data.get('summary', ''))}")
-                logger.info(f"📊 [RESULT] 内存中recommendation长度: {len(result_data.get('recommendation', ''))}")
-                if result_data.get('decision'):
-                    decision = result_data['decision']
-                    logger.info(f"📊 [RESULT] 内存decision内容: action={decision.get('action')}, target_price={decision.get('target_price')}")
-            else:
-                logger.warning(f"⚠️ [RESULT] 内存中result_data为空")
-
-        if not result_data:
-            # 内存中没有找到，尝试从MongoDB中查找
-            logger.info(f"📊 [RESULT] 内存中未找到，尝试从MongoDB查找: {task_id}")
-
-            from app.core.database import get_mongo_db
-            db = get_mongo_db()
-
-            # 从analysis_reports集合中查找（优先使用 task_id 匹配）
-            mongo_result = await db.analysis_reports.find_one({"task_id": task_id})
-
-            if not mongo_result:
-                # 兼容旧数据：旧记录可能没有 task_id，但 analysis_id 存在于 analysis_tasks.result
-                tasks_doc_for_id = await db.analysis_tasks.find_one({"task_id": task_id}, {"result.analysis_id": 1})
-                analysis_id = tasks_doc_for_id.get("result", {}).get("analysis_id") if tasks_doc_for_id else None
-                if analysis_id:
-                    logger.info(f"🔎 [RESULT] 按analysis_id兜底查询 analysis_reports: {analysis_id}")
-                    mongo_result = await db.analysis_reports.find_one({"analysis_id": analysis_id})
-
-            if mongo_result:
-                logger.info(f"✅ [RESULT] 从MongoDB找到结果: {task_id}")
-
-                # 直接使用MongoDB中的数据结构（与web目录保持一致）
-                result_data = {
-                    "analysis_id": mongo_result.get("analysis_id"),
-                    "stock_symbol": mongo_result.get("stock_symbol"),
-                    "stock_code": mongo_result.get("stock_symbol"),  # 兼容性
-                    "analysis_date": mongo_result.get("analysis_date"),
-                    "summary": mongo_result.get("summary", ""),
-                    "recommendation": mongo_result.get("recommendation", ""),
-                    "confidence_score": mongo_result.get("confidence_score", 0.0),
-                    "risk_level": mongo_result.get("risk_level", "中等"),
-                    "key_points": mongo_result.get("key_points", []),
-                    "execution_time": mongo_result.get("execution_time", 0),
-                    "tokens_used": mongo_result.get("tokens_used", 0),
-                    "analysts": mongo_result.get("analysts", []),
-                    "research_depth": mongo_result.get("research_depth", "快速"),
-                    "reports": mongo_result.get("reports", {}),
-                    "created_at": mongo_result.get("created_at"),
-                    "updated_at": mongo_result.get("updated_at"),
-                    "status": mongo_result.get("status", "completed"),
-                    "decision": mongo_result.get("decision", {}),
-                    "source": "mongodb"  # 标记数据来源
-                }
-
-                # 添加调试信息
-                logger.info(f"📊 [RESULT] MongoDB数据结构: {list(result_data.keys())}")
-                logger.info(f"📊 [RESULT] MongoDB summary长度: {len(result_data['summary'])}")
-                logger.info(f"📊 [RESULT] MongoDB recommendation长度: {len(result_data['recommendation'])}")
-                logger.info(f"📊 [RESULT] MongoDB decision字段: {bool(result_data.get('decision'))}")
-                if result_data.get('decision'):
-                    decision = result_data['decision']
-                    logger.info(f"📊 [RESULT] MongoDB decision内容: action={decision.get('action')}, target_price={decision.get('target_price')}, confidence={decision.get('confidence')}")
-            else:
-                # 兜底：analysis_tasks 集合中的 result 字段
-                tasks_doc = await db.analysis_tasks.find_one(
-                    {"task_id": task_id},
-                    {"result": 1, "symbol": 1, "stock_code": 1, "created_at": 1, "completed_at": 1}
-                )
-                if tasks_doc and tasks_doc.get("result"):
-                    r = tasks_doc["result"] or {}
-                    logger.info("✅ [RESULT] 从analysis_tasks.result 找到结果")
-                    # 获取股票代码 (优先使用symbol)
-                    symbol = (tasks_doc.get("symbol") or tasks_doc.get("stock_code") or
-                             r.get("stock_symbol") or r.get("stock_code"))
-                    result_data = {
-                        "analysis_id": r.get("analysis_id"),
-                        "stock_symbol": symbol,
-                        "stock_code": symbol,  # 兼容字段
-                        "analysis_date": r.get("analysis_date"),
-                        "summary": r.get("summary", ""),
-                        "recommendation": r.get("recommendation", ""),
-                        "confidence_score": r.get("confidence_score", 0.0),
-                        "risk_level": r.get("risk_level", "中等"),
-                        "key_points": r.get("key_points", []),
-                        "execution_time": r.get("execution_time", 0),
-                        "tokens_used": r.get("tokens_used", 0),
-                        "analysts": r.get("analysts", []),
-                        "research_depth": r.get("research_depth", "快速"),
-                        "reports": r.get("reports", {}),
-                        "state": r.get("state", {}),
-                        "detailed_analysis": r.get("detailed_analysis", {}),
-                        "created_at": tasks_doc.get("created_at"),
-                        "updated_at": tasks_doc.get("completed_at"),
-                        "status": r.get("status", "completed"),
-                        "decision": r.get("decision", {}),
-                        "source": "analysis_tasks"  # 数据来源标记
-                    }
+        result_data = await analysis_service.get_task_result_data(task_id)
 
         if not result_data:
             logger.warning(f"❌ [RESULT] 所有数据源都未找到结果: {task_id}")
@@ -1154,33 +956,9 @@ async def mark_task_as_failed(
         from app.services.analysis_service import get_analysis_service
         svc = get_analysis_service()
 
-        # 更新内存中的任务状态
-        from app.services.memory_state_manager import TaskStatus
-        await svc.memory_manager.update_task_status(
-            task_id=task_id,
-            status=TaskStatus.FAILED,
-            message="手动标记为失败",
-            error_message="用户手动标记为失败"
-        )
+        modified = await svc.mark_task_failed(task_id, error_message="用户手动标记为失败")
 
-        # 更新 MongoDB 中的任务状态
-        from app.core.database import get_mongo_db
-        from datetime import datetime
-        db = get_mongo_db()
-
-        result = await db.analysis_tasks.update_one(
-            {"task_id": task_id},
-            {
-                "$set": {
-                    "status": "failed",
-                    "last_error": "用户手动标记为失败",
-                    "completed_at": now_utc(),
-                    "updated_at": now_utc()
-                }
-            }
-        )
-
-        if result.modified_count > 0:
+        if modified:
             logger.info(f"✅ 任务 {task_id} 已标记为失败")
             return {
                 "success": True,
@@ -1210,16 +988,9 @@ async def delete_task(
         from app.services.analysis_service import get_analysis_service
         svc = get_analysis_service()
 
-        # 从内存中删除任务
-        await svc.memory_manager.remove_task(task_id)
+        deleted = await svc.delete_task_by_id(task_id)
 
-        # 从 MongoDB 中删除任务
-        from app.core.database import get_mongo_db
-        db = get_mongo_db()
-
-        result = await db.analysis_tasks.delete_one({"task_id": task_id})
-
-        if result.deleted_count > 0:
+        if deleted:
             logger.info(f"✅ 任务 {task_id} 已删除")
             return {
                 "success": True,
@@ -1247,61 +1018,18 @@ async def get_analysis_stats(
 ):
     """获取分析统计信息"""
     try:
-        from app.core.database import get_mongo_db
-        db = get_mongo_db()
+        from app.services.analysis_service import get_analysis_service
+        svc = get_analysis_service()
 
-        query = {}
-        if start_date or end_date:
-            date_query = {}
-            if start_date:
-                date_query["$gte"] = start_date
-            if end_date:
-                date_query["$lte"] = end_date
-            query["created_at"] = date_query
-        if market_type:
-            query["market_type"] = market_type
-
-        total = await db.analysis_reports.count_documents(query)
-        completed = await db.analysis_reports.count_documents({**query, "status": "completed"})
-        failed = await db.analysis_reports.count_documents({**query, "status": "failed"})
-
-        # 按日期统计
-        pipeline = [
-            {"$match": query},
-            {"$group": {
-                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
-                "count": {"$sum": 1}
-            }},
-            {"$sort": {"_id": -1}},
-            {"$limit": 30}
-        ]
-        by_date = []
-        async for doc in db.analysis_reports.aggregate(pipeline):
-            by_date.append({"date": doc["_id"], "count": doc["count"]})
-
-        # 按市场统计
-        market_pipeline = [
-            {"$match": query},
-            {"$group": {"_id": "$market_type", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}}
-        ]
-        by_market = []
-        async for doc in db.analysis_reports.aggregate(market_pipeline):
-            by_market.append({"market": doc["_id"] or "未知", "count": doc["count"]})
+        stats = await svc.get_analysis_stats(
+            start_date=start_date,
+            end_date=end_date,
+            market_type=market_type,
+        )
 
         return {
             "success": True,
-            "data": {
-                "total_analyses": total,
-                "successful_analyses": completed,
-                "failed_analyses": failed,
-                "avg_duration": 0,
-                "total_tokens": 0,
-                "total_cost": 0,
-                "popular_stocks": [],
-                "analysis_by_date": by_date,
-                "analysis_by_market": by_market,
-            },
+            "data": stats,
             "message": "统计获取成功"
         }
     except Exception as e:
@@ -1317,48 +1045,12 @@ async def get_stock_info(
 ):
     """获取股票基础信息（用于分析前的预览）"""
     try:
-        from app.core.database import get_mongo_db
-        db = get_mongo_db()
-        code6 = str(symbol).zfill(6)
+        from app.services.analysis_service import get_analysis_service
+        svc = get_analysis_service()
 
-        # 按数据源优先级查询
-        from app.core.unified_config import UnifiedConfigManager
-        config = UnifiedConfigManager()
-        data_source_configs = config.get_data_source_configs()
-        enabled_sources = [
-            ds.type.lower() for ds in data_source_configs
-            if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-        ] or ['tushare', 'akshare', 'baostock']
-
-        b = None
-        for src in enabled_sources:
-            b = await db.stock_basic_info.find_one({"code": code6, "source": src}, {"_id": 0})
-            if b:
-                break
-        if not b:
-            b = await db.stock_basic_info.find_one({"code": code6}, {"_id": 0})
-
-        if not b:
+        data = await svc.get_stock_info_with_quote(symbol, market)
+        if not data:
             raise HTTPException(status_code=404, detail=f"未找到股票 {symbol} 的信息")
-
-        # 获取实时行情补充
-        q = await db.market_quotes.find_one({"code": code6}, {"_id": 0})
-
-        data = {
-            "symbol": b.get("symbol", code6),
-            "code": code6,
-            "name": b.get("name", ""),
-            "market": b.get("market", market),
-            "industry": b.get("industry", ""),
-            "sector": b.get("sector", ""),
-            "market_cap": b.get("total_mv"),
-            "price": (q or {}).get("close") or b.get("close"),
-            "change_percent": (q or {}).get("pct_chg"),
-            "pe_ratio": b.get("pe"),
-            "pb_ratio": b.get("pb"),
-            "dividend_yield": b.get("dividend_yield"),
-            "volume": (q or {}).get("volume"),
-        }
 
         return {"success": True, "data": data, "message": "股票信息获取成功"}
     except HTTPException:
@@ -1377,32 +1069,10 @@ async def search_stocks(
 ):
     """搜索股票"""
     try:
-        from app.core.database import get_mongo_db
-        db = get_mongo_db()
+        from app.services.analysis_service import get_analysis_service
+        svc = get_analysis_service()
 
-        search_regex = f".*{query}.*"
-        filter_expr = {
-            "$or": [
-                {"name": {"$regex": search_regex, "$options": "i"}},
-                {"code": {"$regex": search_regex, "$options": "i"}},
-                {"symbol": {"$regex": search_regex, "$options": "i"}},
-            ]
-        }
-        if market:
-            filter_expr["market"] = market
-
-        cursor = db.stock_basic_info.find(filter_expr, {
-            "name": 1, "code": 1, "symbol": 1, "market": 1, "industry": 1, "_id": 0
-        }).limit(limit)
-
-        results = []
-        async for doc in cursor:
-            results.append({
-                "symbol": doc.get("symbol") or doc.get("code", ""),
-                "name": doc.get("name", ""),
-                "market": doc.get("market", "A股"),
-                "type": "stock",
-            })
+        results = await svc.search_stock_basic_info(query, market, limit)
 
         return {"success": True, "data": results, "message": f"搜索完成，共 {len(results)} 条"}
     except Exception as e:
@@ -1418,35 +1088,10 @@ async def get_popular_stocks(
 ):
     """获取热门股票（按分析次数排序）"""
     try:
-        from app.core.database import get_mongo_db
-        db = get_mongo_db()
+        from app.services.analysis_service import get_analysis_service
+        svc = get_analysis_service()
 
-        # 从分析报告中统计最常分析的股票
-        pipeline = [
-            {"$group": {"_id": "$stock_symbol", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
-            {"$limit": limit}
-        ]
-
-        results = []
-        async for doc in db.analysis_reports.aggregate(pipeline):
-            symbol = doc["_id"]
-            if not symbol:
-                continue
-            # 补充股票名称和行情
-            code6 = str(symbol).zfill(6)
-            b = await db.stock_basic_info.find_one({"code": code6}, {"_id": 0, "name": 1, "market": 1})
-            q = await db.market_quotes.find_one({"code": code6}, {"_id": 0, "close": 1, "pct_chg": 1, "volume": 1})
-
-            results.append({
-                "symbol": symbol,
-                "name": (b or {}).get("name", ""),
-                "market": (b or {}).get("market", "A股"),
-                "current_price": (q or {}).get("close"),
-                "change_percent": (q or {}).get("pct_chg"),
-                "volume": (q or {}).get("volume"),
-                "analysis_count": doc["count"],
-            })
+        results = await svc.get_popular_stocks(limit)
 
         return {"success": True, "data": results, "message": f"热门股票获取成功，共 {len(results)} 只"}
     except Exception as e:

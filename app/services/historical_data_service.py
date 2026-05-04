@@ -493,6 +493,57 @@ class HistoricalDataService:
             logger.error(f"❌ 获取统计信息失败: {e}")
             return {}
 
+    async def get_latest_historical_record(
+        self,
+        symbol: str,
+        sort_field: str = "date",
+        sort_direction: int = -1
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取指定股票的最新历史数据记录
+
+        Args:
+            symbol: 股票代码
+            sort_field: 排序字段，默认 "date"
+            sort_direction: 排序方向，-1 为降序
+
+        Returns:
+            最新的历史数据记录，不存在则返回 None
+        """
+        if self.collection is None:
+            await self.initialize()
+
+        try:
+            doc = await self.collection.find_one(
+                {"symbol": symbol},
+                sort=[(sort_field, sort_direction)]
+            )
+            return doc
+
+        except Exception as e:
+            logger.error(f"❌ 获取最新历史记录失败 {symbol}: {e}")
+            return None
+
+    async def count_historical_records(self, symbol: str) -> int:
+        """
+        统计指定股票的历史数据条数
+
+        Args:
+            symbol: 股票代码
+
+        Returns:
+            历史数据记录数量
+        """
+        if self.collection is None:
+            await self.initialize()
+
+        try:
+            return await self.collection.count_documents({"symbol": symbol})
+
+        except Exception as e:
+            logger.error(f"❌ 统计历史数据条数失败 {symbol}: {e}")
+            return 0
+
 
 # 全局服务实例
 _historical_data_service = None

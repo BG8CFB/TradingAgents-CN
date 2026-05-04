@@ -27,7 +27,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/agent-configs", tags=["agent-configs"])
+router = APIRouter(prefix="/api/agent-configs", tags=["Agent Configs"])
 
 import os
 

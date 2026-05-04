@@ -551,20 +551,6 @@ const performScreening = async () => {
   }
 }
 
-// @ts-expect-error
-const _generateMockResults = (): StockInfo[] => {
-  const mockStocks = [
-    { code: '000001', name: '平安银行', industry: '银行', close: 12.50, pct_chg: 2.1, total_mv: 2400, pe: 5.2, pb: 0.8 },
-    { code: '000002', name: '万科A', industry: '房地产', close: 18.30, pct_chg: -1.5, total_mv: 2100, pe: 8.5, pb: 1.2 },
-    { code: '000858', name: '五粮液', industry: '食品饮料', close: 168.50, pct_chg: 3.2, total_mv: 6500, pe: 25.3, pb: 4.5 }
-  ]
-
-  return mockStocks.map(stock => ({
-    ...stock,
-    market: filters.market
-  })) as StockInfo[]
-}
-
 const resetFilters = () => {
   Object.assign(filters, {
     market: 'A股',

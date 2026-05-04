@@ -14,7 +14,7 @@ from app.services.news_data_service import get_news_data_service, NewsQueryParam
 from app.worker.news_data_sync_service import get_news_data_sync_service
 from app.utils.timezone import now_utc, format_iso
 
-router = APIRouter(prefix="/api/news-data", tags=["新闻数据"])
+router = APIRouter(prefix="/api/news", tags=["News"])
 logger = logging.getLogger("webapi")
 
 

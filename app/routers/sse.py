@@ -11,7 +11,7 @@ from app.core.config import settings
 
 from app.services.queue_service import get_queue_service, QueueService
 
-router = APIRouter()
+router = APIRouter(prefix="/api/sse", tags=["SSE"])
 logger = logging.getLogger("webapi.sse")
 
 

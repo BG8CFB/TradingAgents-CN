@@ -13,7 +13,7 @@ from app.services.usage_statistics_service import usage_statistics_service
 
 logger = logging.getLogger("app.routers.usage_statistics")
 
-router = APIRouter(prefix="/api/usage", tags=["使用统计"])
+router = APIRouter(prefix="/api/usage-statistics", tags=["Usage Statistics"])
 
 
 @router.get("/records", summary="获取使用记录")

@@ -18,7 +18,7 @@ from app.engine.agents import Toolkit
 from app.engine.tools.registry import get_all_tools
 from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
 
-router = APIRouter(prefix="/api/tools", tags=["tools"])
+router = APIRouter(prefix="/api/tools", tags=["Tools"])
 logger = logging.getLogger(__name__)
 
 # 禁用工具存储文件

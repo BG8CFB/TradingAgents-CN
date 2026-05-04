@@ -6,7 +6,7 @@ import logging
 from app.core.config import settings
 from app.routers.auth_db import get_current_user
 
-router = APIRouter()
+router = APIRouter(prefix="/api/system", tags=["System"])
 logger = logging.getLogger("webapi")
 
 SENSITIVE_KEYS = {

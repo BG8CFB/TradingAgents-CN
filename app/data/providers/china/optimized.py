@@ -6,13 +6,13 @@
 
 import os
 import time
-import random
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from typing import Optional, Dict, Any
 from app.data.cache import get_cache
-from app.engine.config.config_manager import config_manager
+from app.core.config import settings
 
 from app.engine.config.runtime_settings import get_float, get_timezone_name
 from app.utils.time_utils import now_config_tz
@@ -29,7 +29,11 @@ class OptimizedChinaDataProvider:
 
     def __init__(self):
         self.cache = get_cache()
-        self.config = config_manager.load_settings()
+        self.config = {
+            "data_dir": settings.data_dir,
+            "cache_dir": settings.resolve_runtime_path("cache"),
+            "results_dir": settings.resolve_runtime_path("results"),
+        }
         self.last_api_call = 0
         self.min_api_interval = get_float("TA_CHINA_MIN_API_INTERVAL_SECONDS", "ta_china_min_api_interval_seconds", 0.5)
 
@@ -846,28 +850,25 @@ class OptimizedChinaDataProvider:
         """获取真实财务指标 - 优先使用数据库缓存，再使用API"""
         try:
             # 🔥 优先从 market_quotes 获取实时股价，替换传入的 price_value
-            from app.engine.config.database_manager import get_database_manager
-            db_manager = get_database_manager()
-            db_client = None
+            from app.core.database import get_mongo_db_sync
 
-            if db_manager.is_mongodb_available():
-                try:
-                    db_client = db_manager.get_mongodb_client()
-                    db = db_client['tradingagents']
+            try:
+                db = get_mongo_db_sync()
+            except Exception:
+                db = None
 
-                    # 标准化股票代码为6位
-                    code6 = symbol.replace('.SH', '').replace('.SZ', '').zfill(6)
+            if db:
+                # 标准化股票代码为6位
+                code6 = symbol.replace('.SH', '').replace('.SZ', '').zfill(6)
 
-                    # 从 market_quotes 获取实时股价
-                    quote = db.market_quotes.find_one({"code": code6})
-                    if quote and quote.get("close"):
-                        realtime_price = float(quote.get("close"))
-                        logger.info(f"✅ 从 market_quotes 获取实时股价: {code6} = {realtime_price}元 (原价格: {price_value}元)")
-                        price_value = realtime_price
-                    else:
-                        logger.info(f"⚠️ market_quotes 中未找到{code6}的实时股价，使用传入价格: {price_value}元")
-                except Exception as e:
-                    logger.warning(f"⚠️ 从 market_quotes 获取实时股价失败: {e}，使用传入价格: {price_value}元")
+                # 从 market_quotes 获取实时股价
+                quote = db.market_quotes.find_one({"code": code6})
+                if quote and quote.get("close"):
+                    realtime_price = float(quote.get("close"))
+                    logger.info(f"✅ 从 market_quotes 获取实时股价: {code6} = {realtime_price}元 (原价格: {price_value}元)")
+                    price_value = realtime_price
+                else:
+                    logger.info(f"⚠️ market_quotes 中未找到{code6}的实时股价，使用传入价格: {price_value}元")
             else:
                 logger.info(f"⚠️ MongoDB 不可用，使用传入价格: {price_value}元")
 
@@ -1057,11 +1058,15 @@ class OptimizedChinaDataProvider:
             try:
                 # 优先使用实时计算
                 from app.data.realtime_metrics import get_pe_pb_with_fallback
-                from app.engine.config.database_manager import get_database_manager
+                from app.core.database import get_mongo_db_sync
 
-                db_manager = get_database_manager()
-                if db_manager.is_mongodb_available():
-                    client = db_manager.get_mongodb_client()
+                try:
+                    db = get_mongo_db_sync()
+                    client = db.client if db else None
+                except Exception:
+                    client = None
+
+                if client:
                     # 从symbol中提取股票代码
                     stock_code = latest_indicators.get('code') or latest_indicators.get('symbol', '').replace('.SZ', '').replace('.SH', '')
 
@@ -1412,12 +1417,16 @@ class OptimizedChinaDataProvider:
                 if stock_code:
                     logger.info(f"📊 [AKShare-PE计算-第1层] 尝试使用实时PE/PB计算: {stock_code}")
 
-                    from app.engine.config.database_manager import get_database_manager
+                    from app.core.database import get_mongo_db_sync
                     from app.data.realtime_metrics import get_pe_pb_with_fallback
 
-                    db_manager = get_database_manager()
-                    if db_manager.is_mongodb_available():
-                        client = db_manager.get_mongodb_client()
+                    try:
+                        db = get_mongo_db_sync()
+                        client = db.client if db else None
+                    except Exception:
+                        client = None
+
+                    if client:
 
                         # 获取实时PE/PB
                         realtime_metrics = get_pe_pb_with_fallback(stock_code, client)
@@ -2091,37 +2100,38 @@ class OptimizedChinaDataProvider:
         return None
 
     def _generate_fallback_data(self, symbol: str, start_date: str, end_date: str, error_msg: str) -> str:
-        """生成备用数据"""
+        """数据获取失败时返回错误报告，不生成任何虚假数据"""
         return f"""# {symbol} A股数据获取失败
 
 ## ❌ 错误信息
 {error_msg}
 
-## 📊 模拟数据（仅供演示）
-- 股票代码: {symbol}
-- 股票名称: 模拟公司
-- 数据期间: {start_date} 至 {end_date}
-- 模拟价格: ¥{random.uniform(10, 50):.2f}
-- 模拟涨跌: {random.uniform(-5, 5):+.2f}%
-
 ## ⚠️ 重要提示
-由于数据接口限制或网络问题，无法获取实时数据。
-建议稍后重试或检查网络连接。
+所有数据源均不可用，无法获取 {symbol} 的行情数据。
+请勿基于此消息做出任何投资决策。
+
+建议操作：
+1. 检查数据源配置和 API 密钥是否有效
+2. 稍后重试（可能是网络或 API 限频问题）
+3. 在设置中切换备用数据源
 
 生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
     def _generate_fallback_fundamentals(self, symbol: str, error_msg: str) -> str:
-        """生成备用基本面数据"""
-        return f"""# {symbol} A股基本面分析失败
+        """基本面数据获取失败时返回错误报告，不生成任何虚假数据"""
+        return f"""# {symbol} A股基本面数据获取失败
 
 ## ❌ 错误信息
 {error_msg}
 
-## 📊 基本信息
-- 股票代码: {symbol}
-- 分析状态: 数据获取失败
-- 建议: 稍后重试或检查网络连接
+## ⚠️ 说明
+{symbol} 的基本面数据暂不可用，请勿基于此消息做投资判断。
+
+建议操作：
+1. 检查数据源配置和 API 密钥是否有效
+2. 稍后重试
+3. 在设置中切换备用数据源
 
 生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """

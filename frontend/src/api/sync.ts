@@ -71,7 +71,7 @@ export interface SyncRecommendations {
  * 获取数据源状态
  */
 export const getDataSourcesStatus = (): Promise<ApiResponse<DataSourceStatus[]>> => {
-  return ApiClient.get('/api/sync/multi-source/sources/status')
+  return ApiClient.get('/api/multi-source-sync/sources/status')
 }
 
 /**
@@ -84,14 +84,14 @@ export const getCurrentDataSource = (): Promise<ApiResponse<{
   token_source?: 'database' | 'env'
   token_source_display?: string
 }>> => {
-  return ApiClient.get('/api/sync/multi-source/sources/current')
+  return ApiClient.get('/api/multi-source-sync/sources/current')
 }
 
 /**
  * 获取同步状态
  */
 export const getSyncStatus = (): Promise<ApiResponse<SyncStatus>> => {
-  return ApiClient.get('/api/sync/multi-source/status')
+  return ApiClient.get('/api/multi-source-sync/status')
 }
 
 /**
@@ -109,7 +109,7 @@ export const runStockBasicsSync = (params?: {
     queryParams.append('preferred_sources', params.preferred_sources)
   }
 
-  const url = `/api/sync/multi-source/stock_basics/run${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  const url = `/api/multi-source-sync/stock_basics/run${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return ApiClient.post(url, undefined, {
     timeout: 600000 // 🔥 同步操作需要更长时间，设置为10分钟（BaoStock需要逐个获取估值数据）
   })
@@ -121,7 +121,7 @@ export const runStockBasicsSync = (params?: {
  */
 export const testDataSources = (sourceName?: string): Promise<ApiResponse<{ test_results: DataSourceTestResult[] }>> => {
   const params = sourceName ? { source_name: sourceName } : {}
-  return ApiClient.post('/api/sync/multi-source/test-sources', params, {
+  return ApiClient.post('/api/multi-source-sync/test-sources', params, {
     timeout: 15000 // 单个数据源测试超时15秒，多个数据源最多30秒
   })
 }
@@ -130,7 +130,7 @@ export const testDataSources = (sourceName?: string): Promise<ApiResponse<{ test
  * 获取同步建议
  */
 export const getSyncRecommendations = (): Promise<ApiResponse<SyncRecommendations>> => {
-  return ApiClient.get('/api/sync/multi-source/recommendations')
+  return ApiClient.get('/api/multi-source-sync/recommendations')
 }
 
 /**
@@ -158,7 +158,7 @@ export const getSyncHistory = (params?: {
     queryParams.append('status', params.status)
   }
 
-  const url = `/api/sync/multi-source/history${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  const url = `/api/multi-source-sync/history${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return ApiClient.get(url)
 }
 
@@ -166,14 +166,5 @@ export const getSyncHistory = (params?: {
  * 清空同步缓存
  */
 export const clearSyncCache = (): Promise<ApiResponse<{ cleared: boolean }>> => {
-  return ApiClient.delete('/api/sync/multi-source/cache')
-}
-
-// 传统单一数据源同步API（保持兼容性）
-export const runSingleSourceSync = (): Promise<ApiResponse<any>> => {
-  return ApiClient.post('/api/sync/stock_basics/run')
-}
-
-export const getSingleSourceSyncStatus = (): Promise<ApiResponse<any>> => {
-  return ApiClient.get('/api/sync/stock_basics/status')
+  return ApiClient.delete('/api/multi-source-sync/cache')
 }

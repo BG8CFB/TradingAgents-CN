@@ -131,29 +131,6 @@ const createAxiosInstance = (): AxiosInstance => {
         appStore.setLoading(true, 0)
       }
 
-      // 端点兼容守卫：阻止/修正误用的 /api/stocks/quote（缺少路径参数 {code}）
-      try {
-        const rawUrl = String(config.url || '')
-        const pathOnly = rawUrl.split('?')[0].replace(/\/+$|^\s+|\s+$/g, '')
-        if (pathOnly === '/api/stocks/quote' || pathOnly === '/api/stocks/quote/') {
-          const code = (config.params && (config.params.code || (config as any).params?.stock_code)) ?? undefined
-          if (code) {
-            const codeStr = String(code)
-            config.url = `/api/stocks/${codeStr}/quote`
-            if (config.params) {
-              delete (config.params as any).code
-              delete (config.params as any).stock_code
-            }
-            console.warn('🔧 已自动重写遗留端点为 /api/stocks/{code}/quote', { code: codeStr })
-          } else {
-            console.error('❌ 误用端点: /api/stocks/quote 缺少 code。请改用 /api/stocks/{code}/quote', { stack: new Error().stack })
-            return Promise.reject(new Error('前端误用端点：缺少 code，请改用 /api/stocks/{code}/quote'))
-          }
-        }
-      } catch (e) {
-        console.warn('端点兼容检查异常', e)
-      }
-
       console.log(`🚀 API请求: ${config.method?.toUpperCase()} ${config.url}`, {
         baseURL: config.baseURL,
         fullURL: `${config.baseURL}${config.url}`,

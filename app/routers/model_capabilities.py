@@ -24,7 +24,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/model-capabilities", tags=["模型能力管理"])
+router = APIRouter(prefix="/api/model-capabilities", tags=["Model Capabilities"])
 
 
 # ==================== 请求/响应模型 ====================

@@ -1,10 +1,12 @@
 import json
 import logging
 import os
+import platform
+import shutil
 from contextlib import nullcontext
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 try:  # 轻量文件锁，避免并发写入损坏；若未安装则降级为无锁
     from filelock import FileLock
@@ -58,6 +60,111 @@ def _allowed_roots() -> List[Path]:
     # 默认允许 config 目录，避免意外写入工作目录之外
     roots.append(BASE_CONFIG_DIR.resolve())
     return roots
+
+
+_IS_WINDOWS = platform.system() == "Windows"
+
+_COMMAND_FALLBACKS: Dict[str, List[str]] = {
+    "uvx": ["uv", "uvx"],
+    "npx": ["npx", "npx.cmd", "npm"],
+}
+
+_RESOLVED_COMMAND_CACHE: Dict[str, Optional[str]] = {}
+
+
+def resolve_command(command: str) -> Tuple[str, Optional[str]]:
+    """
+    解析 MCP 服务器命令，解决跨平台兼容性问题。
+
+    在 Windows 上，uvx/npx 等脚本包装器可能无法直接被 subprocess 找到，
+    需要通过 shutil.which 解析完整路径，或回退到替代命令。
+
+    Args:
+        command: 原始命令名称（如 "uvx", "npx"）
+
+    Returns:
+        (resolved_command, error_message)
+        - resolved_command: 解析后的命令（可能是原始命令、完整路径或回退命令）
+        - error_message: 如果解析失败，返回错误信息；成功则为 None
+    """
+    if not command:
+        return command, "命令为空"
+
+    if Path(command).is_absolute():
+        if os.path.isfile(command):
+            return command, None
+        return command, f"绝对路径命令不存在: {command}"
+
+    cmd_name = Path(command).name
+
+    if cmd_name in _RESOLVED_COMMAND_CACHE:
+        cached = _RESOLVED_COMMAND_CACHE[cmd_name]
+        if cached is not None:
+            return cached, None
+        return command, f"命令 '{cmd_name}' 未找到（已缓存）"
+
+    resolved = shutil.which(command)
+    if resolved:
+        _RESOLVED_COMMAND_CACHE[cmd_name] = resolved
+        logger.debug("[MCP] 命令解析: %s -> %s", command, resolved)
+        return resolved, None
+
+    fallbacks = _COMMAND_FALLBACKS.get(cmd_name, [])
+    for fb in fallbacks:
+        if fb == command:
+            continue
+        fb_resolved = shutil.which(fb)
+        if fb_resolved:
+            _RESOLVED_COMMAND_CACHE[cmd_name] = fb_resolved
+            logger.info("[MCP] 命令回退: %s -> %s (%s)", command, fb, fb_resolved)
+            return fb_resolved, None
+
+    if cmd_name == "uvx":
+        _RESOLVED_COMMAND_CACHE[cmd_name] = None
+        msg = (
+            f"命令 '{command}' 未找到。"
+            "请安装 uv: pip install uv 或 https://docs.astral.sh/uv/getting-started/installation/"
+        )
+        return command, msg
+
+    if cmd_name == "npx":
+        _RESOLVED_COMMAND_CACHE[cmd_name] = None
+        msg = (
+            f"命令 '{command}' 未找到。"
+            "请安装 Node.js: https://nodejs.org/"
+        )
+        return command, msg
+
+    _RESOLVED_COMMAND_CACHE[cmd_name] = None
+    return command, f"命令 '{command}' 未找到，请确认已安装并添加到 PATH"
+
+
+def check_command_available(command: str) -> Tuple[bool, Optional[str]]:
+    """
+    检查命令是否可用（不修改命令，仅检查）。
+
+    Returns:
+        (is_available, error_message)
+    """
+    if not command:
+        return False, "命令为空"
+
+    resolved = shutil.which(command)
+    if resolved:
+        return True, None
+
+    cmd_name = Path(command).name
+    fallbacks = _COMMAND_FALLBACKS.get(cmd_name, [])
+    for fb in fallbacks:
+        if shutil.which(fb):
+            return True, None
+
+    return False, f"命令 '{command}' 未找到，请确认已安装并添加到 PATH"
+
+
+def clear_command_cache() -> None:
+    """清除命令解析缓存（用于测试或重新检测环境）"""
+    _RESOLVED_COMMAND_CACHE.clear()
 
 
 class HealthCheckConfig(BaseModel):

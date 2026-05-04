@@ -9,7 +9,7 @@ from app.routers.auth_db import get_current_user
 from app.core.response import ok
 from app.services.tags_service import tags_service
 
-router = APIRouter(prefix="/tags", tags=["标签管理"])
+router = APIRouter(prefix="/api/tags", tags=["Tags"])
 
 
 class TagCreate(BaseModel):

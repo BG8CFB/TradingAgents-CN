@@ -17,9 +17,9 @@ import logging
 _logger = logging.getLogger('dataflows')
 
 try:
-    from app.engine.config.database_manager import get_mongodb_client
+    from app.core.database import get_mongo_db_sync
 except Exception:  # pragma: no cover - 弱依赖
-    get_mongodb_client = None  # type: ignore
+    get_mongo_db_sync = None  # type: ignore
 
 
 BASICS_COLLECTION = "stock_basic_info"
@@ -28,33 +28,27 @@ QUOTES_COLLECTION = "market_quotes"
 
 def get_basics_from_cache(stock_code: Optional[str] = None) -> Optional[Dict[str, Any] | List[Dict[str, Any]]]:
     """从 app 的 stock_basic_info 读取基础信息。"""
-    if get_mongodb_client is None:
-        return None
-    client = get_mongodb_client()
-    if not client:
+    if get_mongo_db_sync is None:
         return None
     try:
-        # 数据库名取自 DatabaseManager 内部配置
-        db_name = None
-        try:
-            # 访问 DatabaseManager 暴露的配置
-            from app.engine.config.database_manager import get_database_manager  # type: ignore
-            db_name = get_database_manager().mongodb_config.get("database", "tradingagents")
-        except Exception:
-            db_name = "tradingagents"
-        db = client[db_name]
+        db = get_mongo_db_sync()
+    except Exception:
+        return None
+    if not db:
+        return None
+    try:
         coll = db[BASICS_COLLECTION]
         if stock_code:
             code6 = str(stock_code).zfill(6)
             try:
-                _logger.debug(f"[app_cache] 查询基础信息 | db={db_name} coll={BASICS_COLLECTION} code={code6}")
+                _logger.debug(f"[app_cache] 查询基础信息 | coll={BASICS_COLLECTION} code={code6}")
             except Exception:
                 pass
             # 同时查询 symbol 和 code 字段，确保兼容新旧数据格式
             doc = coll.find_one({"$or": [{"symbol": code6}, {"code": code6}]})
             if not doc:
                 try:
-                    _logger.debug(f"[app_cache] 基础信息未命中 | db={db_name} coll={BASICS_COLLECTION} code={code6}")
+                    _logger.debug(f"[app_cache] 基础信息未命中 | coll={BASICS_COLLECTION} code={code6}")
                 except Exception:
                     pass
             return doc or None
@@ -72,26 +66,25 @@ def get_basics_from_cache(stock_code: Optional[str] = None) -> Optional[Dict[str
 
 def get_market_quote_dataframe(symbol: str) -> Optional[pd.DataFrame]:
     """从 app 的 market_quotes 读取单只股票的最新一条快照，并转为 DataFrame。"""
-    if get_mongodb_client is None:
-        return None
-    client = get_mongodb_client()
-    if not client:
+    if get_mongo_db_sync is None:
         return None
     try:
-        # 获取数据库
-        from app.engine.config.database_manager import get_database_manager  # type: ignore
-        db_name = get_database_manager().mongodb_config.get("database", "tradingagents")
-        db = client[db_name]
+        db = get_mongo_db_sync()
+    except Exception:
+        return None
+    if not db:
+        return None
+    try:
         coll = db[QUOTES_COLLECTION]
         code = str(symbol).zfill(6)
         try:
-            _logger.debug(f"[app_cache] 查询行情 | db={db_name} coll={QUOTES_COLLECTION} code={code}")
+            _logger.debug(f"[app_cache] 查询行情 | coll={QUOTES_COLLECTION} code={code}")
         except Exception:
             pass
         doc = coll.find_one({"code": code})
         if not doc:
             try:
-                _logger.debug(f"[app_cache] 行情未命中 | db={db_name} coll={QUOTES_COLLECTION} code={code}")
+                _logger.debug(f"[app_cache] 行情未命中 | coll={QUOTES_COLLECTION} code={code}")
             except Exception:
                 pass
             return None

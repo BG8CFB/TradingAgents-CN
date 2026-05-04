@@ -10,7 +10,7 @@ from app.core.response import ok
 from app.core.database import get_redis_client
 from app.services.notifications_service import get_notifications_service
 
-router = APIRouter()
+router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 logger = logging.getLogger("webapi.notifications")
 
 

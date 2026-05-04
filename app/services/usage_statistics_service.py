@@ -236,3 +236,134 @@ class UsageStatisticsService:
 # 创建全局实例
 usage_statistics_service = UsageStatisticsService()
 
+
+# ==================== 同步 Token 跟踪器 ====================
+# 供 LLM 适配器使用的同步 token 跟踪器
+# 从 app.engine.config.config_manager.TokenTracker 迁移而来
+
+import json
+from pathlib import Path
+from dataclasses import asdict
+
+
+class SyncTokenTracker:
+    """同步 Token 使用跟踪器（供 LLM 适配器使用）"""
+
+    def __init__(self):
+        self._pricing_cache: list = []
+        self._pricing_loaded = False
+
+    def _load_pricing(self) -> list:
+        """加载定价配置"""
+        if self._pricing_loaded:
+            return self._pricing_cache
+        try:
+            pricing_file = Path("config/pricing.json")
+            if pricing_file.exists():
+                with open(pricing_file, 'r', encoding='utf-8') as f:
+                    self._pricing_cache = json.load(f)
+            self._pricing_loaded = True
+        except Exception as e:
+            logger.warning(f"加载定价配置失败: {e}")
+        return self._pricing_cache
+
+    def calculate_cost(self, provider: str, model_name: str,
+                       input_tokens: int, output_tokens: int) -> tuple:
+        """
+        计算使用成本
+
+        Returns:
+            tuple[float, str]: (成本, 货币单位)
+        """
+        pricing_configs = self._load_pricing()
+
+        for pricing in pricing_configs:
+            p = pricing.get("provider", "") if isinstance(pricing, dict) else getattr(pricing, "provider", "")
+            m = pricing.get("model_name", "") if isinstance(pricing, dict) else getattr(pricing, "model_name", "")
+            if p == provider and m == model_name:
+                inp = pricing.get("input_price_per_1k", 0) if isinstance(pricing, dict) else getattr(pricing, "input_price_per_1k", 0)
+                out = pricing.get("output_price_per_1k", 0) if isinstance(pricing, dict) else getattr(pricing, "output_price_per_1k", 0)
+                cur = pricing.get("currency", "CNY") if isinstance(pricing, dict) else getattr(pricing, "currency", "CNY")
+                total = (input_tokens / 1000) * inp + (output_tokens / 1000) * out
+                return round(total, 6), cur
+
+        return 0.0, "CNY"
+
+    def track_usage(self, provider: str, model_name: str, input_tokens: int,
+                    output_tokens: int, session_id: str = None,
+                    analysis_type: str = "stock_analysis"):
+        """
+        跟踪 Token 使用量并保存到 MongoDB
+
+        Returns:
+            UsageRecord or dict: 使用记录
+        """
+        if session_id is None:
+            session_id = f"session_{now_config_tz().strftime('%Y%m%d_%H%M%S')}"
+
+        # 计算成本
+        cost, currency = self.calculate_cost(provider, model_name, input_tokens, output_tokens)
+
+        # 尝试同步写入 MongoDB
+        try:
+            from app.core.database import get_mongo_db_sync
+            db = get_mongo_db_sync()
+            if db is not None:
+                record_doc = {
+                    "timestamp": now_config_tz().isoformat(),
+                    "provider": provider,
+                    "model_name": model_name,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost": cost,
+                    "currency": currency,
+                    "session_id": session_id,
+                    "analysis_type": analysis_type,
+                }
+                db["token_usage"].insert_one(record_doc)
+                logger.info(f"💾 [Token记录] MongoDB保存成功: {provider}/{model_name}, 成本={cost:.6f}")
+                # 返回一个简单的类 dict 对象兼容旧的 UsageRecord 接口
+                record_doc["cost"] = cost
+                return _SimpleRecord(**record_doc)
+        except Exception as e:
+            logger.warning(f"⚠️ [Token记录] MongoDB保存失败，回退到JSON: {e}")
+
+        # 回退到 JSON 文件存储
+        try:
+            from app.engine.config.usage_models import UsageRecord
+            record = UsageRecord(
+                timestamp=now_config_tz().isoformat(),
+                provider=provider,
+                model_name=model_name,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost,
+                currency=currency,
+                session_id=session_id,
+                analysis_type=analysis_type,
+            )
+            usage_file = Path("config/usage.json")
+            records = []
+            if usage_file.exists():
+                with open(usage_file, 'r', encoding='utf-8') as f:
+                    records = json.load(f)
+            records.append(asdict(record))
+            with open(usage_file, 'w', encoding='utf-8') as f:
+                json.dump(records[-10000:], f, ensure_ascii=False, indent=2)
+            logger.info(f"💾 [Token记录] JSON文件保存成功: {provider}/{model_name}")
+            return record
+        except Exception as e:
+            logger.error(f"❌ [Token记录] 保存失败: {e}")
+            return None
+
+
+class _SimpleRecord:
+    """简单的记录对象，兼容旧 UsageRecord 的属性访问"""
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+# 全局同步 token_tracker 实例
+token_tracker = SyncTokenTracker()
+

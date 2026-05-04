@@ -238,18 +238,23 @@ except ImportError as e:
     logger.warning(f"⚠️ yfinance库不可用: {e}")
     yf = None
     YF_AVAILABLE = False
-from app.engine.config.config_manager import config_manager
+from app.core.config import settings
 
 # 获取数据目录
-DATA_DIR = config_manager.get_data_dir()
+DATA_DIR = settings.data_dir
 
 def get_config():
     """获取配置（兼容性包装）"""
-    return config_manager.load_settings()
+    return {
+        "data_dir": settings.data_dir,
+        "cache_dir": settings.resolve_runtime_path("cache"),
+        "results_dir": settings.resolve_runtime_path("results"),
+    }
 
 def set_config(config):
-    """设置配置（兼容性包装）"""
-    config_manager.save_settings(config)
+    """设置配置（兼容性包装）- 仅日志提示"""
+    import logging
+    logging.getLogger(__name__).warning("set_config() is deprecated; use settings/env vars directly")
 
 
 def get_finnhub_news(

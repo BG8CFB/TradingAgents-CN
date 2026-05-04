@@ -6,7 +6,7 @@
 
 import os
 import time
-import random
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -489,21 +489,20 @@ class OptimizedUSDataProvider:
             return None
 
     def _generate_fallback_data(self, symbol: str, start_date: str, end_date: str, error_msg: str) -> str:
-        """生成备用数据"""
+        """数据获取失败时返回错误报告，不生成任何虚假数据"""
         return f"""# {symbol} 美股数据获取失败
 
 ## ❌ 错误信息
 {error_msg}
 
-## 📊 模拟数据（仅供演示）
-- 股票代码: {symbol}
-- 数据期间: {start_date} 至 {end_date}
-- 最新价格: ${random.uniform(100, 300):.2f}
-- 模拟涨跌: {random.uniform(-5, 5):+.2f}%
-
 ## ⚠️ 重要提示
-由于API限制或网络问题，无法获取实时数据。
-建议稍后重试或检查网络连接。
+所有美股数据源均不可用，无法获取 {symbol} 的行情数据。
+请勿基于此消息做出任何投资决策。
+
+建议操作：
+1. 检查数据源配置和 API 密钥是否有效
+2. 稍后重试（可能是网络或 API 限频问题）
+3. 在设置中切换备用数据源
 
 生成时间: {now_config_tz().strftime('%Y-%m-%d %H:%M:%S')}
 """

@@ -12,11 +12,12 @@ import re
 from app.routers.auth_db import get_current_user
 from app.core.database import get_mongo_db
 from app.core.response import ok
+from app.services.unified_stock_service import UnifiedStockService
 from app.utils.time_utils import now_config_tz, format_date_compact, format_date_short
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/stocks", tags=["stocks"])
+router = APIRouter(prefix="/api/stocks", tags=["Stocks"])
 
 
 def _zfill_code(code: str) -> str:
@@ -108,107 +109,14 @@ async def get_quote(
                 detail=f"获取行情失败: {str(e)}"
             )
 
-    # A股：使用现有逻辑
-    db = get_mongo_db()
+    # A股：使用统一服务
     code6 = normalized_code
+    db = get_mongo_db()
+    service = UnifiedStockService(db)
 
-    # 行情
-    q = await db["market_quotes"].find_one({"code": code6}, {"_id": 0})
-
-    # 🔥 调试日志：查看查询结果
-    logger.info(f"🔍 查询 market_quotes: code={code6}")
-    if q:
-        logger.info(f"  ✅ 找到数据: volume={q.get('volume')}, amount={q.get('amount')}, volume_ratio={q.get('volume_ratio')}")
-    else:
-        logger.info(f"  ❌ 未找到数据")
-
-    # 🔥 基础信息 - 按数据源优先级查询
-    from app.core.unified_config import UnifiedConfigManager
-    config = UnifiedConfigManager()
-    data_source_configs = await config.get_data_source_configs_async()
-
-    # 提取启用的数据源，按优先级排序
-    enabled_sources = [
-        ds.type.lower() for ds in data_source_configs
-        if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-    ]
-
-    if not enabled_sources:
-        enabled_sources = ['tushare', 'akshare', 'baostock']
-
-    # 按优先级查询基础信息
-    b = None
-    for src in enabled_sources:
-        b = await db["stock_basic_info"].find_one({"code": code6, "source": src}, {"_id": 0})
-        if b:
-            break
-
-    # 如果所有数据源都没有，尝试不带 source 条件查询（兼容旧数据）
-    if not b:
-        b = await db["stock_basic_info"].find_one({"code": code6}, {"_id": 0})
-
-    if not q and not b:
+    data = await service.get_cn_quote_with_basic_info(code6)
+    if not data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到该股票的任何信息")
-
-    close = (q or {}).get("close")
-    pct = (q or {}).get("pct_chg")
-    pre_close_saved = (q or {}).get("pre_close")
-    prev_close = pre_close_saved
-    if prev_close is None:
-        try:
-            if close is not None and pct is not None:
-                prev_close = round(float(close) / (1.0 + float(pct) / 100.0), 4)
-        except Exception:
-            prev_close = None
-
-    # 🔥 优先从 market_quotes 获取 turnover_rate（实时数据）
-    # 如果 market_quotes 中没有，再从 stock_basic_info 获取（日度数据）
-    turnover_rate = (q or {}).get("turnover_rate")
-    turnover_rate_date = None
-    if turnover_rate is None:
-        turnover_rate = (b or {}).get("turnover_rate")
-        turnover_rate_date = (b or {}).get("trade_date")  # 来自日度数据
-    else:
-        turnover_rate_date = (q or {}).get("trade_date")  # 来自实时数据
-
-    # 🔥 计算振幅（amplitude）替代量比（volume_ratio）
-    # 振幅 = (最高价 - 最低价) / 昨收价 × 100%
-    amplitude = None
-    amplitude_date = None
-    try:
-        high = (q or {}).get("high")
-        low = (q or {}).get("low")
-        logger.info(f"🔍 计算振幅: high={high}, low={low}, prev_close={prev_close}")
-        if high is not None and low is not None and prev_close is not None and prev_close > 0:
-            amplitude = round((float(high) - float(low)) / float(prev_close) * 100, 2)
-            amplitude_date = (q or {}).get("trade_date")  # 来自实时数据
-            logger.info(f"  ✅ 振幅计算成功: {amplitude}%")
-        else:
-            logger.warning(f"  ⚠️ 数据不完整，无法计算振幅")
-    except Exception as e:
-        logger.warning(f"  ❌ 计算振幅失败: {e}")
-        amplitude = None
-
-    data = {
-        "code": code6,
-        "name": (b or {}).get("name"),
-        "market": (b or {}).get("market"),
-        "price": close,
-        "change_percent": pct,
-        "amount": (q or {}).get("amount"),
-        "volume": (q or {}).get("volume"),
-        "open": (q or {}).get("open"),
-        "high": (q or {}).get("high"),
-        "low": (q or {}).get("low"),
-        "prev_close": prev_close,
-        # 🔥 优先使用实时数据，降级到日度数据
-        "turnover_rate": turnover_rate,
-        "amplitude": amplitude,  # 🔥 新增：振幅（替代量比）
-        "turnover_rate_date": turnover_rate_date,  # 🔥 新增：换手率数据日期
-        "amplitude_date": amplitude_date,  # 🔥 新增：振幅数据日期
-        "trade_date": (q or {}).get("trade_date"),
-        "updated_at": (q or {}).get("updated_at"),
-    }
 
     return ok(data)
 
@@ -252,169 +160,27 @@ async def get_fundamentals(
                 detail=f"获取基础信息失败: {str(e)}"
             )
 
-    # A股：使用现有逻辑
-    db = get_mongo_db()
+    # A股：使用统一服务
     code6 = normalized_code
-
-    # 1. 获取基础信息（支持数据源筛选）
-    query = {"code": code6}
+    db = get_mongo_db()
+    service = UnifiedStockService(db)
 
     if source:
-        # 指定数据源
-        query["source"] = source
-        b = await db["stock_basic_info"].find_one(query, {"_id": 0})
-        if not b:
+        # 指定数据源时，先检查是否存在
+        info = await service.get_cn_fundamentals(code6, source=source)
+        if not info:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"未找到该股票在数据源 {source} 中的基础信息"
             )
-    else:
-        # 🔥 未指定数据源，按优先级查询
-        source_priority = ["tushare", "multi_source", "akshare", "baostock"]
-        b = None
+        return ok(data=info)
 
-        for src in source_priority:
-            query_with_source = {"code": code6, "source": src}
-            b = await db["stock_basic_info"].find_one(query_with_source, {"_id": 0})
-            if b:
-                logger.info(f"✅ 使用数据源: {src} 查询股票 {code6}")
-                break
-
-        # 如果所有数据源都没有，尝试不带 source 条件查询（兼容旧数据）
-        if not b:
-            b = await db["stock_basic_info"].find_one({"code": code6}, {"_id": 0})
-            if b:
-                logger.warning(f"⚠️ 使用旧数据（无 source 字段）: {code6}")
-
-        if not b:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到该股票的基础信息")
-
-    # 2. 尝试从 stock_financial_data 获取最新财务指标
-    # 🔥 按数据源优先级查询，而不是按时间戳，避免混用不同数据源的数据
-    financial_data = None
-    try:
-        # 获取数据源优先级配置
-        from app.core.unified_config import UnifiedConfigManager
-        config = UnifiedConfigManager()
-        data_source_configs = await config.get_data_source_configs_async()
-
-        # 提取启用的数据源，按优先级排序
-        enabled_sources = [
-            ds.type.lower() for ds in data_source_configs
-            if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-        ]
-
-        if not enabled_sources:
-            enabled_sources = ['tushare', 'akshare', 'baostock']
-
-        # 按数据源优先级查询财务数据
-        for data_source in enabled_sources:
-            financial_data = await db["stock_financial_data"].find_one(
-                {"$or": [{"symbol": code6}, {"code": code6}], "data_source": data_source},
-                {"_id": 0},
-                sort=[("report_period", -1)]  # 按报告期降序，获取该数据源的最新数据
-            )
-            if financial_data:
-                logger.info(f"✅ 使用数据源 {data_source} 的财务数据 (报告期: {financial_data.get('report_period')})")
-                break
-
-        if not financial_data:
-            logger.warning(f"⚠️ 未找到 {code6} 的财务数据")
-    except Exception as e:
-        logger.error(f"获取财务数据失败: {e}")
-
-    # 3. 获取实时PE/PB（优先使用实时计算）
-    from app.data.realtime_metrics import get_pe_pb_with_fallback
-    import asyncio
-
-    # 在线程池中执行同步的实时计算
-    realtime_metrics = await asyncio.to_thread(
-        get_pe_pb_with_fallback,
-        code6,
-        db.client
-    )
-
-    # 4. 构建返回数据
-    # 🔥 优先使用实时市值，降级到 stock_basic_info 的静态市值
-    realtime_market_cap = realtime_metrics.get("market_cap")  # 实时市值（亿元）
-    total_mv = realtime_market_cap if realtime_market_cap else b.get("total_mv")
-
-    data = {
-        "code": code6,
-        "name": b.get("name"),
-        "industry": b.get("industry"),  # 行业（如：银行、软件服务）
-        "market": b.get("market"),      # 交易所（如：主板、创业板）
-
-        # 板块信息：使用 market 字段（主板/创业板/科创板/北交所等）
-        "sector": b.get("market"),
-
-        # 估值指标（优先使用实时计算，降级到 stock_basic_info）
-        "pe": realtime_metrics.get("pe") or b.get("pe"),
-        "pb": realtime_metrics.get("pb") or b.get("pb"),
-        "pe_ttm": realtime_metrics.get("pe_ttm") or b.get("pe_ttm"),
-        "pb_mrq": realtime_metrics.get("pb_mrq") or b.get("pb_mrq"),
-
-        # 🔥 市销率（PS）- 动态计算（使用实时市值）
-        "ps": None,
-        "ps_ttm": None,
-
-        # PE/PB 数据来源标识
-        "pe_source": realtime_metrics.get("source", "unknown"),
-        "pe_is_realtime": realtime_metrics.get("is_realtime", False),
-        "pe_updated_at": realtime_metrics.get("updated_at"),
-
-        # ROE（优先从 stock_financial_data 获取，其次从 stock_basic_info）
-        "roe": None,
-
-        # 负债率（从 stock_financial_data 获取）
-        "debt_ratio": None,
-
-        # 市值：优先使用实时市值，降级到静态市值
-        "total_mv": total_mv,
-        "circ_mv": b.get("circ_mv"),
-
-        # 🔥 市值来源标识
-        "mv_is_realtime": bool(realtime_market_cap),
-
-        # 交易指标（可能为空）
-        "turnover_rate": b.get("turnover_rate"),
-        "volume_ratio": b.get("volume_ratio"),
-
-        "updated_at": b.get("updated_at"),
-    }
-
-    # 5. 从财务数据中提取 ROE、负债率和计算 PS
-    if financial_data:
-        # ROE（净资产收益率）
-        if financial_data.get("financial_indicators"):
-            indicators = financial_data["financial_indicators"]
-            data["roe"] = indicators.get("roe")
-            data["debt_ratio"] = indicators.get("debt_to_assets")
-
-        # 如果 financial_indicators 中没有，尝试从顶层字段获取
-        if data["roe"] is None:
-            data["roe"] = financial_data.get("roe")
-        if data["debt_ratio"] is None:
-            data["debt_ratio"] = financial_data.get("debt_to_assets")
-
-        # 🔥 动态计算 PS（市销率）- 使用实时市值
-        # 优先使用 TTM 营业收入，如果没有则使用单期营业收入
-        revenue_ttm = financial_data.get("revenue_ttm")
-        revenue = financial_data.get("revenue")
-        revenue_for_ps = revenue_ttm if revenue_ttm and revenue_ttm > 0 else revenue
-
-        if revenue_for_ps and revenue_for_ps > 0:
-            # 🔥 使用实时市值（如果有），否则使用静态市值
-            if total_mv and total_mv > 0:
-                # 营业收入单位：元，需要转换为亿元
-                revenue_yi = revenue_for_ps / 100000000
-                ps_calculated = total_mv / revenue_yi
-                data["ps"] = round(ps_calculated, 2)
-                data["ps_ttm"] = round(ps_calculated, 2) if revenue_ttm else None
-
-    # 6. 如果财务数据中没有 ROE，使用 stock_basic_info 中的
-    if data["roe"] is None:
-        data["roe"] = b.get("roe")
+    data = await service.get_cn_fundamentals(code6)
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="未找到该股票的基础信息"
+        )
 
     return ok(data)
 
@@ -573,11 +339,12 @@ async def get_kline(
             if should_fetch_realtime:
                 logger.info(f"🔥 尝试从 market_quotes 获取当天实时数据: {code_padded} (交易时间: {is_trading_time}, 已有当天数据: {has_today_data})")
 
+                # 使用统一服务获取实时行情原始数据
                 db = get_mongo_db()
-                market_quotes_coll = db["market_quotes"]
+                stock_service = UnifiedStockService(db)
 
                 # 查询当天的实时行情
-                realtime_quote = await market_quotes_coll.find_one({"code": code_padded})
+                realtime_quote = await stock_service.get_market_quotes_raw(code_padded)
 
                 if realtime_quote:
                     # 🔥 构造当天的K线数据（使用统一的日期格式 YYYY-MM-DD）
@@ -744,4 +511,79 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
                 "items": []
             }
             return ok(data)
+
+
+@router.get("/search", response_model=dict)
+async def search_stocks(
+    q: str = Query(..., min_length=1, description="搜索关键词（代码或名称）"),
+    market: str = Query("CN", description="市场类型 (CN/HK/US)"),
+    limit: int = Query(20, ge=1, le=100, description="返回结果数量"),
+    current_user: dict = Depends(get_current_user)
+):
+    """搜索股票（支持多市场）"""
+    market = market.upper()
+    if market not in ["CN", "HK", "US"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"不支持的市场类型: {market}"
+        )
+
+    db = get_mongo_db()
+    service = UnifiedStockService(db)
+
+    try:
+        results = await service.search_stocks(market, q, limit)
+        return ok(data={
+            "stocks": results,
+            "total": len(results)
+        })
+    except Exception as e:
+        logger.error(f"搜索股票失败: market={market}, q={q}, error={e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"搜索失败: {str(e)}"
+        )
+
+
+@router.get("/{code}/basic-info", response_model=dict)
+async def get_basic_info(
+    code: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """获取股票基础信息（替代原 /api/stock-data/basic-info/{symbol}）"""
+    try:
+        from app.services.stock_data_service import get_stock_data_service
+        service = get_stock_data_service()
+        stock_info = await service.get_stock_basic_info(code)
+
+        if not stock_info:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"未找到股票代码 {code} 的基础信息"
+            )
+        return ok(data=stock_info)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取股票基础信息失败: {str(e)}"
+        )
+
+
+@router.get("/sync-status/quotes", response_model=dict)
+async def get_quotes_sync_status(
+    current_user: dict = Depends(get_current_user)
+):
+    """获取实时行情同步状态（替代原 /api/stock-data/sync-status/quotes）"""
+    try:
+        from app.services.quotes_ingestion_service import QuotesIngestionService
+        service = QuotesIngestionService()
+        status_data = await service.get_sync_status()
+        return ok(data=status_data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取同步状态失败: {str(e)}"
+        )
 

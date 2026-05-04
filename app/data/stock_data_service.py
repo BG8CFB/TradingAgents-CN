@@ -16,10 +16,10 @@ from app.utils.logging_manager import get_logger
 logger = get_logger('agents')
 
 try:
-    from app.engine.config.database_manager import get_database_manager
-    DATABASE_MANAGER_AVAILABLE = True
+    from app.core.database import get_mongo_db_sync
+    DATABASE_AVAILABLE = True
 except ImportError:
-    DATABASE_MANAGER_AVAILABLE = False
+    DATABASE_AVAILABLE = False
 
 try:
     import sys
@@ -42,22 +42,24 @@ class StockDataService:
     """
     
     def __init__(self):
-        self.db_manager = None
+        self._db = None
         self._init_services()
     
     def _init_services(self):
         """初始化服务"""
-        # 尝试初始化数据库管理器
-        if DATABASE_MANAGER_AVAILABLE:
+        # 尝试初始化数据库连接
+        if DATABASE_AVAILABLE:
             try:
-                self.db_manager = get_database_manager()
-                if self.db_manager.is_mongodb_available():
+                db = get_mongo_db_sync()
+                if db is not None:
                     logger.info(f"✅ MongoDB连接成功")
+                    self._db = db
                 else:
                     logger.error(f"⚠️ MongoDB连接失败，将使用其他数据源")
+                    self._db = None
             except Exception as e:
-                logger.error(f"⚠️ 数据库管理器初始化失败: {e}")
-                self.db_manager = None
+                logger.error(f"⚠️ 数据库初始化失败: {e}")
+                self._db = None
     
     def get_stock_basic_info(self, stock_code: str = None) -> Optional[Dict[str, Any]]:
         """
@@ -72,7 +74,7 @@ class StockDataService:
         logger.info(f"📊 获取股票基础信息: {stock_code or '全部股票'}")
         
         # 1. 优先从MongoDB获取
-        if self.db_manager and self.db_manager.is_mongodb_available():
+        if self._db is not None:
             try:
                 result = self._get_from_mongodb(stock_code)
                 if result:
@@ -101,11 +103,10 @@ class StockDataService:
     def _get_from_mongodb(self, stock_code: str = None) -> Optional[Dict[str, Any]]:
         """从MongoDB获取数据"""
         try:
-            mongodb_client = self.db_manager.get_mongodb_client()
-            if not mongodb_client:
+            db = self._db
+            if not db:
                 return None
 
-            db = mongodb_client[self.db_manager.mongodb_config["database"]]
             collection = db['stock_basic_info']
 
             if stock_code:
@@ -184,11 +185,11 @@ class StockDataService:
     
     def _cache_to_mongodb(self, data: Any) -> bool:
         """将数据缓存到MongoDB"""
-        if not self.db_manager or not self.db_manager.mongodb_db:
+        if not self._db:
             return False
-        
+
         try:
-            collection = self.db_manager.mongodb_db['stock_basic_info']
+            collection = self._db['stock_basic_info']
             
             if isinstance(data, list):
                 # 批量插入

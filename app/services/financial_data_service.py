@@ -513,6 +513,27 @@ class FinancialDataService:
         except (ValueError, TypeError):
             return None
 
+    async def count_financial_records(self, symbol: str) -> int:
+        """
+        统计指定股票的财务数据条数
+
+        Args:
+            symbol: 股票代码
+
+        Returns:
+            财务数据记录数量
+        """
+        if self.db is None:
+            await self.initialize()
+
+        try:
+            collection = self.db[self.collection_name]
+            return await collection.count_documents({"symbol": symbol})
+
+        except Exception as e:
+            logger.error(f"❌ 统计财务数据条数失败 {symbol}: {e}")
+            return 0
+
 
 # 全局服务实例
 _financial_data_service = None

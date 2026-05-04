@@ -31,7 +31,7 @@ from app.core.redis_client import get_redis_service, RedisKeys
 from app.services.queue_service import QueueService
 from app.services.usage_statistics_service import UsageStatisticsService
 from app.services.redis_progress_tracker import RedisProgressTracker, get_progress_by_id
-from app.services.config_service import ConfigService
+from app.services.config_service import config_service
 from app.services.config_provider import provider as config_provider
 from app.services.memory_state_manager import get_memory_state_manager, TaskStatus
 from app.services.progress_log_handler import register_analysis_tracker, unregister_analysis_tracker
@@ -44,8 +44,7 @@ from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
 # 设置日志
 logger = logging.getLogger("app.services.analysis_service")
 
-# 配置服务实例
-config_service = ConfigService()
+# config_service imported from app.services.config_service (facade singleton)
 
 # 股票基础信息获取（用于补充显示名称）
 try:
@@ -1747,6 +1746,430 @@ class AnalysisService:
             )
         except Exception as e:
             logger.error(f"❌ 保存DB结果失败: {e}")
+
+
+    # -------------------------------------------------------------------------
+    # Router-facing Methods (added for analysis.py DB abstraction)
+    # -------------------------------------------------------------------------
+
+    async def get_task_with_status_fallback(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取任务状态，依次尝试：内存 → analysis_tasks 集合 → analysis_reports 集合。
+
+        Returns:
+            包含 "source" 字段标记数据来源的字典（mongodb_tasks / mongodb_reports），
+            或 None 表示所有来源均未找到。
+        """
+        # 1) 先走现有的 get_task_status（内存 + Redis 进度）
+        result = await self.get_task_status(task_id)
+        if result:
+            return result
+
+        # 2) 从 analysis_tasks 集合查找
+        try:
+            db = get_mongo_db()
+            task_result = await db.analysis_tasks.find_one({"task_id": task_id})
+        except Exception as e:
+            logger.warning(f"⚠️ get_task_with_status_fallback 查询 analysis_tasks 失败: {e}")
+            task_result = None
+
+        if task_result:
+            status = task_result.get("status", "pending")
+            progress = task_result.get("progress", 0)
+            start_time = task_result.get("started_at") or task_result.get("created_at")
+            current_time = now_utc()
+            elapsed_time = 0
+            if start_time:
+                elapsed_time = (current_time - start_time).total_seconds()
+
+            return {
+                "task_id": task_id,
+                "status": status,
+                "progress": progress,
+                "message": f"任务{status}中...",
+                "current_step": status,
+                "start_time": start_time,
+                "end_time": task_result.get("completed_at"),
+                "elapsed_time": elapsed_time,
+                "remaining_time": 0,
+                "estimated_total_time": 0,
+                "symbol": task_result.get("symbol") or task_result.get("stock_code"),
+                "stock_code": task_result.get("symbol") or task_result.get("stock_code"),
+                "stock_symbol": task_result.get("symbol") or task_result.get("stock_code"),
+                "source": "mongodb_tasks",
+            }
+
+        # 3) 尝试通过 analysis_id 兜底查找 analysis_reports
+        report = await self._find_report_by_task_id(task_id)
+        if report:
+            start_time = report.get("created_at")
+            end_time = report.get("updated_at")
+            elapsed_time = 0
+            if start_time and end_time:
+                elapsed_time = (end_time - start_time).total_seconds()
+
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "progress": 100,
+                "message": "分析完成（从历史记录恢复）",
+                "current_step": "completed",
+                "start_time": start_time,
+                "end_time": end_time,
+                "elapsed_time": elapsed_time,
+                "remaining_time": 0,
+                "estimated_total_time": elapsed_time,
+                "stock_code": report.get("stock_symbol"),
+                "stock_symbol": report.get("stock_symbol"),
+                "analysts": report.get("analysts", []),
+                "research_depth": report.get("research_depth", "快速"),
+                "source": "mongodb_reports",
+            }
+
+        return None
+
+    async def _find_report_by_task_id(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """
+        从 analysis_reports 中根据 task_id 查找报告。
+        兼容旧数据：如果直接查不到，通过 analysis_tasks.result.analysis_id 兜底。
+        """
+        try:
+            db = get_mongo_db()
+            report = await db.analysis_reports.find_one({"task_id": task_id})
+            if report:
+                return report
+
+            # 兼容旧数据
+            tasks_doc = await db.analysis_tasks.find_one(
+                {"task_id": task_id},
+                {"result.analysis_id": 1}
+            )
+            if tasks_doc:
+                analysis_id = tasks_doc.get("result", {}).get("analysis_id")
+                if analysis_id:
+                    return await db.analysis_reports.find_one({"analysis_id": analysis_id})
+        except Exception as e:
+            logger.warning(f"⚠️ _find_report_by_task_id 失败: {e}")
+        return None
+
+    async def get_task_result_data(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取任务的完整分析结果数据。
+
+        查询顺序：内存 → analysis_reports（按 task_id / analysis_id）→ analysis_tasks.result。
+
+        Returns:
+            结果字典（含 "source" 标记），或 None。
+        """
+        # 1) 内存中获取
+        task_status = await self.get_task_status(task_id)
+        if task_status and task_status.get("status") == "completed" and task_status.get("result_data"):
+            return task_status["result_data"]
+
+        # 2) 从 analysis_reports 获取
+        mongo_result = await self._find_report_by_task_id(task_id)
+        if mongo_result:
+            result_data = {
+                "analysis_id": mongo_result.get("analysis_id"),
+                "stock_symbol": mongo_result.get("stock_symbol"),
+                "stock_code": mongo_result.get("stock_symbol"),
+                "analysis_date": mongo_result.get("analysis_date"),
+                "summary": mongo_result.get("summary", ""),
+                "recommendation": mongo_result.get("recommendation", ""),
+                "confidence_score": mongo_result.get("confidence_score", 0.0),
+                "risk_level": mongo_result.get("risk_level", "中等"),
+                "key_points": mongo_result.get("key_points", []),
+                "execution_time": mongo_result.get("execution_time", 0),
+                "tokens_used": mongo_result.get("tokens_used", 0),
+                "analysts": mongo_result.get("analysts", []),
+                "research_depth": mongo_result.get("research_depth", "快速"),
+                "reports": mongo_result.get("reports", {}),
+                "created_at": mongo_result.get("created_at"),
+                "updated_at": mongo_result.get("updated_at"),
+                "status": mongo_result.get("status", "completed"),
+                "decision": mongo_result.get("decision", {}),
+                "source": "mongodb",
+            }
+            return result_data
+
+        # 3) 从 analysis_tasks.result 兜底
+        try:
+            db = get_mongo_db()
+            tasks_doc = await db.analysis_tasks.find_one(
+                {"task_id": task_id},
+                {"result": 1, "symbol": 1, "stock_code": 1, "created_at": 1, "completed_at": 1}
+            )
+            if tasks_doc and tasks_doc.get("result"):
+                r = tasks_doc["result"] or {}
+                symbol = (
+                    tasks_doc.get("symbol") or tasks_doc.get("stock_code") or
+                    r.get("stock_symbol") or r.get("stock_code")
+                )
+                return {
+                    "analysis_id": r.get("analysis_id"),
+                    "stock_symbol": symbol,
+                    "stock_code": symbol,
+                    "analysis_date": r.get("analysis_date"),
+                    "summary": r.get("summary", ""),
+                    "recommendation": r.get("recommendation", ""),
+                    "confidence_score": r.get("confidence_score", 0.0),
+                    "risk_level": r.get("risk_level", "中等"),
+                    "key_points": r.get("key_points", []),
+                    "execution_time": r.get("execution_time", 0),
+                    "tokens_used": r.get("tokens_used", 0),
+                    "analysts": r.get("analysts", []),
+                    "research_depth": r.get("research_depth", "快速"),
+                    "reports": r.get("reports", {}),
+                    "state": r.get("state", {}),
+                    "detailed_analysis": r.get("detailed_analysis", {}),
+                    "created_at": tasks_doc.get("created_at"),
+                    "updated_at": tasks_doc.get("completed_at"),
+                    "status": r.get("status", "completed"),
+                    "decision": r.get("decision", {}),
+                    "source": "analysis_tasks",
+                }
+        except Exception as e:
+            logger.warning(f"⚠️ get_task_result_data 从 analysis_tasks.result 兜底失败: {e}")
+
+        return None
+
+    async def mark_task_failed(self, task_id: str, error_message: str = "用户手动标记为失败") -> bool:
+        """
+        将任务标记为失败（内存 + MongoDB 同步更新）。
+        """
+        try:
+            # 更新内存状态
+            await self.memory_manager.update_task_status(
+                task_id=task_id,
+                status=TaskStatus.FAILED,
+                message="手动标记为失败",
+                error_message=error_message,
+            )
+
+            # 更新 MongoDB
+            db = get_mongo_db()
+            result = await db.analysis_tasks.update_one(
+                {"task_id": task_id},
+                {"$set": {
+                    "status": "failed",
+                    "last_error": error_message,
+                    "completed_at": now_utc(),
+                    "updated_at": now_utc(),
+                }},
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"❌ mark_task_failed 失败: {e}")
+            return False
+
+    async def delete_task_by_id(self, task_id: str) -> bool:
+        """
+        从内存和数据库中删除任务记录。
+        """
+        try:
+            await self.memory_manager.remove_task(task_id)
+            db = get_mongo_db()
+            result = await db.analysis_tasks.delete_one({"task_id": task_id})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"❌ delete_task_by_id 失败: {e}")
+            return False
+
+    async def get_analysis_stats(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        market_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        获取分析报告统计信息（总数、按日期、按市场分布）。
+        """
+        try:
+            db = get_mongo_db()
+            query: Dict[str, Any] = {}
+            if start_date or end_date:
+                date_query: Dict[str, Any] = {}
+                if start_date:
+                    date_query["$gte"] = start_date
+                if end_date:
+                    date_query["$lte"] = end_date
+                query["created_at"] = date_query
+            if market_type:
+                query["market_type"] = market_type
+
+            total = await db.analysis_reports.count_documents(query)
+            completed = await db.analysis_reports.count_documents({**query, "status": "completed"})
+            failed = await db.analysis_reports.count_documents({**query, "status": "failed"})
+
+            # 按日期统计
+            pipeline_date = [
+                {"$match": query},
+                {"$group": {
+                    "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
+                    "count": {"$sum": 1},
+                }},
+                {"$sort": {"_id": -1}},
+                {"$limit": 30},
+            ]
+            by_date = []
+            async for doc in db.analysis_reports.aggregate(pipeline_date):
+                by_date.append({"date": doc["_id"], "count": doc["count"]})
+
+            # 按市场统计
+            pipeline_market = [
+                {"$match": query},
+                {"$group": {"_id": "$market_type", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+            ]
+            by_market = []
+            async for doc in db.analysis_reports.aggregate(pipeline_market):
+                by_market.append({"market": doc["_id"] or "未知", "count": doc["count"]})
+
+            return {
+                "total_analyses": total,
+                "successful_analyses": completed,
+                "failed_analyses": failed,
+                "avg_duration": 0,
+                "total_tokens": 0,
+                "total_cost": 0,
+                "popular_stocks": [],
+                "analysis_by_date": by_date,
+                "analysis_by_market": by_market,
+            }
+        except Exception as e:
+            logger.error(f"❌ get_analysis_stats 失败: {e}")
+            raise
+
+    async def get_stock_info_with_quote(self, symbol: str, market: str = "A股") -> Optional[Dict[str, Any]]:
+        """
+        获取股票基础信息 + 实时行情（用于分析前预览）。
+
+        按数据源优先级查询 stock_basic_info，并补充 market_quotes。
+        """
+        try:
+            db = get_mongo_db()
+            code6 = str(symbol).zfill(6)
+
+            # 数据源优先级
+            try:
+                from app.core.unified_config import UnifiedConfigManager
+                config = UnifiedConfigManager()
+                data_source_configs = config.get_data_source_configs()
+                enabled_sources = [
+                    ds.type.lower() for ds in data_source_configs
+                    if ds.enabled and ds.type.lower() in ["tushare", "akshare", "baostock"]
+                ]
+            except Exception:
+                enabled_sources = []
+            if not enabled_sources:
+                enabled_sources = ["tushare", "akshare", "baostock"]
+
+            b = None
+            for src in enabled_sources:
+                b = await db.stock_basic_info.find_one({"code": code6, "source": src}, {"_id": 0})
+                if b:
+                    break
+            if not b:
+                b = await db.stock_basic_info.find_one({"code": code6}, {"_id": 0})
+
+            if not b:
+                return None
+
+            q = await db.market_quotes.find_one({"code": code6}, {"_id": 0})
+
+            return {
+                "symbol": b.get("symbol", code6),
+                "code": code6,
+                "name": b.get("name", ""),
+                "market": b.get("market", market),
+                "industry": b.get("industry", ""),
+                "sector": b.get("sector", ""),
+                "market_cap": b.get("total_mv"),
+                "price": (q or {}).get("close") or b.get("close"),
+                "change_percent": (q or {}).get("pct_chg"),
+                "pe_ratio": b.get("pe"),
+                "pb_ratio": b.get("pb"),
+                "dividend_yield": b.get("dividend_yield"),
+                "volume": (q or {}).get("volume"),
+            }
+        except Exception as e:
+            logger.error(f"❌ get_stock_info_with_quote 失败: {e}")
+            raise
+
+    async def search_stock_basic_info(
+        self,
+        query: str,
+        market: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """
+        在 stock_basic_info 集合中搜索股票（支持名称/代码/符号模糊匹配）。
+        """
+        try:
+            db = get_mongo_db()
+            search_regex = f".*{query}.*"
+            filter_expr: Dict[str, Any] = {
+                "$or": [
+                    {"name": {"$regex": search_regex, "$options": "i"}},
+                    {"code": {"$regex": search_regex, "$options": "i"}},
+                    {"symbol": {"$regex": search_regex, "$options": "i"}},
+                ],
+            }
+            if market:
+                filter_expr["market"] = market
+
+            cursor = db.stock_basic_info.find(filter_expr, {
+                "name": 1, "code": 1, "symbol": 1, "market": 1, "industry": 1, "_id": 0,
+            }).limit(limit)
+
+            results = []
+            async for doc in cursor:
+                results.append({
+                    "symbol": doc.get("symbol") or doc.get("code", ""),
+                    "name": doc.get("name", ""),
+                    "market": doc.get("market", "A股"),
+                    "type": "stock",
+                })
+            return results
+        except Exception as e:
+            logger.error(f"❌ search_stock_basic_info 失败: {e}")
+            raise
+
+    async def get_popular_stocks(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        获取热门股票（按分析报告次数排序），并补充基础信息和行情。
+        """
+        try:
+            db = get_mongo_db()
+            pipeline = [
+                {"$group": {"_id": "$stock_symbol", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": limit},
+            ]
+
+            results = []
+            async for doc in db.analysis_reports.aggregate(pipeline):
+                symbol = doc["_id"]
+                if not symbol:
+                    continue
+                code6 = str(symbol).zfill(6)
+                b = await db.stock_basic_info.find_one({"code": code6}, {"_id": 0, "name": 1, "market": 1})
+                q = await db.market_quotes.find_one({"code": code6}, {"_id": 0, "close": 1, "pct_chg": 1, "volume": 1})
+
+                results.append({
+                    "symbol": symbol,
+                    "name": (b or {}).get("name", ""),
+                    "market": (b or {}).get("market", "A股"),
+                    "current_price": (q or {}).get("close"),
+                    "change_percent": (q or {}).get("pct_chg"),
+                    "volume": (q or {}).get("volume"),
+                    "analysis_count": doc["count"],
+                })
+
+            return results
+        except Exception as e:
+            logger.error(f"❌ get_popular_stocks 失败: {e}")
+            raise
 
 
 # 全局分析服务实例

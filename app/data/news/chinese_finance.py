@@ -7,7 +7,6 @@
 import requests
 import json
 import time
-import random
 from datetime import datetime, timedelta
 from app.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from typing import List, Dict, Optional
@@ -66,23 +65,37 @@ class ChineseFinanceDataAggregator:
             }
     
     def _get_finance_news_sentiment(self, ticker: str, days: int) -> Dict:
-        """获取财经新闻情绪分析"""
+        """获取财经新闻情绪分析，复用 RealtimeNewsAggregator"""
         try:
-            # 搜索相关新闻标题和内容
-            company_name = self._get_company_chinese_name(ticker)
-            search_terms = [ticker, company_name] if company_name else [ticker]
-            
+            hours_back = days * 24
             news_items = []
-            for term in search_terms:
-                # 这里可以集成多个新闻源
-                items = self._search_finance_news(term, days)
-                news_items.extend(items)
-            
+            news_titles = []
+
+            # 优先使用 RealtimeNewsAggregator 获取真实新闻
+            try:
+                from app.data.news.realtime_news import RealtimeNewsAggregator
+                aggregator = RealtimeNewsAggregator()
+                items = aggregator.get_realtime_stock_news(ticker, hours_back=hours_back, max_news=20)
+                if items:
+                    news_items = [{'title': item.title, 'content': item.content or ''} for item in items]
+                    news_titles = [item.title for item in items[:3]]
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"RealtimeNewsAggregator 获取新闻失败: {e}")
+
+            # 如果实时聚合器没有数据，再尝试本地搜索
+            if not news_items:
+                company_name = self._get_company_chinese_name(ticker)
+                search_terms = [ticker, company_name] if company_name else [ticker]
+                for term in search_terms:
+                    items = self._search_finance_news(term, days)
+                    news_items.extend(items)
+
             # 简单的情绪分析
             positive_count = 0
             negative_count = 0
             neutral_count = 0
-            
+
             for item in news_items:
                 sentiment = self._analyze_text_sentiment(item.get('title', '') + ' ' + item.get('content', ''))
                 if sentiment > 0.1:
@@ -91,35 +104,35 @@ class ChineseFinanceDataAggregator:
                     negative_count += 1
                 else:
                     neutral_count += 1
-            
+
             total = len(news_items)
             if total == 0:
                 return {'sentiment_score': 0, 'confidence': 0, 'news_count': 0}
-            
+
             sentiment_score = (positive_count - negative_count) / total
-            
+
             return {
                 'sentiment_score': sentiment_score,
                 'positive_ratio': positive_count / total,
                 'negative_ratio': negative_count / total,
                 'neutral_ratio': neutral_count / total,
                 'news_count': total,
-                'confidence': min(total / 10, 1.0)  # 新闻数量越多，置信度越高
+                'confidence': min(total / 10, 1.0),
+                'sample_titles': news_titles[:3]
             }
-            
+
         except Exception as e:
             return {'error': str(e), 'sentiment_score': 0, 'confidence': 0}
     
     def _get_stock_forum_sentiment(self, ticker: str, days: int) -> Dict:
-        """获取股票论坛讨论情绪 (模拟数据，实际需要爬虫)"""
-        # 由于东方财富股吧等平台的反爬虫机制，这里返回模拟数据
-        # 实际实现需要更复杂的爬虫技术
-        
+        """获取股票论坛讨论情绪"""
+        # 由于东方财富股吧等平台的反爬虫机制，暂无法获取论坛数据
+        # 返回置信度为 0 的空结果，不生成虚假数据
         return {
             'sentiment_score': 0,
             'discussion_count': 0,
             'hot_topics': [],
-            'note': '股票论坛数据获取受限，建议关注官方财经新闻',
+            'note': '股票论坛数据暂不可用，综合分析时不参考此维度',
             'confidence': 0
         }
     
@@ -150,20 +163,10 @@ class ChineseFinanceDataAggregator:
             return {'error': str(e), 'sentiment_score': 0, 'confidence': 0}
     
     def _search_finance_news(self, search_term: str, days: int) -> List[Dict]:
-        """搜索财经新闻 (示例实现)"""
-        # 这里可以集成多个新闻源的API或RSS
-        # 例如：财联社、新浪财经、东方财富等
-        
-        # 模拟返回数据结构
-        return [
-            {
-                'title': f'{search_term}相关财经新闻标题',
-                'content': '新闻内容摘要...',
-                'source': '财联社',
-                'publish_time': format_iso(now_utc()),
-                'url': 'https://example.com/news/1'
-            }
-        ]
+        """搜索财经新闻"""
+        # 暂无可用的中文新闻搜索 API，返回空列表
+        # 实际新闻数据由 realtime_news.py 中的新闻聚合器提供
+        return []
     
     def _get_media_coverage(self, ticker: str, days: int) -> List[Dict]:
         """获取媒体报道 (示例实现)"""
@@ -188,17 +191,39 @@ class ChineseFinanceDataAggregator:
         return (positive_count - negative_count) / (positive_count + negative_count)
     
     def _get_company_chinese_name(self, ticker: str) -> Optional[str]:
-        """获取公司中文名称"""
-        # 简单的映射表，实际可以从数据库或API获取
-        name_mapping = {
-            'AAPL': '苹果',
-            'TSLA': '特斯拉',
-            'NVDA': '英伟达',
-            'MSFT': '微软',
-            'GOOGL': '谷歌',
-            'AMZN': '亚马逊'
-        }
-        return name_mapping.get(ticker.upper())
+        """从数据库获取公司中文名称，用于增强新闻搜索关键词"""
+        try:
+            from app.core.database import get_database
+            import asyncio
+
+            db = get_database()
+
+            async def _lookup():
+                # 尝试按 symbol 字段查找（A股）
+                doc = await db.stock_basics.find_one(
+                    {"$or": [{"symbol": ticker}, {"ts_code": ticker}]},
+                    {"name": 1}
+                )
+                if doc:
+                    return doc.get("name")
+                return None
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 在已有事件循环中无法 run_until_complete，尝试 create_task
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                        future = pool.submit(asyncio.run, _lookup())
+                        return future.result(timeout=5)
+                return loop.run_until_complete(_lookup())
+            except RuntimeError:
+                try:
+                    return asyncio.run(_lookup())
+                except Exception:
+                    return None
+        except Exception:
+            return None
     
     def _calculate_overall_sentiment(self, news_sentiment: Dict, forum_sentiment: Dict, media_sentiment: Dict) -> Dict:
         """计算综合情绪分析"""
@@ -258,14 +283,15 @@ class ChineseFinanceDataAggregator:
 
 def get_chinese_social_sentiment(ticker: str, curr_date: str) -> str:
     """
-    获取中国社交媒体情绪分析的主要接口函数
+    获取中国市场情绪分析的主要接口函数
+    整合实时新闻聚合器的真实新闻数据
     """
     aggregator = ChineseFinanceDataAggregator()
-    
+
     try:
         # 获取情绪分析数据
         sentiment_data = aggregator.get_stock_sentiment_summary(ticker, days=7)
-        
+
         # 格式化输出
         if 'error' in sentiment_data:
             return f"""
@@ -281,16 +307,28 @@ def get_chinese_social_sentiment(ticker: str, curr_date: str) -> str:
 3. 关注行业政策和监管动态
 4. 考虑国际市场情绪对中概股的影响
 
-注: 由于中国社交媒体平台API限制，当前主要依赖公开财经数据源进行分析。
+注: 由于数据源限制，当前主要依赖公开财经数据源进行分析。
 """
-        
+
         overall = sentiment_data.get('overall_sentiment', {})
         news = sentiment_data.get('news_sentiment', {})
-        
+        confidence = overall.get('confidence', 0)
+        confidence_level = '高' if confidence > 0.7 else '中' if confidence > 0.3 else '低'
+
+        # 构建新闻标题展示
+        sample_titles = news.get('sample_titles', [])
+        news_sample_section = ""
+        if sample_titles:
+            news_sample_section = "\n📰 近期相关新闻:\n" + "\n".join(
+                f"  - {title}" for title in sample_titles
+            )
+
         return f"""
 中国市场情绪分析报告 - {ticker}
 分析日期: {curr_date}
 分析周期: {sentiment_data.get('analysis_period', '7天')}
+置信度: {confidence_level}
+{news_sample_section}
 
 📊 综合情绪评估:
 {sentiment_data.get('summary', '数据不足')}
@@ -301,18 +339,21 @@ def get_chinese_social_sentiment(ticker: str, curr_date: str) -> str:
 - 负面新闻比例: {news.get('negative_ratio', 0):.1%}
 - 新闻数量: {news.get('news_count', 0)}条
 
-💡 投资建议:
-基于当前可获取的中国市场数据，建议投资者:
-1. 密切关注官方财经媒体报道
-2. 重视基本面分析和财务数据
-3. 考虑政策环境对股价的影响
-4. 关注国际市场动态
-
-⚠️ 数据说明:
-由于中国社交媒体平台API获取限制，本分析主要基于公开财经新闻数据。
-建议结合其他分析维度进行综合判断。
-
 生成时间: {sentiment_data.get('timestamp', format_iso(now_utc()))}
+"""
+
+    except Exception as e:
+        return f"""
+中国市场情绪分析 - {ticker}
+分析日期: {curr_date}
+
+❌ 分析失败: {str(e)}
+
+建议:
+1. 查看财经新闻网站的相关报道
+2. 关注东方财富等投资社区讨论
+3. 参考专业机构的研究报告
+4. 重点分析基本面和技术面数据
 """
         
     except Exception as e:

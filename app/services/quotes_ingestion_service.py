@@ -673,3 +673,139 @@ class QuotesIngestionService:
                 error_msg=str(e)
             )
 
+    async def get_latest_daily_quote(self, symbol: str) -> Optional[Dict]:
+        """
+        获取 stock_daily_quotes 集合中指定股票的最新一条记录
+
+        Args:
+            symbol: 股票代码（6位）
+
+        Returns:
+            最新行情文档，不存在返回 None
+        """
+        try:
+            db = get_mongo_db()
+            symbol6 = str(symbol).zfill(6)
+
+            doc = await db.stock_daily_quotes.find_one(
+                {"symbol": symbol6},
+                sort=[("trade_date", -1)]
+            )
+            return doc
+
+        except Exception as e:
+            logger.error(f"获取最新日线数据失败 symbol={symbol}: {e}")
+            return None
+
+    async def get_market_quote(self, symbol: str) -> Optional[Dict]:
+        """
+        获取 market_quotes 集合中指定股票的行情
+
+        Args:
+            symbol: 股票代码（6位）
+
+        Returns:
+            行情文档，不存在返回 None
+        """
+        try:
+            db = get_mongo_db()
+            symbol6 = str(symbol).zfill(6)
+
+            doc = await db[self.collection_name].find_one({"code": symbol6})
+            return doc
+
+        except Exception as e:
+            logger.error(f"获取行情数据失败 symbol={symbol}: {e}")
+            return None
+
+    async def upsert_market_quote(self, symbol: str, quote_data: Dict) -> bool:
+        """
+        更新或插入 market_quotes 集合中的行情数据
+
+        Args:
+            symbol: 股票代码（6位）
+            quote_data: 行情数据字典
+
+        Returns:
+            是否更新成功
+        """
+        try:
+            db = get_mongo_db()
+            symbol6 = str(symbol).zfill(6)
+
+            result = await db[self.collection_name].update_one(
+                {"code": symbol6},
+                {"$set": quote_data},
+                upsert=True
+            )
+            return result.modified_count > 0 or result.upserted_id is not None
+
+        except Exception as e:
+            logger.error(f"更新行情数据失败 symbol={symbol}: {e}")
+            return False
+
+    async def sync_latest_to_market_quotes(self, symbol: str) -> None:
+        """
+        将 stock_daily_quotes 中的最新数据同步到 market_quotes
+
+        智能判断逻辑：
+        - 如果 market_quotes 中已有更新的数据（trade_date 更新），则不覆盖
+        - 如果 market_quotes 中没有数据或数据较旧，则更新
+
+        Args:
+            symbol: 股票代码（6位）
+        """
+        symbol6 = str(symbol).zfill(6)
+
+        # 从 stock_daily_quotes 获取最新数据
+        latest_doc = await self.get_latest_daily_quote(symbol6)
+
+        if not latest_doc:
+            logger.warning(f"⚠️ {symbol6}: stock_daily_quotes 中没有数据")
+            return
+
+        historical_trade_date = latest_doc.get("trade_date")
+
+        # 检查 market_quotes 中是否已有更新的数据
+        existing_quote = await self.get_market_quote(symbol6)
+
+        if existing_quote:
+            existing_trade_date = existing_quote.get("trade_date")
+
+            # 如果 market_quotes 中的数据日期更新或相同，则不覆盖
+            if existing_trade_date and historical_trade_date:
+                # 比较日期字符串（格式：YYYY-MM-DD 或 YYYYMMDD）
+                existing_date_str = str(existing_trade_date).replace("-", "")
+                historical_date_str = str(historical_trade_date).replace("-", "")
+
+                if existing_date_str >= historical_date_str:
+                    logger.info(
+                        f"⏭️ {symbol6}: market_quotes 中的数据日期 >= 历史数据日期 "
+                        f"(market_quotes: {existing_trade_date}, historical: {historical_trade_date})，跳过覆盖"
+                    )
+                    return
+
+        # 提取需要的字段
+        quote_data = {
+            "code": symbol6,
+            "symbol": symbol6,
+            "close": latest_doc.get("close"),
+            "open": latest_doc.get("open"),
+            "high": latest_doc.get("high"),
+            "low": latest_doc.get("low"),
+            "volume": latest_doc.get("volume"),
+            "amount": latest_doc.get("amount"),
+            "pct_chg": latest_doc.get("pct_chg"),
+            "pre_close": latest_doc.get("pre_close"),
+            "trade_date": latest_doc.get("trade_date"),
+            "updated_at": now_config_tz()
+        }
+
+        logger.info(
+            f"📊 [同步到market_quotes] {symbol6} - "
+            f"volume={quote_data['volume']}, amount={quote_data['amount']}, trade_date={quote_data['trade_date']}"
+        )
+
+        # 更新 market_quotes
+        await self.upsert_market_quote(symbol6, quote_data)
+

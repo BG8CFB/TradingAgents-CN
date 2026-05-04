@@ -12,7 +12,7 @@ from app.utils.logging_manager import get_logger
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/api/cache", tags=["cache"])
+router = APIRouter(prefix="/api/cache", tags=["Cache"])
 
 
 @router.get("/stats")

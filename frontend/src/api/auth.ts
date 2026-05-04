@@ -49,9 +49,5 @@ export const authApi = {
 
   // 重置密码
   resetPassword: (email: string) =>
-    ApiClient.post('/api/auth/reset-password', { email }),
-
-  // 验证邮箱
-  verifyEmail: (token: string) =>
-    ApiClient.post('/api/auth/verify-email', { token })
+    ApiClient.post('/api/auth/reset-password', { email })
 }

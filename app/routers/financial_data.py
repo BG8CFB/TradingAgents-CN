@@ -15,7 +15,7 @@ from app.core.response import ok
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/financial-data", tags=["财务数据"])
+router = APIRouter(prefix="/api/financial-data", tags=["Financial Data"])
 
 
 # ==================== 请求模型 ====================

@@ -12,7 +12,7 @@ from app.models.screening import (
     ScreeningResponse as NewScreeningResponse, FieldInfo, BASIC_FIELDS_INFO
 )
 
-router = APIRouter(tags=["screening"])
+router = APIRouter(prefix="/api/screening", tags=["Screening"])
 logger = logging.getLogger("webapi")
 
 # 筛选字段配置响应模型
@@ -263,8 +263,6 @@ async def validate_conditions(conditions: List[ScreeningCondition], user: dict =
         logger.error(f"[screening] 验证条件失败: {e}")
         raise HTTPException(status_code=500, detail=f"验证条件失败: {str(e)}")
 
-# 重复定义的旧端点移除（保留带日志的版本）
-
 
 @router.get("/industries")
 async def get_industries(user: dict = Depends(get_current_user)):
@@ -274,99 +272,10 @@ async def get_industries(user: dict = Depends(get_current_user)):
     返回按股票数量排序的行业列表
     """
     try:
-        from app.core.database import get_mongo_db
-        from app.core.unified_config import UnifiedConfigManager
+        enhanced_svc = get_enhanced_service()
+        industry_data = await enhanced_svc.get_industries()
 
-        db = get_mongo_db()
-        collection = db["stock_basic_info"]
-
-        # 🔥 获取数据源优先级配置（使用统一配置管理器的异步方法）
-        config = UnifiedConfigManager()
-        data_source_configs = await config.get_data_source_configs_async()
-
-        # 提取启用的数据源，按优先级排序（已排序）
-        enabled_sources = [
-            ds.type.lower() for ds in data_source_configs
-            if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-        ]
-
-        if not enabled_sources:
-            # 如果没有配置，使用默认顺序
-            enabled_sources = ['tushare', 'akshare', 'baostock']
-
-        logger.info(f"[get_industries] 数据源优先级: {enabled_sources}")
-
-        # 🔥 按优先级查询：优先使用优先级最高的数据源
-        preferred_source = enabled_sources[0] if enabled_sources else 'tushare'
-
-        # 聚合查询：按行业分组并统计股票数量（只查询指定数据源）
-        pipeline = [
-            {
-                "$match": {
-                    "source": preferred_source,  # 🔥 只查询优先级最高的数据源
-                    "industry": {"$ne": None}  # 过滤空行业
-                }
-            },
-            {
-                "$group": {
-                    "_id": "$industry",
-                    "count": {"$sum": 1}
-                }
-            },
-            {"$sort": {"count": -1}},  # 按股票数量降序排序
-            {
-                "$project": {
-                    "industry": "$_id",
-                    "count": 1,
-                    "_id": 0
-                }
-            }
-        ]
-
-        industries = []
-        async for doc in collection.aggregate(pipeline):
-            # 清洗字段，避免 NaN/Inf 导致 JSON 序列化失败
-            raw_industry = doc.get("industry")
-            safe_industry = ""
-            try:
-                if raw_industry is None:
-                    safe_industry = ""
-                elif isinstance(raw_industry, float):
-                    if raw_industry != raw_industry or raw_industry in (float("inf"), float("-inf")):
-                        safe_industry = ""
-                    else:
-                        safe_industry = str(raw_industry)
-                else:
-                    safe_industry = str(raw_industry)
-            except Exception:
-                safe_industry = ""
-
-            raw_count = doc.get("count", 0)
-            safe_count = 0
-            try:
-                if isinstance(raw_count, float):
-                    if raw_count != raw_count or raw_count in (float("inf"), float("-inf")):
-                        safe_count = 0
-                    else:
-                        safe_count = int(raw_count)
-                else:
-                    safe_count = int(raw_count)
-            except Exception:
-                safe_count = 0
-
-            industries.append({
-                "value": safe_industry,
-                "label": safe_industry,
-                "count": safe_count,
-            })
-
-        logger.info(f"[get_industries] 从数据源 {preferred_source} 返回 {len(industries)} 个行业")
-
-        return ok({
-            "industries": industries,
-            "total": len(industries),
-            "source": preferred_source
-        })
+        return ok(industry_data)
 
     except Exception as e:
         logger.error(f"[get_industries] 获取行业列表失败: {e}", exc_info=True)

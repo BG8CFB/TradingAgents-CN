@@ -33,7 +33,7 @@ class ApiResponse(BaseModel):
     data: dict = {}
     message: str = ""
 
-router = APIRouter()
+router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 class LoginRequest(BaseModel):
     username: str

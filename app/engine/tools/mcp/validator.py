@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from .config_utils import MCPServerConfig, MCPServerType, load_mcp_config
+from .config_utils import MCPServerConfig, MCPServerType, load_mcp_config, check_command_available
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +172,14 @@ def validate_server_config(
             is_valid, error_msg = validate_command_path(command, allowed_commands)
             if not is_valid:
                 errors.append(ValidationError(f"{name}.command", error_msg))
+            else:
+                available, avail_msg = check_command_available(command)
+                if not available:
+                    errors.append(ValidationError(
+                        f"{name}.command",
+                        avail_msg or f"命令 '{command}' 在系统中未找到",
+                        severity="warning"
+                    ))
         
         # 验证 args
         args = config.get("args", [])

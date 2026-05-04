@@ -259,7 +259,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Coin,
@@ -268,6 +268,16 @@ import {
   Search
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import { getUsageStatistics, getUsageRecords } from '@/api/usage'
+
+// 时间范围 → 天数映射
+const timeRangeDays: Record<string, number> = {
+  today: 1,
+  week: 7,
+  month: 30,
+  quarter: 90,
+  all: 365
+}
 
 // 响应式数据
 const loading = ref(false)
@@ -278,10 +288,11 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const totalRecords = ref(0)
 
-// 图表引用
+// 图表引用和实例
 const tokenTrendChart = ref()
 const costDistributionChart = ref()
 const providerChart = ref()
+let chartInstances: echarts.ECharts[] = []
 
 // 数据
 const overview = reactive({
@@ -301,6 +312,7 @@ const modelRanking = ref<any[]>([])
 
 // 方法
 const formatNumber = (num: number): string => {
+  if (!Number.isFinite(num)) return '0'
   if (num >= 1000000) {
     return (num / 1000000).toFixed(1) + 'M'
   } else if (num >= 1000) {
@@ -310,6 +322,7 @@ const formatNumber = (num: number): string => {
 }
 
 const formatChange = (change: number): string => {
+  if (!Number.isFinite(change)) return '0%'
   if (change > 0) return `+${change.toFixed(1)}%`
   if (change < 0) return `${change.toFixed(1)}%`
   return '0%'
@@ -322,6 +335,7 @@ const getChangeClass = (change: number): string => {
 }
 
 const formatDateTime = (timestamp: string): string => {
+  if (!timestamp) return '-'
   return new Date(timestamp).toLocaleString('zh-CN')
 }
 
@@ -330,58 +344,212 @@ const getProviderName = (provider: string): string => {
     'dashscope': '阿里百炼',
     'openai': 'OpenAI',
     'google': 'Google',
-    'deepseek': 'DeepSeek'
+    'deepseek': 'DeepSeek',
+    'anthropic': 'Anthropic',
+    'siliconflow': '硅基流动',
+    'openrouter': 'OpenRouter'
   }
   return names[provider] || provider
 }
 
+// 加载统计数据（对接后端）
 const loadStatistics = async () => {
   loading.value = true
   try {
-    // 模拟API调用
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    // 模拟数据
-    Object.assign(overview, {
-      totalRequests: 1234,
-      totalTokens: 567890,
-      totalCost: 123.45,
-      avgCostPerRequest: 0.1,
-      requestsChange: 15.2,
-      tokensChange: 23.8,
-      costChange: 18.5,
-      avgCostChange: 2.1
+    const days = timeRangeDays[timeRange.value] || 30
+    const res: any = await getUsageStatistics({
+      days,
+      provider: providerFilter.value || undefined
     })
-    
-    // 加载图表数据
-    await nextTick()
-    renderCharts()
-    
-  } catch (error) {
+    const data = res?.data ?? res
+
+    if (data) {
+      overview.totalRequests = data.total_requests ?? 0
+      overview.totalTokens = (data.total_input_tokens ?? 0) + (data.total_output_tokens ?? 0)
+      overview.totalCost = data.total_cost ?? 0
+      overview.avgCostPerRequest = overview.totalRequests > 0
+        ? overview.totalCost / overview.totalRequests
+        : 0
+      // 后端暂不返回环比数据，保持为 0
+      overview.requestsChange = 0
+      overview.tokensChange = 0
+      overview.costChange = 0
+      overview.avgCostChange = 0
+
+      // 构建模型排行
+      if (data.by_model && typeof data.by_model === 'object') {
+        modelRanking.value = Object.entries(data.by_model)
+          .map(([name, info]: [string, any]) => ({
+            name,
+            requests: info?.total_requests ?? info?.count ?? 0,
+            tokens: (info?.total_input_tokens ?? 0) + (info?.total_output_tokens ?? 0),
+            cost: info?.total_cost ?? 0
+          }))
+          .sort((a, b) => b.requests - a.requests)
+      } else {
+        modelRanking.value = []
+      }
+    }
+
+    // 并行加载图表数据
+    await Promise.all([
+      loadDailyCostChart(days),
+      loadCostByProviderChart(days),
+      loadProviderBarChart(days)
+    ])
+  } catch (error: any) {
+    console.error('加载统计数据失败:', error)
     ElMessage.error('加载统计数据失败')
   } finally {
     loading.value = false
   }
 }
 
+// 加载使用记录（对接后端）
 const loadRecords = async () => {
-  // 模拟加载记录数据
-  records.value = [
-    {
-      timestamp: '2024-01-18T14:30:00Z',
-      provider: 'dashscope',
-      model: 'qwen-turbo',
-      stock_symbol: '000001',
-      prompt_tokens: 1500,
-      completion_tokens: 800,
-      total_tokens: 2300,
-      cost: 0.023,
-      duration: 1200
+  try {
+    const days = timeRangeDays[timeRange.value] || 30
+    const res: any = await getUsageRecords({
+      provider: providerFilter.value || undefined,
+      limit: pageSize.value
+    })
+    const data = res?.data ?? res
+
+    if (data?.records) {
+      records.value = data.records.map((r: any) => ({
+        timestamp: r.timestamp ?? r.created_at,
+        provider: r.provider,
+        model: r.model_name ?? r.model,
+        stock_symbol: r.session_id ?? r.analysis_type ?? '-',
+        prompt_tokens: r.input_tokens ?? 0,
+        completion_tokens: r.output_tokens ?? 0,
+        total_tokens: (r.input_tokens ?? 0) + (r.output_tokens ?? 0),
+        cost: r.cost ?? 0,
+        duration: r.duration_ms ?? r.duration ?? 0
+      }))
+      totalRecords.value = data.total ?? records.value.length
+    } else {
+      records.value = []
+      totalRecords.value = 0
     }
-  ]
-  
-  totalRecords.value = 50
-  filterRecords()
+    filterRecords()
+  } catch (error: any) {
+    console.error('加载记录失败:', error)
+    records.value = []
+    totalRecords.value = 0
+    filteredRecords.value = []
+  }
+}
+
+// 加载每日成本趋势图
+const loadDailyCostChart = async (days: number) => {
+  if (!tokenTrendChart.value) return
+  try {
+    const res: any = await (await import('@/api/usage')).getDailyCost(days)
+    const data = res?.data ?? res
+    const items = Array.isArray(data) ? data : (data?.items ?? [])
+
+    const dates = items.map((d: any) => d.date ?? d.day ?? '')
+    const costs = items.map((d: any) => d.total_cost ?? d.cost ?? 0)
+    const tokens = items.map((d: any) => d.total_tokens ?? d.tokens ?? 0)
+
+    const chart = echarts.init(tokenTrendChart.value)
+    chartInstances.push(chart)
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['成本 (¥)', 'Token 数'] },
+      xAxis: { type: 'category', data: dates },
+      yAxis: [
+        { type: 'value', name: '成本 (¥)' },
+        { type: 'value', name: 'Token' }
+      ],
+      series: [
+        { name: '成本 (¥)', data: costs, type: 'line', smooth: true },
+        { name: 'Token 数', data: tokens, type: 'line', smooth: true, yAxisIndex: 1 }
+      ]
+    })
+  } catch {
+    // 接口失败时渲染空图表
+    if (tokenTrendChart.value) {
+      const chart = echarts.init(tokenTrendChart.value)
+      chartInstances.push(chart)
+      chart.setOption({
+        title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 14 } },
+        xAxis: { show: false },
+        yAxis: { show: false },
+        series: []
+      })
+    }
+  }
+}
+
+// 加载成本分布饼图
+const loadCostByProviderChart = async (days: number) => {
+  if (!costDistributionChart.value) return
+  try {
+    const res: any = await (await import('@/api/usage')).getCostByProvider(days)
+    const data = res?.data ?? res
+    const items = Array.isArray(data) ? data : (data?.items ?? [])
+
+    const pieData = items.map((d: any) => ({
+      value: d.total_cost ?? d.cost ?? 0,
+      name: getProviderName(d.provider ?? d.name ?? '')
+    }))
+
+    const chart = echarts.init(costDistributionChart.value)
+    chartInstances.push(chart)
+    chart.setOption({
+      tooltip: { trigger: 'item', formatter: '{b}: ¥{c} ({d}%)' },
+      series: [{
+        type: 'pie',
+        radius: ['40%', '70%'],
+        data: pieData.length > 0 ? pieData : [{ value: 0, name: '暂无数据' }],
+        emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.5)' } }
+      }]
+    })
+  } catch {
+    if (costDistributionChart.value) {
+      const chart = echarts.init(costDistributionChart.value)
+      chartInstances.push(chart)
+      chart.setOption({
+        title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 14 } },
+        series: []
+      })
+    }
+  }
+}
+
+// 加载供应商柱状图
+const loadProviderBarChart = async (days: number) => {
+  if (!providerChart.value) return
+  try {
+    const res: any = await (await import('@/api/usage')).getCostByProvider(days)
+    const data = res?.data ?? res
+    const items = Array.isArray(data) ? data : (data?.items ?? [])
+
+    const names = items.map((d: any) => getProviderName(d.provider ?? d.name ?? ''))
+    const values = items.map((d: any) => d.total_requests ?? d.count ?? 0)
+
+    const chart = echarts.init(providerChart.value)
+    chartInstances.push(chart)
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      xAxis: { type: 'category', data: names },
+      yAxis: { type: 'value', name: '请求数' },
+      series: [{ data: values, type: 'bar' }]
+    })
+  } catch {
+    if (providerChart.value) {
+      const chart = echarts.init(providerChart.value)
+      chartInstances.push(chart)
+      chart.setOption({
+        title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 14 } },
+        xAxis: { show: false },
+        yAxis: { show: false },
+        series: []
+      })
+    }
+  }
 }
 
 const filterRecords = () => {
@@ -390,56 +558,9 @@ const filterRecords = () => {
   } else {
     const keyword = searchKeyword.value.toLowerCase()
     filteredRecords.value = records.value.filter(record =>
-      record.stock_symbol.toLowerCase().includes(keyword) ||
-      record.model.toLowerCase().includes(keyword)
+      (record.stock_symbol ?? '').toLowerCase().includes(keyword) ||
+      (record.model ?? '').toLowerCase().includes(keyword)
     )
-  }
-}
-
-const renderCharts = () => {
-  // Token使用趋势图
-  if (tokenTrendChart.value) {
-    const chart1 = echarts.init(tokenTrendChart.value)
-    chart1.setOption({
-      tooltip: { trigger: 'axis' },
-      xAxis: { type: 'category', data: ['1月', '2月', '3月', '4月', '5月'] },
-      yAxis: { type: 'value' },
-      series: [{
-        data: [120, 200, 150, 80, 70],
-        type: 'line',
-        smooth: true
-      }]
-    })
-  }
-  
-  // 成本分布图
-  if (costDistributionChart.value) {
-    const chart2 = echarts.init(costDistributionChart.value)
-    chart2.setOption({
-      tooltip: { trigger: 'item' },
-      series: [{
-        type: 'pie',
-        data: [
-          { value: 1048, name: '阿里百炼' },
-          { value: 735, name: 'OpenAI' },
-          { value: 580, name: 'Google' }
-        ]
-      }]
-    })
-  }
-  
-  // 供应商统计图
-  if (providerChart.value) {
-    const chart3 = echarts.init(providerChart.value)
-    chart3.setOption({
-      tooltip: { trigger: 'axis' },
-      xAxis: { type: 'category', data: ['阿里百炼', 'OpenAI', 'Google', 'DeepSeek'] },
-      yAxis: { type: 'value' },
-      series: [{
-        data: [120, 200, 150, 80],
-        type: 'bar'
-      }]
-    })
   }
 }
 
@@ -452,16 +573,14 @@ const viewDetails = (_row: any) => {
 }
 
 // 生命周期
-onMounted(() => {
-  loadStatistics()
-  loadRecords()
-  
-  // 模拟模型排行数据
-  modelRanking.value = [
-    { name: 'qwen-turbo', requests: 500, tokens: 150000, cost: 15.0 },
-    { name: 'gpt-4', requests: 300, tokens: 120000, cost: 24.0 },
-    { name: 'gemini-pro', requests: 200, tokens: 80000, cost: 8.0 }
-  ]
+onMounted(async () => {
+  await loadStatistics()
+  await loadRecords()
+})
+
+onBeforeUnmount(() => {
+  chartInstances.forEach(c => c.dispose())
+  chartInstances = []
 })
 </script>
 

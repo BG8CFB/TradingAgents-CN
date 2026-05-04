@@ -80,6 +80,23 @@ export interface NewsResponse {
   items: NewsItem[]
 }
 
+export interface StockInfo {
+  code: string
+  name: string
+  name_en?: string
+  market: string
+  source: string
+  total_mv?: number
+  pe?: number
+  pb?: number
+  lot_size?: number
+  currency?: string
+  industry?: string
+  sector?: string
+  list_date?: string
+  updated_at?: string
+}
+
 export const stocksApi = {
   /**
    * 获取股票行情
@@ -117,6 +134,18 @@ export const stocksApi = {
    */
   async getNews(symbol: string, days = 30, limit = 50, includeAnnouncements = true) {
     return ApiClient.get<NewsResponse>(`/api/stocks/${symbol}/news`, { days, limit, include_announcements: includeAnnouncements })
+  },
+
+  async getBasicInfo(symbol: string) {
+    return ApiClient.get(`/api/stocks/${symbol}/basic-info`)
+  },
+
+  async getSyncStatus() {
+    return ApiClient.get('/api/stocks/sync-status/quotes')
+  },
+
+  async searchStocks(market: string, query: string, limit = 20) {
+    return ApiClient.get('/api/stocks/search', { q: query, market, limit })
   }
 }
 
