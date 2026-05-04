@@ -254,7 +254,8 @@ def create_simple_agent(
 
         icon = SimpleAgentFactory._get_analyst_icon(slug, name)
         display_name = f"{icon} {name}"
-        ProgressManager.node_start(display_name)
+        task_id = state.get("task_id")
+        ProgressManager.node_start(display_name, task_id=task_id)
         
         try:
             # === 步骤1：获取上下文信息（参考 bull_researcher.py 第50-97行） ===
@@ -505,7 +506,7 @@ def create_simple_agent(
             logger.info(f"✅ [{name}] 分析完成，报告长度: {len(final_report)} 字符")
             
             # 进度追踪：节点执行完成
-            ProgressManager.node_end(display_name)
+            ProgressManager.node_end(display_name, task_id=task_id)
             
             # 🔥 只返回报告内容，不返回完整消息历史，避免 token 溢出
             # 参考 dynamic_analyst.py 中 analyst_subgraph_node 的实现
@@ -522,7 +523,8 @@ def create_simple_agent(
             }
         except Exception as e:
             # 确保进度追踪在异常时也能结束
-            ProgressManager.node_end(display_name)
+            task_id = state.get("task_id")
+            ProgressManager.node_end(display_name, task_id=task_id)
             logger.error(f"❌ [{name}] 分析过程中发生异常: {e}", exc_info=True)
             
             # 返回错误报告

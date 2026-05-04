@@ -252,9 +252,10 @@ def get_config():
     }
 
 def set_config(config):
-    """设置配置（兼容性包装）- 仅日志提示"""
-    import logging
-    logging.getLogger(__name__).warning("set_config() is deprecated; use settings/env vars directly")
+    """设置配置（兼容性包装）- 已废弃，保留空函数以防外部调用方报错"""
+    # 原设计意图是将引擎层 config 传递给数据层，但数据层现已通过
+    # app.core.config.settings 统一管理配置，此函数无实际作用。
+    pass
 
 
 def get_finnhub_news(

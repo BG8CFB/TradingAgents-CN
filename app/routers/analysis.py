@@ -828,8 +828,26 @@ async def get_user_analysis_history(
 # WebSocket 端点
 @router.websocket("/ws/task/{task_id}")
 async def websocket_task_progress(websocket: WebSocket, task_id: str):
-    """WebSocket 端点：实时获取任务进度"""
+    """WebSocket 端点：实时获取任务进度（需通过 query parameter 传递 token 认证）"""
     import json
+    from app.services.auth_service import AuthService
+
+    # 通过 query parameter 获取 token 进行认证
+    token = websocket.query_params.get("token")
+    if not token:
+        logger.warning(f"🔌 [WS] 连接拒绝：缺少 token, task_id={task_id}")
+        await websocket.close(code=4001, reason="Missing authentication token")
+        return
+
+    token_data = AuthService.verify_token(token)
+    if not token_data:
+        logger.warning(f"🔌 [WS] 连接拒绝：token 无效, task_id={task_id}")
+        await websocket.close(code=4001, reason="Invalid or expired token")
+        return
+
+    user_id = token_data.sub
+    logger.info(f"🔌 [WS] 认证成功: user={user_id}, task_id={task_id}")
+
     websocket_manager = get_websocket_manager()
 
     try:
@@ -837,8 +855,8 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
         # 1. websocket_manager.connect 内部会调用 websocket.accept()
         # 2. 403 错误通常是因为没有及时 accept，或者中间件拦截
         # 3. 这里我们直接调用 connect，让它处理握手
-        logger.info(f"🔌 [WS] 尝试建立连接: task_id={task_id}")
-        
+        logger.info(f"🔌 [WS] 尝试建立连接: task_id={task_id}, user={user_id}")
+
         # 注意：如果 websocket_manager.connect 内部抛出异常，连接会失败
         # 我们需要确保在 connect 之前没有其他操作阻塞
         await websocket_manager.connect(websocket, task_id)
@@ -864,7 +882,7 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
                 break
 
     except WebSocketDisconnect:
-        logger.info(f"🔌 WebSocket 客户端断开连接: {task_id}")
+        logger.info(f"🔌 WebSocket 客户端断开连接: task_id={task_id}")
     except Exception as e:
         logger.error(f"❌ WebSocket 连接错误: {e}")
     finally:
@@ -946,17 +964,23 @@ async def cleanup_zombie_tasks(
 @router.post("/tasks/{task_id}/mark-failed")
 async def mark_task_as_failed(
     task_id: str,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
+    svc: QueueService = Depends(get_queue_service)
 ):
     """将指定任务标记为失败
 
     用于手动清理卡住的任务
     """
     try:
-        from app.services.analysis_service import get_analysis_service
-        svc = get_analysis_service()
+        # 验证任务所有权
+        task = await svc.get_task(task_id)
+        if not task or task.get("user") != user["id"]:
+            raise HTTPException(status_code=404, detail="任务不存在")
 
-        modified = await svc.mark_task_failed(task_id, error_message="用户手动标记为失败")
+        from app.services.analysis_service import get_analysis_service
+        analysis_svc = get_analysis_service()
+
+        modified = await analysis_svc.mark_task_failed(task_id, error_message="用户手动标记为失败")
 
         if modified:
             logger.info(f"✅ 任务 {task_id} 已标记为失败")
@@ -978,17 +1002,23 @@ async def mark_task_as_failed(
 @router.delete("/tasks/{task_id}")
 async def delete_task(
     task_id: str,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
+    svc: QueueService = Depends(get_queue_service)
 ):
     """删除指定任务
 
     从内存和数据库中删除任务记录
     """
     try:
-        from app.services.analysis_service import get_analysis_service
-        svc = get_analysis_service()
+        # 验证任务所有权
+        task = await svc.get_task(task_id)
+        if not task or task.get("user") != user["id"]:
+            raise HTTPException(status_code=404, detail="任务不存在")
 
-        deleted = await svc.delete_task_by_id(task_id)
+        from app.services.analysis_service import get_analysis_service
+        analysis_svc = get_analysis_service()
+
+        deleted = await analysis_svc.delete_task_by_id(task_id)
 
         if deleted:
             logger.info(f"✅ 任务 {task_id} 已删除")

@@ -109,7 +109,7 @@ export class OperationLogsApi {
     if (params.success !== undefined) queryParams.append('success', params.success.toString())
     if (params.keyword) queryParams.append('keyword', params.keyword)
     
-    const url = `/api/system/logs/list${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+    const url = `/api/operation-logs/list${queryParams.toString() ? '?' + queryParams.toString() : ''}`
     return ApiClient.get(url)
   }
 
@@ -117,7 +117,7 @@ export class OperationLogsApi {
    * 获取操作日志统计
    */
   static getOperationLogStats(days: number = 30): Promise<OperationLogStatsResponse> {
-    return ApiClient.get(`/api/system/logs/stats?days=${days}`)
+    return ApiClient.get(`/api/operation-logs/stats?days=${days}`)
   }
 
   /**
@@ -128,7 +128,7 @@ export class OperationLogsApi {
     data: OperationLog
     message: string
   }> {
-    return ApiClient.get(`/api/system/logs/${logId}`)
+    return ApiClient.get(`/api/operation-logs/${logId}`)
   }
 
   /**
@@ -139,14 +139,14 @@ export class OperationLogsApi {
     data: { log_id: string }
     message: string
   }> {
-    return ApiClient.post('/api/system/logs/create', data)
+    return ApiClient.post('/api/operation-logs/create', data)
   }
 
   /**
    * 清空操作日志
    */
   static clearOperationLogs(data: ClearLogsRequest = {}): Promise<ClearLogsResponse> {
-    return ApiClient.post('/api/system/logs/clear', data)
+    return ApiClient.post('/api/operation-logs/clear', data)
   }
 
   /**
@@ -163,7 +163,7 @@ export class OperationLogsApi {
     if (params.end_date) queryParams.append('end_date', params.end_date)
     if (params.action_type) queryParams.append('action_type', params.action_type)
 
-    const url = `/api/system/logs/export/csv${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+    const url = `/api/operation-logs/export/csv${queryParams.toString() ? '?' + queryParams.toString() : ''}`
     const response = await ApiClient.get(url, { responseType: 'blob' } as any)
     return response as unknown as Blob
   }

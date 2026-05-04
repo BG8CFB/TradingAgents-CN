@@ -81,17 +81,17 @@ export interface ConnectionTestResult {
 export const databaseApi = {
   // 获取数据库状态
   getStatus(): Promise<{ success: boolean; data: DatabaseStatus }> {
-    return ApiClient.get('/api/system/database/status')
+    return ApiClient.get('/api/database/status')
   },
 
   // 获取数据库统计
   getStats(): Promise<{ success: boolean; data: DatabaseStats }> {
-    return ApiClient.get('/api/system/database/stats')
+    return ApiClient.get('/api/database/stats')
   },
 
   // 测试数据库连接
   testConnections(): Promise<{ success: boolean; message: string; data: ConnectionTestResult }> {
-    return ApiClient.post('/api/system/database/test')
+    return ApiClient.post('/api/database/test')
   },
 
   // 创建备份
@@ -99,17 +99,17 @@ export const databaseApi = {
     name: string
     collections?: string[]
   }): Promise<{ success: boolean; message: string; data: BackupInfo }> {
-    return ApiClient.post('/api/system/database/backup', data)
+    return ApiClient.post('/api/database/backup', data)
   },
 
   // 获取备份列表
   getBackups(): Promise<{ success: boolean; data: BackupInfo[] }> {
-    return ApiClient.get('/api/system/database/backups')
+    return ApiClient.get('/api/database/backups')
   },
 
   // 删除备份
   deleteBackup(backupId: string): Promise<{ success: boolean; message: string }> {
-    return ApiClient.delete(`/api/system/database/backups/${backupId}`)
+    return ApiClient.delete(`/api/database/backups/${backupId}`)
   },
 
   // 导入数据
@@ -140,7 +140,7 @@ export const databaseApi = {
       overwrite: options.overwrite
     })
 
-    return ApiClient.post(`/api/system/database/import?${params.toString()}`, formData, {
+    return ApiClient.post(`/api/database/import?${params.toString()}`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }
@@ -154,7 +154,7 @@ export const databaseApi = {
     sanitize?: boolean  // 是否脱敏（清空敏感字段，用于演示系统）
   }): Promise<any> {
     // 使用 request 直接发送，避免 ApiClient 响应拦截器对 Blob 做不必要的 JSON 检查
-    return request.post('/api/system/database/export', options, {
+    return request.post('/api/database/export', options, {
       responseType: 'blob'
     })
   },
@@ -169,7 +169,7 @@ export const databaseApi = {
       cutoff_date: string
     }
   }> {
-    return ApiClient.post(`/api/system/database/cleanup?days=${days}`)
+    return ApiClient.post(`/api/database/cleanup?days=${days}`)
   },
 
   // 清理过期分析结果
@@ -182,7 +182,7 @@ export const databaseApi = {
       cutoff_date: string
     }
   }> {
-    return ApiClient.post(`/api/system/database/cleanup/analysis?days=${days}`)
+    return ApiClient.post(`/api/database/cleanup/analysis?days=${days}`)
   },
 
   // 清理操作日志
@@ -195,7 +195,7 @@ export const databaseApi = {
       cutoff_date: string
     }
   }> {
-    return ApiClient.post(`/api/system/database/cleanup/logs?days=${days}`)
+    return ApiClient.post(`/api/database/cleanup/logs?days=${days}`)
   }
 }
 

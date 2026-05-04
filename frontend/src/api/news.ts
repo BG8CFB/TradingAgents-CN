@@ -65,7 +65,7 @@ export const newsApi = {
     if (symbol) {
       params.symbol = symbol
     }
-    return ApiClient.get<LatestNewsResponse>('/api/news-data/latest', params)
+    return ApiClient.get<LatestNewsResponse>('/api/news/latest', params)
   },
 
   /**
@@ -75,7 +75,7 @@ export const newsApi = {
    * @param limit 返回数量限制
    */
   async queryStockNews(symbol: string, hours_back: number = 24, limit: number = 20) {
-    return ApiClient.get<NewsQueryResponse>(`/api/news-data/query/${symbol}`, {
+    return ApiClient.get<NewsQueryResponse>(`/api/news/query/${symbol}`, {
       hours_back,
       limit
     })
@@ -87,7 +87,7 @@ export const newsApi = {
    * @param max_news_per_source 每个数据源最大新闻数量
    */
   async syncMarketNews(hours_back: number = 24, max_news_per_source: number = 50) {
-    return ApiClient.post<NewsSyncResponse>('/api/news-data/sync/start', {
+    return ApiClient.post<NewsSyncResponse>('/api/news/sync/start', {
       symbol: null,
       data_sources: null,
       hours_back,

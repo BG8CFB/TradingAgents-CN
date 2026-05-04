@@ -39,7 +39,7 @@ export function getUsageRecords(params?: {
   limit?: number
 }): Promise<ApiResponse<{ records: UsageRecord[]; total: number }>> {
   return ApiClient.get<{ records: UsageRecord[]; total: number }>(
-    '/api/usage/records',
+    '/api/usage-statistics/records',
     params
   )
 }
@@ -53,7 +53,7 @@ export function getUsageStatistics(params?: {
   model_name?: string
 }): Promise<ApiResponse<UsageStatistics>> {
   return ApiClient.get<UsageStatistics>(
-    '/api/usage/statistics',
+    '/api/usage-statistics/statistics',
     params
   )
 }
@@ -62,26 +62,26 @@ export function getUsageStatistics(params?: {
  * 按供应商统计成本
  */
 export function getCostByProvider(days: number = 7) {
-  return ApiClient.get('/api/usage/cost/by-provider', { days })
+  return ApiClient.get('/api/usage-statistics/cost/by-provider', { days })
 }
 
 /**
  * 按模型统计成本
  */
 export function getCostByModel(days: number = 7) {
-  return ApiClient.get('/api/usage/cost/by-model', { days })
+  return ApiClient.get('/api/usage-statistics/cost/by-model', { days })
 }
 
 /**
  * 每日成本统计
  */
 export function getDailyCost(days: number = 7) {
-  return ApiClient.get('/api/usage/cost/daily', { days })
+  return ApiClient.get('/api/usage-statistics/cost/daily', { days })
 }
 
 /**
  * 删除旧记录
  */
 export function deleteOldRecords(days: number = 90) {
-  return ApiClient.delete('/api/usage/records/old', { params: { days } })
+  return ApiClient.delete('/api/usage-statistics/records/old', { params: { days } })
 }

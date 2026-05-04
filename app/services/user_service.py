@@ -14,6 +14,12 @@ from app.utils.passwords import (
 )
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.errors import (
+    ConnectionFailure,
+    ServerSelectionTimeoutError,
+    NetworkTimeout,
+    AutoReconnect,
+)
 
 # 尝试导入日志管理器
 try:
@@ -24,6 +30,20 @@ except ImportError:
         return logging.getLogger(name)
 
 logger = get_logger('user_service')
+
+
+def _is_system_error(exc: Exception) -> bool:
+    """判断是否为需要向上传播的系统级错误"""
+    system_errors = (
+        ConnectionFailure,
+        ServerSelectionTimeoutError,
+        NetworkTimeout,
+        AutoReconnect,
+        OSError,
+        ConnectionError,
+        TimeoutError,
+    )
+    return isinstance(exc, system_errors)
 
 
 class UserService:
@@ -105,6 +125,9 @@ class UserService:
             return User(**user_doc)
 
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 创建用户失败: {e}")
+                raise
             logger.error(f"❌ 创建用户失败: {e}")
             return None
 
@@ -148,6 +171,9 @@ class UserService:
             return User(**user_doc)
 
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 用户认证失败: {e}")
+                raise
             logger.error(f"❌ 用户认证失败: {e}")
             return None
 
@@ -163,6 +189,9 @@ class UserService:
                 return User(**user_doc)
             return None
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 获取用户失败: {e}")
+                raise
             logger.error(f"❌ 获取用户失败: {e}")
             return None
 
@@ -181,6 +210,9 @@ class UserService:
                 return User(**user_doc)
             return None
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 获取用户失败: {e}")
+                raise
             logger.error(f"❌ 获取用户失败: {e}")
             return None
 
@@ -226,6 +258,9 @@ class UserService:
                 return None
 
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 更新用户信息失败: {e}")
+                raise
             logger.error(f"❌ 更新用户信息失败: {e}")
             return None
 
@@ -260,6 +295,9 @@ class UserService:
                 return False
 
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 修改密码失败: {e}")
+                raise
             logger.error(f"❌ 修改密码失败: {e}")
             return False
 
@@ -289,6 +327,9 @@ class UserService:
                 return False
 
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 重置密码失败: {e}")
+                raise
             logger.error(f"❌ 重置密码失败: {e}")
             return False
 
@@ -349,6 +390,9 @@ class UserService:
             return User(**admin_doc)
 
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 创建管理员用户失败: {e}")
+                raise
             logger.error(f"❌ 创建管理员用户失败: {e}")
             return None
 
@@ -383,6 +427,9 @@ class UserService:
             return users
 
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 获取用户列表失败: {e}")
+                raise
             logger.error(f"❌ 获取用户列表失败: {e}")
             return []
 
@@ -411,6 +458,9 @@ class UserService:
                 return False
 
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 禁用用户失败: {e}")
+                raise
             logger.error(f"❌ 禁用用户失败: {e}")
             return False
 
@@ -439,6 +489,9 @@ class UserService:
                 return False
 
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 激活用户失败: {e}")
+                raise
             logger.error(f"❌ 激活用户失败: {e}")
             return False
 
@@ -466,6 +519,9 @@ class UserService:
             logger.info(f"用户管理员状态已更新: {username}, is_admin={is_admin}")
             return True
         except Exception as e:
+            if _is_system_error(e):
+                logger.error(f"系统级错误 - 更新用户管理员状态失败: {e}")
+                raise
             logger.error(f"❌ 更新用户管理员状态失败: {e}")
             return False
 

@@ -510,12 +510,13 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# 测试端点 - 验证中间件是否工作
-@app.get("/api/test-log")
-async def test_log():
-    """测试日志中间件是否工作"""
-    print("🧪 测试端点被调用 - 这条消息应该出现在控制台")
-    return {"message": "测试成功", "timestamp": time.time()}
+# 测试端点 - 仅在 DEBUG 模式下注册
+if settings.DEBUG:
+    @app.get("/api/test-log")
+    async def test_log():
+        """测试日志中间件是否工作（仅 DEBUG 模式）"""
+        logging.getLogger("app.main").debug("test-log endpoint called")
+        return {"message": "测试成功", "timestamp": time.time()}
 
 # 注册路由
 app.include_router(health.router)
@@ -563,7 +564,7 @@ app.include_router(news_data.router)
 @app.get("/")
 async def root():
     """根路径，返回API信息"""
-    print("🏠 根路径被访问")
+    logging.getLogger("app.main").debug("Root path accessed")
     return {
         "name": "TradingAgents-CN API",
         "version": get_version(),

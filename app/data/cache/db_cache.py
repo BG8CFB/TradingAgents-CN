@@ -56,28 +56,57 @@ class DatabaseCacheManager:
             mongodb_db: MongoDB数据库名
             redis_db: Redis数据库编号
         """
-        # 从配置文件获取正确的端口
-        mongodb_port = os.getenv("MONGODB_PORT", "27018")
-        redis_port = os.getenv("REDIS_PORT", "6380")
-        mongodb_password = os.getenv("MONGODB_PASSWORD", "tradingagents123")
-        redis_password = os.getenv("REDIS_PASSWORD", "tradingagents123")
+        # 从配置文件获取正确的端口，优先使用 settings 对象，避免硬编码密码
+        try:
+            from app.core.config import settings
+            mongodb_port = str(settings.MONGODB_PORT)
+            redis_port = str(settings.REDIS_PORT)
+            mongodb_password = settings.MONGODB_PASSWORD
+            mongodb_username = settings.MONGODB_USERNAME
+            redis_password = settings.REDIS_PASSWORD
+        except Exception:
+            logger.warning("⚠️ 无法加载 settings，回退到环境变量获取数据库配置")
+            mongodb_port = os.getenv("MONGODB_PORT", "27017")
+            redis_port = os.getenv("REDIS_PORT", "6379")
+            mongodb_password = os.getenv("MONGODB_PASSWORD", "")
+            mongodb_username = os.getenv("MONGODB_USERNAME", "")
+            redis_password = os.getenv("REDIS_PASSWORD", "")
 
-        self.mongodb_url = mongodb_url or os.getenv("MONGODB_URL", f"mongodb://admin:{mongodb_password}@localhost:{mongodb_port}")
-        self.redis_url = redis_url or os.getenv("REDIS_URL", f"redis://:{redis_password}@localhost:{redis_port}")
+        if not mongodb_password:
+            logger.warning("⚠️ MongoDB 密码未配置，将尝试无认证连接")
+
+        if not redis_password:
+            logger.warning("⚠️ Redis 密码未配置，将尝试无认证连接")
+
+        # 构建 MongoDB URL：有用户名密码时使用认证连接，否则无认证
+        if mongodb_username and mongodb_password:
+            default_mongo_url = f"mongodb://{mongodb_username}:{mongodb_password}@localhost:{mongodb_port}"
+        else:
+            default_mongo_url = f"mongodb://localhost:{mongodb_port}"
+
+        # 构建 Redis URL：有密码时使用认证连接，否则无认证
+        if redis_password:
+            default_redis_url = f"redis://:{redis_password}@localhost:{redis_port}"
+        else:
+            default_redis_url = f"redis://localhost:{redis_port}"
+
+        self.mongodb_url = mongodb_url or os.getenv("MONGODB_URL", default_mongo_url)
+        self.redis_url = redis_url or os.getenv("REDIS_URL", default_redis_url)
         self.mongodb_db_name = mongodb_db
         self.redis_db = redis_db
 
         # 初始化连接
         self.mongodb_client = None
         self.mongodb_db = None
+        self.redis_pool = None
         self.redis_client = None
 
         self._init_mongodb()
         self._init_redis()
 
         logger.info(f"🗄️ 数据库缓存管理器初始化完成")
-        logger.error(f"   MongoDB: {'✅ 已连接' if self.mongodb_client else '❌ 未连接'}")
-        logger.error(f"   Redis: {'✅ 已连接' if self.redis_client else '❌ 未连接'}")
+        logger.info(f"   MongoDB: {'✅ 已连接' if self.mongodb_client else '❌ 未连接'}")
+        logger.info(f"   Redis: {'✅ 已连接' if self.redis_client else '❌ 未连接'}")
 
     def _init_mongodb(self):
         """初始化MongoDB连接"""
@@ -93,6 +122,9 @@ class DatabaseCacheManager:
 
             self.mongodb_client = MongoClient(
                 self.mongodb_url,
+                maxPoolSize=10,
+                minPoolSize=1,
+                maxIdleTimeMS=30000,
                 serverSelectionTimeoutMS=server_selection_timeout,
                 connectTimeoutMS=connect_timeout,
                 socketTimeoutMS=socket_timeout
@@ -118,13 +150,15 @@ class DatabaseCacheManager:
             return
 
         try:
-            self.redis_client = redis.from_url(
+            self.redis_pool = redis.ConnectionPool.from_url(
                 self.redis_url,
                 db=self.redis_db,
+                max_connections=10,
                 socket_timeout=5,
                 socket_connect_timeout=5,
                 decode_responses=True
             )
+            self.redis_client = redis.Redis(connection_pool=self.redis_pool)
             # 测试连接
             self.redis_client.ping()
 
@@ -566,6 +600,10 @@ class DatabaseCacheManager:
             self.redis_client.close()
             logger.info(f"🔒 Redis连接已关闭")
 
+        if self.redis_pool:
+            self.redis_pool.disconnect()
+            logger.info(f"🔒 Redis连接池已关闭")
+
 
 # 全局数据库缓存实例
 _db_cache_instance = None
@@ -576,3 +614,14 @@ def get_db_cache() -> DatabaseCacheManager:
     if _db_cache_instance is None:
         _db_cache_instance = DatabaseCacheManager()
     return _db_cache_instance
+
+
+# 模块级单例获取函数（别名，支持 kwargs 传参）
+_cache_manager_instance = None
+
+def get_db_cache_manager(**kwargs) -> DatabaseCacheManager:
+    """获取全局缓存管理器单例，支持自定义初始化参数"""
+    global _cache_manager_instance
+    if _cache_manager_instance is None:
+        _cache_manager_instance = DatabaseCacheManager(**kwargs)
+    return _cache_manager_instance

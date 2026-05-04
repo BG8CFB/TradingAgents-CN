@@ -105,10 +105,8 @@ const createAxiosInstance = (): AxiosInstance => {
           config.headers = config.headers || {}
           config.headers.Authorization = `Bearer ${token}`
           console.log('🔐 已设置Authorization头:', {
-            hasToken: !!token,
-            tokenLength: token?.length || 0,
-            tokenPrefix: token?.substring(0, 20) || 'None',
-            authHeader: config.headers.Authorization?.substring(0, 30) || 'None'
+            hasToken: true,
+            tokenLength: token.length
           })
         } else {
           console.log('⚠️ 未设置Authorization头:', {
@@ -131,12 +129,16 @@ const createAxiosInstance = (): AxiosInstance => {
         appStore.setLoading(true, 0)
       }
 
+      // 输出请求日志，排除敏感的 Authorization 头
+      const safeHeaders = { ...config.headers }
+      delete safeHeaders.Authorization
+      delete safeHeaders.authorization
       console.log(`🚀 API请求: ${config.method?.toUpperCase()} ${config.url}`, {
         baseURL: config.baseURL,
         fullURL: `${config.baseURL}${config.url}`,
         params: config.params,
         data: config.data,
-        headers: config.headers,
+        headers: safeHeaders,
         timeout: config.timeout
       })
 

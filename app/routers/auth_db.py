@@ -33,6 +33,12 @@ class ApiResponse(BaseModel):
     data: dict = {}
     message: str = ""
 
+class UserUpdateRequest(BaseModel):
+    """用户信息更新请求模型 - 仅允许修改的字段"""
+    email: Optional[str] = None
+    preferences: Optional[dict] = None
+    language: Optional[str] = None
+
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 class LoginRequest(BaseModel):
@@ -319,7 +325,7 @@ async def me(user: dict = Depends(get_current_user)):
 
 @router.put("/me")
 async def update_me(
-    payload: dict,
+    payload: UserUpdateRequest,
     user: dict = Depends(get_current_user)
 ):
     """更新当前用户信息"""
@@ -330,30 +336,31 @@ async def update_me(
         update_data = {}
 
         # 更新邮箱
-        if "email" in payload:
-            update_data["email"] = payload["email"]
+        if payload.email is not None:
+            update_data["email"] = payload.email
 
         # 更新偏好设置（支持部分更新）
-        if "preferences" in payload:
+        if payload.preferences is not None:
             # 获取当前偏好
             current_prefs = user.get("preferences", {})
 
             # 合并新的偏好设置
-            merged_prefs = {**current_prefs, **payload["preferences"]}
+            merged_prefs = {**current_prefs, **payload.preferences}
 
             # 创建 UserPreferences 对象
             update_data["preferences"] = UserPreferences(**merged_prefs)
 
         # 如果有语言设置，更新到偏好中
-        if "language" in payload:
+        if payload.language is not None:
             if "preferences" not in update_data:
                 # 获取当前偏好
                 current_prefs = user.get("preferences", {})
                 update_data["preferences"] = UserPreferences(**current_prefs)
-            update_data["preferences"].language = payload["language"]
+            update_data["preferences"].language = payload.language
 
-        # 如果有时区设置，更新到偏好中（如果需要）
-        # 注意：时区通常是系统级设置，不是用户级设置
+        # 如果没有可更新的字段，直接返回
+        if not update_data:
+            raise HTTPException(status_code=400, detail="没有可更新的字段")
 
         # 调用服务更新用户
         user_update = UserUpdate(**update_data)

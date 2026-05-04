@@ -953,8 +953,10 @@ class TradingAgentsGraph:
         # 注册进度回调到全局管理器
         from app.engine.agents.analysts.dynamic_analyst import ProgressManager
         if progress_callback:
-            ProgressManager.set_callback(progress_callback)
-            logger.debug(f"🔧 [进度管理器] 已注册进度回调")
+            # 使用 task_id 隔离不同任务的回调，支持并发安全
+            effective_task_id = task_id or id(progress_callback)
+            ProgressManager.set_callback(effective_task_id, progress_callback)
+            logger.debug(f"🔧 [进度管理器] 已注册进度回调, task_id={effective_task_id}")
 
         # 添加详细的接收日志
         logger.debug(f"🔍 [GRAPH DEBUG] ===== TradingAgentsGraph.propagate 接收参数 =====")
@@ -1209,8 +1211,9 @@ class TradingAgentsGraph:
 
         # 清理进度回调
         if progress_callback:
-            ProgressManager.clear_callback()
-            logger.debug(f"🔧 [进度管理器] 已清除进度回调")
+            effective_task_id = task_id or id(progress_callback)
+            ProgressManager.clear_callback(effective_task_id)
+            logger.debug(f"🔧 [进度管理器] 已清除进度回调, task_id={effective_task_id}")
 
         # Return decision and processed signal
         return final_state, decision

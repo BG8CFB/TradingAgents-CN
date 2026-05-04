@@ -22,40 +22,82 @@ class ProgressManager:
     由于 progress_callback 无法序列化，不能通过状态传递，
     所以使用全局变量来实现进度追踪。
 
-    注意：使用线程锁保护并发访问，避免并发分析任务时状态互相覆盖。
+    使用 task_id 映射的回调字典，支持多任务并发。
+    每个分析任务通过 task_id 隔离，避免并发任务互相覆盖。
     """
 
-    _callback = None
-    _current_node = None
-    _node_start_time = None
+    _callbacks: Dict[str, Any] = {}       # task_id -> callback
+    _current_nodes: Dict[str, str] = {}   # task_id -> current_node
+    _node_start_times: Dict[str, float] = {}  # task_id -> start_time
     _lock = threading.Lock()
 
     @classmethod
-    def set_callback(cls, callback):
-        """设置进度回调函数"""
+    def set_callback(cls, task_id: str, callback):
+        """设置指定任务的进度回调函数
+
+        Args:
+            task_id: 任务 ID，用于隔离不同任务的回调
+            callback: 进度回调函数，传入 None 则移除该任务的回调
+        """
         with cls._lock:
-            cls._callback = callback
+            if callback:
+                cls._callbacks[task_id] = callback
+            else:
+                cls._callbacks.pop(task_id, None)
 
     @classmethod
-    def clear_callback(cls):
-        """清除进度回调函数"""
+    def remove_callback(cls, task_id: str):
+        """清除指定任务的所有进度信息
+
+        Args:
+            task_id: 任务 ID
+        """
         with cls._lock:
-            cls._callback = None
-            cls._current_node = None
-            cls._node_start_time = None
+            cls._callbacks.pop(task_id, None)
+            cls._current_nodes.pop(task_id, None)
+            cls._node_start_times.pop(task_id, None)
 
     @classmethod
-    def node_start(cls, display_name):
+    def clear_callback(cls, task_id: str = None):
+        """清除进度回调函数（向后兼容）
+
+        Args:
+            task_id: 任务 ID，如果为 None 则清除所有回调
+        """
+        with cls._lock:
+            if task_id:
+                cls._callbacks.pop(task_id, None)
+                cls._current_nodes.pop(task_id, None)
+                cls._node_start_times.pop(task_id, None)
+            else:
+                cls._callbacks.clear()
+                cls._current_nodes.clear()
+                cls._node_start_times.clear()
+
+    @classmethod
+    def node_start(cls, display_name, task_id: str = None):
         """节点开始执行时调用
 
         Args:
-            display_name: 中文显示名称（如 "📊 基本面分析师"）
+            display_name: 中文显示名称（如 "基本面分析师"）
+            task_id: 任务 ID，用于并发隔离
         """
         import time
         with cls._lock:
-            cls._current_node = display_name
-            cls._node_start_time = time.time()
-            callback = cls._callback
+            # 如果指定了 task_id，仅操作该任务的回调；否则使用第一个可用回调
+            if task_id:
+                cls._current_nodes[task_id] = display_name
+                cls._node_start_times[task_id] = time.time()
+                callback = cls._callbacks.get(task_id)
+            else:
+                # 向后兼容：使用第一个可用回调
+                tid = next(iter(cls._callbacks), None)
+                if tid:
+                    cls._current_nodes[tid] = display_name
+                    cls._node_start_times[tid] = time.time()
+                    callback = cls._callbacks.get(tid)
+                else:
+                    callback = None
 
         logger.info(f"🚀 [节点] {display_name} 开始执行")
 
@@ -67,21 +109,46 @@ class ProgressManager:
                 logger.warning(f"⚠️ 进度回调失败: {e}")
 
     @classmethod
-    def node_end(cls, name):
-        """节点执行完成时调用"""
+    def node_end(cls, name, task_id: str = None):
+        """节点执行完成时调用
+
+        Args:
+            name: 节点名称
+            task_id: 任务 ID
+        """
         import time
         with cls._lock:
-            elapsed = time.time() - cls._node_start_time if cls._node_start_time else 0
-            cls._current_node = None
-            cls._node_start_time = None
+            if task_id:
+                elapsed = time.time() - cls._node_start_times.pop(task_id, 0)
+                cls._current_nodes.pop(task_id, None)
+            else:
+                tid = next(iter(cls._node_start_times), None)
+                if tid:
+                    elapsed = time.time() - cls._node_start_times.pop(tid, 0)
+                    cls._current_nodes.pop(tid, None)
+                else:
+                    elapsed = 0
 
         logger.info(f"✅ [节点] {name} 执行完成，耗时: {elapsed:.2f}秒")
 
     @classmethod
-    def get_current_node(cls):
-        """获取当前正在执行的节点名称"""
+    def get_current_node(cls, task_id: str = None):
+        """获取指定任务当前正在执行的节点名称"""
         with cls._lock:
-            return cls._current_node
+            if task_id:
+                return cls._current_nodes.get(task_id)
+            tid = next(iter(cls._current_nodes), None)
+            return cls._current_nodes.get(tid) if tid else None
+
+    @classmethod
+    def get_callback(cls, task_id: str = None):
+        """获取指定任务的回调函数"""
+        with cls._lock:
+            if task_id:
+                return cls._callbacks.get(task_id)
+            # 向后兼容：返回第一个可用回调
+            tid = next(iter(cls._callbacks), None)
+            return cls._callbacks.get(tid) if tid else None
 
 
 # 保留旧名称作为别名，向后兼容

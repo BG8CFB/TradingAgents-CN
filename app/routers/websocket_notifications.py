@@ -121,7 +121,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-@router.websocket("/ws/notifications")
+@router.websocket("/notifications")
 async def websocket_notifications_endpoint(
     websocket: WebSocket,
     token: str = Query(...)
@@ -210,7 +210,7 @@ async def websocket_notifications_endpoint(
         await manager.disconnect(websocket, user_id)
 
 
-@router.get("/ws/stats")
+@router.get("/stats")
 async def get_websocket_stats():
     """获取 WebSocket 连接统计"""
     return manager.get_stats()
