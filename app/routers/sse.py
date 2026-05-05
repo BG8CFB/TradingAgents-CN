@@ -75,7 +75,7 @@ async def task_progress_generator(task_id: str, user_id: str):
                     idle_elapsed += poll_timeout
                     now = time.monotonic()
                     if now - last_hb >= heartbeat_every:
-                        yield f"event: heartbeat\ndata: {{\"timestamp\": \"{asyncio.get_event_loop().time()}\"}}\n\n"
+                        yield f"event: heartbeat\ndata: {{\"timestamp\": \"{time.time()}\"}}\n\n"
                         last_hb = now
 
             except asyncio.TimeoutError:
@@ -84,7 +84,7 @@ async def task_progress_generator(task_id: str, user_id: str):
 
     except Exception as e:
         logger.exception(f"SSE error for task {task_id}: {e}")
-        yield f"event: error\ndata: {{\"error\": \"连接异常: {str(e)}\"}}\n\n"
+        yield f"event: error\ndata: {json.dumps({'error': f'连接异常: {str(e)}'}, ensure_ascii=False)}\n\n"
     finally:
         # 🔥 修复：确保在所有情况下都释放连接
         if pubsub:
@@ -197,7 +197,7 @@ async def batch_progress_generator(batch_id: str, user_id: str):
                     "completed": completed_count,
                     "failed": failed_count,
                     "processing": processing_count,
-                    "timestamp": asyncio.get_event_loop().time()
+                    "timestamp": time.time()
                 }
 
                 yield f"event: progress\ndata: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
@@ -218,7 +218,7 @@ async def batch_progress_generator(batch_id: str, user_id: str):
 
     except Exception as e:
         logger.exception(f"SSE batch error for {batch_id}: {e}")
-        yield f"event: error\ndata: {{\"error\": \"连接异常: {str(e)}\"}}\n\n"
+        yield f"event: error\ndata: {json.dumps({'error': f'连接异常: {str(e)}'}, ensure_ascii=False)}\n\n"
 
 
 @router.get("/tasks/{task_id}")

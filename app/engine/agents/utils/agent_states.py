@@ -31,6 +31,7 @@ class InvestDebateState(TypedDict):
     bear_report_content: Annotated[str, "Accumulated Bear Report (Markdown)"]
     current_round_index: Annotated[int, "Current debate round index (0-based)"]
     max_rounds: Annotated[int, "Max debate rounds (default 2)"]
+    latest_speaker: NotRequired[str]  # 最近发言者标识（Bull Researcher / Bear Researcher）
 
 
 # Risk management team state

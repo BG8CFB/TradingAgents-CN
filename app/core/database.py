@@ -5,6 +5,7 @@
 
 import logging
 import asyncio
+import threading
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import MongoClient
@@ -25,6 +26,7 @@ redis_pool: Optional[ConnectionPool] = None
 # 同步 MongoDB 连接（用于非异步上下文）
 _sync_mongo_client: Optional[MongoClient] = None
 _sync_mongo_db: Optional[Database] = None
+_sync_mongo_lock = threading.Lock()
 
 
 class DatabaseManager:
@@ -473,7 +475,7 @@ def get_mongo_db() -> AsyncIOMotorDatabase:
 
 def get_mongo_db_sync() -> Database:
     """
-    获取同步版本的MongoDB数据库实例
+    获取同步版本的MongoDB数据库实例（线程安全）
     用于非异步上下文（如普通函数调用）
     """
     global _sync_mongo_client, _sync_mongo_db
@@ -481,18 +483,23 @@ def get_mongo_db_sync() -> Database:
     if _sync_mongo_db is not None:
         return _sync_mongo_db
 
-    # 创建同步 MongoDB 客户端（使用连接池配置）
-    if _sync_mongo_client is None:
-        _sync_mongo_client = MongoClient(
-            settings.MONGO_URI,
-            maxPoolSize=10,  # 限制为较小的连接池
-            minPoolSize=1,
-            maxIdleTimeMS=30000,  # 30秒空闲超时
-            serverSelectionTimeoutMS=5000
-        )
+    with _sync_mongo_lock:
+        # 双重检查锁定
+        if _sync_mongo_db is not None:
+            return _sync_mongo_db
 
-    _sync_mongo_db = _sync_mongo_client[settings.MONGO_DB]
-    return _sync_mongo_db
+        # 创建同步 MongoDB 客户端（使用连接池配置）
+        if _sync_mongo_client is None:
+            _sync_mongo_client = MongoClient(
+                settings.MONGO_URI,
+                maxPoolSize=10,
+                minPoolSize=1,
+                maxIdleTimeMS=30000,
+                serverSelectionTimeoutMS=5000
+            )
+
+        _sync_mongo_db = _sync_mongo_client[settings.MONGO_DB]
+        return _sync_mongo_db
 
 
 def close_mongo_db_sync():
@@ -532,5 +539,4 @@ def get_database():
     """获取数据库实例"""
     if db_manager.mongo_client is None:
         raise RuntimeError("MongoDB客户端未初始化")
-    from app.core.config import settings
     return db_manager.mongo_client[settings.MONGO_DB]

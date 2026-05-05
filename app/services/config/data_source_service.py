@@ -215,9 +215,7 @@ class DataSourceService:
 
             return True
         except Exception as e:
-            print(f"❌ 更新分类数据源排序失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("更新分类数据源排序失败: %s", e, exc_info=True)
             return False
 
     # ==================== 数据源连接测试 ====================

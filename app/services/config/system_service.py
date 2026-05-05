@@ -245,9 +245,7 @@ class SystemService:
                 return False
 
         except Exception as e:
-            print(f"❌ 保存配置失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("保存系统配置失败: %s", e, exc_info=True)
             return False
 
     async def set_default_data_source(self, data_source_name: str) -> bool:

@@ -5,6 +5,7 @@
 import logging
 import json
 import os
+import re
 from datetime import datetime
 from typing import Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
@@ -17,6 +18,11 @@ from app.services.database_service import DatabaseService
 
 router = APIRouter(prefix="/api/database", tags=["Database"])
 logger = logging.getLogger("webapi")
+
+# 导入文件限制
+MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+ALLOWED_IMPORT_EXTENSIONS = {".json", ".csv"}
+VALID_COLLECTION_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,119}$")
 
 # 请求模型
 class BackupRequest(BaseModel):
@@ -174,13 +180,46 @@ async def import_data(
 ):
     """导入数据"""
     try:
+        # 验证集合名
+        if not VALID_COLLECTION_NAME_RE.match(collection):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"集合名不合法: {collection}（仅允许字母、数字、下划线，且不以数字开头）"
+            )
+        if collection.startswith("system."):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="不允许导入到系统集合"
+            )
+
+        # 验证文件扩展名
+        if file.filename:
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext not in ALLOWED_IMPORT_EXTENSIONS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"不支持的文件类型: {ext}（允许: {', '.join(sorted(ALLOWED_IMPORT_EXTENSIONS))}）"
+                )
+
+        # 验证 format 参数
+        if format not in ("json", "csv"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"不支持的格式: {format}（允许: json, csv）"
+            )
+
         logger.info(f"📥 用户 {current_user['username']} 导入数据到集合: {collection}")
         logger.info(f"   文件名: {file.filename}")
         logger.info(f"   格式: {format}")
         logger.info(f"   覆盖模式: {overwrite}")
 
-        # 读取文件内容
+        # 读取文件内容（带大小限制）
         content = await file.read()
+        if len(content) > MAX_IMPORT_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"文件过大: {len(content)} 字节（上限: {MAX_IMPORT_FILE_SIZE // (1024*1024)}MB）"
+            )
         logger.info(f"   文件大小: {len(content)} 字节")
 
         result = await database_service.import_data(

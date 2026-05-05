@@ -112,12 +112,9 @@ try:
     from app.core.config import settings
     from app.core.dev_config import DEV_CONFIG
 except Exception as e:
-    import traceback
-    print(f"❌ 导入配置模块失败: {e}")
-    print("📋 详细错误信息:")
-    print("-" * 50)
-    traceback.print_exc()
-    print("-" * 50)
+    import logging as _logging
+    _logger = _logging.getLogger("app.startup")
+    _logger.error("导入配置模块失败: %s", e, exc_info=True)
     sys.exit(1)
 
 
@@ -183,12 +180,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("🛑 Server stopped by user")
     except Exception as e:
-        import traceback
-        logger.error(f"❌ Failed to start server: {e}")
-        logger.error("📋 详细错误信息:")
-        logger.error("-" * 50)
-        traceback.print_exc()
-        logger.error("-" * 50)
+        logger.error("服务启动失败: %s", e, exc_info=True)
         sys.exit(1)
 
 

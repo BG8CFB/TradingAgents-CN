@@ -320,7 +320,10 @@ class SyncTokenTracker:
                     "session_id": session_id,
                     "analysis_type": analysis_type,
                 }
-                db["token_usage"].insert_one(record_doc)
+                result = db["token_usage"].insert_one(record_doc)
+                # 确认 result 不是 coroutine（PyMongo 同步客户端应返回 InsertOneResult）
+                if hasattr(result, '__await__'):
+                    logger.warning("get_mongo_db_sync() 返回了 Motor 异步数据库，跳过同步写入")
                 logger.info(f"💾 [Token记录] MongoDB保存成功: {provider}/{model_name}, 成本={cost:.6f}")
                 # 返回一个简单的类 dict 对象兼容旧的 UsageRecord 接口
                 record_doc["cost"] = cost

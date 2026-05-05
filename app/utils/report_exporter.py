@@ -371,9 +371,9 @@ pre, code {
             try:
                 if 'output_file' in locals() and os.path.exists(output_file):
                     os.unlink(output_file)
-            except:
+            except Exception:
                 pass
-            raise Exception(f"生成 Word 文档失败: {e}")
+            raise RuntimeError(f"生成 Word 文档失败: {e}") from e
     
     def _markdown_to_html(self, md_content: str) -> str:
         """将 Markdown 转换为 HTML"""

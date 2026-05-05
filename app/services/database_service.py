@@ -144,7 +144,7 @@ class DatabaseService:
                 "collections": collections_info
             }
         except Exception as e:
-            raise Exception(f"获取数据库统计失败: {str(e)}")
+            raise RuntimeError(f"获取数据库统计失败: {str(e)}") from e
 
     async def test_connections(self) -> Dict[str, Any]:
         """测试数据库连接（委托子模块）"""

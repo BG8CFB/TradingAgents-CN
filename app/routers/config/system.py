@@ -73,7 +73,7 @@ def _sanitize_datasource_configs(items):
             result.append(DataSourceConfig(**data))
         return result
     except Exception as e:
-        print(f"脱敏数据源配置失败: {e}")
+        logger.warning(f"脱敏数据源配置失败: {e}")
         return items
 
 

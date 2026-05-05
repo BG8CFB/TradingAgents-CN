@@ -215,17 +215,17 @@ class HealthMonitor:
             return ServerStatus.UNKNOWN
         
         health_check_func = self._health_check_funcs[server_name]
-        start_time = asyncio.get_event_loop().time()
-        
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+
         try:
             # 在线程池中运行同步健康检查函数
-            loop = asyncio.get_event_loop()
             is_healthy = await asyncio.wait_for(
                 loop.run_in_executor(None, health_check_func),
                 timeout=timeout
             )
-            
-            latency_ms = (asyncio.get_event_loop().time() - start_time) * 1000
+
+            latency_ms = (loop.time() - start_time) * 1000
             
             if is_healthy:
                 self._update_status(

@@ -215,38 +215,6 @@ class ChatDeepSeek(ChatOpenAI):
         estimated_tokens = max(1, total_chars // 2)
         return estimated_tokens
     
-    def invoke(
-        self,
-        input: Union[str, List[BaseMessage]],
-        config: Optional[Dict] = None,
-        **kwargs: Any,
-    ) -> AIMessage:
-        """
-        调用模型生成响应
-        
-        Args:
-            input: 输入消息
-            config: 配置参数
-            **kwargs: 其他参数（包括session_id和analysis_type）
-            
-        Returns:
-            AI消息响应
-        """
-        
-        # 处理输入
-        if isinstance(input, str):
-            messages = [HumanMessage(content=input)]
-        else:
-            messages = input
-        
-        # 调用生成方法
-        result = self._generate(messages, **kwargs)
-        
-        # 返回第一个生成结果的消息
-        if result.generations:
-            return result.generations[0].message
-        else:
-            return AIMessage(content="")
 
 
 def create_deepseek_llm(

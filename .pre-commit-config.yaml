@@ -1,0 +1,34 @@
+repos:
+  - repo: local
+    hooks:
+      # 禁止路由层直连 MongoDB
+      - id: no-mongo-in-routers
+        name: No MongoDB in routers
+        entry: bash -c 'grep -rn "find_one(\|aggregate(\|update_one(\|insert_one(\|delete_one(" app/routers/ | grep -v __pycache__ | grep -v "config/" && exit 1 || exit 0'
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # 禁止 os.getenv 散落（仅允许配置层和工具模块）
+      - id: no-bare-os-getenv
+        name: No os.getenv outside config modules
+        entry: bash -c 'grep -rn "os.getenv(" app/ | grep -v __pycache__ | grep -v "app/core/config.py" | grep -v "app/core/config_bridge.py" | grep -v "app/core/config_initializer.py" | grep -v "app/engine/config/env_utils.py" | grep -v "app/engine/graph/trading_graph.py" | grep -v "app/engine/llm_adapters/" | grep -v "app/worker/scheduler_setup.py" && exit 1 || exit 0'
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # 禁止重新引入已删除的 config_manager
+      - id: no-config-manager-import
+        name: No config_manager imports
+        entry: bash -c 'grep -rn "from app.engine.config.config_manager import" app/ | grep -v __pycache__ && exit 1 || exit 0'
+        language: system
+        types: [python]
+        pass_filenames: false
+
+  # Python linting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

@@ -6,6 +6,7 @@
 
 import os
 import logging
+from collections.abc import Callable
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
@@ -31,7 +32,7 @@ class ConfigItem:
     description: str            # 配置描述
     example: Optional[str] = None  # 配置示例
     help_url: Optional[str] = None  # 帮助链接
-    validator: Optional[callable] = None  # 自定义验证函数
+    validator: Optional[Callable] = None  # 自定义验证函数
 
 
 @dataclass

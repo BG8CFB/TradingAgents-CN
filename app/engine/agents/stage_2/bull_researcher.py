@@ -215,7 +215,11 @@ def create_bull_researcher(llm, memory):
         # 只有在最后一轮，或者每一轮都实时更新文件
         # 这里选择实时覆盖更新文件，保证用户随时能看到最新进度
         try:
-            filename = "看涨分析报告.md"
+            from app.core.config import settings
+            import os
+            report_dir = os.path.join(settings.runtime_dir, "results")
+            os.makedirs(report_dir, exist_ok=True)
+            filename = os.path.join(report_dir, f"看涨分析报告_{company_name}.md")
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(f"# {company_name} ({ticker}) 看涨投资分析报告\n\n")
                 f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")

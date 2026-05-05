@@ -42,7 +42,7 @@ class AKShareAdapter(DataSourceAdapter):
                         # 优先尝试 openpyxl
                         try:
                             return original_read_excel(io, engine='openpyxl', **kwargs)
-                        except:
+                        except Exception:
                             pass
                     return original_read_excel(io, **kwargs)
                     
@@ -240,9 +240,7 @@ class AKShareAdapter(DataSourceAdapter):
             return df
 
         except Exception as e:
-            logger.error(f"AKShare: Failed to fetch basic data for {trade_date}: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("AKShare: 获取每日基础数据失败 (trade_date=%s): %s", trade_date, e, exc_info=True)
             return None
 
     def _safe_float(self, value) -> Optional[float]:
@@ -415,7 +413,7 @@ class AKShareAdapter(DataSourceAdapter):
                             # 如果生成的时间比当前时间晚很多（比如当前1月，解析出12月），可能是去年
                             if dt > now_utc() + timedelta(days=30):
                                 full_time_str = f"{current_year - 1}-{update_time}"
-                        except:
+                        except Exception:
                             pass
                     else:
                         full_time_str = now_utc().strftime("%Y-%m-%d %H:%M:%S")
@@ -1009,9 +1007,9 @@ class AKShareAdapter(DataSourceAdapter):
                                 df = getattr(ak, func_name)()
                                 if df is not None and not df.empty:
                                     break
-                            except:
+                            except Exception:
                                 pass
-                             
+
                     if df is not None:
                          # 统一重命名
                          rename_map = {'基金代码': 'ts_code', '基金简称': 'name', '基金类型': 'fund_type'}
@@ -1279,9 +1277,9 @@ class AKShareAdapter(DataSourceAdapter):
                                 df = getattr(ak, func_name)()
                                 if df is not None and not df.empty:
                                     break
-                            except:
+                            except Exception:
                                 pass
-                        
+
                     if df is not None:
                         df = df.rename(columns={'代码': 'ts_code', '名称': 'name', '最新价': 'price'})
                         return df
@@ -1447,7 +1445,7 @@ class AKShareAdapter(DataSourceAdapter):
             # 转回字符串以便显示
             df[date_col] = df[date_col].dt.strftime('%Y-%m-%d')
             return df
-        except:
+        except Exception:
             return df
 
     def _get_market_prefix(self, ts_code):

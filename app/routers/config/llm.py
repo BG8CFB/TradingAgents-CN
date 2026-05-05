@@ -316,9 +316,7 @@ async def fetch_provider_models(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"获取模型列表失败: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"获取模型列表失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取模型列表失败: {str(e)}"
@@ -478,7 +476,9 @@ async def add_llm_config(
 
         # 创建LLM配置
         llm_config_data = request.model_dump()
-        logger.info(f"原始配置数据: {llm_config_data}")
+        # 脱敏后记录日志（移除 api_key 等敏感字段）
+        safe_log_data = {k: ("***" if "key" in k.lower() or "secret" in k.lower() else v) for k, v in llm_config_data.items()}
+        logger.info(f"配置数据: {safe_log_data}")
 
         # 如果没有提供API密钥，从厂家配置中获取
         if not llm_config_data.get('api_key'):
@@ -507,7 +507,7 @@ async def add_llm_config(
         else:
             logger.info(f"使用提供的API密钥 (长度: {len(llm_config_data.get('api_key', ''))})")
 
-        logger.info(f"最终配置数据: {llm_config_data}")
+        logger.info(f"最终配置数据: provider={llm_config_data.get('provider')}, model={llm_config_data.get('model_name')}")
         # 为了支持本地AI模型，允许任何 API Key（包括空值）
         if 'api_key' in llm_config_data:
             api_key = llm_config_data.get('api_key', '')

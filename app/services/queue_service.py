@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from redis.asyncio import Redis
 
 from app.core.database import get_redis_client
+from app.core.config import settings
 
 from app.services.queue import (
     READY_LIST,
@@ -98,7 +99,7 @@ class QueueService:
         return task_id
 
     async def dequeue_task(self, worker_id: str) -> Optional[Dict[str, Any]]:
-        """从FIFO队列中取出任务"""
+        """从FIFO队列中取出任务（使用 Lua 脚本保证并发检查的原子性）"""
         try:
             # 从FIFO队列获取任务
             task_id = await self.r.rpop(READY_LIST)
@@ -113,15 +114,34 @@ class QueueService:
 
             user_id = task_data.get("user")
 
-            # 再次检查并发限制（防止竞态条件）
-            if not await self._check_user_concurrent_limit(user_id):
-                # 如果超过限制，将任务放回队列尾部（避免队首饥饿）
+            # 原子并发检查+标记：Lua 脚本保证检查与标记之间无竞态
+            lua_script = """
+            local user_key = KEYS[1]
+            local task_id = ARGV[1]
+            local user_id = ARGV[2]
+            local worker_id = ARGV[3]
+            local limit = tonumber(ARGV[4])
+
+            local current = redis.call('SCARD', user_key)
+            if current >= limit then
+                return 0
+            end
+
+            redis.call('SADD', user_key, task_id)
+            return 1
+            """
+            limit = settings.DEFAULT_USER_CONCURRENT_LIMIT
+            acquired = await self.r.eval(
+                lua_script, 1,
+                USER_PROCESSING_PREFIX + str(user_id),
+                task_id, str(user_id), worker_id, str(limit)
+            )
+
+            if not acquired:
+                # 超过限制，将任务放回队列尾部
                 await self.r.rpush(READY_LIST, task_id)
                 logger.warning(f"用户 {user_id} 并发限制，任务重新入队（尾部）: {task_id}")
                 return None
-
-            # 标记任务为处理中
-            await self._mark_task_processing(task_id, user_id, worker_id)
 
             # 设置可见性超时
             await self._set_visibility_timeout(task_id, worker_id)

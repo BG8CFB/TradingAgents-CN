@@ -431,7 +431,8 @@ class MCPToolLoaderFactory:
                 else:
                     # 降级方案：使用 os.kill
                     try:
-                        os.kill(pid, signal.SIGTERM)
+                        sig = signal.SIGTERM if hasattr(signal, 'SIGTERM') else signal.SIGINT
+                        os.kill(pid, sig)
                         logger.debug(f"[MCP] 已终止子进程: PID {pid}")
                     except ProcessLookupError:
                         logger.debug(f"[MCP] 子进程已不存在: PID {pid}")

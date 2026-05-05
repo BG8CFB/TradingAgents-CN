@@ -151,8 +151,7 @@ class LLMService:
 
         except Exception as e:
             print(f"❌ 删除LLM配置失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("删除LLM配置失败", exc_info=True)
             return False
 
     async def set_default_llm(self, model_name: str) -> bool:
@@ -373,7 +372,7 @@ class LLMService:
                             "response_time": response_time,
                             "details": None
                         }
-                    except:
+                    except Exception:
                         return {
                             "success": False,
                             "message": f"API测试失败: HTTP {response.status_code}",
@@ -553,8 +552,7 @@ class LLMService:
             return result.matched_count > 0
         except Exception as e:
             print(f"更新厂家失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("更新厂家失败", exc_info=True)
             return False
 
     async def delete_llm_provider(self, provider_id: str) -> bool:
@@ -605,8 +603,7 @@ class LLMService:
 
         except Exception as e:
             print(f"❌ 删除厂家失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("删除厂家失败", exc_info=True)
             return False
 
     async def toggle_llm_provider(self, provider_id: str, is_active: bool) -> bool:
@@ -738,8 +735,7 @@ class LLMService:
 
         except Exception as e:
             print(f"❌ 初始化聚合渠道失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("初始化聚合渠道失败", exc_info=True)
             return {
                 "success": False,
                 "error": str(e),
@@ -924,7 +920,7 @@ class LLMService:
                 providers_collection = db.llm_providers
                 provider_data = await providers_collection.find_one({"name": provider_name})
                 base_url = provider_data.get("default_base_url") if provider_data else None
-                return await asyncio.get_event_loop().run_in_executor(
+                return await asyncio.get_running_loop().run_in_executor(
                     None, self._test_openai_compatible_api, api_key, display_name, base_url, provider_name
                 )
             elif provider_name == "google":
@@ -933,19 +929,19 @@ class LLMService:
                 providers_collection = db.llm_providers
                 provider_data = await providers_collection.find_one({"name": provider_name})
                 base_url = provider_data.get("default_base_url") if provider_data else None
-                return await asyncio.get_event_loop().run_in_executor(None, self._test_google_api, api_key, display_name, base_url)
+                return await asyncio.get_running_loop().run_in_executor(None, self._test_google_api, api_key, display_name, base_url)
             elif provider_name == "deepseek":
-                return await asyncio.get_event_loop().run_in_executor(None, self._test_deepseek_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(None, self._test_deepseek_api, api_key, display_name)
             elif provider_name == "dashscope":
-                return await asyncio.get_event_loop().run_in_executor(None, self._test_dashscope_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(None, self._test_dashscope_api, api_key, display_name)
             elif provider_name == "openrouter":
-                return await asyncio.get_event_loop().run_in_executor(None, self._test_openrouter_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(None, self._test_openrouter_api, api_key, display_name)
             elif provider_name == "openai":
-                return await asyncio.get_event_loop().run_in_executor(None, self._test_openai_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(None, self._test_openai_api, api_key, display_name)
             elif provider_name == "anthropic":
-                return await asyncio.get_event_loop().run_in_executor(None, self._test_anthropic_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(None, self._test_anthropic_api, api_key, display_name)
             elif provider_name == "qianfan":
-                return await asyncio.get_event_loop().run_in_executor(None, self._test_qianfan_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(None, self._test_qianfan_api, api_key, display_name)
             else:
                 # 🔧 对于未知的自定义厂家，使用 OpenAI 兼容 API 测试
                 logger.info(f"🔍 使用 OpenAI 兼容 API 测试自定义厂家: {provider_name}")
@@ -961,7 +957,7 @@ class LLMService:
                         "message": f"自定义厂家 {display_name} 未配置 API 基础 URL"
                     }
 
-                return await asyncio.get_event_loop().run_in_executor(
+                return await asyncio.get_running_loop().run_in_executor(
                     None, self._test_openai_compatible_api, api_key, display_name, base_url, provider_name
                 )
         except Exception as e:
@@ -1103,7 +1099,7 @@ class LLMService:
                         "success": False,
                         "message": f"{display_name} API请求错误: {error_msg}"
                     }
-                except:
+                except Exception:
                     return {
                         "success": False,
                         "message": f"{display_name} API请求格式错误"
@@ -1131,7 +1127,7 @@ class LLMService:
                             "success": False,
                             "message": f"{display_name} 服务暂时不可用: {error_msg}"
                         }
-                except:
+                except Exception:
                     return {
                         "success": False,
                         "message": f"{display_name} 服务暂时不可用 (HTTP 503)"
@@ -1496,7 +1492,7 @@ class LLMService:
                         "success": False,
                         "message": f"{display_name} API测试失败: {error_msg}"
                     }
-                except:
+                except Exception:
                     return {
                         "success": False,
                         "message": f"{display_name} API测试失败: HTTP {response.status_code}"
@@ -1605,7 +1601,7 @@ class LLMService:
                         "success": False,
                         "message": f"{display_name} API测试失败: {error_msg}"
                     }
-                except:
+                except Exception:
                     logger.error(f"❌ [{display_name}] API测试失败")
                     logger.error(f"   请求URL: {url}")
                     logger.error(f"   状态码: {response.status_code}")
@@ -1662,7 +1658,7 @@ class LLMService:
                 }
 
             # 调用 OpenAI 兼容的 /v1/models 端点
-            result = await asyncio.get_event_loop().run_in_executor(
+            result = await asyncio.get_running_loop().run_in_executor(
                 None, self._fetch_models_from_api, api_key, base_url, display_name
             )
 
@@ -1670,8 +1666,7 @@ class LLMService:
 
         except Exception as e:
             print(f"获取模型列表失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("获取模型列表失败", exc_info=True)
             return {
                 "success": False,
                 "message": f"获取模型列表失败: {str(e)}"
@@ -1764,7 +1759,7 @@ class LLMService:
                         "success": False,
                         "message": f"{display_name} API请求失败: {error_msg}"
                     }
-                except:
+                except Exception:
                     print(f"❌ HTTP 错误: {response.status_code}")
                     return {
                         "success": False,
@@ -1773,8 +1768,7 @@ class LLMService:
 
         except Exception as e:
             print(f"❌ 异常: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("API请求异常", exc_info=True)
             return {
                 "success": False,
                 "message": f"{display_name} API请求异常: {str(e)}"

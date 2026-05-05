@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.database import get_mongo_db
+from app.utils.api_key_utils import is_valid_api_key
 
 logger = logging.getLogger("app.config_bridge")
 
@@ -35,7 +36,7 @@ async def bridge_config_to_env() -> bool:
         bridged_count = 0
 
         # ── Step 1：MongoDB 存储环境变量 ──────────────────────────────
-        use_mongodb_storage = os.getenv("USE_MONGODB_STORAGE", "true")
+        use_mongodb_storage = os.getenv("USE_MONGODB_STORAGE") or "true"
         os.environ["USE_MONGODB_STORAGE"] = use_mongodb_storage
         logger.info(f"  USE_MONGODB_STORAGE={use_mongodb_storage}")
         bridged_count += 1
@@ -66,10 +67,10 @@ async def bridge_config_to_env() -> bool:
                 env_key = f"{provider.name.upper()}_API_KEY"
                 existing = os.getenv(env_key)
                 # .env 文件 > 数据库（仅当环境变量不存在或为占位符时才桥接）
-                if existing and not existing.startswith("your_"):
+                if existing and is_valid_api_key(existing):
                     logger.debug(f"  {env_key}: 使用 .env 值")
                     bridged_count += 1
-                elif provider.api_key and not provider.api_key.startswith("your_"):
+                elif provider.api_key and is_valid_api_key(provider.api_key):
                     os.environ[env_key] = provider.api_key
                     logger.debug(f"  {env_key}: 使用数据库值 (length={len(provider.api_key)})")
                     bridged_count += 1

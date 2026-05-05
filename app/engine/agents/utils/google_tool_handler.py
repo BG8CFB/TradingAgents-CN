@@ -343,9 +343,7 @@ class GoogleToolCallHandler:
                 return report, [result] + tool_messages
                 
         except Exception as e:
-            logger.error(f"[{analyst_name}] ❌ Google模型工具调用处理失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("[%s] Google模型工具调用处理失败: %s", analyst_name, e, exc_info=True)
             
             # 降级处理：返回工具调用信息
             tool_names = [tc.get('name', 'unknown') for tc in result.tool_calls]
@@ -444,7 +442,7 @@ class GoogleToolCallHandler:
                         fixed_tool_call['args'] = json.loads(fixed_tool_call['args'])
                     else:
                         fixed_tool_call['args'] = {}
-                except:
+                except Exception:
                     fixed_tool_call['args'] = {}
             
             # 修复ID

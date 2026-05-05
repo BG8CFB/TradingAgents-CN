@@ -6,6 +6,7 @@
 import asyncio
 import json
 import logging
+import re
 from collections import OrderedDict
 from threading import Lock
 from typing import Any, Dict, List, Optional
@@ -61,6 +62,10 @@ def _get_stock_name_sync(stock_code: str) -> str:
         from app.core.unified_config import UnifiedConfigManager
 
         db = get_mongo_db_sync()
+        # 确认返回的是同步 PyMongo 数据库
+        if db is None:
+            return _cache_stock_name(stock_code, stock_code)
+
         code6 = str(stock_code).zfill(6)
 
         config = UnifiedConfigManager()
@@ -76,18 +81,21 @@ def _get_stock_name_sync(stock_code: str) -> str:
 
         stock_info = None
         for data_source in enabled_sources:
-            stock_info = db.stock_basic_info.find_one(
+            result = db.stock_basic_info.find_one(
                 {"$or": [{"symbol": code6}, {"code": code6}], "source": data_source}
             )
-            if stock_info:
+            # 检查 result 不是 Motor coroutine
+            if result is not None and not hasattr(result, '__await__'):
+                stock_info = result
                 logger.debug(f"使用数据源 {data_source} 获取股票名称 {code6}")
                 break
 
         if not stock_info:
-            stock_info = db.stock_basic_info.find_one(
+            result = db.stock_basic_info.find_one(
                 {"$or": [{"symbol": code6}, {"code": code6}]}
             )
-            if stock_info:
+            if result is not None and not hasattr(result, '__await__'):
+                stock_info = result
                 logger.warning(f"使用旧数据（无 source 字段）获取股票名称 {code6}")
 
         if stock_info and stock_info.get("name"):
@@ -397,8 +405,9 @@ class ReportsService:
 
         # 最近报告数量（最近 7 天 / 30 天）
         now = now_utc()
-        seven_days_ago = now.__class__.fromtimestamp(now.timestamp() - 7 * 86400)
-        thirty_days_ago = now.__class__.fromtimestamp(now.timestamp() - 30 * 86400)
+        from datetime import timedelta
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
 
         last_7_days = await self.db.analysis_reports.count_documents(
             {"created_at": {"$gte": seven_days_ago}}
@@ -450,10 +459,11 @@ class ReportsService:
 
         search_keyword = filters.get("search_keyword")
         if search_keyword:
+            escaped = re.escape(search_keyword)
             query["$or"] = [
-                {"stock_symbol": {"$regex": search_keyword, "$options": "i"}},
-                {"analysis_id": {"$regex": search_keyword, "$options": "i"}},
-                {"summary": {"$regex": search_keyword, "$options": "i"}},
+                {"stock_symbol": {"$regex": escaped, "$options": "i"}},
+                {"analysis_id": {"$regex": escaped, "$options": "i"}},
+                {"summary": {"$regex": escaped, "$options": "i"}},
             ]
 
         market_filter = filters.get("market_filter")

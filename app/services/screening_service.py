@@ -174,7 +174,10 @@ class ScreeningService:
                 f = order.get("field")
                 d = order.get("direction", "desc").lower()
                 if f in ALLOWED_FIELDS:
-                    results.sort(key=lambda x: (x.get(f) is None, x.get(f)), reverse=(d == "desc"))
+                    results.sort(
+                        key=lambda x, _f=f: (x.get(_f) is None, x.get(_f) or 0),
+                        reverse=(d == "desc"),
+                    )
 
         # 分页
         start = params.offset or 0
@@ -207,24 +210,23 @@ class ScreeningService:
     def _get_universe(self) -> List[str]:
         """获取A股代码集合：从 MongoDB stock_basic_info 集合获取所有A股股票代码"""
         try:
-            from app.core.database import get_mongo_db
+            from app.core.database import get_mongo_db_sync
 
-            db = get_mongo_db()
+            db = get_mongo_db_sync()
             collection = db.stock_basic_info
 
-            # 查询所有A股股票代码（兼容不同的数据结构）
+            # 使用同步 PyMongo 客户端查询
             cursor = collection.find(
                 {
                     "$or": [
-                        {"market_info.market": "CN"},  # 新数据结构
-                        {"category": "stock_cn"},      # 旧数据结构
-                        {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}  # 按市场类型
+                        {"market_info.market": "CN"},
+                        {"category": "stock_cn"},
+                        {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}
                     ]
                 },
                 {"code": 1, "_id": 0}
             )
 
-            # 同步获取所有股票代码
             codes = [doc.get("code") for doc in cursor if doc.get("code")]
 
             if codes:

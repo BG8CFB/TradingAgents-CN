@@ -113,19 +113,18 @@ class OpenAICompatibleBase(ChatOpenAI):
             **kwargs
         }
         
-        # 根据LangChain版本使用不同的参数名
+        # LangChain >= 0.1.0 使用 api_key/base_url，旧版用 openai_api_key/openai_api_base
+        import langchain
         try:
-            # 新版本LangChain
-            openai_kwargs.update({
-                "api_key": api_key,
-                "base_url": base_url
-            })
-        except:
-            # 旧版本LangChain
-            openai_kwargs.update({
-                "openai_api_key": api_key,
-                "openai_api_base": base_url
-            })
+            _lc_major, _lc_minor = map(int, langchain.__version__.split(".")[:2])
+            _use_new_params = (_lc_major, _lc_minor) >= (0, 1)
+        except Exception:
+            _use_new_params = True
+
+        if _use_new_params:
+            openai_kwargs.update({"api_key": api_key, "base_url": base_url})
+        else:
+            openai_kwargs.update({"openai_api_key": api_key, "openai_api_base": base_url})
         
         # 初始化父类
         super().__init__(**openai_kwargs)

@@ -61,7 +61,7 @@ async def get_reports_list(
             filters=filters,
             page=page,
             page_size=page_size,
-            user_id=None,
+            user_id=user["id"],
         )
 
         logger.info(f"查询完成: 总数={result['total']}, 返回={len(result['reports'])}")
@@ -141,7 +141,7 @@ async def delete_report(
         logger.info(f"删除报告: {report_id}")
 
         service = get_reports_service()
-        deleted = await service.delete_report(report_id, user_id=None)
+        deleted = await service.delete_report(report_id, user_id=user["id"])
 
         if not deleted:
             raise HTTPException(status_code=404, detail="报告不存在")

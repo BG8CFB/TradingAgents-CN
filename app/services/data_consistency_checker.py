@@ -210,7 +210,7 @@ class DataConsistencyChecker:
                         if pd.notna(value) and value != 0:
                             return float(value)
             return None
-        except:
+        except Exception:
             return None
     
     def _calculate_overall_consistency(

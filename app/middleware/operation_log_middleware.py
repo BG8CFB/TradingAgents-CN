@@ -20,14 +20,21 @@ OPLOG_ENABLED: bool = True
 
 
 def _get_client_ip_from_request(request: Request) -> str:
-    """获取客户端真实 IP 地址（检查代理头）"""
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip
-    return request.client.host if request.client else "unknown"
+    """获取客户端真实 IP 地址（仅信任来自受信代理的代理头）"""
+    direct_ip = request.client.host if request.client else "unknown"
+
+    # 仅当直连 IP 来自受信代理时，才读取代理头
+    from app.core.config import settings
+    trusted = tuple(p.strip() for p in settings.TRUSTED_PROXIES.split(",") if p.strip())
+    if direct_ip in trusted:
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip
+
+    return direct_ip
 
 def set_operation_log_enabled(flag: bool) -> None:
     global OPLOG_ENABLED

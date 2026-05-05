@@ -43,7 +43,7 @@ async def create_backup_native(name: str, backup_dir: str, collections: Optional
     - mongodump 命令在 PATH 中可用
     """
     if not _check_mongodump_available():
-        raise Exception("mongodump 命令不可用，请安装 MongoDB Database Tools 或使用 create_backup() 方法")
+        raise RuntimeError("mongodump 命令不可用，请安装 MongoDB Database Tools 或使用 create_backup() 方法")
 
     db = get_mongo_db()
 
@@ -78,14 +78,14 @@ async def create_backup_native(name: str, backup_dir: str, collections: Optional
             timeout=3600  # 1小时超时
         )
         if result.returncode != 0:
-            raise Exception(f"mongodump 执行失败: {result.stderr}")
+            raise RuntimeError(f"mongodump 执行失败: {result.stderr}")
         return result
 
     try:
         await asyncio.to_thread(_run_mongodump)
         logger.info(f"✅ mongodump 备份完成: {name}")
     except subprocess.TimeoutExpired:
-        raise Exception("备份超时（超过1小时）")
+        raise RuntimeError("备份超时（超过1小时）")
     except Exception as e:
         logger.error(f"❌ mongodump 备份失败: {e}")
         # 清理失败的备份目录
@@ -221,7 +221,7 @@ async def delete_backup(backup_id: str) -> None:
     db = get_mongo_db()
     backup = await db.database_backups.find_one({"_id": ObjectId(backup_id)})
     if not backup:
-        raise Exception("备份不存在")
+        raise RuntimeError("备份不存在")
     if os.path.exists(backup["file_path"]):
         # 🔥 使用 asyncio.to_thread 将阻塞的文件删除操作放到线程池执行
         backup_type = backup.get("backup_type", "python")
@@ -280,7 +280,7 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
 
         data = await asyncio.to_thread(_parse_json)
     else:
-        raise Exception(f"不支持的格式: {format}")
+        raise RuntimeError(f"不支持的格式: {format}")
 
     # 检测是否为多集合导出格式
     logger.info(f"🔍 [导入检测] 数据类型: {type(data)}")
@@ -534,5 +534,5 @@ async def export_data(collections: Optional[List[str]] = None, *, export_dir: st
         await asyncio.to_thread(_write_excel)
         return file_path
 
-    raise Exception(f"不支持的导出格式: {format}")
+    raise RuntimeError(f"不支持的导出格式: {format}")
 

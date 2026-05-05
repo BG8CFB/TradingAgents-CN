@@ -212,7 +212,7 @@ class TushareSyncService(BaseSyncService):
                         code = stock_info.dict().get("code", "unknown")
                     else:
                         code = stock_info.get("code", "unknown")
-                except:
+                except Exception:
                     code = "unknown"
 
                 batch_stats["errors"].append({

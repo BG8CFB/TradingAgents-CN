@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import atexit
 import uuid
 import json
 import logging
@@ -346,7 +347,15 @@ class AnalysisService:
         self._stock_name_cache: Dict[str, str] = {}
         # 线程池
         self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+        atexit.register(self._shutdown_pool)
         logger.info(f"🔧 [服务初始化] 线程池最大并发数: 3")
+
+    def _shutdown_pool(self):
+        try:
+            if self._thread_pool:
+                self._thread_pool.shutdown(wait=False)
+        except Exception:
+            pass
 
         # 队列和统计服务 (从原AnalysisService合并)
         try:
@@ -836,7 +845,7 @@ class AnalysisService:
         """取消任务"""
         try:
             await self._update_task_status(task_id, AnalysisStatus.CANCELLED, 0)
-            await self.queue_service.remove_task(task_id)
+            await self.queue_service.cancel_task(task_id)
             return True
         except Exception as e:
             logger.error(f"取消任务失败: {task_id} - {e}")
@@ -855,7 +864,7 @@ class AnalysisService:
         mcp_tool_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """同步执行分析（在共享线程池中运行）"""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             self._thread_pool,
             self._run_analysis_sync,
@@ -1254,9 +1263,18 @@ class AnalysisService:
             # 清理任务级 MCP 管理器
             if task_mcp_manager is not None:
                 try:
-                    # 在同步环境中需要运行异步清理
-                    asyncio.run(remove_task_mcp_manager(task_id))
-                    logger.info(f"🔧 [任务管理器] 已清理任务级 MCP 管理器: {task_id}")
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(remove_task_mcp_manager(task_id))
+                    logger.info(f"🔧 [任务管理器] 已调度清理任务级 MCP 管理器: {task_id}")
+                except RuntimeError:
+                    # 无运行中的事件循环时，直接从全局字典移除
+                    try:
+                        from app.engine.tools.mcp.task_manager import _task_managers, _managers_thread_lock
+                        with _managers_thread_lock:
+                            _task_managers.pop(task_id, None)
+                        logger.info(f"🔧 [任务管理器] 已同步清理任务级 MCP 管理器: {task_id}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ [任务管理器] 同步清理失败: {e}")
                 except Exception as e:
                     logger.warning(f"⚠️ [任务管理器] 清理任务管理器失败: {e}")
 
@@ -2107,7 +2125,9 @@ class AnalysisService:
         """
         try:
             db = get_mongo_db()
-            search_regex = f".*{query}.*"
+            import re
+            escaped_query = re.escape(query)
+            search_regex = f".*{escaped_query}.*"
             filter_expr: Dict[str, Any] = {
                 "$or": [
                     {"name": {"$regex": search_regex, "$options": "i"}},

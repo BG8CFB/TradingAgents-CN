@@ -51,14 +51,23 @@ def _get_disabled_tools() -> Set[str]:
 
 
 def _save_disabled_tools(disabled: Set[str]):
-    """保存已禁用的工具列表"""
+    """保存已禁用的工具列表（原子写入）"""
     try:
         _DISABLED_TOOLS_FILE.parent.mkdir(parents=True, exist_ok=True)
         import json
-        _DISABLED_TOOLS_FILE.write_text(
-            json.dumps({'disabled': sorted(list(disabled))}, ensure_ascii=False, indent=2),
-            encoding='utf-8'
-        )
+        import tempfile
+        data = json.dumps({'disabled': sorted(list(disabled))}, ensure_ascii=False, indent=2)
+        fd, tmp_path = tempfile.mkstemp(suffix=".tmp", dir=str(_DISABLED_TOOLS_FILE.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(data)
+            os.replace(tmp_path, str(_DISABLED_TOOLS_FILE))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     except Exception as e:
         logger.error(f"保存禁用工具列表失败: {e}")
         raise

@@ -221,7 +221,7 @@ class RealtimeNewsAggregator:
                     time_str = item.get('time_published', '')
                     try:
                         publish_time = datetime.strptime(time_str, '%Y%m%dT%H%M%S').replace(tzinfo=ZoneInfo(get_timezone_name()))
-                    except:
+                    except Exception:
                         continue
 
                     # 检查时效性
@@ -280,7 +280,7 @@ class RealtimeNewsAggregator:
                 time_str = item.get('publishedAt', '')
                 try:
                     publish_time = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
-                except:
+                except Exception:
                     continue
 
                 urgency = self._assess_news_urgency(item.get('title', ''), item.get('description', ''))
@@ -346,11 +346,11 @@ class RealtimeNewsAggregator:
                                     # 尝试解析时间格式，可能是'2023-01-01 12:34:56'格式
                                     try:
                                         publish_time = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=ZoneInfo(get_timezone_name()))
-                                    except:
+                                    except Exception:
                                         # 尝试其他可能的格式
                                         try:
                                             publish_time = datetime.strptime(time_str, '%Y-%m-%d').replace(tzinfo=ZoneInfo(get_timezone_name()))
-                                        except:
+                                        except Exception:
                                             logger.warning(f"[中文财经新闻] 无法解析时间格式: {time_str}，使用当前时间")
                                             publish_time = now_config_tz()
                                 else:

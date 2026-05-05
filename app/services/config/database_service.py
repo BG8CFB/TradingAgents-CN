@@ -107,9 +107,7 @@ class DatabaseService:
             return result
 
         except Exception as e:
-            logger.error(f"❌ 添加数据库配置失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("添加数据库配置失败: %s", e, exc_info=True)
             return False
 
     async def update_database_config(self, db_config: DatabaseConfig) -> bool:
@@ -144,9 +142,7 @@ class DatabaseService:
             return result
 
         except Exception as e:
-            logger.error(f"❌ 更新数据库配置失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("更新数据库配置失败: %s", e, exc_info=True)
             return False
 
     async def delete_database_config(self, db_name: str) -> bool:
@@ -184,9 +180,7 @@ class DatabaseService:
             return result
 
         except Exception as e:
-            logger.error(f"❌ 删除数据库配置失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("删除数据库配置失败: %s", e, exc_info=True)
             return False
 
     async def get_database_config(self, db_name: str) -> Optional[DatabaseConfig]:

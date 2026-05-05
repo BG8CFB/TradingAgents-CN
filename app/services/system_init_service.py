@@ -71,9 +71,9 @@ class SystemInitService:
                         try:
                             result[key] = ObjectId(value)
                             continue
-                        except:
+                        except Exception:
                             pass
-                
+
                 # 处理日期时间
                 if key.endswith("_at") or key in ["created_at", "updated_at", "last_login", "added_at"]:
                     if isinstance(value, str):
@@ -81,7 +81,7 @@ class SystemInitService:
                             # 处理 ISO 格式时间字符串
                             result[key] = datetime.fromisoformat(value.replace('Z', '+00:00'))
                             continue
-                        except:
+                        except Exception:
                             pass
                 
                 result[key] = SystemInitService.convert_to_bson(value)

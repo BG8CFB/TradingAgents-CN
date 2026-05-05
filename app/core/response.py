@@ -38,7 +38,7 @@ def safe_error_message(e: Exception, default: str = "操作失败，请稍后重
         from app.core.config import settings
         if getattr(settings, "DEBUG", False):
             return f"{default}: {str(e)}"
-    except Exception:
+    except ImportError:
         pass
     return default
 

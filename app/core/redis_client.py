@@ -2,7 +2,9 @@
 Redis客户端配置和连接管理
 """
 
+import json
 import logging
+import uuid
 from typing import Optional
 from redis.asyncio import Redis
 
@@ -72,15 +74,13 @@ class RedisService:
     
     async def get_json(self, key: str):
         """获取JSON格式的值"""
-        import json
         value = await self.redis.get(key)
         if value:
             return json.loads(value)
         return None
-    
+
     async def set_json(self, key: str, value: dict, ttl: int = None):
         """设置JSON格式的值"""
-        import json
         json_str = json.dumps(value, ensure_ascii=False)
         if ttl:
             await self.redis.setex(key, ttl, json_str)
@@ -101,12 +101,10 @@ class RedisService:
     
     async def add_to_queue(self, queue_key: str, item: dict):
         """添加项目到队列"""
-        import json
         await self.redis.lpush(queue_key, json.dumps(item, ensure_ascii=False))
-    
+
     async def pop_from_queue(self, queue_key: str, timeout: int = 1):
         """从队列弹出项目"""
-        import json
         result = await self.redis.brpop(queue_key, timeout=timeout)
         if result:
             return json.loads(result[1])
@@ -133,13 +131,24 @@ class RedisService:
         return await self.redis.scard(set_key)
     
     async def acquire_lock(self, lock_key: str, timeout: int = 30):
-        """获取分布式锁"""
-        import uuid
+        """获取分布式锁（带自动续约）"""
         lock_value = str(uuid.uuid4())
         acquired = await self.redis.set(lock_key, lock_value, nx=True, ex=timeout)
         if acquired:
             return lock_value
         return None
+
+    async def extend_lock(self, lock_key: str, lock_value: str, additional_seconds: int = 30) -> bool:
+        """续约分布式锁（仅当值匹配时续约）"""
+        lua_script = """
+        if redis.call("get", KEYS[1]) == ARGV[1] then
+            return redis.call("expire", KEYS[1], ARGV[2])
+        else
+            return 0
+        end
+        """
+        result = await self.redis.eval(lua_script, 1, lock_key, lock_value, additional_seconds)
+        return bool(result)
     
     async def release_lock(self, lock_key: str, lock_value: str):
         """释放分布式锁"""

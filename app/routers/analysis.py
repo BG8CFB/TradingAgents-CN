@@ -104,13 +104,6 @@ async def submit_single_analysis(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# 测试路由 - 验证路由是否被正确注册
-@router.get("/test-route")
-async def test_route():
-    """测试路由是否工作"""
-    logger.info("🧪 测试路由被调用了！")
-    return {"message": "测试路由工作正常", "timestamp": time.time()}
-
 @router.get("/tasks/{task_id}/status", response_model=Dict[str, Any])
 async def get_task_status_new(
     task_id: str,

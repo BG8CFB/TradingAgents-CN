@@ -15,6 +15,7 @@
 
 import asyncio
 import logging
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -487,13 +488,15 @@ class TaskLevelMCPManager:
 # 全局任务管理器注册表
 _task_managers: Dict[str, TaskLevelMCPManager] = {}
 _managers_lock = asyncio.Lock()
+_managers_thread_lock = threading.Lock()
 
 
 def get_task_mcp_manager(task_id: str) -> TaskLevelMCPManager:
     """获取或创建任务级 MCP 管理器"""
-    if task_id not in _task_managers:
-        _task_managers[task_id] = TaskLevelMCPManager(task_id)
-    return _task_managers[task_id]
+    with _managers_thread_lock:
+        if task_id not in _task_managers:
+            _task_managers[task_id] = TaskLevelMCPManager(task_id)
+        return _task_managers[task_id]
 
 
 async def remove_task_mcp_manager(task_id: str):

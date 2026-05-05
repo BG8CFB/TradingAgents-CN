@@ -172,8 +172,8 @@ class BatchAnalysisRequest(BaseModel):
     """批量分析请求"""
     title: str = Field(..., description="批次标题")
     description: Optional[str] = None
-    symbols: Optional[List[str]] = Field(None, min_items=1, max_items=10, description="股票代码列表（最多10个）")
-    stock_codes: Optional[List[str]] = Field(None, min_items=1, max_items=10, description="股票代码列表(已废弃,使用symbols，最多10个)")
+    symbols: Optional[List[str]] = Field(None, min_length=1, max_length=10, description="股票代码列表（最多10个）")
+    stock_codes: Optional[List[str]] = Field(None, min_length=1, max_length=10, description="股票代码列表(已废弃,使用symbols，最多10个)")
     parameters: Optional[AnalysisParameters] = None
 
     def get_symbols(self) -> List[str]:

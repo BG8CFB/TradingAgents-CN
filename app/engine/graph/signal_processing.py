@@ -116,7 +116,7 @@ class SignalProcessor:
             import re
 
             # 提取JSON部分
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
             if json_match:
                 json_text = json_match.group()
                 logger.debug(f"🔍 [SignalProcessor] 提取的JSON: {json_text}")

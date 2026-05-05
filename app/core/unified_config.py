@@ -11,6 +11,7 @@ Phase 4A 重构：移除直接文件系统操作，委托到 config_service。
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -40,9 +41,20 @@ class UnifiedConfigManager:
             return {}
 
     def _save_json(self, path: Path, data: Any):
+        """原子写入 JSON 文件（写临时文件后 rename，防止崩溃导致数据丢失）"""
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        fd, tmp_path = tempfile.mkstemp(suffix=".tmp", dir=str(path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, str(path))
+        except Exception:
+            # 清理临时文件
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     # ── 模型配置 ──────────────────────────────────────────────────────
 
@@ -210,19 +222,20 @@ class UnifiedConfigManager:
     # ── 数据库配置 ──────────────────────────────────────────────────────
 
     def get_database_configs(self) -> List[DatabaseConfig]:
+        from app.core.config import settings
         return [
             DatabaseConfig(
                 name="MongoDB主库", type=DatabaseType.MONGODB,
-                host=os.getenv("MONGODB_HOST", "localhost"),
-                port=int(os.getenv("MONGODB_PORT", "27017")),
-                database=os.getenv("MONGODB_DATABASE", "tradingagents"),
+                host=settings.MONGODB_HOST,
+                port=settings.MONGODB_PORT,
+                database=settings.MONGODB_DATABASE,
                 enabled=True, description="MongoDB主数据库",
             ),
             DatabaseConfig(
                 name="Redis缓存", type=DatabaseType.REDIS,
-                host=os.getenv("REDIS_HOST", "localhost"),
-                port=int(os.getenv("REDIS_PORT", "6379")),
-                database=os.getenv("REDIS_DB", "0"),
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                database=str(settings.REDIS_DB),
                 enabled=True, description="Redis缓存数据库",
             ),
         ]

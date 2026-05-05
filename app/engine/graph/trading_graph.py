@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import json
+import copy
 from datetime import date
 from typing import Dict, Any, Tuple, List, Optional
 import time
@@ -1060,7 +1061,7 @@ class TradingAgentsGraph:
                     self._send_progress_update(chunk, progress_callback)
                     # 累积状态更新
                     if final_state is None:
-                        final_state = init_agent_state.copy()
+                        final_state = copy.deepcopy(init_agent_state)
                     for node_name, node_update in chunk.items():
                         if not node_name.startswith('__'):
                             _merge_state_update(final_state, node_update)
@@ -1102,7 +1103,7 @@ class TradingAgentsGraph:
                     self._send_progress_update(chunk, progress_callback)
                     # 累积状态更新
                     if final_state is None:
-                        final_state = init_agent_state.copy()
+                        final_state = copy.deepcopy(init_agent_state)
                     for node_name, node_update in chunk.items():
                         if not node_name.startswith('__'):
                             _merge_state_update(final_state, node_update)
@@ -1129,7 +1130,7 @@ class TradingAgentsGraph:
 
                     # 累积状态更新
                     if final_state is None:
-                        final_state = init_agent_state.copy()
+                        final_state = copy.deepcopy(init_agent_state)
                     for node_name, node_update in chunk.items():
                         if not node_name.startswith('__'):
                             _merge_state_update(final_state, node_update)
@@ -1141,6 +1142,9 @@ class TradingAgentsGraph:
             logger.info(f"⏱️ [{current_node_name}] 耗时: {elapsed:.2f}秒")
 
         # 🔥 将 reports 字典中的动态报告回填到顶层 *_report 字段（支持自定义智能体）
+        if final_state is None:
+            logger.error("final_state 为 None，分析流程未产生任何输出")
+            final_state = {}
         merged_reports = final_state.get("reports") or {}
         for report_key, report_content in merged_reports.items():
             if (

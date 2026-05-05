@@ -195,7 +195,7 @@ class DatabaseScreeningService:
             
         except Exception as e:
             logger.error(f"❌ 数据库筛选失败: {e}")
-            raise Exception(f"数据库筛选失败: {str(e)}")
+            raise RuntimeError(f"数据库筛选失败: {str(e)}") from e
     
     async def _build_query(self, conditions: List[Dict[str, Any]]) -> Dict[str, Any]:
         """构建MongoDB查询条件"""
@@ -218,22 +218,22 @@ class DatabaseScreeningService:
             
             # 处理不同操作符
             if operator == "between":
-                # between操作需要两个值
                 if isinstance(value, list) and len(value) == 2:
-                    query[db_field] = {
-                        "$gte": value[0],
-                        "$lte": value[1]
-                    }
+                    if db_field in query:
+                        query[db_field].update({"$gte": value[0], "$lte": value[1]})
+                    else:
+                        query[db_field] = {"$gte": value[0], "$lte": value[1]}
             elif operator == "contains":
-                # 字符串包含（不区分大小写）
-                query[db_field] = {
-                    "$regex": str(value),
-                    "$options": "i"
-                }
+                if db_field in query:
+                    query[db_field].update({"$regex": str(value), "$options": "i"})
+                else:
+                    query[db_field] = {"$regex": str(value), "$options": "i"}
             elif operator in self.operators:
-                # 标准操作符
                 mongo_op = self.operators[operator]
-                query[db_field] = {mongo_op: value}
+                if db_field in query:
+                    query[db_field][mongo_op] = value
+                else:
+                    query[db_field] = {mongo_op: value}
             
         return query
     

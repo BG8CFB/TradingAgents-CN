@@ -66,7 +66,7 @@ class OperationLogService:
             
         except Exception as e:
             logger.error(f"创建操作日志失败: {e}")
-            raise Exception(f"创建操作日志失败: {str(e)}")
+            raise RuntimeError(f"创建操作日志失败: {str(e)}") from e
     
     async def get_logs(self, query: OperationLogQuery) -> Tuple[List[OperationLogResponse], int]:
         """获取操作日志列表"""
@@ -126,7 +126,7 @@ class OperationLogService:
             
         except Exception as e:
             logger.error(f"获取操作日志失败: {e}")
-            raise Exception(f"获取操作日志失败: {str(e)}")
+            raise RuntimeError(f"获取操作日志失败: {str(e)}") from e
     
     async def get_stats(self, days: int = 30) -> OperationLogStats:
         """获取操作日志统计"""
@@ -192,7 +192,7 @@ class OperationLogService:
             
         except Exception as e:
             logger.error(f"获取操作日志统计失败: {e}")
-            raise Exception(f"获取操作日志统计失败: {str(e)}")
+            raise RuntimeError(f"获取操作日志统计失败: {str(e)}") from e
     
     async def clear_logs(self, days: Optional[int] = None, action_type: Optional[str] = None) -> Dict[str, Any]:
         """清空操作日志"""
@@ -223,7 +223,7 @@ class OperationLogService:
             
         except Exception as e:
             logger.error(f"清空操作日志失败: {e}")
-            raise Exception(f"清空操作日志失败: {str(e)}")
+            raise RuntimeError(f"清空操作日志失败: {str(e)}") from e
     
     async def get_log_by_id(self, log_id: str) -> Optional[OperationLogResponse]:
         """根据ID获取操作日志"""

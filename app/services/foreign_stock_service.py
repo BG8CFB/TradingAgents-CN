@@ -221,7 +221,7 @@ class ForeignStockService:
                     continue
 
             if not quote_data:
-                raise Exception(f"无法获取港股{code}的行情数据：所有数据源均失败")
+                raise RuntimeError(f"无法获取港股{code}的行情数据：所有数据源均失败")
 
             # 5. 格式化数据
             formatted_data = self._format_hk_quote(quote_data, code, data_source)
@@ -280,7 +280,7 @@ class ForeignStockService:
         """从yfinance获取港股行情"""
         quote_data = self.hk_provider.get_real_time_price(code)
         if not quote_data:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
         return quote_data
 
     def _get_hk_quote_from_akshare(self, code: str) -> Dict:
@@ -288,11 +288,11 @@ class ForeignStockService:
         from app.data.providers.hk.improved_hk import get_hk_stock_info_akshare
         info = get_hk_stock_info_akshare(code)
         if not info or 'error' in info:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 检查是否有价格数据
         if not info.get('price'):
-            raise Exception("无价格数据")
+            raise RuntimeError("无价格数据")
 
         return info
     
@@ -395,7 +395,7 @@ class ForeignStockService:
                     continue
 
             if not quote_data:
-                raise Exception(f"无法获取美股{code}的行情数据：所有数据源均失败")
+                raise RuntimeError(f"无法获取美股{code}的行情数据：所有数据源均失败")
 
             # 5. 格式化数据
             formatted_data = {
@@ -432,7 +432,7 @@ class ForeignStockService:
         hist = ticker.history(period='1d')
 
         if hist.empty:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         latest = hist.iloc[-1]
         info = ticker.info
@@ -457,7 +457,7 @@ class ForeignStockService:
             # 获取 API Key
             api_key = get_api_key()
             if not api_key:
-                raise Exception("Alpha Vantage API Key 未配置")
+                raise RuntimeError("Alpha Vantage API Key 未配置")
 
             # 调用 GLOBAL_QUOTE API
             params = {
@@ -467,12 +467,12 @@ class ForeignStockService:
             data = _make_api_request("GLOBAL_QUOTE", params)
 
             if not data or "Global Quote" not in data:
-                raise Exception("Alpha Vantage 返回数据为空")
+                raise RuntimeError("Alpha Vantage 返回数据为空")
 
             quote = data["Global Quote"]
 
             if not quote:
-                raise Exception("无数据")
+                raise RuntimeError("无数据")
 
             # 解析数据
             return {
@@ -496,12 +496,13 @@ class ForeignStockService:
         """从Finnhub获取美股行情"""
         try:
             import finnhub
-            import os
 
             # 获取 API Key
-            api_key = os.getenv('FINNHUB_API_KEY')
+            from app.core.config import settings
+
+            api_key = settings.FINNHUB_API_KEY
             if not api_key:
-                raise Exception("Finnhub API Key 未配置")
+                raise RuntimeError("Finnhub API Key 未配置")
 
             # 创建客户端
             client = finnhub.Client(api_key=api_key)
@@ -510,7 +511,7 @@ class ForeignStockService:
             quote = client.quote(code.upper())
 
             if not quote or 'c' not in quote:
-                raise Exception("无数据")
+                raise RuntimeError("无数据")
 
             # 解析数据
             return {
@@ -593,7 +594,7 @@ class ForeignStockService:
                 continue
 
         if not info_data:
-            raise Exception(f"无法获取港股{code}的基础信息：所有数据源均失败")
+            raise RuntimeError(f"无法获取港股{code}的基础信息：所有数据源均失败")
 
         # 4. 格式化数据
         formatted_data = self._format_hk_info(info_data, code, data_source)
@@ -672,7 +673,7 @@ class ForeignStockService:
                 continue
 
         if not info_data:
-            raise Exception(f"无法获取美股{code}的基础信息：所有数据源均失败")
+            raise RuntimeError(f"无法获取美股{code}的基础信息：所有数据源均失败")
 
         # 4. 格式化数据（匹配前端期望的字段名）
         market_cap = info_data.get('market_cap')
@@ -776,7 +777,7 @@ class ForeignStockService:
                 continue
 
         if not kline_data:
-            raise Exception(f"无法获取港股{code}的K线数据：所有数据源均失败")
+            raise RuntimeError(f"无法获取港股{code}的K线数据：所有数据源均失败")
 
         # 4. 保存到缓存
         self.cache.save_stock_data(
@@ -853,7 +854,7 @@ class ForeignStockService:
                 continue
 
         if not kline_data:
-            raise Exception(f"无法获取美股{code}的K线数据：所有数据源均失败")
+            raise RuntimeError(f"无法获取美股{code}的K线数据：所有数据源均失败")
 
         # 4. 保存到缓存
         self.cache.save_stock_data(
@@ -958,7 +959,7 @@ class ForeignStockService:
         info = ticker.info
 
         if not info:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         return {
             'name': info.get('longName') or info.get('shortName'),
@@ -987,14 +988,14 @@ class ForeignStockService:
         # 获取 API Key
         api_key = get_api_key()
         if not api_key:
-            raise Exception("Alpha Vantage API Key 未配置")
+            raise RuntimeError("Alpha Vantage API Key 未配置")
 
         # 调用 OVERVIEW API
         params = {"symbol": code.upper()}
         data = _make_api_request("OVERVIEW", params)
 
         if not data or not data.get('Symbol'):
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         return {
             'name': data.get('Name'),
@@ -1010,12 +1011,13 @@ class ForeignStockService:
     def _get_us_info_from_finnhub(self, code: str) -> Dict:
         """从Finnhub获取美股基础信息"""
         import finnhub
-        import os
 
         # 获取 API Key
-        api_key = os.getenv('FINNHUB_API_KEY')
+        from app.core.config import settings
+
+        api_key = settings.FINNHUB_API_KEY
         if not api_key:
-            raise Exception("Finnhub API Key 未配置")
+            raise RuntimeError("Finnhub API Key 未配置")
 
         # 创建客户端
         client = finnhub.Client(api_key=api_key)
@@ -1024,7 +1026,7 @@ class ForeignStockService:
         profile = client.company_profile2(symbol=code.upper())
 
         if not profile:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         return {
             'name': profile.get('name'),
@@ -1058,7 +1060,7 @@ class ForeignStockService:
         hist = ticker.history(period=f'{limit}d', interval=interval)
 
         if hist.empty:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 格式化数据
         kline_data = []
@@ -1084,7 +1086,7 @@ class ForeignStockService:
         # 获取 API Key
         api_key = get_api_key()
         if not api_key:
-            raise Exception("Alpha Vantage API Key 未配置")
+            raise RuntimeError("Alpha Vantage API Key 未配置")
 
         # 根据周期选择API函数
         if period in ['5m', '15m', '30m', '60m']:
@@ -1106,7 +1108,7 @@ class ForeignStockService:
         data = _make_api_request(function, params)
 
         if not data or time_series_key not in data:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         time_series = data[time_series_key]
 
@@ -1137,13 +1139,14 @@ class ForeignStockService:
     def _get_us_kline_from_finnhub(self, code: str, period: str, limit: int) -> List[Dict]:
         """从Finnhub获取美股K线数据"""
         import finnhub
-        import os
         from datetime import datetime, timedelta
 
         # 获取 API Key
-        api_key = os.getenv('FINNHUB_API_KEY')
+        from app.core.config import settings
+
+        api_key = settings.FINNHUB_API_KEY
         if not api_key:
-            raise Exception("Finnhub API Key 未配置")
+            raise RuntimeError("Finnhub API Key 未配置")
 
         # 创建客户端
         client = finnhub.Client(api_key=api_key)
@@ -1186,7 +1189,7 @@ class ForeignStockService:
         )
 
         if not candles or candles.get('s') != 'ok':
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 格式化数据
         kline_data = []
@@ -1404,7 +1407,7 @@ class ForeignStockService:
         # 获取 API Key
         api_key = get_api_key()
         if not api_key:
-            raise Exception("Alpha Vantage API Key 未配置")
+            raise RuntimeError("Alpha Vantage API Key 未配置")
 
         # 计算时间范围
         end_date = now_utc()
@@ -1422,7 +1425,7 @@ class ForeignStockService:
         data = _make_api_request("NEWS_SENTIMENT", params)
 
         if not data or 'feed' not in data:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 格式化新闻数据
         news_list = []
@@ -1433,7 +1436,7 @@ class ForeignStockService:
                 # Alpha Vantage 时间格式: 20240101T120000
                 pub_time = datetime.strptime(time_published, '%Y%m%dT%H%M%S')
                 pub_time_str = pub_time.strftime('%Y-%m-%d %H:%M:%S')
-            except:
+            except Exception:
                 pub_time_str = time_published
 
             # 提取相关股票的情感分数
@@ -1462,13 +1465,14 @@ class ForeignStockService:
     def _get_us_news_from_finnhub(self, code: str, days: int, limit: int) -> List[Dict]:
         """从Finnhub获取美股新闻"""
         import finnhub
-        import os
         from datetime import datetime, timedelta
 
         # 获取 API Key
-        api_key = os.getenv('FINNHUB_API_KEY')
+        from app.core.config import settings
+
+        api_key = settings.FINNHUB_API_KEY
         if not api_key:
-            raise Exception("Finnhub API Key 未配置")
+            raise RuntimeError("Finnhub API Key 未配置")
 
         # 创建客户端
         client = finnhub.Client(api_key=api_key)
@@ -1485,7 +1489,7 @@ class ForeignStockService:
         )
 
         if not news:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 格式化新闻数据
         news_list = []
@@ -1509,13 +1513,14 @@ class ForeignStockService:
     def _get_hk_news_from_finnhub(self, code: str, days: int, limit: int) -> List[Dict]:
         """从Finnhub获取港股新闻"""
         import finnhub
-        import os
         from datetime import datetime, timedelta
 
         # 获取 API Key
-        api_key = os.getenv('FINNHUB_API_KEY')
+        from app.core.config import settings
+
+        api_key = settings.FINNHUB_API_KEY
         if not api_key:
-            raise Exception("Finnhub API Key 未配置")
+            raise RuntimeError("Finnhub API Key 未配置")
 
         # 创建客户端
         client = finnhub.Client(api_key=api_key)
@@ -1535,7 +1540,7 @@ class ForeignStockService:
         )
 
         if not news:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 格式化新闻数据
         news_list = []
@@ -1566,7 +1571,7 @@ class ForeignStockService:
         # 1. 获取基础信息（包含当前价格）
         info = get_hk_stock_info_akshare(code)
         if not info or 'error' in info:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 2. 获取财务指标（EPS、BPS、ROE、负债率等）
         financial_indicators = {}
@@ -1636,12 +1641,13 @@ class ForeignStockService:
     def _get_hk_info_from_finnhub(self, code: str) -> Dict:
         """从Finnhub获取港股基础信息"""
         import finnhub
-        import os
 
         # 获取 API Key
-        api_key = os.getenv('FINNHUB_API_KEY')
+        from app.core.config import settings
+
+        api_key = settings.FINNHUB_API_KEY
         if not api_key:
-            raise Exception("Finnhub API Key 未配置")
+            raise RuntimeError("Finnhub API Key 未配置")
 
         # 创建客户端
         client = finnhub.Client(api_key=api_key)
@@ -1653,7 +1659,7 @@ class ForeignStockService:
         profile = client.company_profile2(symbol=hk_symbol)
 
         if not profile:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         return {
             'name': profile.get('name', f'港股{code}'),
@@ -1681,7 +1687,7 @@ class ForeignStockService:
         df = ak.stock_hk_daily(symbol=normalized_code, adjust="qfq")
 
         if df is None or df.empty:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 过滤最近的数据
         df = df.tail(limit)
@@ -1725,7 +1731,7 @@ class ForeignStockService:
         hist = ticker.history(period=f'{limit}d', interval=interval)
 
         if hist.empty:
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 格式化数据
         kline_data = []
@@ -1746,13 +1752,14 @@ class ForeignStockService:
     def _get_hk_kline_from_finnhub(self, code: str, period: str, limit: int) -> List[Dict]:
         """从Finnhub获取港股K线数据"""
         import finnhub
-        import os
         from datetime import datetime, timedelta
 
         # 获取 API Key
-        api_key = os.getenv('FINNHUB_API_KEY')
+        from app.core.config import settings
+
+        api_key = settings.FINNHUB_API_KEY
         if not api_key:
-            raise Exception("Finnhub API Key 未配置")
+            raise RuntimeError("Finnhub API Key 未配置")
 
         # 创建客户端
         client = finnhub.Client(api_key=api_key)
@@ -1781,7 +1788,7 @@ class ForeignStockService:
         candles = client.stock_candles(hk_symbol, resolution, start_time, end_time)
 
         if not candles or candles.get('s') != 'ok':
-            raise Exception("无数据")
+            raise RuntimeError("无数据")
 
         # 格式化数据
         kline_data = []
@@ -1814,7 +1821,7 @@ class ForeignStockService:
             try:
                 df = ak.stock_news_em(symbol=code)
                 if df is None or df.empty:
-                    raise Exception("无数据")
+                    raise RuntimeError("无数据")
 
                 # 格式化新闻数据
                 news_list = []
@@ -1833,7 +1840,7 @@ class ForeignStockService:
                 return news_list
             except Exception as e:
                 logger.debug(f"AKShare 东方财富接口失败: {e}")
-                raise Exception("AKShare 暂不支持港股新闻")
+                raise RuntimeError("AKShare 暂不支持港股新闻")
 
         except Exception as e:
             logger.warning(f"⚠️ AKShare获取港股新闻失败: {e}")

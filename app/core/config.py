@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import List
+from urllib.parse import quote_plus
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
@@ -60,9 +61,11 @@ class Settings(BaseSettings):
 
     @property
     def MONGO_URI(self) -> str:
-        """构建MongoDB URI"""
+        """构建MongoDB URI（密码中的特殊字符会被URL编码）"""
         if self.MONGODB_USERNAME and self.MONGODB_PASSWORD:
-            return f"mongodb://{self.MONGODB_USERNAME}:{self.MONGODB_PASSWORD}@{self.MONGODB_HOST}:{self.MONGODB_PORT}/{self.MONGODB_DATABASE}?authSource={self.MONGODB_AUTH_SOURCE}"
+            user = quote_plus(self.MONGODB_USERNAME)
+            pwd = quote_plus(self.MONGODB_PASSWORD)
+            return f"mongodb://{user}:{pwd}@{self.MONGODB_HOST}:{self.MONGODB_PORT}/{self.MONGODB_DATABASE}?authSource={self.MONGODB_AUTH_SOURCE}"
         else:
             return f"mongodb://{self.MONGODB_HOST}:{self.MONGODB_PORT}/{self.MONGODB_DATABASE}"
 
@@ -81,9 +84,10 @@ class Settings(BaseSettings):
 
     @property
     def REDIS_URL(self) -> str:
-        """构建Redis URL"""
+        """构建Redis URL（密码中的特殊字符会被URL编码）"""
         if self.REDIS_PASSWORD:
-            return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+            pwd = quote_plus(self.REDIS_PASSWORD)
+            return f"redis://:{pwd}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
         else:
             return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
@@ -148,6 +152,10 @@ class Settings(BaseSettings):
     # 外部服务配置
     STOCK_DATA_API_URL: str = Field(default="")
     STOCK_DATA_API_KEY: str = Field(default="")
+    FINNHUB_API_KEY: str = Field(default="")
+
+    # 受信代理 IP 列表（逗号分隔，用于反向代理后获取真实客户端 IP）
+    TRUSTED_PROXIES: str = Field(default="127.0.0.1,::1")
 
     # SSE 配置
     SSE_POLL_TIMEOUT_SECONDS: float = Field(default=1.0)
