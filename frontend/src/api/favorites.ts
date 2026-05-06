@@ -36,9 +36,15 @@ export const favoritesApi = {
 
   /**
    * 添加收藏
-   * @param payload 收藏信息（需包含 symbol 或 stock_code）
+   * 后端要求 stock_code 必填，前端同时发送 symbol 和 stock_code 以兼容
    */
-  add: (payload: AddFavoriteReq) => ApiClient.post<{ message: string; symbol?: string; stock_code?: string }>('/api/favorites/', payload),
+  add: (payload: AddFavoriteReq) => {
+    const body = {
+      ...payload,
+      stock_code: payload.stock_code || payload.symbol
+    }
+    return ApiClient.post<{ message: string; symbol?: string; stock_code?: string }>('/api/favorites/', body)
+  },
 
   /**
    * 更新收藏

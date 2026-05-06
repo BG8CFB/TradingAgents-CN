@@ -238,7 +238,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
 import {
   TrendCharts,
   Search,
@@ -254,10 +253,10 @@ import type { AnalysisTask, AnalysisStatus } from '@/types/analysis'
 import MultiSourceSyncCard from '@/components/Dashboard/MultiSourceSyncCard.vue'
 import { favoritesApi } from '@/api/favorites'
 import { analysisApi } from '@/api/analysis'
+import { reportsApi } from '@/api/reports'
 import { newsApi } from '@/api/news'
 
 const router = useRouter()
-const authStore = useAuthStore()
 
 // 响应式数据
 const userStats = ref({
@@ -335,24 +334,12 @@ const viewAnalysis = (analysis: AnalysisTask) => {
 const downloadReport = async (analysis: AnalysisTask) => {
   try {
     const reportId = analysis.task_id
-    const res = await fetch(`/api/reports/${reportId}/download?format=markdown`, {
-      headers: {
-        'Authorization': `Bearer ${authStore.token}`
-      }
-    })
-    if (!res.ok) {
-      const msg = `下载失败：HTTP ${res.status}`
-      console.error(msg)
-      ElMessage.error('下载失败，报告可能尚未生成')
-      return
-    }
-    const blob = await res.blob()
+    const blob = await reportsApi.download(reportId, 'markdown')
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     const code = (analysis as any).stock_code || (analysis as any).stock_symbol || 'stock'
     const dateStr = (analysis as any).analysis_date || (analysis as any).start_time || ''
-    // 🔥 统一文件名格式：{code}_分析报告_{date}.md
     a.download = `${code}_分析报告_${String(dateStr).slice(0,10)}.md`
     document.body.appendChild(a)
     a.click()

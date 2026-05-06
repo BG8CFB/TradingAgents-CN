@@ -194,23 +194,22 @@ import {
   Refresh,
   ArrowDown
 } from '@element-plus/icons-vue'
-import { useAuthStore } from '@/stores/auth'
+import { reportsApi, type ReportItem } from '@/api/reports'
 
-// 使用路由和认证store
+// 使用路由
 const router = useRouter()
-const authStore = useAuthStore()
 
 // 响应式数据
 const loading = ref(false)
 const searchKeyword = ref('')
 const marketFilter = ref('')
 const dateRange = ref<[string, string] | null>(null)
-const selectedReports = ref<any[]>([])
+const selectedReports = ref<ReportItem[]>([])
 const currentPage = ref(1)
 const pageSize = ref(20)
 const totalReports = ref(0)
 
-const reports = ref([])
+const reports = ref<ReportItem[]>([])
 
 // 计算属性
 const filteredReports = computed(() => {
@@ -222,34 +221,23 @@ const filteredReports = computed(() => {
 const fetchReports = async () => {
   loading.value = true
   try {
-    const params = new URLSearchParams({
+    const params: Record<string, string> = {
       page: currentPage.value.toString(),
       page_size: pageSize.value.toString()
-    })
+    }
 
     if (searchKeyword.value) {
-      params.append('search_keyword', searchKeyword.value)
+      params.search_keyword = searchKeyword.value
     }
     if (marketFilter.value) {
-      params.append('market_filter', marketFilter.value)
+      params.market_filter = marketFilter.value
     }
     if (dateRange.value) {
-      params.append('start_date', dateRange.value[0])
-      params.append('end_date', dateRange.value[1])
+      params.start_date = dateRange.value[0]
+      params.end_date = dateRange.value[1]
     }
 
-    const response = await fetch(`/api/reports/list?${params}`, {
-      headers: {
-        'Authorization': `Bearer ${authStore.token}`,
-        'Content-Type': 'application/json'
-      }
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
-    }
-
-    const result = await response.json()
+    const result = await reportsApi.list(params)
 
     if (result.success) {
       reports.value = result.data.reports
@@ -299,20 +287,10 @@ const downloadReport = async (report: any, format: string = 'markdown') => {
       duration: 0
     })
 
-    const response = await fetch(`/api/reports/${report.id}/download?format=${format}`, {
-      headers: {
-        'Authorization': `Bearer ${authStore.token}`
-      }
-    })
+    const blob = await reportsApi.download(report.id, format)
 
     loadingMsg.close()
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(errorText || `HTTP ${response.status}`)
-    }
-
-    const blob = await response.blob()
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -377,19 +355,7 @@ const deleteReport = async (report: any) => {
     )
 
     // 调用删除API
-    const response = await fetch(`/api/reports/${report.id}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${authStore.token}`,
-        'Content-Type': 'application/json'
-      }
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
-    }
-
-    const result = await response.json()
+    const result = await reportsApi.delete(report.id)
 
     if (result.success) {
       ElMessage.success('报告已删除')

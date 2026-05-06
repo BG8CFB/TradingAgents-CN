@@ -47,7 +47,7 @@ export const authApi = {
   changePassword: (data: ChangePasswordForm) =>
     ApiClient.post('/api/auth/change-password', data),
 
-  // 重置密码
-  resetPassword: (email: string) =>
-    ApiClient.post('/api/auth/reset-password', { email })
+  // 管理员重置用户密码（需要管理员权限）
+  adminResetPassword: (username: string, newPassword: string) =>
+    ApiClient.post('/api/auth/reset-password', { username, new_password: newPassword })
 }

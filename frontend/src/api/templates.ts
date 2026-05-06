@@ -1,3 +1,10 @@
+/**
+ * 模板管理 API
+ *
+ * 注意：此 API 模块当前未被任何组件导入使用。
+ * 后端尚未实现 /api/templates 路由，待后端就绪后方可启用。
+ */
+
 import { ApiClient } from './request'
 
 export interface TemplateItem {

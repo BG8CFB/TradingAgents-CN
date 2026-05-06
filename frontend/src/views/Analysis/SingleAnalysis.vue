@@ -719,6 +719,7 @@ import { useAuthStore } from '@/stores/auth'
 import { configApi } from '@/api/config'
 import { agentConfigApi } from '@/api/agentConfigs'
 import { mcpApi } from '@/api/mcp'
+import { reportsApi } from '@/api/reports'
 import type { MCPTool } from '@/types/mcp'
 import DeepModelSelector from '@/components/DeepModelSelector.vue'
 import { normalizeAnalystIds } from '@/constants/analysts'
@@ -1646,20 +1647,10 @@ const downloadReport = async (format: string = 'markdown') => {
     })
 
     const reportId = (analysisResults.value?.id as any) || currentTaskId.value
-    const res = await fetch(`/api/reports/${reportId}/download?format=${format}`, {
-      headers: {
-        'Authorization': `Bearer ${authStore.token}`
-      }
-    })
+    const blob = await reportsApi.download(reportId, format)
 
     loadingMsg.close()
 
-    if (!res.ok) {
-      const errorText = await res.text()
-      throw new Error(errorText || `HTTP ${res.status}`)
-    }
-
-    const blob = await res.blob()
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url

@@ -33,6 +33,23 @@ cd frontend && npm install
 # in the project root and populate the keys listed under "Configuration" below)
 ```
 
+### Conda Environment (Recommended)
+
+A `environment.yml` is provided for Miniconda/Anaconda users. **Do NOT use the base environment.**
+
+```bash
+# Create and activate dedicated conda environment
+conda env create -f environment.yml       # or: conda create -n tradingagents python=3.12 -y
+conda activate tradingagents
+
+# Install dev dependencies (pytest, httpx, pytest-asyncio)
+pip install pytest pytest-asyncio httpx
+
+# Verify installation
+python -c "import fastapi; print(f'fastapi={fastapi.__version__}')"
+python -m pytest tests/ -q                # 1199 tests should pass
+```
+
 ### Running the Application
 
 ```bash

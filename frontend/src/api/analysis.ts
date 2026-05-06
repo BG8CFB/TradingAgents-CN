@@ -133,19 +133,19 @@ export const analysisApi = {
     return request.get(`/api/analysis/tasks/${taskId}/status`)
   },
 
-  // 获取分析进度
+  // 获取分析进度（任务状态）
   getProgress(analysisId: string): Promise<AnalysisProgress> {
-    return request.get(`/api/analysis/${analysisId}/progress`)
+    return request.get(`/api/analysis/tasks/${analysisId}/status`)
   },
 
   // 获取分析结果
   getResult(analysisId: string): Promise<AnalysisResult> {
-    return request.get(`/api/analysis/${analysisId}/result`)
+    return request.get(`/api/analysis/tasks/${analysisId}/result`)
   },
 
-  // 停止分析
+  // 取消分析任务
   stopAnalysis(analysisId: string): Promise<{ message: string }> {
-    return request.post(`/api/analysis/${analysisId}/stop`, {})
+    return request.post(`/api/analysis/tasks/${analysisId}/cancel`, {})
   },
 
   // 获取分析历史（用户维度）
@@ -162,14 +162,14 @@ export const analysisApi = {
     return request.get('/api/analysis/user/history', { params })
   },
 
-  // 删除分析结果
+  // 删除分析任务
   deleteAnalysis(analysisId: string): Promise<{ message: string }> {
-    return request.delete(`/api/analysis/${analysisId}`)
+    return request.delete(`/api/analysis/tasks/${analysisId}`)
   },
 
-  // 导出分析结果
-  exportAnalysis(analysisId: string, format: 'pdf' | 'excel' | 'json' = 'pdf'): Promise<Blob> {
-    return request.get(`/api/analysis/${analysisId}/export`, {
+  // 导出分析结果（后端尚未实现此端点，暂使用报告下载 API 替代）
+  exportAnalysis(analysisId: string, format: 'pdf' | 'excel' | 'json' | 'markdown' = 'markdown'): Promise<Blob> {
+    return request.get(`/api/reports/${analysisId}/download`, {
       params: { format },
       responseType: 'blob'
     })
@@ -216,7 +216,8 @@ export const analysisApi = {
     return request.delete(`/api/analysis/tasks/${taskId}`)
   },
 
-  // 分享分析结果
+  // 分享分析结果（后端尚未实现此端点，调用方需做降级处理）
+  // TODO: 等待后端实现 /api/analysis/tasks/{id}/share 端点后取消注释
   shareAnalysis(analysisId: string, options: {
     expires_in?: number // 过期时间（秒）
     password?: string   // 访问密码
