@@ -40,8 +40,9 @@ class TestResolveCompanyName:
             assert "港股" in result
 
     def test_us_stock_known_name(self):
-        result = resolve_company_name("AAPL", {"is_china": False, "is_hk": False, "is_us": True})
-        assert "苹果" in result
+        with patch("app.data.providers.us.yfinance.YFinanceUtils.get_stock_info", return_value={}):
+            result = resolve_company_name("AAPL", {"is_china": False, "is_hk": False, "is_us": True})
+            assert "苹果" in result
 
     def test_us_stock_yfinance(self):
         with patch("app.data.providers.us.yfinance.YFinanceUtils.get_stock_info", return_value={"shortName": "Apple Inc"}):
