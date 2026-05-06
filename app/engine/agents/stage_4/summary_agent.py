@@ -78,7 +78,7 @@ JSON 结构定义如下：
 - 基本面报告片段：{(fundamentals_report or "")[:300]}
 - 情绪报告片段：{(sentiment_report or "")[:300]}
 - 风险辩论片段：{risk_debate_history[-1000:] if risk_debate_history else ""}
-- 其他动态报告：{chr(10).join(f"- {{k}}: {{v[:300]}}" for k, v in all_reports.items() if k not in ('market_report','news_report','fundamentals_report','sentiment_report') and v)}
+- 其他动态报告：{chr(10).join(f"- {k}: {v[:300]}" for k, v in all_reports.items() if k not in ('market_report','news_report','fundamentals_report','sentiment_report') and v)}
 """
 
         user_prompt = f"请为 {company_name} 生成结构化总结数据。"
