@@ -269,6 +269,109 @@ def sample_analysis_task():
 
 
 # ============================================================
+# Engine 测试 Fixtures
+# ============================================================
+
+@pytest.fixture
+def mock_llm():
+    """模拟 LLM 实例，可配置返回内容"""
+    llm = MagicMock()
+    default_response = MagicMock()
+    default_response.content = '{"action": "持有", "target_price": null, "confidence": 0.7, "risk_score": 0.5, "reasoning": "测试"}'
+    llm.invoke = MagicMock(return_value=default_response)
+    llm.bind_tools = MagicMock(return_value=llm)
+    return llm
+
+
+@pytest.fixture
+def sample_agent_state():
+    """预填充的 AgentState 字典"""
+    return {
+        "messages": [],
+        "company_of_interest": "000001",
+        "trade_date": "2024-12-31",
+        "task_id": "test-task-001",
+        "investment_debate_state": {
+            "history": "",
+            "current_response": "",
+            "count": 0,
+            "current_round_index": 0,
+            "max_rounds": 2,
+            "rounds": [],
+            "bull_report_content": "",
+            "bear_report_content": "",
+            "bull_history": "看好市场",
+            "bear_history": "看空市场",
+            "judge_decision": "裁决结果",
+        },
+        "risk_debate_state": {
+            "history": "",
+            "current_risky_response": "",
+            "current_safe_response": "",
+            "current_neutral_response": "",
+            "count": 0,
+            "latest_speaker": "",
+            "risky_history": "激进观点",
+            "safe_history": "保守观点",
+            "neutral_history": "中性观点",
+            "judge_decision": "风控裁决",
+            "rounds": [],
+            "current_round_index": 0,
+            "max_rounds": 3,
+            "risky_report_content": "",
+            "safe_report_content": "",
+            "neutral_report_content": "",
+        },
+        "reports": {},
+        "market_report": "市场报告内容",
+        "fundamentals_report": "基本面报告内容",
+    }
+
+
+@pytest.fixture
+def sample_yaml_config(tmp_path):
+    """创建临时 YAML 配置文件"""
+    import yaml
+    config = {
+        "customModes": [
+            {
+                "slug": "market-analyst",
+                "name": "市场技术分析师",
+                "roleDefinition": "你是一个市场技术分析专家",
+                "tools": ["get_stock_data"],
+            },
+            {
+                "slug": "fundamentals-analyst",
+                "name": "基本面分析师",
+                "roleDefinition": "你是一个基本面分析专家",
+                "tools": ["get_stock_fundamentals"],
+            },
+        ],
+        "agents": [
+            {
+                "slug": "news-analyst",
+                "name": "新闻分析师",
+                "roleDefinition": "你是一个新闻分析专家",
+                "tools": ["get_stock_news"],
+            },
+        ],
+    }
+    config_path = tmp_path / "phase1_agents_config.yaml"
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(config, f, allow_unicode=True)
+    return str(config_path)
+
+
+@pytest.fixture
+def mock_memory():
+    """模拟 FinancialSituationMemory"""
+    memory = MagicMock()
+    memory.add_situations = MagicMock()
+    memory.get_memories = MagicMock(return_value=[])
+    return memory
+
+
+# ============================================================
 # Pytest 配置
 # ============================================================
 
@@ -278,3 +381,4 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: mark test as slow")
     config.addinivalue_line("markers", "integration: mark test as integration test")
     config.addinivalue_line("markers", "requires_db: mark test as requiring database")
+    config.addinivalue_line("markers", "ai: mark test as requiring AI API")
