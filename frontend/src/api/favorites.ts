@@ -1,5 +1,27 @@
 import { ApiClient } from './request'
 
+/**
+ * 将股票代码规范化为后端期望的格式：
+ * - A股: 去除 .SH/.SZ/.BJ 后缀，保留 6 位纯数字（如 "000001.SZ" → "000001"）
+ * - 港股: 去除 .HK 后缀，保留 5 位纯数字（如 "00700.HK" → "00700"）
+ * - 美股: 大写字母代码（如 "aapl" → "AAPL"）
+ */
+function normalizeStockCode(code: string): string {
+  if (!code) return ''
+  const trimmed = code.trim().toUpperCase()
+  // A股/港股带后缀：去除 .SH/.SZ/.BJ/.SS/.HK
+  const stripped = trimmed.replace(/\.(SH|SZ|BJ|SS|HK)$/i, '')
+  // A股纯数字补零到6位
+  if (/^\d{1,6}$/.test(stripped)) {
+    return stripped.padStart(6, '0')
+  }
+  // 港股纯数字补零到5位（去.HK后）
+  if (/^\d{1,5}$/.test(stripped) && (code.toUpperCase().endsWith('.HK') || stripped.length <= 5)) {
+    return stripped.padStart(5, '0')
+  }
+  return stripped
+}
+
 export interface FavoriteItem {
   symbol?: string  // 主字段：6位股票代码
   stock_code?: string  // 兼容字段（已废弃）
@@ -36,12 +58,14 @@ export const favoritesApi = {
 
   /**
    * 添加收藏
-   * 后端要求 stock_code 必填，前端同时发送 symbol 和 stock_code 以兼容
+   * 后端要求 stock_code 必填且为纯数字格式（A股6位/港股5位/美股字母）
    */
   add: (payload: AddFavoriteReq) => {
+    const rawCode = payload.stock_code || payload.symbol || ''
     const body = {
       ...payload,
-      stock_code: payload.stock_code || payload.symbol
+      stock_code: normalizeStockCode(rawCode),
+      symbol: payload.symbol || rawCode
     }
     return ApiClient.post<{ message: string; symbol?: string; stock_code?: string }>('/api/favorites/', body)
   },

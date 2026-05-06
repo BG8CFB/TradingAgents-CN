@@ -167,8 +167,9 @@ export const analysisApi = {
     return request.delete(`/api/analysis/tasks/${analysisId}`)
   },
 
-  // 导出分析结果（后端尚未实现此端点，暂使用报告下载 API 替代）
-  exportAnalysis(analysisId: string, format: 'pdf' | 'excel' | 'json' | 'markdown' = 'markdown'): Promise<Blob> {
+  // @deprecated 使用 reportsApi.download() 替代。后端无 /api/analysis/{id}/export 端点。
+  // reports download API 支持以 analysis_id / task_id / _id 三种方式查找报告。
+  exportAnalysis(analysisId: string, format: 'pdf' | 'excel' | 'json' | 'markdown' = 'pdf'): Promise<Blob> {
     return request.get(`/api/reports/${analysisId}/download`, {
       params: { format },
       responseType: 'blob'

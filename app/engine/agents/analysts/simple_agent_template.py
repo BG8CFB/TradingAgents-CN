@@ -30,18 +30,12 @@ except ImportError:
 def format_tool_result(tool_result: Any) -> str:
     """
     将工具调用结果转换为字符串格式
-    
+
     处理规则：
     - None: 转换为空字符串
     - dict: 转换为格式化的 JSON 字符串
     - list: 转换为格式化的 JSON 字符串
     - 其他类型: 转换为字符串表示
-    
-    Args:
-        tool_result: 工具调用的返回值
-        
-    Returns:
-        字符串格式的结果
     """
     if tool_result is None:
         return ""
@@ -51,6 +45,70 @@ def format_tool_result(tool_result: Any) -> str:
         return json.dumps(tool_result, ensure_ascii=False, indent=2)
     else:
         return str(tool_result)
+
+
+def _execute_tool_calls(
+    agent_name: str,
+    response: Any,
+    tools: List[Any],
+    messages: List,
+) -> int:
+    """执行 response 中的所有工具调用，将结果追加到 messages。返回执行的工具数量。"""
+    executed = 0
+    for tool_call in response.tool_calls:
+        if isinstance(tool_call, dict):
+            tool_name = tool_call.get("name", "")
+            tool_args = tool_call.get("args", {})
+            tool_call_id = tool_call.get("id", "")
+        else:
+            tool_name = getattr(tool_call, "name", "")
+            tool_args = getattr(tool_call, "args", {})
+            tool_call_id = getattr(tool_call, "id", "")
+
+        logger.info(f"🔧 [{agent_name}] 调用工具: {tool_name}")
+
+        # 查找工具
+        tool = next((t for t in tools if getattr(t, "name", None) == tool_name), None)
+
+        if tool:
+            try:
+                tool_result = tool.invoke(tool_args)
+                result_str = format_tool_result(tool_result)
+                messages.append(ToolMessage(
+                    content=result_str,
+                    tool_call_id=tool_call_id,
+                    name=tool_name
+                ))
+                executed += 1
+                logger.info(f"✅ [{agent_name}] 工具 {tool_name} 执行成功 (第{executed}次)")
+            except Exception as e:
+                logger.error(f"❌ [{agent_name}] 工具 {tool_name} 执行失败: {e}", exc_info=True)
+                messages.append(ToolMessage(
+                    content=f"工具调用失败: {str(e)}",
+                    tool_call_id=tool_call_id,
+                    name=tool_name
+                ))
+                executed += 1
+                logger.warning(f"⚠️ [{agent_name}] 工具 {tool_name} 执行失败，继续尝试")
+        else:
+            logger.warning(f"⚠️ [{agent_name}] 工具 {tool_name} 未找到")
+            executed += 1
+            messages.append(ToolMessage(
+                content=f"工具 {tool_name} 未找到",
+                tool_call_id=tool_call_id,
+                name=tool_name
+            ))
+    return executed
+
+
+def _build_tool_signature(response: Any) -> Optional[str]:
+    """从 LLM 响应中提取排序后的工具调用签名（用于循环检测）。"""
+    names = []
+    for tc in (response.tool_calls or []):
+        tc_name = tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
+        if tc_name:
+            names.append(tc_name)
+    return ",".join(sorted(names)) if names else None
 
 
 # === 自动数据注入：工具参数映射 ===
@@ -350,19 +408,8 @@ def create_simple_agent(
                 if hasattr(response, "tool_calls") and response.tool_calls:
                     logger.info(f"🔧 [{name}] 检测到 {len(response.tool_calls)} 个工具调用")
 
-                    # 🔥 循环检测：检查所有工具调用，生成工具调用签名
-                    # 修复 S1: 之前只检查第一个工具，现在检查所有工具的组合
-                    current_tool_signature = []
-                    for tc in response.tool_calls:
-                        if isinstance(tc, dict):
-                            tc_name = tc.get("name", "")
-                        else:
-                            tc_name = getattr(tc, "name", "")
-                        if tc_name:
-                            current_tool_signature.append(tc_name)
-
-                    # 将工具调用列表转为排序后的字符串作为签名
-                    current_tool_name = ",".join(sorted(current_tool_signature)) if current_tool_signature else None
+                    # 🔥 循环检测：使用辅助函数提取工具签名
+                    current_tool_name = _build_tool_signature(response)
 
                     # 检查连续调用同一工具组合
                     if current_tool_name == last_tool_name and current_tool_name:
@@ -392,14 +439,12 @@ def create_simple_agent(
 
                             # 最后一次 LLM 调用（不绑定工具，强制生成报告）
                             try:
-                                # 🔥 S11: 使用速率限制的调用
                                 final_response = _invoke_with_rate_limit(llm, messages)
                                 final_report = final_response.content
                                 messages.append(final_response)
                                 logger.info(f"✅ [{name}] 强制总结完成，报告长度: {len(final_report)} 字符")
                             except Exception as e:
                                 logger.error(f"❌ [{name}] 强制总结失败: {e}", exc_info=True)
-                                # 使用最后一条 AI 消息作为报告
                                 last_ai_message = [msg for msg in messages if isinstance(msg, AIMessage)][-1] if messages else None
                                 if last_ai_message:
                                     final_report = last_ai_message.content
@@ -409,70 +454,13 @@ def create_simple_agent(
                     else:
                         # 工具切换或首次调用，重置计数器
                         if current_tool_name:
-                            if current_tool_name != last_tool_name:
-                                # 工具切换了，重置计数器为1
-                                consecutive_same_tool_count = 1
-                                last_tool_name = current_tool_name
-                            else:
-                                # 首次调用该工具（last_tool_name 为 None）
-                                consecutive_same_tool_count = 1
-                                last_tool_name = current_tool_name
+                            consecutive_same_tool_count = 1
+                            last_tool_name = current_tool_name
 
                     # 执行工具调用（只有在未触发总结机制时才执行）
                     if not final_report:
-                        # 先添加 AI 响应到消息历史
                         messages.append(response)
-
-                        # 执行所有工具调用
-                        for tool_call in response.tool_calls:
-                            # 解析工具调用信息
-                            if isinstance(tool_call, dict):
-                                tool_name = tool_call.get("name", "")
-                                tool_args = tool_call.get("args", {})
-                                tool_call_id = tool_call.get("id", "")
-                            else:
-                                tool_name = getattr(tool_call, "name", "")
-                                tool_args = getattr(tool_call, "args", {})
-                                tool_call_id = getattr(tool_call, "id", "")
-
-                            logger.info(f"🔧 [{name}] 调用工具: {tool_name}")
-
-                            # 查找工具
-                            tool = None
-                            for t in tools:
-                                if getattr(t, "name", None) == tool_name:
-                                    tool = t
-                                    break
-
-                            if tool:
-                                try:
-                                    tool_result = tool.invoke(tool_args)
-                                    result_str = format_tool_result(tool_result)
-                                    messages.append(ToolMessage(
-                                        content=result_str,
-                                        tool_call_id=tool_call_id,
-                                        name=tool_name
-                                    ))
-                                    tool_call_count += 1
-                                    logger.info(f"✅ [{name}] 工具 {tool_name} 执行成功 (第{tool_call_count}次)")
-                                except Exception as e:
-                                    logger.error(f"❌ [{name}] 工具 {tool_name} 执行失败: {e}", exc_info=True)
-                                    error_msg = f"工具调用失败: {str(e)}"
-                                    messages.append(ToolMessage(
-                                        content=error_msg,
-                                        tool_call_id=tool_call_id,
-                                        name=tool_name
-                                    ))
-                                    tool_call_count += 1
-                                    logger.warning(f"⚠️ [{name}] 工具 {tool_name} 执行失败，继续尝试")
-                            else:
-                                logger.warning(f"⚠️ [{name}] 工具 {tool_name} 未找到")
-                                tool_call_count += 1
-                                messages.append(ToolMessage(
-                                    content=f"工具 {tool_name} 未找到",
-                                    tool_call_id=tool_call_id,
-                                    name=tool_name
-                                ))
+                        tool_call_count += _execute_tool_calls(name, response, tools, messages)
                 else:
                     # 没有工具调用，说明已完成
                     logger.info(f"✅ [{name}] 分析完成（未检测到工具调用）")

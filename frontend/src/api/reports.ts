@@ -1,5 +1,9 @@
 /**
  * 报告管理 API
+ *
+ * 注意：download 方法使用底层 request 实例而非 ApiClient，因为需要
+ * responseType: 'blob' 而 ApiClient 的类型签名不直接支持此参数。
+ * 其他方法（CRUD）统一使用 ApiClient 保持风格一致。
  */
 import { ApiClient, request, type ApiResponse } from './request'
 
@@ -67,6 +71,8 @@ export const reportsApi = {
 
   /**
    * 下载报告（返回 Blob 供调用方处理文件名）
+   * 使用底层 request 而非 ApiClient，因为需要 responseType: 'blob'
+   * 且不需要 ApiResponse 包装（响应拦截器对 blob 直接透传）
    */
   download(reportId: string, format: string = 'markdown'): Promise<any> {
     return request.get(`/api/reports/${reportId}/download`, {
