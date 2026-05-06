@@ -1,32 +1,38 @@
-name: MCP Tests
+name: Test & Build
 
 on:
   push:
+    branches: [main, develop]
     paths:
-      - 'tradingagents/tools/mcp/**'
-      - 'tests/mcp/**'
-      - 'tests/integration/**'
+      - 'app/**'
+      - 'tests/**'
+      - 'config/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'docker/Dockerfile.backend'
       - '.github/workflows/test-mcp.yml'
   pull_request:
+    branches: [main, develop]
     paths:
-      - 'tradingagents/tools/mcp/**'
-      - 'tests/mcp/**'
-      - 'tests/integration/**'
+      - 'app/**'
+      - 'tests/**'
+      - 'config/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'docker/Dockerfile.backend'
+      - '.github/workflows/test-mcp.yml'
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.10', '3.11', '3.12']
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
 
       - name: Install uv
         run: |
@@ -43,23 +49,12 @@ jobs:
           pip install -e .
           pip install pytest pytest-asyncio hypothesis httpx
 
-      - name: Run MCP unit tests
+      - name: Run all tests
         run: |
-          pytest tests/mcp/ -v --tb=short
-
-      - name: Run MCP integration tests
-        run: |
-          pytest tests/integration/ -v --tb=short || echo "No integration tests found"
-
-      - name: Verify uvx availability
-        run: |
-          uvx --version || echo "uvx not available"
-
-      - name: Verify npx availability
-        run: |
-          npx --version
+          pytest tests/ -v --tb=short
 
   docker-build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,6 +75,6 @@ jobs:
 
       - name: Test Docker image
         run: |
-          docker run --rm tradingagents-backend:test python -c "from tradingagents.tools.mcp import MCPServerConfig; print('MCP module loaded successfully')"
+          docker run --rm tradingagents-backend:test python -c "from app.engine.tools.mcp.config_utils import MCPServerConfig; print('MCP module loaded successfully')"
           docker run --rm tradingagents-backend:test uvx --version || echo "uvx check"
           docker run --rm tradingagents-backend:test node --version

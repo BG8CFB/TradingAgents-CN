@@ -67,17 +67,23 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 
 # 安装Python依赖
 # 优化说明：
-# 1. 使用清华镜像加速下载
+# 1. 使用阿里云镜像加速下载
 # 2. 优先使用预编译的二进制wheel包（--prefer-binary）
 # 3. 避免从源码编译，大幅提升ARM架构构建速度
 # 4. 安装 PDF 导出工具: pdfkit
 # 5. 安装 uv 和 uvx（用于 Python MCP 服务器）
-# 增加超时设置以防止网络中断
-# 使用阿里云 PyPI 镜像源作为备选（清华源可能不稳定）
-RUN pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
-    pip install --prefer-binary . -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com --default-timeout=1000 && \
-    pip install --prefer-binary pdfkit -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com --default-timeout=1000 && \
-    pip install --prefer-binary uv -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com --default-timeout=1000
+# 6. 使用 --retries 和 --no-cache-dir 增强网络可靠性
+# 7. 带 shell 重试逻辑，防止偶发网络中断导致整个构建失败
+RUN pip install --upgrade pip --retries 5 --timeout 120 -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
+    for i in 1 2 3; do \
+        pip install --prefer-binary --retries 5 --timeout 120 --no-cache-dir . \
+            -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && break || \
+        echo "pip install attempt $i failed, retrying..." && sleep 10; \
+    done && \
+    pip install --prefer-binary --retries 5 --timeout 120 pdfkit \
+        -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
+    pip install --prefer-binary --retries 5 --timeout 120 uv \
+        -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
 # 复制后端代码和必需模块
 COPY app ./app
