@@ -119,16 +119,16 @@ class SimpleAgentFactory:
         selected_analysts: List[str],
         llm: Any,
         toolkit: Any,
-        max_tool_calls: int = 20
+        max_tool_calls: int = 12
     ) -> Dict[str, Callable]:
         """
         创建第一阶段智能体节点函数
-        
+
         Args:
             selected_analysts: 前端选择的分析师列表（slug 或 name）
             llm: LLM 实例
             toolkit: 工具配置
-            max_tool_calls: 最大工具调用次数（固定为20）
+            max_tool_calls: 最大工具调用次数（默认12，由 config 控制）
         
         Returns:
             {internal_key: node_function}
@@ -221,7 +221,7 @@ class SimpleAgentFactory:
                 llm=llm,
                 tools=tools,
                 system_prompt=system_prompt,
-                max_tool_calls=max_tool_calls,  # 🔥 固定为20
+                max_tool_calls=max_tool_calls,
                 inject_tools=inject_tools_list if inject_tools_list else None,
             )
             
@@ -232,24 +232,26 @@ class SimpleAgentFactory:
         return node_functions
     
     @staticmethod
-    def build_progress_map(selected_analysts: List[str] = None, config_path: str = None) -> Dict[str, float]:
+    def build_progress_map(selected_analysts: List[str] = None, config_path: str = None,
+                           phase2_enabled: bool = True, phase3_enabled: bool = True) -> Dict[str, float]:
         """
         构建进度映射表，用于进度百分比计算
-        
+
         Args:
             selected_analysts: 选择的智能体列表（slug、internal_key 或中文名称）
                               如果提供，则基于选择的智能体计算进度
                               如果为 None，则回退到所有配置的智能体
             config_path: 配置文件路径 (可选)
-        
+            phase2_enabled: 是否启用阶段2（辩论），默认 True
+            phase3_enabled: 是否启用阶段3（风险评估），默认 True
+
         Returns:
             Dict[str, float] - key 为中文显示名称，value 为进度百分比
         """
         progress_map = {}
-        
+
         # 确定要计算进度的智能体列表
         if selected_analysts:
-            # 基于选择的智能体计算进度
             agents = []
             for analyst_id in selected_analysts:
                 agent_config = SimpleAgentFactory.get_agent_config(analyst_id, config_path)
@@ -258,59 +260,75 @@ class SimpleAgentFactory:
                 else:
                     logger.warning(f"⚠️ 构建进度映射时未找到智能体配置: {analyst_id}")
         else:
-            # 回退到所有配置的智能体
             agents = SimpleAgentFactory.get_all_agents(config_path)
-        
+
         # 分析师阶段占 10% - 50%，平均分配
         analyst_count = len(agents)
         if analyst_count > 0:
-            analyst_progress_range = 40  # 10% 到 50%
+            analyst_progress_range = 40
             progress_per_analyst = analyst_progress_range / analyst_count
-            
+
             for i, agent in enumerate(agents):
                 slug = agent.get('slug', '')
                 name = agent.get('name', '')
-                
+
                 if not slug or not name:
                     continue
-                
-                # 获取图标
-                icon = SimpleAgentFactory._get_analyst_icon(slug, name)
+
+                icon = SimpleAgentFactory._get_analyst_icon(slug, name, agent_config=agent)
                 display_name = f"{icon} {name}"
-                
-                # 计算进度百分比（从 10% 开始）
+
                 progress = 10 + (i + 1) * progress_per_analyst
                 progress_map[display_name] = round(progress, 1)
-        
-        # 添加固定的非分析师节点进度
-        progress_map.update({
-            "🐂 看涨研究员": 51.25,
-            "🐻 看跌研究员": 57.5,
-            "👔 研究经理": 70,
-            "💼 交易员决策": 78,
-            "🔥 激进风险评估": 81.75,
-            "🛡️ 保守风险评估": 85.5,
-            "⚖️ 中性风险评估": 89.25,
-            "🎯 风险经理": 93,
-            "📊 生成报告": 97,
-        })
-        
+
+        # 根据启用的阶段，动态分配剩余进度
+        base = progress_map[list(progress_map.keys())[-1]] if progress_map else 50.0
+        remaining = 100.0 - base
+
+        later_stages = []
+        if phase2_enabled:
+            later_stages.extend([
+                "🐂 看涨研究员",
+                "🐻 看跌研究员",
+                "👔 研究经理",
+            ])
+        later_stages.append("💼 交易员决策")
+        if phase3_enabled:
+            later_stages.extend([
+                "🔥 激进风险评估",
+                "🛡️ 保守风险评估",
+                "⚖️ 中性风险评估",
+                "🎯 风险经理",
+            ])
+        later_stages.append("📊 生成报告")
+
+        stage_count = len(later_stages)
+        per_stage = remaining / stage_count if stage_count > 0 else 0
+
+        for i, stage_name in enumerate(later_stages):
+            progress_map[stage_name] = round(base + (i + 1) * per_stage, 2)
+
         return progress_map
     
     @staticmethod
-    def _get_analyst_icon(slug: str, name: str = "") -> str:
+    def _get_analyst_icon(slug: str, name: str = "", agent_config: dict = None) -> str:
         """
-        根据 slug 和名称推断分析师图标
-        
+        获取分析师图标，优先从配置读取
+
         Args:
             slug: 智能体 slug
             name: 智能体中文名称
-            
+            agent_config: 智能体配置字典（可选，优先读取 icon）
+
         Returns:
             图标 emoji
         """
+        if agent_config and agent_config.get("icon"):
+            return agent_config["icon"]
+
+        # 回退：字符串推断
         search_key = slug.lower()
-        
+
         if "news" in search_key or "新闻" in name:
             return "📰"
         elif "social" in search_key or "sentiment" in search_key or "社交" in name or "情绪" in name:

@@ -138,7 +138,7 @@ def _build_report_query(report_id: str) -> Dict[str, Any]:
 _KNOWN_REPORT_KEYS = {
     "bull_researcher", "bear_researcher", "research_team_decision",
     "trader_investment_plan",
-    "risky_analyst", "safe_analyst", "neutral_analyst", "risk_management_decision",
+    "risky_analyst", "safe_analyst", "neutral_analyst", "risk_management_decision", "risk_manager_decision",
 }
 
 

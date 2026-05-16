@@ -274,17 +274,17 @@
         
         <el-tabs v-model="activeModule" type="border-card">
           <el-tab-pane
-            v-for="(content, moduleName) in report.reports"
+            v-for="moduleName in sortedReportKeys"
             :key="moduleName"
             :label="getModuleDisplayName(moduleName)"
             :name="moduleName"
           >
             <div class="module-content">
-              <div v-if="typeof content === 'string'" class="markdown-content">
-                <div v-html="renderMarkdown(content)"></div>
+              <div v-if="typeof report.reports?.[moduleName] === 'string'" class="markdown-content">
+                <div v-html="renderMarkdown(report.reports[moduleName]!)"></div>
               </div>
               <div v-else class="json-content">
-                <pre>{{ JSON.stringify(content, null, 2) }}</pre>
+                <pre>{{ JSON.stringify(report.reports?.[moduleName], null, 2) }}</pre>
               </div>
             </div>
           </el-tab-pane>
@@ -308,7 +308,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
@@ -374,6 +374,37 @@ const activeModule = ref('')
 const llmConfigs = ref<LLMConfig[]>([]) // 存储所有模型配置
 const analystNameMap = ref<Record<string, string>>({})
 
+// 模块排序权重：按阶段 1→2→3→4 排列
+const MODULE_ORDER: Record<string, number> = {
+  // 阶段 1：分析师报告（*_report 后缀，权重 100 档，由动态分析师配置决定子序号）
+  // 阶段 2：研究团队
+  bull_researcher: 200,
+  bear_researcher: 201,
+  research_team_decision: 202,
+  // 阶段 3：风险管理
+  risky_analyst: 300,
+  safe_analyst: 301,
+  neutral_analyst: 302,
+  risk_management_decision: 303,
+  risk_manager_decision: 303,
+  // 阶段 4：交易员与最终决策
+  trader_investment_plan: 400,
+  investment_plan: 400,
+  final_trade_decision: 401,
+}
+
+const getModuleWeight = (key: string): number => {
+  if (MODULE_ORDER[key] !== undefined) return MODULE_ORDER[key]
+  // 阶段1分析师报告 (*_report 后缀)
+  if (key.endsWith('_report')) return 150
+  return 999
+}
+
+const sortedReportKeys = computed(() => {
+  if (!report.value?.reports) return []
+  return Object.keys(report.value.reports).sort((a, b) => getModuleWeight(a) - getModuleWeight(b))
+})
+
 // 获取模型配置列表
 const fetchLLMConfigs = async () => {
   try {
@@ -438,9 +469,9 @@ const fetchReportDetail = async () => {
     if (result.success) {
       report.value = result.data
 
-      // 设置默认激活的模块
+      // 设置默认激活的模块（使用排序后的第一个）
       const reports = result.data.reports || {}
-      const moduleNames = Object.keys(reports)
+      const moduleNames = Object.keys(reports).sort((a, b) => getModuleWeight(a) - getModuleWeight(b))
       if (moduleNames.length > 0) {
         activeModule.value = moduleNames[0]
       }
@@ -625,6 +656,7 @@ const getModuleDisplayName = (moduleName: string) => {
     safe_analyst: '保守分析师',
     neutral_analyst: '中性分析师',
     risk_management_decision: '投资组合经理',
+    risk_manager_decision: '投资组合经理',
 
     // 最终决策 (1个)
     final_trade_decision: '最终交易决策',
@@ -640,10 +672,15 @@ const getModuleDisplayName = (moduleName: string) => {
     return fixedNameMap[moduleName]
   }
   
-  // 对于第1阶段分析师报告，自动生成友好名称
+  // 对于第1阶段分析师报告，自动生成友好中文名称
   if (moduleName.endsWith('_report')) {
-    const name = moduleName.replace('_report', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-    return `${name} Agent`
+    const base = moduleName.replace('_report', '')
+    // 尝试从 analystNameMap 中按 base key 匹配
+    if (analystNameMap.value && analystNameMap.value[base]) {
+      return analystNameMap.value[base]
+    }
+    // 最后 fallback：下划线分隔 → 中文友好的名称
+    return base.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + ' 分析师'
   }
   
   // 未匹配到时，做一个友好的回退：下划线转空格

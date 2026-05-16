@@ -1,6 +1,8 @@
 customModes:
   - slug: financial-news-analyst
     name: 财经新闻分析师
+    icon: "📰"
+    tool_key: "news"
     tools:
       - get_stock_news
       - get_finance_news
@@ -376,6 +378,8 @@ customModes:
     source: global
   - slug: china-market-analyst
     name: 中国市场分析师
+    icon: "🇨🇳"
+    tool_key: "market"
     tools:
       - get_stock_data
       - get_china_market_overview
@@ -810,6 +814,8 @@ customModes:
     source: global
   - slug: market-analyst
     name: 市场技术分析师
+    icon: "📊"
+    tool_key: "market"
     tools:
       - get_stock_data
       - get_stock_data_minutes
@@ -1221,6 +1227,8 @@ customModes:
     source: global
   - slug: social-media-analyst
     name: 社交媒体和投资情绪分析师
+    icon: "💬"
+    tool_key: "social"
     tools:
       - get_stock_sentiment
       - get_current_timestamp
@@ -1405,6 +1413,8 @@ customModes:
     source: global
   - slug: fundamentals-analyst
     name: 基本面分析师
+    icon: "💼"
+    tool_key: "fundamentals"
     tools:
       - get_stock_data
       - get_stock_fundamentals
@@ -1720,6 +1730,8 @@ customModes:
     source: global
   - slug: short-term-capital-analyst
     name: 短线资金分析师
+    icon: "💸"
+    tool_key: "market"
     tools:
       - get_stock_data
       - get_stock_data_minutes

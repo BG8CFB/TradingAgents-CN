@@ -10,10 +10,10 @@
 
     <el-card class="tabs-card" shadow="never">
       <el-tabs v-model="activeTab" @tab-click="onTabChange">
+        <el-tab-pane label="全部" name="all" />
         <el-tab-pane label="进行中" name="running" />
         <el-tab-pane label="已完成" name="completed" />
         <el-tab-pane label="失败" name="failed" />
-        <el-tab-pane label="全部" name="all" />
       </el-tabs>
     </el-card>
 
@@ -163,7 +163,7 @@ const _renderMarkdown = (s: string) => {
 const router = useRouter()
 const route = useRoute()
 
-const activeTab = ref<'running'|'completed'|'failed'|'all'>('running')
+const activeTab = ref<'all'|'running'|'completed'|'failed'>('all')
 const loading = ref(false)
 const keyword = ref('')
 const currentPage = ref(1)

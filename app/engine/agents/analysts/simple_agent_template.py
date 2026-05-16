@@ -33,12 +33,49 @@ def format_tool_result(tool_result: Any) -> str:
         return str(tool_result)
 
 
+# 常见美股名称降级缓存（仅在 yfinance 不可用时使用）
+_FALLBACK_US_NAMES = {
+    "AAPL": "苹果公司", "TSLA": "特斯拉", "NVDA": "英伟达",
+    "MSFT": "微软", "GOOGL": "谷歌", "AMZN": "亚马逊",
+    "META": "Meta Platforms", "NFLX": "奈飞",
+}
+
+
+def _get_us_company_name(ticker: str) -> str:
+    """动态获取美股公司名称，降级使用缓存"""
+    try:
+        import yfinance as yf
+        if yf is not None:
+            stock = yf.Ticker(ticker.upper())
+            info = stock.info
+            name = info.get("shortName") or info.get("longName")
+            if name:
+                return name
+    except Exception:
+        pass
+    return _FALLBACK_US_NAMES.get(ticker.upper(), f"美股{ticker}")
+
+
 # === 自动数据注入：工具参数映射 ===
-# 格式: tool_name → {参数名: inject_context 字段或固定值}
+# 格式: tool_name → {参数名: inject_context 字段名 或 Callable[[dict], str]}
 # inject_context 提供: ticker, trade_date, company_name
+# 值为字符串时从 context_values 查找；值为 callable 时动态计算
+
+
+def _resolve_market_type(ctx: dict) -> str:
+    """根据 ticker 动态推导 market_type"""
+    from app.utils.stock_utils import StockUtils, StockMarket
+    market = StockUtils.identify_stock_market(ctx.get("ticker", ""))
+    if market == StockMarket.HONG_KONG:
+        return "hk"
+    elif market == StockMarket.US:
+        return "us"
+    return "cn"
+
+
 _INJECT_TOOL_ARGS_MAP: Dict[str, Dict[str, Any]] = {
     "get_stock_data": {"stock_code": "ticker"},
-    "get_stock_data_minutes": {"stock_code": "ticker", "market_type": "cn"},
+    "get_stock_data_minutes": {"stock_code": "ticker", "market_type": _resolve_market_type},
     "get_index_data": {"stock_code": "ticker"},
     "get_stock_news": {"stock_code": "ticker"},
     "get_stock_fundamentals": {"stock_code": "ticker", "current_date": "trade_date"},
@@ -93,7 +130,11 @@ def _inject_tool_data(
         for arg_name, source in args_map.items():
             if isinstance(source, str) and not source:
                 continue
-            if isinstance(source, str) and not source.startswith("ticker") and not source.startswith("trade_date") and source != "date":
+            if callable(source):
+                val = source(context_values)
+                if val:
+                    tool_args[arg_name] = val
+            elif isinstance(source, str) and not source.startswith("ticker") and not source.startswith("trade_date") and source != "date":
                 tool_args[arg_name] = source
             else:
                 val = context_values.get(source, "")
@@ -182,7 +223,9 @@ def create_simple_agent(
         from app.engine.agents.analysts.dynamic_analyst import ProgressManager
         from app.engine.agents.analysts.simple_agent_factory import SimpleAgentFactory
 
-        icon = SimpleAgentFactory._get_analyst_icon(slug, name)
+        icon = SimpleAgentFactory._get_analyst_icon(
+            slug, name, agent_config=SimpleAgentFactory.get_agent_config(slug)
+        )
         display_name = f"{icon} {name}"
         task_id = state.get("task_id")
         ProgressManager.node_start(display_name, task_id=task_id)
@@ -206,12 +249,7 @@ def create_simple_agent(
                     from app.data.providers.hk.improved_hk import get_hk_company_name_improved
                     company_name = get_hk_company_name_improved(ticker)
                 elif market_info["is_us"]:
-                    us_stock_names = {
-                        "AAPL": "苹果公司", "TSLA": "特斯拉", "NVDA": "英伟达",
-                        "MSFT": "微软", "GOOGL": "谷歌", "AMZN": "亚马逊",
-                        "META": "Meta", "NFLX": "奈飞",
-                    }
-                    company_name = us_stock_names.get(ticker.upper(), f"美股{ticker}")
+                    company_name = _get_us_company_name(ticker)
             except Exception as e:
                 logger.warning(f"⚠️ [{name}] 获取公司名称失败: {e}")
 

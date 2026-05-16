@@ -761,6 +761,8 @@ async def cancel_task(
             return {"success": True, "message": "任务已取消"}
         else:
             raise HTTPException(status_code=400, detail="取消任务失败")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -964,13 +966,16 @@ async def mark_task_as_failed(
     用于手动清理卡住的任务
     """
     try:
-        # 验证任务所有权
+        # 验证任务所有权：先查 Redis，未找到则回退 MongoDB
         task = await svc.get_task(task_id)
         if not task or task.get("user") != user["id"]:
-            raise HTTPException(status_code=404, detail="任务不存在")
-
-        from app.services.analysis_service import get_analysis_service
-        analysis_svc = get_analysis_service()
+            from app.services.analysis_service import get_analysis_service
+            analysis_svc = get_analysis_service()
+            if not await analysis_svc.validate_task_ownership(task_id, user["id"]):
+                raise HTTPException(status_code=404, detail="任务不存在")
+        else:
+            from app.services.analysis_service import get_analysis_service
+            analysis_svc = get_analysis_service()
 
         modified = await analysis_svc.mark_task_failed(task_id, error_message="用户手动标记为失败")
 
@@ -986,6 +991,8 @@ async def mark_task_as_failed(
                 "success": True,
                 "message": "任务未找到或已是失败状态"
             }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ 标记任务失败: {e}")
         raise HTTPException(status_code=500, detail=f"标记任务失败: {str(e)}")
@@ -994,23 +1001,18 @@ async def mark_task_as_failed(
 @router.delete("/tasks/{task_id}")
 async def delete_task(
     task_id: str,
-    user: dict = Depends(get_current_user),
-    svc: QueueService = Depends(get_queue_service)
+    user: dict = Depends(get_current_user)
 ):
     """删除指定任务
 
-    从内存和数据库中删除任务记录
+    从内存和数据库中删除任务记录。
+    所有权验证支持 Redis → MongoDB 双源回退，兼容已过期的失败/完成任务。
     """
     try:
-        # 验证任务所有权
-        task = await svc.get_task(task_id)
-        if not task or task.get("user") != user["id"]:
-            raise HTTPException(status_code=404, detail="任务不存在")
-
         from app.services.analysis_service import get_analysis_service
         analysis_svc = get_analysis_service()
 
-        deleted = await analysis_svc.delete_task_by_id(task_id)
+        deleted = await analysis_svc.delete_task_by_id(task_id, user_id=user["id"])
 
         if deleted:
             logger.info(f"✅ 任务 {task_id} 已删除")
@@ -1019,11 +1021,9 @@ async def delete_task(
                 "message": "任务已删除"
             }
         else:
-            logger.warning(f"⚠️ 任务 {task_id} 未找到")
-            return {
-                "success": True,
-                "message": "任务未找到"
-            }
+            raise HTTPException(status_code=404, detail="任务不存在或无权限")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ 删除任务失败: {e}")
         raise HTTPException(status_code=500, detail=f"删除任务失败: {str(e)}")

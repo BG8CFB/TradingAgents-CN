@@ -1613,6 +1613,7 @@ class AnalysisService:
                 'safe_analyst': '保守风险分析报告',
                 'neutral_analyst': '中性风险分析报告',
                 'risk_management_decision': '风险管理团队决策报告',
+                'risk_manager_decision': '风险管理团队决策报告',
             }
             
             # 从配置文件动态加载第1阶段分析师的报告标题
@@ -1974,12 +1975,49 @@ class AnalysisService:
             logger.error(f"❌ mark_task_failed 失败: {e}")
             return False
 
-    async def delete_task_by_id(self, task_id: str) -> bool:
+    async def validate_task_ownership(self, task_id: str, user_id: str) -> bool:
+        """
+        验证任务是否属于指定用户。
+
+        查询顺序：内存 → MongoDB（兼容 Redis 已过期的完成/失败任务）。
+        """
+        # 1) 内存中查找
+        task = await self.memory_manager.get_task_dict(task_id)
+        if task and task.get("user_id") == user_id:
+            return True
+
+        # 2) MongoDB 中查找
+        try:
+            db = get_mongo_db()
+            task_doc = await db.analysis_tasks.find_one(
+                {"task_id": task_id}, {"user_id": 1}
+            )
+            return task_doc is not None and task_doc.get("user_id") == user_id
+        except Exception as e:
+            logger.error(f"❌ validate_task_ownership 查询失败: {e}")
+            return False
+
+    async def delete_task_by_id(self, task_id: str, user_id: Optional[str] = None) -> bool:
         """
         从内存和数据库中删除任务记录。
+
+        支持通过 user_id 进行所有权验证。当 Redis 中找不到任务时，
+        会回退到 MongoDB 进行验证（适用于已完成/失败等过期任务）。
         """
         try:
+            # 所有权验证：从 MongoDB 查询（兼容 Redis 中已过期的任务）
+            if user_id is not None:
+                db = get_mongo_db()
+                task_doc = await db.analysis_tasks.find_one(
+                    {"task_id": task_id}, {"user_id": 1}
+                )
+                if task_doc and task_doc.get("user_id") != user_id:
+                    logger.warning(f"⚠️ 用户 {user_id} 尝试删除非本人任务: {task_id}")
+                    return False
+
+            # 从内存状态管理器中移除
             await self.memory_manager.remove_task(task_id)
+            # 从 MongoDB 中删除任务记录
             db = get_mongo_db()
             result = await db.analysis_tasks.delete_one({"task_id": task_id})
             return result.deleted_count > 0

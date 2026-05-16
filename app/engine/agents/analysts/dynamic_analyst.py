@@ -328,8 +328,8 @@ class DynamicAnalystFactory:
             # 生成 internal_key（去除 -analyst 后缀，替换 - 为 _）
             internal_key = slug.replace("-analyst", "").replace("-", "_")
 
-            # 根据 slug 推断工具类型
-            tool_key = cls._infer_tool_key(slug, name)
+            # 根据 slug 推断工具类型（优先从配置读取）
+            tool_key = cls._infer_tool_key(slug, name, agent_config=agent)
 
             # 构建配置信息
             config_info = {
@@ -349,17 +349,22 @@ class DynamicAnalystFactory:
         return lookup
 
     @classmethod
-    def _infer_tool_key(cls, slug: str, name: str = "") -> str:
+    def _infer_tool_key(cls, slug: str, name: str = "", agent_config: dict = None) -> str:
         """
-        根据 slug 和名称推断应该使用的工具类型
+        推断应该使用的工具类型，优先从配置读取
 
         Args:
             slug: 智能体 slug
             name: 智能体中文名称
+            agent_config: 智能体配置字典（可选，优先读取 tool_key）
 
         Returns:
             工具类型 key (market, news, social, fundamentals)
         """
+        if agent_config and agent_config.get("tool_key"):
+            return agent_config["tool_key"]
+
+        # 回退：字符串推断
         search_key = slug.lower()
         name_lower = name.lower() if name else ""
 
@@ -370,21 +375,25 @@ class DynamicAnalystFactory:
         elif "fundamental" in search_key or "基本面" in name:
             return "fundamentals"
         else:
-            # 默认使用 market 工具
             return "market"
 
     @classmethod
-    def _get_analyst_icon(cls, slug: str, name: str = "") -> str:
+    def _get_analyst_icon(cls, slug: str, name: str = "", agent_config: dict = None) -> str:
         """
-        根据 slug 和名称推断分析师图标
+        获取分析师图标，优先从配置读取
 
         Args:
             slug: 智能体 slug
             name: 智能体中文名称
+            agent_config: 智能体配置字典（可选，优先读取 icon）
 
         Returns:
             图标 emoji
         """
+        if agent_config and agent_config.get("icon"):
+            return agent_config["icon"]
+
+        # 回退：字符串推断
         search_key = slug.lower()
 
         if "news" in search_key or "新闻" in name:
@@ -429,8 +438,8 @@ class DynamicAnalystFactory:
             formatted_name = internal_key.replace('_', ' ').title().replace(' ', '_')
             analyst_node_name = f"{formatted_name} Analyst"
 
-            # 获取图标
-            icon = cls._get_analyst_icon(slug, name)
+            # 获取图标（优先从配置读取）
+            icon = cls._get_analyst_icon(slug, name, agent_config=agent)
 
             # 添加分析师节点映射
             node_mapping[analyst_node_name] = f"{icon} {name}"
@@ -441,25 +450,29 @@ class DynamicAnalystFactory:
             # 添加消息清理节点映射（跳过）
             node_mapping[f"Msg Clear {formatted_name}"] = None
 
-        # 添加固定的非分析师节点映射
-        node_mapping.update({
-            # 研究员节点
-            'Bull Researcher': "🐂 看涨研究员",
-            'Bear Researcher': "🐻 看跌研究员",
-            'Research Manager': "👔 研究经理",
-            # 交易员节点
-            'Trader': "💼 交易员决策",
-            # 风险评估节点
-            'Risky Analyst': "🔥 激进风险评估",
-            'Safe Analyst': "🛡️ 保守风险评估",
-            'Neutral Analyst': "⚖️ 中性风险评估",
-            'Risk Judge': "🎯 风险经理",
-        })
+        # 合并非分析师阶段的固定节点映射
+        node_mapping.update(cls._get_non_analyst_mappings())
 
         return node_mapping
 
     @classmethod
-    def build_progress_map(cls, selected_analysts: List[str] = None, config_path: str = None) -> Dict[str, float]:
+    def _get_non_analyst_mappings(cls) -> Dict[str, str]:
+        """获取非分析师阶段（Stage 2/3/4）的固定节点映射"""
+        return {
+            'Bull Researcher': "🐂 看涨研究员",
+            'Bear Researcher': "🐻 看跌研究员",
+            'Research Manager': "👔 研究经理",
+            'Trader': "💼 交易员决策",
+            'Risky Analyst': "🔥 激进风险评估",
+            'Safe Analyst': "🛡️ 保守风险评估",
+            'Neutral Analyst': "⚖️ 中性风险评估",
+            'Risk Judge': "🎯 风险经理",
+            'Summary Agent': "📊 生成报告",
+        }
+
+    @classmethod
+    def build_progress_map(cls, selected_analysts: List[str] = None, config_path: str = None,
+                           phase2_enabled: bool = True, phase3_enabled: bool = True) -> Dict[str, float]:
         """
         动态构建进度映射表，用于进度百分比计算
 
@@ -468,6 +481,8 @@ class DynamicAnalystFactory:
                               如果提供，则基于选择的智能体计算进度
                               如果为 None，则回退到所有配置的智能体
             config_path: 配置文件路径 (可选)
+            phase2_enabled: 是否启用阶段2（辩论），默认 True
+            phase3_enabled: 是否启用阶段3（风险评估），默认 True
 
         Returns:
             Dict[str, float] - key 为中文显示名称，value 为进度百分比
@@ -501,25 +516,39 @@ class DynamicAnalystFactory:
                 if not slug or not name:
                     continue
 
-                icon = cls._get_analyst_icon(slug, name)
+                icon = cls._get_analyst_icon(slug, name, agent_config=agent)
                 display_name = f"{icon} {name}"
 
                 # 计算进度百分比（从 10% 开始）
                 progress = 10 + (i + 1) * progress_per_analyst
                 progress_map[display_name] = round(progress, 1)
 
-        # 添加固定的非分析师节点进度
-        progress_map.update({
-            "🐂 看涨研究员": 51.25,
-            "🐻 看跌研究员": 57.5,
-            "👔 研究经理": 70,
-            "💼 交易员决策": 78,
-            "🔥 激进风险评估": 81.75,
-            "🛡️ 保守风险评估": 85.5,
-            "⚖️ 中性风险评估": 89.25,
-            "🎯 风险经理": 93,
-            "📊 生成报告": 97,
-        })
+        # 根据启用的阶段，动态分配剩余进度
+        base = progress_map[list(progress_map.keys())[-1]] if progress_map else 50.0
+        remaining = 100.0 - base
+
+        later_stages = []
+        if phase2_enabled:
+            later_stages.extend([
+                "🐂 看涨研究员",
+                "🐻 看跌研究员",
+                "👔 研究经理",
+            ])
+        later_stages.append("💼 交易员决策")
+        if phase3_enabled:
+            later_stages.extend([
+                "🔥 激进风险评估",
+                "🛡️ 保守风险评估",
+                "⚖️ 中性风险评估",
+                "🎯 风险经理",
+            ])
+        later_stages.append("📊 生成报告")
+
+        stage_count = len(later_stages)
+        per_stage = remaining / stage_count if stage_count > 0 else 0
+
+        for i, stage_name in enumerate(later_stages):
+            progress_map[stage_name] = round(base + (i + 1) * per_stage, 2)
 
         return progress_map
 

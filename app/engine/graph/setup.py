@@ -88,7 +88,7 @@ class GraphSetup:
                 selected_analysts=selected_analysts,
                 llm=self.analyst_llm,
                 toolkit=self.toolkit,
-                max_tool_calls=20  # 🔥 固定为20次，不从配置文件读取
+                max_tool_calls=self.config.get("max_tool_calls", 12)
             )
 
             # 将工厂创建的节点函数添加到 analyst_nodes
