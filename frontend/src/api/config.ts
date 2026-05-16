@@ -54,7 +54,7 @@ export interface LLMConfig {
   model_category?: string
   // 🆕 模型能力分级系统
   capability_level?: number  // 模型能力等级(1-5): 1=基础, 2=标准, 3=高级, 4=专业, 5=旗舰
-  suitable_roles?: string[]  // 适用角色: quick_analysis(快速分析), deep_analysis(深度分析), both(两者都适合)
+  suitable_roles?: string[]  // 适用角色: analyst(一阶段分析师), debate(辩论推理), both(两者都适合)
   features?: string[]  // 模型特性: tool_calling, long_context, reasoning, vision, fast_response, cost_effective
   recommended_depths?: string[]  // 推荐的分析深度级别: 快速, 基础, 标准, 深度, 全面
   performance_metrics?: {  // 性能指标
@@ -431,13 +431,13 @@ export const configApi = {
   },
 
   // 获取默认模型配置
-  getDefaultModels(): Promise<{ quick_analysis_model: string; deep_analysis_model: string }> {
+  getDefaultModels(): Promise<{ analyst_model: string; debate_model: string }> {
     return ApiClient.get('/api/config/settings').then((response: any) => {
       // 🔧 修复：后端返回的是 {config: {...}, version, cached_at}
       const settings = response.config || response
       return {
-        quick_analysis_model: settings.quick_analysis_model || 'qwen-turbo',
-        deep_analysis_model: settings.deep_analysis_model || 'qwen-max'
+        analyst_model: settings.analyst_model || 'qwen-turbo',
+        debate_model: settings.debate_model || 'qwen-max'
       }
     })
   },

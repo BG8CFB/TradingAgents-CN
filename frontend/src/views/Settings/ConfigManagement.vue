@@ -28,17 +28,9 @@
             @select="handleMenuSelect"
             class="config-nav"
           >
-            <el-menu-item index="validation">
-              <el-icon><CircleCheck /></el-icon>
-              <span>配置验证</span>
-            </el-menu-item>
             <el-menu-item index="providers">
               <el-icon><OfficeBuilding /></el-icon>
               <span>厂家管理</span>
-            </el-menu-item>
-            <el-menu-item index="model-catalog">
-              <el-icon><Collection /></el-icon>
-              <span>模型目录</span>
             </el-menu-item>
             <el-menu-item index="llm">
               <el-icon><Cpu /></el-icon>
@@ -70,16 +62,6 @@
 
       <!-- 右侧：配置内容 -->
       <el-col :span="20">
-        <!-- 配置验证 -->
-        <div v-show="activeTab === 'validation'">
-          <ConfigValidator />
-        </div>
-
-        <!-- 模型目录管理 -->
-        <div v-show="activeTab === 'model-catalog'">
-          <ModelCatalogManagement />
-        </div>
-
         <!-- 厂家管理 -->
         <el-card v-show="activeTab === 'providers'" class="config-content" shadow="never">
           <template #header>
@@ -132,18 +114,14 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="支持功能" width="200">
+              <el-table-column label="类型" width="120">
                 <template #default="{ row }">
-                  <div class="features">
-                    <el-tag
-                      v-for="feature in row.supported_features"
-                      :key="feature"
-                      size="small"
-                      class="feature-tag"
-                    >
-                      {{ feature }}
-                    </el-tag>
-                  </div>
+                  <el-tag
+                    :type="getProviderType(row.supported_features) === 'embedding' ? 'warning' : 'primary'"
+                    size="small"
+                  >
+                    {{ getProviderType(row.supported_features) === 'embedding' ? '向量模型' : '大模型' }}
+                  </el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="280" fixed="right">
@@ -153,15 +131,6 @@
                     @click.stop="editProvider(row)"
                   >
                     编辑
-                  </el-button>
-                  <el-button
-                    v-if="row.extra_config?.has_api_key"
-                    size="small"
-                    type="info"
-                    @click.stop="testProviderAPI(row)"
-                    :loading="testingProviders[row.id]"
-                  >
-                    测试
                   </el-button>
                   <el-button
                     size="small"
@@ -288,44 +257,6 @@
                         <div>输出: {{ formatPrice(row.output_price_per_1k) }} {{ row.currency || 'CNY' }}/1K</div>
                       </div>
                       <span v-else class="text-muted">-</span>
-                    </template>
-                  </el-table-column>
-
-                  <!-- 模型能力 -->
-                  <el-table-column label="模型能力" width="280">
-                    <template #default="{ row }">
-                      <div class="capability-cell">
-                        <div v-if="row.capability_level" class="capability-row-item">
-                          <span class="label">等级:</span>
-                          <el-tag :type="getCapabilityLevelType(row.capability_level)" size="small">
-                            {{ getCapabilityLevelText(row.capability_level) }}
-                          </el-tag>
-                        </div>
-                        <div v-if="row.suitable_roles && row.suitable_roles.length > 0" class="capability-row-item">
-                          <span class="label">角色:</span>
-                          <el-tag
-                            v-for="role in row.suitable_roles"
-                            :key="role"
-                            type="info"
-                            size="small"
-                            style="margin-right: 4px;"
-                          >
-                            {{ getRoleText(role) }}
-                          </el-tag>
-                        </div>
-                        <div v-if="row.recommended_depths && row.recommended_depths.length > 0" class="capability-row-item">
-                          <span class="label">深度:</span>
-                          <el-tag
-                            v-for="depth in row.recommended_depths"
-                            :key="depth"
-                            type="success"
-                            size="small"
-                            style="margin-right: 4px;"
-                          >
-                            {{ depth }}
-                          </el-tag>
-                        </div>
-                      </div>
                     </template>
                   </el-table-column>
 
@@ -503,70 +434,48 @@
             <!-- 基础设置 -->
             <el-divider content-position="left">基础设置</el-divider>
 
-            <el-form-item label="数据供应商">
+            <el-form-item label="分析师模型">
               <el-select
-                v-model="systemSettings.default_provider"
-                :disabled="!isEditable('default_provider')"
-                placeholder="选择已启用的厂家"
+                v-model="systemSettings.analyst_model"
+                :disabled="!isEditable('analyst_model')"
+                placeholder="选择分析师模型"
                 filterable
               >
                 <el-option
-                  v-for="provider in enabledProviders"
-                  :key="provider.id"
-                  :label="provider.display_name"
-                  :value="provider.name"
+                  v-for="model in allEnabledModels"
+                  :key="`${model.provider}/${model.model_name}`"
+                  :label="model.model_display_name || model.model_name"
+                  :value="model.model_name"
                 >
                   <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span>{{ provider.display_name }}</span>
-                    <el-tag v-if="provider.is_active" type="success" size="small">已启用</el-tag>
+                    <span>{{ model.model_display_name || model.model_name }}</span>
+                    <el-tag size="small" type="info">{{ getProviderDisplayName(model.provider) }}</el-tag>
                   </div>
                 </el-option>
               </el-select>
-              <div class="setting-description">从已配置的厂家中选择默认供应商</div>
+              <div class="setting-description">用于一阶段分析师（市场分析、新闻分析等），低幻觉、数字敏感（推荐：qwen-turbo）</div>
             </el-form-item>
 
-            <el-form-item label="快速分析模型">
+            <el-form-item label="辩论推理模型">
               <el-select
-                v-model="systemSettings.quick_analysis_model"
-                :disabled="!isEditable('quick_analysis_model')"
-                placeholder="选择快速分析模型"
+                v-model="systemSettings.debate_model"
+                :disabled="!isEditable('debate_model')"
+                placeholder="选择辩论推理模型"
                 filterable
               >
                 <el-option
-                  v-for="model in availableModelsForProvider(systemSettings.default_provider)"
+                  v-for="model in allEnabledModels"
                   :key="`${model.provider}/${model.model_name}`"
                   :label="model.model_display_name || model.model_name"
                   :value="model.model_name"
                 >
-                  <div style="display: flex; flex-direction: column;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span>{{ model.model_display_name || model.model_name }}</span>
-                    <span style="font-size: 12px; color: #909399;">{{ model.model_name }}</span>
+                    <el-tag size="small" type="info">{{ getProviderDisplayName(model.provider) }}</el-tag>
                   </div>
                 </el-option>
               </el-select>
-              <div class="setting-description">用于市场分析、新闻分析、基本面分析、研究员等，响应速度快（推荐：qwen-turbo）</div>
-            </el-form-item>
-
-            <el-form-item label="深度决策模型">
-              <el-select
-                v-model="systemSettings.deep_analysis_model"
-                :disabled="!isEditable('deep_analysis_model')"
-                placeholder="选择深度决策模型"
-                filterable
-              >
-                <el-option
-                  v-for="model in availableModelsForProvider(systemSettings.default_provider)"
-                  :key="`${model.provider}/${model.model_name}`"
-                  :label="model.model_display_name || model.model_name"
-                  :value="model.model_name"
-                >
-                  <div style="display: flex; flex-direction: column;">
-                    <span>{{ model.model_display_name || model.model_name }}</span>
-                    <span style="font-size: 12px; color: #909399;">{{ model.model_name }}</span>
-                  </div>
-                </el-option>
-              </el-select>
-              <div class="setting-description">用于研究管理者综合决策、风险管理者最终评估，推理能力强（推荐：qwen-max）</div>
+              <div class="setting-description">用于二至四阶段（辩论、风控、交易决策），强逻辑推理（推荐：qwen-max）</div>
             </el-form-item>
 
             <el-form-item label="启用成本跟踪">
@@ -1073,7 +982,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Setting,
@@ -1087,8 +996,6 @@ import {
   Refresh,
   Key,
   OfficeBuilding,
-  CircleCheck,
-  Collection,
 } from '@element-plus/icons-vue'
 
 import {
@@ -1101,17 +1008,15 @@ import {
   type DataSourceGrouping,
   type SettingMeta
 } from '@/api/config'
-import ConfigValidator from '@/components/ConfigValidator.vue'
 import LLMConfigDialog from './components/LLMConfigDialog.vue'
 import ProviderDialog from './components/ProviderDialog.vue'
-import ModelCatalogManagement from './components/ModelCatalogManagement.vue'
 import DataSourceConfigDialog from './components/DataSourceConfigDialog.vue'
 import MarketCategoryManagement from './components/MarketCategoryManagement.vue'
 import DataSourceGroupingDialog from './components/DataSourceGroupingDialog.vue'
 import SortableDataSourceList from './components/SortableDataSourceList.vue'
 
 // 响应式数据
-const activeTab = ref('validation')
+const activeTab = ref('providers')
 const providers = ref<LLMProvider[]>([])
 const llmConfigs = ref<LLMConfig[]>([])
 const llmConfigGroups = ref<any[]>([])
@@ -1172,9 +1077,6 @@ const currentDatabaseConfig = ref<Partial<DatabaseConfig>>({
   description: ''
 })
 
-// 测试状态
-const testingProviders = ref<Record<string, boolean>>({})
-
 // 方法
 const handleMenuSelect = (index: string) => {
   activeTab.value = index
@@ -1208,26 +1110,11 @@ const loadTabData = async (tab: string) => {
   }
 }
 
-// 计算属性：获取已启用的厂家
-const enabledProviders = computed(() => {
-  return providers.value.filter(p => p.is_active)
+// 计算属性：所有启用的模型（跨厂家，用于系统设置中的模型选择）
+const allEnabledModels = computed(() => {
+  const activeProviderNames = new Set(providers.value.filter(p => p.is_active).map(p => p.name))
+  return llmConfigs.value.filter(config => config.enabled && activeProviderNames.has(config.provider))
 })
-
-// 函数：根据厂家获取可用的模型
-const availableModelsForProvider = (providerId: string) => {
-  console.log('🔍 获取厂家模型:', providerId)
-  console.log('📊 所有大模型配置:', llmConfigs.value)
-  if (!providerId) {
-    console.log('⚠️ 厂家ID为空')
-    return []
-  }
-  const models = llmConfigs.value.filter(config => {
-    console.log(`检查模型: ${config.model_name}, provider: ${config.provider}, enabled: ${config.enabled}`)
-    return config.provider === providerId && config.enabled
-  })
-  console.log(`✅ 找到 ${models.length} 个可用模型:`, models)
-  return models
-}
 
 // 加载厂家列表
 const loadProviders = async () => {
@@ -1443,8 +1330,8 @@ const loadSystemSettings = async () => {
     systemSettings.value = {
       // 🔧 添加 default_provider 字段
       default_provider: '',
-      quick_analysis_model: 'qwen-turbo',
-      deep_analysis_model: 'qwen-max',
+      analyst_model: 'qwen-turbo',
+      debate_model: 'qwen-max',
       default_analysis_timeout: 300,
       enable_cache: true,
       cache_ttl: 3600,
@@ -1478,8 +1365,8 @@ const loadSystemSettings = async () => {
 
     console.log('✅ 系统设置加载成功:', {
       default_provider: systemSettings.value.default_provider,
-      quick_analysis_model: systemSettings.value.quick_analysis_model,
-      deep_analysis_model: systemSettings.value.deep_analysis_model
+      analyst_model: systemSettings.value.analyst_model,
+      debate_model: systemSettings.value.debate_model
     })
 
     // 规整元数据为map
@@ -1580,6 +1467,12 @@ const getProviderTagType = (provider: string): 'primary' | 'success' | 'warning'
 }
 
 // 🆕 获取能力等级文本
+// 根据 supported_features 推导厂家类型
+const getProviderType = (features: string[] = []): string => {
+  if (features.includes('embedding') && !features.includes('chat')) return 'embedding'
+  return 'llm'
+}
+
 const getCapabilityLevelText = (level: number) => {
   const levelMap: Record<number, string> = {
     1: '1级-基础',
@@ -1606,8 +1499,8 @@ const getCapabilityLevelType = (level: number): 'primary' | 'success' | 'warning
 // 🆕 获取角色文本
 const getRoleText = (role: string) => {
   const roleMap: Record<string, string> = {
-    'quick_analysis': '快速分析',
-    'deep_analysis': '深度分析',
+    'analyst': '一阶段分析',
+    'debate': '辩论推理',
     'both': '全能型'
   }
   return roleMap[role] || role
@@ -1678,30 +1571,6 @@ const toggleProviderStatus = async (providerRow: any) => {
 }
 
 // 测试厂家API
-const testProviderAPI = async (provider: LLMProvider) => {
-  try {
-    console.log('🔍 测试厂家API:', provider)
-    console.log('📋 厂家ID:', provider.id)
-    console.log('📋 厂家名称:', provider.display_name)
-
-    testingProviders.value[provider.id] = true
-
-    // 调用测试API
-    const result = await configApi.testProviderAPI(provider.id)
-
-    if (result.success) {
-      ElMessage.success(`${provider.display_name} API测试成功`)
-    } else {
-      ElMessage.error(`${provider.display_name} API测试失败: ${result.message}`)
-    }
-  } catch (error) {
-    console.error('API测试失败:', error)
-    ElMessage.error(`${provider.display_name} API测试失败`)
-  } finally {
-    testingProviders.value[provider.id] = false
-  }
-}
-
 // 获取厂家显示名称
 const getProviderDisplayName = (providerId: string) => {
   const provider = providers.value.find(p => p.name === providerId)
@@ -2165,28 +2034,6 @@ const migrateLegacyConfig = async () => {
     migrateLoading.value = false
   }
 }
-
-// 监听供应商变化，自动清空不匹配的模型选择
-watch(
-  () => systemSettings.value.default_provider,
-  (newProvider, oldProvider) => {
-    if (newProvider !== oldProvider && newProvider) {
-      const availableModels = availableModelsForProvider(newProvider)
-      const quickModel = systemSettings.value.quick_analysis_model
-      const deepModel = systemSettings.value.deep_analysis_model
-
-      // 如果当前选择的快速分析模型不属于新供应商，清空
-      if (quickModel && !availableModels.find(m => m.model_name === quickModel)) {
-        systemSettings.value.quick_analysis_model = ''
-      }
-
-      // 如果当前选择的深度决策模型不属于新供应商，清空
-      if (deepModel && !availableModels.find(m => m.model_name === deepModel)) {
-        systemSettings.value.deep_analysis_model = ''
-      }
-    }
-  }
-)
 
 // 生命周期
 onMounted(async () => {

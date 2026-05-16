@@ -142,4 +142,4 @@ class AgentState(MessagesState):
     # 🔧 阶段配置标志 (用于图路由)
     phase2_enabled: Annotated[bool, "Is phase 2 (Debate) enabled"]
     phase3_enabled: Annotated[bool, "Is phase 3 (Risk) enabled"]
-    phase4_enabled: Annotated[bool, "Is phase 4 (Trader) enabled"]
+    phase4_enabled: Annotated[bool, "Is phase 4 (Trader) enabled — Trader always executes"]

@@ -28,7 +28,7 @@ async def bridge_config_to_env() -> bool:
     核心步骤：
     1. 桥接 MongoDB 存储环境变量
     2. 从 llm_providers 集合桥接厂家 API Key → {PROVIDER}_API_KEY
-    3. 桥接默认/快速/深度分析模型 → TRADINGAGENTS_*_MODEL
+    3. 桥接分析师/辩论推理模型 → TRADINGAGENTS_*_MODEL
     4. 桥接数据源 API Key（Tushare Token、FinnHub Key）
     """
     try:
@@ -89,11 +89,11 @@ async def bridge_config_to_env() -> bool:
                     logger.info(f"  TRADINGAGENTS_DEFAULT_MODEL={system_config.default_llm}")
                     bridged_count += 1
 
-                # 快速/深度分析模型（从 system_settings 读取）
+                # 分析师/辩论模型（从 system_settings 读取）
                 ss = system_config.system_settings or {}
                 for model_key, env_name in [
-                    ("quick_analysis_model", "TRADINGAGENTS_QUICK_MODEL"),
-                    ("deep_analysis_model", "TRADINGAGENTS_DEEP_MODEL"),
+                    ("analyst_model", "TRADINGAGENTS_ANALYST_MODEL"),
+                    ("debate_model", "TRADINGAGENTS_DEBATE_MODEL"),
                 ]:
                     val = ss.get(model_key)
                     if val:
@@ -134,8 +134,8 @@ def get_bridged_api_key(provider: str) -> Optional[str]:
 
 
 def get_bridged_model(model_type: str = "default") -> Optional[str]:
-    """获取桥接的模型名称（default / quick / deep）"""
-    key = {"quick": "TRADINGAGENTS_QUICK_MODEL", "deep": "TRADINGAGENTS_DEEP_MODEL"}.get(
+    """获取桥接的模型名称（default / analyst / debate）"""
+    key = {"analyst": "TRADINGAGENTS_ANALYST_MODEL", "debate": "TRADINGAGENTS_DEBATE_MODEL"}.get(
         model_type, "TRADINGAGENTS_DEFAULT_MODEL"
     )
     return os.environ.get(key)
@@ -144,8 +144,8 @@ def get_bridged_model(model_type: str = "default") -> Optional[str]:
 def clear_bridged_config():
     """清除桥接的环境变量（用于测试或重新加载）"""
     keys_to_clear = [
-        "TRADINGAGENTS_DEFAULT_MODEL", "TRADINGAGENTS_QUICK_MODEL",
-        "TRADINGAGENTS_DEEP_MODEL", "TUSHARE_TOKEN", "FINNHUB_API_KEY",
+        "TRADINGAGENTS_DEFAULT_MODEL", "TRADINGAGENTS_ANALYST_MODEL",
+        "TRADINGAGENTS_DEBATE_MODEL", "TUSHARE_TOKEN", "FINNHUB_API_KEY",
         "APP_TIMEZONE", "CURRENCY_PREFERENCE",
     ]
     for p in ("OPENAI", "ANTHROPIC", "GOOGLE", "DEEPSEEK", "DASHSCOPE",

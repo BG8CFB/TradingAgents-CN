@@ -178,15 +178,16 @@
                 <el-option label="港股" value="港股" />
               </el-select>
             </el-form-item>
-            
-            <el-form-item label="默认分析深度">
-              <el-select v-model="analysisSettings.defaultDepth">
-                <el-option label="1级 - 快速分析" value="1" />
-                <el-option label="2级 - 基础分析" value="2" />
-                <el-option label="3级 - 标准分析（推荐）" value="3" />
-                <el-option label="4级 - 深度分析" value="4" />
-                <el-option label="5级 - 全面分析" value="5" />
-              </el-select>
+
+            <el-form-item label="默认辩论轮数">
+              <el-input-number
+                v-model="analysisSettings.defaultDebateRounds"
+                :min="1"
+                :max="4"
+                :step="1"
+                controls-position="right"
+              />
+              <span style="margin-left: 12px; color: #909399; font-size: 13px;">辩论轮数上限为4，默认2</span>
             </el-form-item>
 
             <el-form-item label="默认分析师">
@@ -636,8 +637,8 @@ const appearanceSettings = ref({
 
 const analysisSettings = ref({
   defaultMarket: authStore.user?.preferences?.default_market || 'A股',
-  defaultDepth: authStore.user?.preferences?.default_depth || '3',
-  defaultAnalysts: authStore.user?.preferences?.default_analysts || [],  // 使用英文ID
+  defaultDebateRounds: authStore.user?.preferences?.default_debate_rounds ?? 2,
+  defaultAnalysts: authStore.user?.preferences?.default_analysts || [],
   autoRefresh: authStore.user?.preferences?.auto_refresh ?? true,
   refreshInterval: authStore.user?.preferences?.refresh_interval || 30
 })
@@ -699,8 +700,8 @@ watch(() => authStore.user, (newUser) => {
 
     // 更新分析偏好
     analysisSettings.value.defaultMarket = newUser.preferences?.default_market || 'A股'
-    analysisSettings.value.defaultDepth = newUser.preferences?.default_depth || '3'
-    analysisSettings.value.defaultAnalysts = newUser.preferences?.default_analysts || []  // 使用英文ID
+    analysisSettings.value.defaultDebateRounds = newUser.preferences?.default_debate_rounds ?? 2
+    analysisSettings.value.defaultAnalysts = newUser.preferences?.default_analysts || []
     analysisSettings.value.autoRefresh = newUser.preferences?.auto_refresh ?? true
     analysisSettings.value.refreshInterval = newUser.preferences?.refresh_interval || 30
 
@@ -769,7 +770,7 @@ const saveAnalysisSettings = async () => {
     // 更新本地 store（立即生效）
     appStore.updatePreferences({
       defaultMarket: analysisSettings.value.defaultMarket as any,
-      defaultDepth: analysisSettings.value.defaultDepth as any,
+      defaultDebateRounds: analysisSettings.value.defaultDebateRounds,
       autoRefresh: analysisSettings.value.autoRefresh,
       refreshInterval: analysisSettings.value.refreshInterval,
       defaultAnalysts: normalizedAnalysts
@@ -779,7 +780,7 @@ const saveAnalysisSettings = async () => {
     const success = await authStore.updateUserInfo({
       preferences: {
         default_market: analysisSettings.value.defaultMarket,
-        default_depth: analysisSettings.value.defaultDepth,
+        default_debate_rounds: analysisSettings.value.defaultDebateRounds,
         default_analysts: normalizedAnalysts,
         auto_refresh: analysisSettings.value.autoRefresh,
         refresh_interval: analysisSettings.value.refreshInterval
@@ -933,7 +934,7 @@ onMounted(async () => {
   appearanceSettings.value.sidebarWidth = appStore.sidebarWidth
   
   analysisSettings.value.defaultMarket = appStore.preferences.defaultMarket
-  analysisSettings.value.defaultDepth = appStore.preferences.defaultDepth
+  analysisSettings.value.defaultDebateRounds = appStore.preferences.defaultDebateRounds ?? 2
   analysisSettings.value.autoRefresh = appStore.preferences.autoRefresh
   analysisSettings.value.refreshInterval = appStore.preferences.refreshInterval
 })

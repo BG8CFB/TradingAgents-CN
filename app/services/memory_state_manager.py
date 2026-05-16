@@ -141,43 +141,21 @@ class MemoryStateManager:
 
     def _calculate_estimated_duration(self, parameters: Dict[str, Any]) -> float:
         """根据分析参数计算预估总时长（秒）"""
-        # 基础时间（秒）- 环境准备、配置等
         base_time = 60
 
-        # 获取分析参数
-        research_depth = parameters.get('research_depth', '标准')
         selected_analysts = parameters.get('selected_analysts', [])
         llm_provider = parameters.get('llm_provider', 'dashscope')
 
-        # 研究深度映射
-        depth_map = {"快速": 1, "标准": 2, "深度": 3}
-        d = depth_map.get(research_depth, 2)
+        # 每个分析师约6分钟（基于实际测试数据）
+        analyst_time = len(selected_analysts) * 360
 
-        # 每个分析师的基础耗时（基于真实测试数据）
-        analyst_base_time = {
-            1: 180,  # 快速分析：每个分析师约3分钟
-            2: 360,  # 标准分析：每个分析师约6分钟
-            3: 600   # 深度分析：每个分析师约10分钟
-        }.get(d, 360)
-
-        analyst_time = len(selected_analysts) * analyst_base_time
-
-        # 模型速度影响（基于实际测试）
         model_multiplier = {
-            'dashscope': 1.0,  # 阿里百炼速度适中
-            'deepseek': 0.7,   # DeepSeek较快
-            'google': 1.3      # Google较慢
+            'dashscope': 1.0,
+            'deepseek': 0.7,
+            'google': 1.3
         }.get(llm_provider, 1.0)
 
-        # 研究深度额外影响（工具调用复杂度）
-        depth_multiplier = {
-            1: 0.8,  # 快速分析，较少工具调用
-            2: 1.0,  # 标准分析，标准工具调用
-            3: 1.3   # 深度分析，更多工具调用和推理
-        }.get(d, 1.0)
-
-        total_time = (base_time + analyst_time) * model_multiplier * depth_multiplier
-        return total_time
+        return (base_time + analyst_time) * model_multiplier
 
     def update_task_status_sync(
         self,

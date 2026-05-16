@@ -387,12 +387,12 @@
                 <div class="model-config">
                   <div class="model-item">
                     <div class="model-label">
-                      <span>快速分析模型</span>
-                      <el-tooltip content="用于市场分析、新闻分析、基本面分析等" placement="top">
+                      <span>分析师模型（一阶段）</span>
+                      <el-tooltip content="用于一阶段分析师（市场分析、新闻分析、基本面分析等），推荐选择低幻觉、数字敏感的模型" placement="top">
                         <el-icon class="help-icon"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
-                    <el-select v-model="modelSettings.quickAnalysisModel" size="small" style="width: 100%" filterable>
+                    <el-select v-model="modelSettings.analystModel" size="small" style="width: 100%" filterable>
                       <el-option
                         v-for="model in availableModels"
                         :key="`quick-${model.provider}/${model.model_name}`"
@@ -413,12 +413,12 @@
                             </el-tag>
                             <!-- 角色标签 -->
                             <el-tag
-                              v-if="isQuickAnalysisRole(model.suitable_roles)"
+                              v-if="isAnalystRole(model.suitable_roles)"
                               type="success"
                               size="small"
                               effect="plain"
                             >
-                              ⚡快速
+                              ⚡分析师
                             </el-tag>
                             <span style="font-size: 12px; color: #909399;">{{ model.provider }}</span>
                           </div>
@@ -429,12 +429,12 @@
 
                   <div class="model-item">
                     <div class="model-label">
-                      <span>深度决策模型</span>
-                      <el-tooltip content="用于研究管理者综合决策、风险管理者最终评估" placement="top">
+                      <span>辩论推理模型（二至四阶段）</span>
+                      <el-tooltip content="用于二至四阶段（辩论、风控、交易决策），推荐选择强逻辑推理能力的模型" placement="top">
                         <el-icon class="help-icon"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </div>
-                    <DeepModelSelector v-model="modelSettings.deepAnalysisModel" :available-models="availableModels" type="deep" size="small" width="100%" />
+                    <DeepModelSelector v-model="modelSettings.debateModel" :available-models="availableModels" type="debate" size="small" width="100%" />
                   </div>
                 </div>
               </div>
@@ -860,8 +860,8 @@ const generateStepsFromBackend = (backendSteps: any[]) => {
 
 // 模型设置
 const modelSettings = ref({
-  quickAnalysisModel: 'qwen-turbo',
-  deepAnalysisModel: 'qwen-max'
+  analystModel: 'qwen-turbo',
+  debateModel: 'qwen-max'
 })
 
 // 可用的模型列表（从配置中获取）
@@ -902,13 +902,12 @@ const getPhaseConfig = (phaseName: string) => {
   return (analysisForm.phases as Record<string, { enabled: boolean; debateRounds: number }>)[phaseName]
 }
 
-// 归一化阶段配置，保证后续阶段依赖前置阶段
+// 归一化阶段配置：交易员始终执行，阶段2/3 可独立开关
 const buildPhasePayload = (phases: any) => {
   const phase2Enabled = phases.phase2.enabled
-  const phase3Enabled = phase2Enabled && phases.phase3.enabled
-  // phase4 (Trader) is linked to phase2 (Debate) in UI now
-  // If phase2 is enabled in UI, we enable both Debate (phase2) and Trader (phase4) in backend
-  const phase4Enabled = phase2Enabled
+  const phase3Enabled = phases.phase3.enabled
+  // 交易员始终执行，phase4 始终为 true
+  const phase4Enabled = true
 
   return {
     phase2_enabled: phase2Enabled,
@@ -1020,8 +1019,8 @@ onMounted(async () => {
   // 加载模型配置
   try {
     const defaultModels = await configApi.getDefaultModels()
-    modelSettings.value.quickAnalysisModel = defaultModels.quick_analysis_model
-    modelSettings.value.deepAnalysisModel = defaultModels.deep_analysis_model
+    modelSettings.value.analystModel = defaultModels.analyst_model
+    modelSettings.value.debateModel = defaultModels.debate_model
 
     const llmConfigs = await configApi.getLLMConfigs()
     availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled)
@@ -1144,8 +1143,8 @@ const submitAnalysis = async () => {
         analysis_date: analysisDate.toISOString().split('T')[0],
         selected_analysts: normalizeAnalystIds(analysisForm.selectedAnalysts), // 确保使用英文ID
         language: analysisForm.language,
-        quick_analysis_model: modelSettings.value.quickAnalysisModel,
-        deep_analysis_model: modelSettings.value.deepAnalysisModel,
+        analyst_model: modelSettings.value.analystModel,
+        debate_model: modelSettings.value.debateModel,
         // 阶段配置（按顺序依赖）
         ...buildPhasePayload(analysisForm.phases),
         // MCP工具
@@ -1830,16 +1829,16 @@ const initializeModelSettings = async () => {
   try {
     // 获取默认模型
     const defaultModels = await configApi.getDefaultModels()
-    modelSettings.value.quickAnalysisModel = defaultModels.quick_analysis_model
-    modelSettings.value.deepAnalysisModel = defaultModels.deep_analysis_model
+    modelSettings.value.analystModel = defaultModels.analyst_model
+    modelSettings.value.debateModel = defaultModels.debate_model
 
     // 获取所有可用的模型列表
     const llmConfigs = await configApi.getLLMConfigs()
     availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled)
 
     console.log('✅ 加载模型配置成功:', {
-      quick: modelSettings.value.quickAnalysisModel,
-      deep: modelSettings.value.deepAnalysisModel,
+      quick: modelSettings.value.analystModel,
+      deep: modelSettings.value.debateModel,
       available: availableModels.value.length
     })
     console.log('🔍 可用模型详细信息:', availableModels.value.map(m => ({
@@ -1849,8 +1848,8 @@ const initializeModelSettings = async () => {
     })))
   } catch (error) {
     console.error('加载默认模型配置失败:', error)
-    modelSettings.value.quickAnalysisModel = 'qwen-turbo'
-    modelSettings.value.deepAnalysisModel = 'qwen-max'
+    modelSettings.value.analystModel = 'qwen-turbo'
+    modelSettings.value.debateModel = 'qwen-max'
   }
 }
 
@@ -2006,38 +2005,18 @@ const getCapabilityTagType = (level: number): 'success' | 'info' | 'warning' | '
 /**
  * 判断是否适合快速分析
  */
-const isQuickAnalysisRole = (roles: string[] | undefined): boolean => {
+const isAnalystRole = (roles: string[] | undefined): boolean => {
   if (!roles || !Array.isArray(roles)) return false
-  return roles.includes('quick_analysis') || roles.includes('both')
-}
-
-/**
- * 判断是否适合深度分析
- */
-// @ts-expect-error - reserved for future use
-const _isDeepAnalysisRole = (roles: string[] | undefined): boolean => {
-  if (!roles || !Array.isArray(roles)) return false
-  return roles.includes('deep_analysis') || roles.includes('both')
+  return roles.includes('analyst') || roles.includes('both')
 }
 
 // 监听分析深度变化
 import { watch } from 'vue'
 
-// 阶段开关级联：后续阶段依赖前置阶段
-watch(() => analysisForm.phases.phase2.enabled, (enabled) => {
-  if (!enabled) {
-    analysisForm.phases.phase3.enabled = false
-  }
-})
-
-watch(() => analysisForm.phases.phase3.enabled, (enabled) => {
-  if (enabled && !analysisForm.phases.phase2.enabled) {
-    analysisForm.phases.phase2.enabled = true
-  }
-})
+// 阶段开关已独立：Phase 2（辩论）和 Phase 3（风险辩论）可分别开关，交易员始终执行
 
 // 监听模型选择变化
-watch([() => modelSettings.value.quickAnalysisModel, () => modelSettings.value.deepAnalysisModel], () => {
+watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateModel], () => {
   // checkModelSuitability() // Removed
 })
 </script>
@@ -2171,59 +2150,6 @@ watch([() => modelSettings.value.quickAnalysisModel, () => modelSettings.value.d
         margin-top: 8px;
         color: #94a3b8;
         font-size: 12px;
-      }
-
-      .depth-selector {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 12px;
-
-        .depth-option {
-          display: flex;
-          align-items: center;
-          padding: 16px;
-          border: 2px solid #e2e8f0;
-          border-radius: 12px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-
-          &:hover {
-            border-color: #3b82f6;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-          }
-
-          &.active {
-            border-color: #3b82f6;
-            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-            color: #1e40af;
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.15);
-          }
-
-          .depth-icon {
-            font-size: 24px;
-            margin-right: 12px;
-          }
-
-          .depth-info {
-            .depth-name {
-              font-weight: 600;
-              margin-bottom: 4px;
-            }
-
-            .depth-desc {
-              font-size: 12px;
-              opacity: 0.8;
-              margin-bottom: 2px;
-            }
-
-            .depth-time {
-              font-size: 11px;
-              opacity: 0.7;
-            }
-          }
-        }
       }
 
       .analysts-grid {

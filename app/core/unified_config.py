@@ -130,15 +130,15 @@ class UnifiedConfigManager:
 
     def get_default_model(self) -> str:
         settings = self.get_system_settings()
-        return settings.get("quick_analysis_model", settings.get("default_model", "qwen-turbo"))
+        return settings.get("analyst_model", settings.get("default_model", "qwen-turbo"))
 
-    def get_quick_analysis_model(self) -> str:
+    def get_analyst_model(self) -> str:
         settings = self.get_system_settings()
-        return settings.get("quick_analysis_model") or settings.get("quick_think_llm", "qwen-turbo")
+        return settings.get("analyst_model") or settings.get("analyst_llm", "qwen-turbo")
 
-    def get_deep_analysis_model(self) -> str:
+    def get_debate_model(self) -> str:
         settings = self.get_system_settings()
-        return settings.get("deep_analysis_model") or settings.get("deep_think_llm", "qwen-max")
+        return settings.get("debate_model") or settings.get("debate_llm", "qwen-max")
 
     # ── 数据源配置 ──────────────────────────────────────────────────────
 
@@ -267,12 +267,12 @@ class UnifiedConfigManager:
         try:
             current = self.get_system_settings()
             ss = system_config.system_settings or {}
-            if "quick_analysis_model" in ss:
-                current["quick_think_llm"] = ss["quick_analysis_model"]
-                current["quick_analysis_model"] = ss["quick_analysis_model"]
-            if "deep_analysis_model" in ss:
-                current["deep_think_llm"] = ss["deep_analysis_model"]
-                current["deep_analysis_model"] = ss["deep_analysis_model"]
+            if "analyst_model" in ss:
+                current["analyst_llm"] = ss["analyst_model"]
+                current["analyst_model"] = ss["analyst_model"]
+            if "debate_model" in ss:
+                current["debate_llm"] = ss["debate_model"]
+                current["debate_model"] = ss["debate_model"]
             if system_config.default_llm:
                 current["default_model"] = system_config.default_llm
             self.save_system_settings(current)

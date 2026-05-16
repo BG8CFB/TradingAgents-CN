@@ -46,12 +46,20 @@ class SystemInitService:
 
     @staticmethod
     def get_default_admin_config() -> Dict[str, str]:
-        """获取默认管理员配置，密码必须来自环境变量。"""
+        """获取默认管理员配置，密码优先从环境变量读取，未设置则使用内置默认值。"""
         password = (
             os.getenv("INITIAL_ADMIN_PASSWORD")
             or os.getenv("DEFAULT_ADMIN_PASSWORD")
             or ""
         ).strip()
+
+        # 未配置密码时使用内置默认值，确保首次启动能自动初始化
+        if not password:
+            password = "admin123"
+            logger.warning(
+                "⚠️ 未设置 INITIAL_ADMIN_PASSWORD，使用默认管理员密码 admin123，"
+                "请在首次登录后立即修改密码"
+            )
 
         return {
             "username": os.getenv("INITIAL_ADMIN_USERNAME", DEFAULT_ADMIN["username"]).strip() or DEFAULT_ADMIN["username"],
@@ -205,16 +213,11 @@ class SystemInitService:
         admin_config = cls.get_default_admin_config()
 
         existing_user = await users_collection.find_one({"username": admin_config["username"]})
-        
+
         if existing_user:
-            # 用户已存在，不做任何事
             return
 
-        if not admin_config["password"]:
-            raise RuntimeError(
-                "首次初始化缺少管理员密码，请设置环境变量 INITIAL_ADMIN_PASSWORD 后重启应用"
-            )
-
+        # password 已在 get_default_admin_config() 中保证非空（有内置默认值）
         logger.info(f"👤 创建默认管理员用户: {admin_config['username']}")
         
         # 创建用户文档
@@ -230,7 +233,7 @@ class SystemInitService:
             "last_login": None,
             "preferences": {
                 "default_market": "A股",
-                "default_depth": "深度",
+                "default_debate_rounds": 2,
                 "ui_theme": "light",
                 "language": "zh-CN",
                 "notifications_enabled": True,

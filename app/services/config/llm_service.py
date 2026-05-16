@@ -125,7 +125,7 @@ class LLMService:
 
             # 打印所有现有配置
             for i, llm in enumerate(config.llm_configs):
-                print(f"   {i+1}. provider: {llm.provider.value}, model_name: {llm.model_name}")
+                print(f"   {i+1}. provider: {llm.provider}, model_name: {llm.model_name}")
 
             # 查找并删除指定的LLM配置
             original_count = len(config.llm_configs)
@@ -133,7 +133,7 @@ class LLMService:
             # 使用更宽松的匹配条件
             config.llm_configs = [
                 llm for llm in config.llm_configs
-                if not (str(llm.provider.value).lower() == provider.lower() and llm.model_name == model_name)
+                if not (str(llm.provider).lower() == provider.lower() and llm.model_name == model_name)
             ]
 
             new_count = len(config.llm_configs)
@@ -1662,6 +1662,38 @@ class LLMService:
                 None, self._fetch_models_from_api, api_key, base_url, display_name
             )
 
+            # 成功获取后同步更新 model_catalog 集合
+            if result.get("success") and result.get("models"):
+                try:
+                    from app.models.config import ModelCatalog, ModelInfo
+
+                    catalog_models = []
+                    for m in result["models"]:
+                        catalog_models.append(ModelInfo(
+                            name=m.get("id") or m.get("name", ""),
+                            display_name=m.get("name") or m.get("id", ""),
+                            context_length=m.get("context_length"),
+                            input_price_per_1k=m.get("input_price_per_1k"),
+                            output_price_per_1k=m.get("output_price_per_1k"),
+                        ))
+
+                    catalog = ModelCatalog(
+                        provider=provider_name,
+                        provider_name=display_name,
+                        models=catalog_models,
+                    )
+
+                    db = await self._get_db()
+                    catalog.updated_at = now_tz()
+                    await db.model_catalog.replace_one(
+                        {"provider": provider_name},
+                        catalog.model_dump(by_alias=True, exclude={"id"}),
+                        upsert=True,
+                    )
+                    logger.info(f"✅ 已更新 {display_name} 模型目录: {len(catalog_models)} 个模型")
+                except Exception as e:
+                    logger.warning(f"更新模型目录失败: {e}")
+
             return result
 
         except Exception as e:
@@ -1723,7 +1755,7 @@ class LLMService:
                             print(f"   - {m.get('id')}")
 
                     # 过滤：只保留主流大厂的常用模型
-                    filtered_models = self._filter_popular_models(all_models)
+                    filtered_models = self._filter_models(all_models)
                     print(f"✅ 过滤后保留 {len(filtered_models)} 个常用模型")
 
                     # 转换模型格式，包含价格信息
@@ -1853,76 +1885,43 @@ class LLMService:
 
         return formatted
 
-    def _filter_popular_models(self, models: list) -> list:
-        """过滤模型列表，只保留主流大厂的常用模型"""
-        # 只保留三大厂：OpenAI、Anthropic、Google
-        popular_providers = [
-            "openai",      # OpenAI
-            "anthropic",   # Anthropic
-            "google",      # Google
-        ]
-
-        # 常见模型名称前缀（用于识别不带厂商前缀的模型）
-        model_prefixes = {
-            "gpt-": "openai",           # gpt-3.5-turbo, gpt-4, gpt-4o
-            "o1-": "openai",            # o1-preview, o1-mini
-            "claude-": "anthropic",     # claude-3-opus, claude-3-sonnet
-            "gemini-": "google",        # gemini-pro, gemini-1.5-pro
-            "gemini": "google",         # gemini (不带连字符)
-        }
-
-        # 排除的关键词
+    def _filter_models(self, models: list) -> list:
+        """过滤模型列表，去除明显的变体/中间版本，保留可用的基础模型"""
         exclude_keywords = [
-            "preview",
-            "experimental",
-            "alpha",
-            "beta",
-            "free",
-            "extended",
-            "nitro",
             ":free",
             ":extended",
-            "online",  # 排除带在线搜索的版本
-            "instruct",  # 排除 instruct 版本
+            ":nitro",
+            "-free",
+            "-preview",
+            "-experimental",
+            "-alpha",
+            "-beta",
+            "-online",
+            "-instruct",
         ]
-
-        # 日期格式正则表达式（匹配 2024-05-13 这种格式）
-        date_pattern = re.compile(r'\d{4}-\d{2}-\d{2}')
 
         filtered = []
         for model in models:
-            model_id = model.get("id", "").lower()
-            model_name = model.get("name", "").lower()
+            model_id = model.get("id", "")
+            model_id_lower = model_id.lower()
 
-            # 检查是否属于三大厂
-            # 方式1：模型ID中包含厂商名称（如 openai/gpt-4）
-            is_popular_provider = any(provider in model_id for provider in popular_providers)
-
-            # 方式2：模型ID以常见前缀开头（如 gpt-4, claude-3-sonnet）
-            if not is_popular_provider:
-                for prefix, provider in model_prefixes.items():
-                    if model_id.startswith(prefix):
-                        is_popular_provider = True
-                        print(f"🔍 识别模型前缀: {model_id} -> {provider}")
-                        break
-
-            if not is_popular_provider:
+            # 跳过排除关键词
+            if any(kw in model_id_lower for kw in exclude_keywords):
                 continue
 
-            # 检查是否包含日期（排除带日期的旧版本）
-            if date_pattern.search(model_id):
-                print(f"⏭️ 跳过带日期的旧版本: {model_id}")
+            # 跳过内部/系统模型（以 . 或 _ 开头的通常是嵌入/特殊用途）
+            if model_id.startswith(".") or model_id.startswith("_"):
                 continue
 
-            # 检查是否包含排除关键词
-            has_exclude_keyword = any(keyword in model_id or keyword in model_name for keyword in exclude_keywords)
-
-            if has_exclude_keyword:
-                print(f"⏭️ 跳过排除关键词: {model_id}")
-                continue
-
-            # 保留该模型
-            print(f"✅ 保留模型: {model_id}")
             filtered.append(model)
 
-        return filtered
+        # 去重（某些 API 返回重复模型）
+        seen = set()
+        unique = []
+        for m in filtered:
+            mid = m.get("id", "")
+            if mid not in seen:
+                seen.add(mid)
+                unique.append(m)
+
+        return unique

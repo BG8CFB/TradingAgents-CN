@@ -37,7 +37,7 @@ class TestReflectorInit:
     def test_init_stores_llm(self):
         llm = RecordingLLM()
         r = Reflector(llm)
-        assert r.quick_thinking_llm is llm
+        assert r.llm is llm
 
     def test_init_generates_reflection_prompt(self):
         r = Reflector(RecordingLLM())

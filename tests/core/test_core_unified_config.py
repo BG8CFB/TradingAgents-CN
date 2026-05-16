@@ -97,7 +97,7 @@ class TestSystemSettings:
 
 class TestModelAccessors:
     def test_get_default_model(self, manager):
-        manager._settings_file.write_text(json.dumps({"quick_analysis_model": "qwen-turbo"}), encoding="utf-8")
+        manager._settings_file.write_text(json.dumps({"analyst_model": "qwen-turbo"}), encoding="utf-8")
         result = manager.get_default_model()
         assert result == "qwen-turbo"
 
@@ -106,14 +106,14 @@ class TestModelAccessors:
         result = manager.get_default_model()
         assert result == "qwen-turbo"
 
-    def test_get_quick_analysis_model(self, manager):
-        manager._settings_file.write_text(json.dumps({"quick_analysis_model": "qwen-plus"}), encoding="utf-8")
-        result = manager.get_quick_analysis_model()
+    def test_get_analyst_model(self, manager):
+        manager._settings_file.write_text(json.dumps({"analyst_model": "qwen-plus"}), encoding="utf-8")
+        result = manager.get_analyst_model()
         assert result == "qwen-plus"
 
-    def test_get_deep_analysis_model(self, manager):
-        manager._settings_file.write_text(json.dumps({"deep_analysis_model": "qwen-max"}), encoding="utf-8")
-        result = manager.get_deep_analysis_model()
+    def test_get_debate_model(self, manager):
+        manager._settings_file.write_text(json.dumps({"debate_model": "qwen-max"}), encoding="utf-8")
+        result = manager.get_debate_model()
         assert result == "qwen-max"
 
 

@@ -14,13 +14,13 @@ from app.utils.stock_utils import StockUtils
 
 def _create_sp():
     """创建用于纯逻辑测试的 SignalProcessor（不涉及 LLM 调用）"""
-    return SignalProcessor(quick_thinking_llm=None)
+    return SignalProcessor(llm=None)
 
 
 class TestSignalProcessorInit:
     def test_init_stores_llm(self):
-        sp = SignalProcessor(quick_thinking_llm="test_llm")
-        assert sp.quick_thinking_llm == "test_llm"
+        sp = SignalProcessor(llm="test_llm")
+        assert sp.llm == "test_llm"
 
 
 class TestProcessSignalInvalidInput:
@@ -158,7 +158,7 @@ class TestProcessSignalWithLLM:
             pytest.skip("需要 DEEPSEEK_API_KEY 环境变量")
 
         llm = create_llm(provider="deepseek", model="deepseek-chat", api_key=api_key)
-        sp = SignalProcessor(quick_thinking_llm=llm)
+        sp = SignalProcessor(llm=llm)
         result = sp.process_signal(
             "基于技术分析，建议买入平安银行，目标价位16.50元",
             stock_symbol="000001",

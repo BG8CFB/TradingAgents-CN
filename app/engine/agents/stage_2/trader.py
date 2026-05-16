@@ -13,11 +13,18 @@ def create_trader(llm, memory):
         # 使用安全读取，确保缺失字段不会导致整个流程中断
         company_name = state.get("company_of_interest", "")
         
-        # 🔥 动态发现所有 *_report 字段，自动支持新添加的分析师报告
+        # 动态发现第一阶段的 *_report 字段（过滤掉阶段2/3的内部报告）
+        _EXCLUDED_REPORT_KEYS = {
+            "bull_researcher", "bear_researcher",
+            "risky_analyst", "safe_analyst", "neutral_analyst",
+            "research_team_decision",
+        }
         all_reports = {}
         for key in state.keys():
             if key.endswith("_report") and state[key]:
-                all_reports[key] = state[key]
+                report_id = key.replace("_report", "")
+                if report_id not in _EXCLUDED_REPORT_KEYS:
+                    all_reports[key] = state[key]
 
         # 使用统一的股票类型检测
         from app.utils.stock_utils import StockUtils
@@ -30,7 +37,7 @@ def create_trader(llm, memory):
         is_hk = market_info['is_hk']
         is_us = market_info['is_us']
 
-        logger.debug(f"💰 [DEBUG] ===== 交易员节点开始 (Stage 2) =====")
+        logger.debug(f"💰 [DEBUG] ===== 交易员节点开始 =====")
         logger.debug(f"💰 [DEBUG] 交易员检测股票类型: {company_name} -> {market_info['market_name']}, 货币: {currency}")
         logger.debug(f"💰 [DEBUG] 货币符号: {currency_symbol}")
         logger.debug(f"💰 [DEBUG] 市场详情: 中国A股={is_china}, 港股={is_hk}, 美股={is_us}")
@@ -50,9 +57,8 @@ def create_trader(llm, memory):
             past_memories = []
             past_memory_str = "暂无历史记忆数据可参考。"
 
-        # 获取研究团队辩论历史及最终裁决
+        # 获取研究经理裁决（阶段2开启时有值，否则为默认文本）
         investment_debate_state = state.get("investment_debate_state", {})
-        debate_history = investment_debate_state.get("history", "暂无辩论历史")
         judge_decision = investment_debate_state.get("judge_decision", "暂无研究部主管裁决")
         
         # 🔥 构建所有报告的格式化字符串（用于 prompt）
@@ -76,13 +82,10 @@ def create_trader(llm, memory):
                 display_name = report_display_names.get(key, key.replace("_report", "").replace("_", " ").title() + "报告")
                 all_reports_formatted += f"\n### {display_name}\n{content}\n"
         
-        # 构建纯数据上下文
+        # 构建上下文：第一阶段报告 + 研究经理裁决 + 历史记忆
         context_content = f"""
 === 基础分析报告 ===
 {all_reports_formatted if all_reports_formatted else "（暂无分析师报告）"}
-
-=== 研究团队辩论记录 (Bull vs Bear) ===
-{debate_history}
 
 === 研究部主管最终裁决 ===
 {judge_decision}

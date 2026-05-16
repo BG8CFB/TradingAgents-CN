@@ -374,7 +374,7 @@ async def get_task_result(
         try:
             if not result_data.get('summary') or not result_data.get('recommendation') or not result_data.get('reports'):
                 da = result_data.get('detailed_analysis')
-                # 若reports仍为空，放入一份原始详细分析，便于前端“查看报告详情”
+                # 若reports仍为空，放入一份原始详细分析，便于前端"查看报告详情"
                 if (not result_data.get('reports')) and isinstance(da, str) and len(da.strip()) > 20:
                     result_data['reports'] = {'detailed_analysis': da.strip()}
                 elif (not result_data.get('reports')) and isinstance(da, dict) and da:
@@ -400,7 +400,7 @@ async def get_task_result(
                 if not result_data.get('recommendation'):
                     rec = None
                     if isinstance(da, str):
-                        # 简单基于关键字提取包含“建议”的段落
+                        # 简单基于关键字提取包含"建议"的段落
                         import re
                         m = re.search(r'(投资建议|建议|结论)[:：]?\s*(.+)', da)
                         if m:
@@ -476,7 +476,6 @@ async def get_task_result(
             "execution_time": safe_number(result_data.get("execution_time"), 0),
             "tokens_used": safe_number(result_data.get("tokens_used"), 0),
             "analysts": safe_list(result_data.get("analysts")),
-            "research_depth": safe_string(result_data.get("research_depth"), "快速"),
             "detailed_analysis": safe_dict(result_data.get("detailed_analysis")),
             "state": safe_dict(result_data.get("state")),
             # 🔥 关键修复：添加decision字段！

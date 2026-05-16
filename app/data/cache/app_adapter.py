@@ -34,7 +34,7 @@ def get_basics_from_cache(stock_code: Optional[str] = None) -> Optional[Dict[str
         db = get_mongo_db_sync()
     except Exception:
         return None
-    if not db:
+    if db is None:
         return None
     try:
         coll = db[BASICS_COLLECTION]
@@ -72,7 +72,7 @@ def get_market_quote_dataframe(symbol: str) -> Optional[pd.DataFrame]:
         db = get_mongo_db_sync()
     except Exception:
         return None
-    if not db:
+    if db is None:
         return None
     try:
         coll = db[QUOTES_COLLECTION]

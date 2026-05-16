@@ -124,11 +124,14 @@ async def add_llm_provider(
     request: LLMProviderRequest,
     current_user: User = Depends(get_current_user)
 ):
-    """添加大模型厂家（方案A：REST不接受密钥，强制清洗）"""
+    """添加大模型厂家"""
     try:
         sanitized = request.model_dump()
-        if 'api_key' in sanitized:
-            sanitized['api_key'] = ""
+        # 占位符/截断值视为未填写，不存入数据库（运行时 fallback 到环境变量）
+        if should_skip_api_key_update(sanitized.get('api_key')):
+            sanitized['api_key'] = None
+        if should_skip_api_key_update(sanitized.get('api_secret')):
+            sanitized['api_secret'] = None
         provider = LLMProvider(**sanitized)
         provider_id = await config_service.add_llm_provider(provider)
 
@@ -480,11 +483,13 @@ async def add_llm_config(
         safe_log_data = {k: ("***" if "key" in k.lower() or "secret" in k.lower() else v) for k, v in llm_config_data.items()}
         logger.info(f"配置数据: {safe_log_data}")
 
-        # 如果没有提供API密钥，从厂家配置中获取
+        # 如果没有提供API密钥，按优先级获取：厂家配置 → 环境变量
         if not llm_config_data.get('api_key'):
-            logger.info(f"API密钥为空，从厂家配置获取: {request.provider}")
+            from app.utils.api_key_utils import get_env_api_key_for_provider
 
-            # 获取厂家配置
+            logger.info(f"API密钥为空，按优先级获取: {request.provider}")
+
+            # 1. 先从厂家配置获取
             providers = await config_service.get_llm_providers()
             logger.info(f"找到 {len(providers)} 个厂家配置")
 
@@ -493,21 +498,51 @@ async def add_llm_config(
 
             provider_config = next((p for p in providers if p.name == request.provider), None)
 
-            if provider_config:
-                logger.info(f"找到厂家配置: {provider_config.name}")
-                if provider_config.api_key:
-                    llm_config_data['api_key'] = provider_config.api_key
-                    logger.info(f"成功获取厂家API密钥 (长度: {len(provider_config.api_key)})")
-                else:
-                    logger.warning(f"厂家 {request.provider} 没有配置API密钥")
-                    llm_config_data['api_key'] = ""
-            else:
-                logger.warning(f"未找到厂家 {request.provider} 的配置")
-                llm_config_data['api_key'] = ""
+            resolved_key = None
+            if provider_config and provider_config.api_key:
+                resolved_key = provider_config.api_key
+                logger.info(f"从厂家配置获取API密钥 (长度: {len(resolved_key)})")
+
+            # 2. 厂家没有则从环境变量获取
+            if not resolved_key:
+                env_key = get_env_api_key_for_provider(request.provider)
+                if env_key:
+                    resolved_key = env_key
+                    logger.info(f"从环境变量获取API密钥 (长度: {len(resolved_key)})")
+
+            # 不强制写入空字符串，保留 None 表示"使用环境变量 fallback"
+            llm_config_data['api_key'] = resolved_key or None
+            if not resolved_key:
+                logger.info(f"厂家 {request.provider} 无数据库/环境变量API密钥，运行时将从环境变量动态获取")
         else:
             logger.info(f"使用提供的API密钥 (长度: {len(llm_config_data.get('api_key', ''))})")
 
         logger.info(f"最终配置数据: provider={llm_config_data.get('provider')}, model={llm_config_data.get('model_name')}")
+
+        # 自动从 DEFAULT_MODEL_CAPABILITIES 填充缺失的能力数据
+        try:
+            from app.constants.model_capabilities import DEFAULT_MODEL_CAPABILITIES
+            model_name = llm_config_data.get('model_name', '')
+            # 支持聚合渠道模型名映射（如 openai/gpt-4 → gpt-4）
+            lookup_name = model_name.split('/')[-1] if '/' in model_name else model_name
+            if lookup_name in DEFAULT_MODEL_CAPABILITIES:
+                defaults = DEFAULT_MODEL_CAPABILITIES[lookup_name]
+                if not llm_config_data.get('capability_level') or llm_config_data.get('capability_level') == 2:
+                    llm_config_data.setdefault('capability_level', defaults['capability_level'])
+                if not llm_config_data.get('suitable_roles') or llm_config_data.get('suitable_roles') == ['both']:
+                    llm_config_data.setdefault('suitable_roles', [str(r) for r in defaults['suitable_roles']])
+                if not llm_config_data.get('features') or llm_config_data.get('features') == ['tool_calling']:
+                    llm_config_data.setdefault('features', [str(f) for f in defaults['features']])
+                if not llm_config_data.get('performance_metrics'):
+                    llm_config_data.setdefault('performance_metrics', defaults.get('performance_metrics'))
+                logger.info(f"已从 DEFAULT_MODEL_CAPABILITIES 自动填充模型 {model_name} 的能力数据")
+        except Exception as e:
+            logger.warning(f"自动填充模型能力数据失败: {e}")
+
+        # 确保 suitable_roles 有默认值
+        if not llm_config_data.get('suitable_roles'):
+            llm_config_data['suitable_roles'] = ['both']
+
         # 为了支持本地AI模型，允许任何 API Key（包括空值）
         if 'api_key' in llm_config_data:
             api_key = llm_config_data.get('api_key', '')

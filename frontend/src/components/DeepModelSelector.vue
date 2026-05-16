@@ -25,12 +25,12 @@
             {{ getCapabilityText(model.capability_level) }}
           </el-tag>
           <el-tag
-            v-if="type === 'deep' ? isDeepAnalysisRole(model.suitable_roles) : isQuickAnalysisRole(model.suitable_roles)"
-            :type="type === 'deep' ? 'warning' : 'success'"
+            v-if="type === 'debate' ? isDebateRole(model.suitable_roles) : isAnalystRole(model.suitable_roles)"
+            :type="type === 'debate' ? 'warning' : 'success'"
             size="small"
             effect="plain"
           >
-            {{ type === 'deep' ? '🧠深度' : '⚡快速' }}
+            {{ type === 'debate' ? '🧠辩论' : '⚡分析师' }}
           </el-tag>
           <span style="font-size:12px;color:#909399;">{{ model.provider }}</span>
         </div>
@@ -46,14 +46,14 @@ interface Props {
   modelValue: string
   availableModels: any[]
   placeholder?: string
-  type?: 'quick' | 'deep'
+  type?: 'analyst' | 'debate'
   size?: 'large' | 'default' | 'small'
   width?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   placeholder: '选择模型',
-  type: 'deep',
+  type: 'debate',
   size: 'default',
   width: '100%'
 })
@@ -88,13 +88,13 @@ const getCapabilityTagType = (level: number): 'success' | 'info' | 'warning' | '
   return 'info'
 }
 
-const isQuickAnalysisRole = (roles: string[] | undefined): boolean => {
+const isAnalystRole = (roles: string[] | undefined): boolean => {
   if (!roles || !Array.isArray(roles)) return false
-  return roles.includes('quick_analysis') || roles.includes('both')
+  return roles.includes('analyst') || roles.includes('both')
 }
 
-const isDeepAnalysisRole = (roles: string[] | undefined): boolean => {
+const isDebateRole = (roles: string[] | undefined): boolean => {
   if (!roles || !Array.isArray(roles)) return false
-  return roles.includes('deep_analysis') || roles.includes('both')
+  return roles.includes('debate') || roles.includes('both')
 }
 </script>

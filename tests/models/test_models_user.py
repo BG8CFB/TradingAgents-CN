@@ -75,7 +75,7 @@ class TestUserPreferences:
         """默认值应正确填充"""
         prefs = UserPreferences()
         assert prefs.default_market == "A股"
-        assert prefs.default_depth == "3"
+        assert prefs.default_debate_rounds == 2
         assert prefs.default_analysts == []
         assert prefs.auto_refresh is True
         assert prefs.refresh_interval == 30
@@ -92,7 +92,7 @@ class TestUserPreferences:
         """自定义值应正确设置"""
         prefs = UserPreferences(
             default_market="港股",
-            default_depth="5",
+            default_debate_rounds=4,
             default_analysts=["analyst_a", "analyst_b"],
             auto_refresh=False,
             refresh_interval=60,
@@ -100,7 +100,7 @@ class TestUserPreferences:
             language="en-US",
         )
         assert prefs.default_market == "港股"
-        assert prefs.default_depth == "5"
+        assert prefs.default_debate_rounds == 4
         assert len(prefs.default_analysts) == 2
         assert prefs.auto_refresh is False
         assert prefs.refresh_interval == 60
@@ -112,7 +112,7 @@ class TestUserPreferences:
         prefs = UserPreferences()
         data = prefs.model_dump()
         assert "default_market" in data
-        assert "default_depth" in data
+        assert "default_debate_rounds" in data
         assert "ui_theme" in data
         assert "language" in data
         assert isinstance(data["default_analysts"], list)

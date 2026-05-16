@@ -219,14 +219,14 @@ class SystemService:
             # 打印即将保存的 system_settings
             system_settings = config_dict.get('system_settings', {})
             print(f"📝 即将保存的 system_settings 包含 {len(system_settings)} 项")
-            if 'quick_analysis_model' in system_settings:
-                print(f"  ✓ 包含 quick_analysis_model: {system_settings['quick_analysis_model']}")
+            if 'analyst_model' in system_settings:
+                print(f"  ✓ 包含 analyst_model: {system_settings['analyst_model']}")
             else:
-                print(f"  ⚠️  不包含 quick_analysis_model")
-            if 'deep_analysis_model' in system_settings:
-                print(f"  ✓ 包含 deep_analysis_model: {system_settings['deep_analysis_model']}")
+                print(f"  ⚠️  不包含 analyst_model")
+            if 'debate_model' in system_settings:
+                print(f"  ✓ 包含 debate_model: {system_settings['debate_model']}")
             else:
-                print(f"  ⚠️  不包含 deep_analysis_model")
+                print(f"  ⚠️  不包含 debate_model")
 
             insert_result = await config_collection.insert_one(config_dict)
             print(f"📝 新配置ID: {insert_result.inserted_id}")
@@ -279,24 +279,24 @@ class SystemService:
 
             # 打印更新前的系统设置
             print(f"📝 更新前 system_settings 包含 {len(config.system_settings)} 项")
-            if 'quick_analysis_model' in config.system_settings:
-                print(f"  ✓ 更新前包含 quick_analysis_model: {config.system_settings['quick_analysis_model']}")
+            if 'analyst_model' in config.system_settings:
+                print(f"  ✓ 更新前包含 analyst_model: {config.system_settings['analyst_model']}")
             else:
-                print(f"  ⚠️  更新前不包含 quick_analysis_model")
+                print(f"  ⚠️  更新前不包含 analyst_model")
 
             # 更新系统设置
             config.system_settings.update(settings)
 
             # 打印更新后的系统设置
             print(f"📝 更新后 system_settings 包含 {len(config.system_settings)} 项")
-            if 'quick_analysis_model' in config.system_settings:
-                print(f"  ✓ 更新后包含 quick_analysis_model: {config.system_settings['quick_analysis_model']}")
+            if 'analyst_model' in config.system_settings:
+                print(f"  ✓ 更新后包含 analyst_model: {config.system_settings['analyst_model']}")
             else:
-                print(f"  ⚠️  更新后不包含 quick_analysis_model")
-            if 'deep_analysis_model' in config.system_settings:
-                print(f"  ✓ 更新后包含 deep_analysis_model: {config.system_settings['deep_analysis_model']}")
+                print(f"  ⚠️  更新后不包含 analyst_model")
+            if 'debate_model' in config.system_settings:
+                print(f"  ✓ 更新后包含 debate_model: {config.system_settings['debate_model']}")
             else:
-                print(f"  ⚠️  更新后不包含 deep_analysis_model")
+                print(f"  ⚠️  更新后不包含 debate_model")
 
             result = await self.save_system_config(config)
 

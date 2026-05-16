@@ -11,7 +11,6 @@ export interface ModelCapabilityInfo {
   capability_level: number
   suitable_roles: string[]
   features: string[]
-  recommended_depths: string[]
   performance_metrics?: {
     speed: number
     cost: number
@@ -24,10 +23,10 @@ export interface ModelCapabilityInfo {
  * 模型推荐响应
  */
 export interface ModelRecommendationResponse {
-  quick_model: string
-  deep_model: string
-  quick_model_info: ModelCapabilityInfo
-  deep_model_info: ModelCapabilityInfo
+  analyst_model: string
+  debate_model: string
+  analyst_model_info: ModelCapabilityInfo
+  debate_model_info: ModelCapabilityInfo
   reason: string
 }
 
@@ -59,28 +58,10 @@ export interface AllBadges {
 }
 
 /**
- * 分析深度要求
- */
-export interface DepthRequirement {
-  min_capability: number
-  quick_model_min: number
-  deep_model_min: number
-  required_features: string[]
-  description: string
-}
-
-/**
  * 获取所有默认模型能力配置
  */
 export function getDefaultModelConfigs() {
   return ApiClient.get('/api/model-capabilities/default-configs')
-}
-
-/**
- * 获取分析深度要求
- */
-export function getDepthRequirements() {
-  return ApiClient.get('/api/model-capabilities/depth-requirements')
 }
 
 /**
@@ -99,25 +80,20 @@ export function getAllBadges() {
 
 /**
  * 推荐模型
- * @param researchDepth 研究深度：快速/基础/标准/深度/全面
  */
-export function recommendModels(researchDepth: string) {
-  return ApiClient.post('/api/model-capabilities/recommend', {
-    research_depth: researchDepth
-  })
+export function recommendModels() {
+  return ApiClient.post('/api/model-capabilities/recommend')
 }
 
 /**
  * 验证模型对
- * @param quickModel 快速模型
- * @param deepModel 深度模型
- * @param researchDepth 研究深度
+ * @param analystModel 分析师模型
+ * @param debateModel 辩论模型
  */
-export function validateModels(quickModel: string, deepModel: string, researchDepth: string) {
+export function validateModels(analystModel: string, debateModel: string) {
   return ApiClient.post('/api/model-capabilities/validate', {
-    quick_model: quickModel,
-    deep_model: deepModel,
-    research_depth: researchDepth
+    analyst_model: analystModel,
+    debate_model: debateModel,
   })
 }
 

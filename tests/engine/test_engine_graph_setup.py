@@ -24,8 +24,8 @@ class TestGraphSetupInit:
         memories = [FakeMemory()] * 5
         cl = ConditionalLogic(max_debate_rounds=2, max_risk_discuss_rounds=3)
         return {
-            "quick_thinking_llm": llm,
-            "deep_thinking_llm": llm,
+            "analyst_llm": llm,
+            "debate_llm": llm,
             "toolkit": toolkit,
             "bull_memory": memories[0],
             "bear_memory": memories[1],
@@ -37,8 +37,8 @@ class TestGraphSetupInit:
 
     def test_stores_components(self, components):
         gs = GraphSetup(**components)
-        assert gs.quick_thinking_llm is components["quick_thinking_llm"]
-        assert gs.deep_thinking_llm is components["deep_thinking_llm"]
+        assert gs.analyst_llm is components["analyst_llm"]
+        assert gs.debate_llm is components["debate_llm"]
         assert gs.toolkit is components["toolkit"]
         assert gs.conditional_logic is components["conditional_logic"]
 

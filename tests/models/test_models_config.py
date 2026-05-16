@@ -282,7 +282,6 @@ class TestLLMConfig:
         assert config.timeout == 180
         assert config.retry_times == 3
         assert config.enabled is True
-        assert config.capability_level == 2
         assert config.currency == "CNY"
         assert config.suitable_roles == ["both"]
         assert config.enable_memory is False
@@ -317,19 +316,10 @@ class TestLLMConfig:
         with pytest.raises(ValidationError):
             LLMConfig(model_name="test", temperature=2.1)
 
-    def test_capability_level_boundary(self):
-        """capability_level 边界值"""
-        config = LLMConfig(model_name="test", capability_level=1)
-        assert config.capability_level == 1
-        config = LLMConfig(model_name="test", capability_level=5)
-        assert config.capability_level == 5
-
-    def test_capability_level_out_of_range(self):
-        """capability_level 超范围应报错"""
-        with pytest.raises(ValidationError):
-            LLMConfig(model_name="test", capability_level=0)
-        with pytest.raises(ValidationError):
-            LLMConfig(model_name="test", capability_level=6)
+    def test_suitable_roles_default(self):
+        """suitable_roles 默认值"""
+        config = LLMConfig(model_name="test")
+        assert config.suitable_roles == ["both"]
 
     def test_model_name_required(self):
         """model_name 为必填"""

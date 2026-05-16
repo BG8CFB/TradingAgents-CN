@@ -98,19 +98,18 @@ class TestAnalysisParameters:
         params = AnalysisParameters()
         assert params.market_type == "A股"
         assert params.analysis_date is None
-        assert params.research_depth == "不分级"
         assert params.selected_analysts == []
         assert params.custom_prompt is None
         assert params.include_sentiment is True
         assert params.include_risk is True
         assert params.language == "zh-CN"
-        assert params.quick_analysis_model == "qwen-turbo"
-        assert params.deep_analysis_model == "qwen-max"
+        assert params.analyst_model == "qwen-turbo"
+        assert params.debate_model == "qwen-max"
         assert params.phase2_enabled is False
         assert params.phase2_debate_rounds == 2
         assert params.phase3_enabled is False
         assert params.phase3_debate_rounds == 2
-        assert params.phase4_enabled is False
+        assert params.phase4_enabled is True
         assert params.phase4_debate_rounds == 1
         assert params.mcp_enabled is False
         assert params.mcp_tools == []

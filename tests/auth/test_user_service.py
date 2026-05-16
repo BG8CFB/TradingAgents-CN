@@ -43,7 +43,7 @@ def _make_user_doc(
         "last_login": None,
         "preferences": {
             "default_market": "A股",
-            "default_depth": "3",
+            "default_debate_rounds": 2,
             "default_analysts": [],
             "auto_refresh": True,
             "refresh_interval": 30,

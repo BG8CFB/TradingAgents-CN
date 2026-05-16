@@ -210,7 +210,6 @@ async def download_report(
             content_parts.append(f"# {stock_symbol} 分析报告")
             content_parts.append(f"**分析日期**: {analysis_date}")
             content_parts.append(f"**分析师**: {', '.join(doc.get('analysts', []))}")
-            content_parts.append(f"**研究深度**: {doc.get('research_depth', 1)}")
             content_parts.append("")
 
             # 添加摘要

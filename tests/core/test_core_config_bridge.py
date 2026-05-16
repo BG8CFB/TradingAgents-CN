@@ -34,14 +34,14 @@ class TestGetBridgedModel:
             result = get_bridged_model("default")
             assert result == "qwen-max"
 
-    def test_quick_model(self):
-        with env_vars({"TRADINGAGENTS_QUICK_MODEL": "qwen-turbo"}):
-            result = get_bridged_model("quick")
+    def test_analyst_model(self):
+        with env_vars({"TRADINGAGENTS_ANALYST_MODEL": "qwen-turbo"}):
+            result = get_bridged_model("analyst")
             assert result == "qwen-turbo"
 
-    def test_deep_model(self):
-        with env_vars({"TRADINGAGENTS_DEEP_MODEL": "qwen-max"}):
-            result = get_bridged_model("deep")
+    def test_debate_model(self):
+        with env_vars({"TRADINGAGENTS_DEBATE_MODEL": "qwen-max"}):
+            result = get_bridged_model("debate")
             assert result == "qwen-max"
 
     def test_unknown_type_returns_default(self):
@@ -59,13 +59,13 @@ class TestClearBridgedConfig:
     def test_clears_model_env_vars(self):
         with env_vars({
             "TRADINGAGENTS_DEFAULT_MODEL": "test",
-            "TRADINGAGENTS_QUICK_MODEL": "test",
-            "TRADINGAGENTS_DEEP_MODEL": "test",
+            "TRADINGAGENTS_ANALYST_MODEL": "test",
+            "TRADINGAGENTS_DEBATE_MODEL": "test",
         }):
             clear_bridged_config()
             assert "TRADINGAGENTS_DEFAULT_MODEL" not in os.environ
-            assert "TRADINGAGENTS_QUICK_MODEL" not in os.environ
-            assert "TRADINGAGENTS_DEEP_MODEL" not in os.environ
+            assert "TRADINGAGENTS_ANALYST_MODEL" not in os.environ
+            assert "TRADINGAGENTS_DEBATE_MODEL" not in os.environ
 
     def test_clears_provider_api_keys(self):
         with env_vars({

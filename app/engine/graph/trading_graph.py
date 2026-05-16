@@ -73,44 +73,44 @@ class TradingAgentsGraph:
         os.makedirs(cache_root, exist_ok=True)
 
         # Initialize LLMs — 使用统一工厂函数创建所有 provider 的 LLM
-        quick_config = self.config.get("quick_model_config", {})
-        deep_config = self.config.get("deep_model_config", {})
+        analyst_config = self.config.get("analyst_model_config", {})
+        debate_config = self.config.get("debate_model_config", {})
 
-        quick_max_tokens = quick_config.get("max_tokens", 4000)
-        quick_temperature = quick_config.get("temperature", 0.7)
-        quick_timeout = quick_config.get("timeout", 180)
+        analyst_max_tokens = analyst_config.get("max_tokens", 4000)
+        analyst_temperature = analyst_config.get("temperature", 0.7)
+        analyst_timeout = analyst_config.get("timeout", 180)
 
-        deep_max_tokens = deep_config.get("max_tokens", 4000)
-        deep_temperature = deep_config.get("temperature", 0.7)
-        deep_timeout = deep_config.get("timeout", 180)
+        debate_max_tokens = debate_config.get("max_tokens", 4000)
+        debate_temperature = debate_config.get("temperature", 0.7)
+        debate_timeout = debate_config.get("timeout", 180)
 
         # 从 config 中读取 provider 和 model 信息
-        # 优先使用 analysis_service 设置的 quick_provider/deep_provider（精确的 per-model provider）
+        # 优先使用 analysis_service 设置的 analyst_provider/debate_provider（精确的 per-model provider）
         # 回退到 llm_provider（全局 provider，兼容旧配置）
-        quick_provider = self.config.get("quick_provider") or self.config.get("llm_provider", "openai")
-        deep_provider = self.config.get("deep_provider") or self.config.get("llm_provider", "openai")
+        analyst_provider = self.config.get("analyst_provider") or self.config.get("llm_provider", "openai")
+        debate_provider = self.config.get("debate_provider") or self.config.get("llm_provider", "openai")
 
-        logger.info(f"[LLM初始化] 快速: {self.config['quick_think_llm']} ({quick_provider})")
-        logger.info(f"[LLM初始化] 深度: {self.config['deep_think_llm']} ({deep_provider})")
+        logger.info(f"[LLM初始化] 分析师: {self.config['analyst_llm']} ({analyst_provider})")
+        logger.info(f"[LLM初始化] 辩论推理: {self.config['debate_llm']} ({debate_provider})")
 
-        self.quick_thinking_llm = create_llm(
-            provider=quick_provider,
-            model=self.config["quick_think_llm"],
-            api_key=self.config.get("quick_api_key"),
-            base_url=self.config.get("quick_backend_url") or self.config.get("backend_url"),
-            temperature=quick_temperature,
-            max_tokens=quick_max_tokens,
-            timeout=quick_timeout,
+        self.analyst_llm = create_llm(
+            provider=analyst_provider,
+            model=self.config["analyst_llm"],
+            api_key=self.config.get("analyst_api_key"),
+            base_url=self.config.get("analyst_backend_url") or self.config.get("backend_url"),
+            temperature=analyst_temperature,
+            max_tokens=analyst_max_tokens,
+            timeout=analyst_timeout,
         )
 
-        self.deep_thinking_llm = create_llm(
-            provider=deep_provider,
-            model=self.config["deep_think_llm"],
-            api_key=self.config.get("deep_api_key"),
-            base_url=self.config.get("deep_backend_url") or self.config.get("backend_url"),
-            temperature=deep_temperature,
-            max_tokens=deep_max_tokens,
-            timeout=deep_timeout,
+        self.debate_llm = create_llm(
+            provider=debate_provider,
+            model=self.config["debate_llm"],
+            api_key=self.config.get("debate_api_key"),
+            base_url=self.config.get("debate_backend_url") or self.config.get("backend_url"),
+            temperature=debate_temperature,
+            max_tokens=debate_max_tokens,
+            timeout=debate_timeout,
         )
 
         logger.info("[LLM初始化] 完成")
@@ -167,8 +167,8 @@ class TradingAgentsGraph:
         logger.info(f"   - max_risk_discuss_rounds: {self.conditional_logic.max_risk_discuss_rounds}")
 
         self.graph_setup = GraphSetup(
-            self.quick_thinking_llm,
-            self.deep_thinking_llm,
+            self.analyst_llm,
+            self.debate_llm,
             self.toolkit,
             self.bull_memory,
             self.bear_memory,
@@ -181,8 +181,8 @@ class TradingAgentsGraph:
         )
 
         self.propagator = Propagator()
-        self.reflector = Reflector(self.quick_thinking_llm)
-        self.signal_processor = SignalProcessor(self.quick_thinking_llm)
+        self.reflector = Reflector(self.debate_llm)
+        self.signal_processor = SignalProcessor(self.debate_llm)
 
         # State tracking
         self.curr_state = None
@@ -308,10 +308,10 @@ class TradingAgentsGraph:
             company_name, trade_date, task_id=task_id
         )
 
-        # 注入阶段配置参数到初始状态 (从 config 中读取并注入)
+        # 注入阶段配置参数到初始状态 (交易员始终执行，phase4 固定为 True)
         init_agent_state["phase2_enabled"] = self.config.get("phase2_enabled", False)
         init_agent_state["phase3_enabled"] = self.config.get("phase3_enabled", False)
-        init_agent_state["phase4_enabled"] = self.config.get("phase4_enabled", False)
+        init_agent_state["phase4_enabled"] = True
 
         logger.debug(f"🔍 [GRAPH DEBUG] 初始状态中的company_of_interest: '{init_agent_state.get('company_of_interest', 'NOT_FOUND')}'")
         logger.debug(f"🔍 [GRAPH DEBUG] 初始状态中的trade_date: '{init_agent_state.get('trade_date', 'NOT_FOUND')}'")
@@ -516,10 +516,10 @@ class TradingAgentsGraph:
         # 获取模型信息
         model_info = ""
         try:
-            if hasattr(self.deep_thinking_llm, 'model_name'):
-                model_info = f"{self.deep_thinking_llm.__class__.__name__}:{self.deep_thinking_llm.model_name}"
+            if hasattr(self.debate_llm, 'model_name'):
+                model_info = f"{self.debate_llm.__class__.__name__}:{self.debate_llm.model_name}"
             else:
-                model_info = self.deep_thinking_llm.__class__.__name__
+                model_info = self.debate_llm.__class__.__name__
         except Exception:
             model_info = "Unknown"
 
@@ -715,8 +715,8 @@ class TradingAgentsGraph:
             },
             "llm_config": {
                 "provider": self.config.get('llm_provider', 'unknown'),
-                "deep_think_model": self.config.get('deep_think_llm', 'unknown'),
-                "quick_think_model": self.config.get('quick_think_llm', 'unknown')
+                "debate_model": self.config.get('debate_llm', 'unknown'),
+                "analyst_model": self.config.get('analyst_llm', 'unknown')
             }
         }
 
@@ -802,8 +802,8 @@ class TradingAgentsGraph:
         # 打印LLM配置信息
         logger.info(f"\n🤖 LLM配置:")
         logger.info(f"  • 提供商: {self.config.get('llm_provider', 'unknown')}")
-        logger.info(f"  • 深度思考模型: {self.config.get('deep_think_llm', 'unknown')}")
-        logger.info(f"  • 快速思考模型: {self.config.get('quick_think_llm', 'unknown')}")
+        logger.info(f"  • 辩论推理模型: {self.config.get('debate_llm', 'unknown')}")
+        logger.info(f"  • 分析师模型: {self.config.get('analyst_llm', 'unknown')}")
         logger.info("=" * 80)
 
     def _log_state(self, trade_date, final_state):

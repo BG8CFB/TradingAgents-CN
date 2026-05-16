@@ -229,14 +229,14 @@ async def update_system_settings(
     try:
         # 打印接收到的设置（用于调试）
         logger.info(f"接收到的系统设置更新请求，包含 {len(settings)} 项")
-        if 'quick_analysis_model' in settings:
-            logger.info(f"  quick_analysis_model: {settings['quick_analysis_model']}")
+        if 'analyst_model' in settings:
+            logger.info(f"  analyst_model: {settings['analyst_model']}")
         else:
-            logger.warning(f"  未包含 quick_analysis_model")
-        if 'deep_analysis_model' in settings:
-            logger.info(f"  deep_analysis_model: {settings['deep_analysis_model']}")
+            logger.warning(f"  未包含 analyst_model")
+        if 'debate_model' in settings:
+            logger.info(f"  debate_model: {settings['debate_model']}")
         else:
-            logger.warning(f"  未包含 deep_analysis_model")
+            logger.warning(f"  未包含 debate_model")
 
         success = await config_service.update_system_settings(settings)
         if success:

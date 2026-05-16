@@ -275,62 +275,59 @@ def _get_default_provider_by_model(model_name: str) -> str:
 
 
 def create_analysis_config(
-    research_depth,
     selected_analysts: list,
-    quick_model: str,
-    deep_model: str,
+    analyst_model: str,
+    debate_model: str,
     llm_provider: str,
     market_type: str = "A股",
-    quick_model_config: dict = None,
-    deep_model_config: dict = None,
+    analyst_model_config: dict = None,
+    debate_model_config: dict = None,
 ) -> dict:
-    """创建分析配置（已移除分级深度的影响，统一使用标准配置）"""
+    """创建分析配置"""
 
     # 统一复制默认配置
     config = DEFAULT_CONFIG.copy()
     config["llm_provider"] = llm_provider
-    config["deep_think_llm"] = deep_model
-    config["quick_think_llm"] = quick_model
+    config["debate_llm"] = debate_model
+    config["analyst_llm"] = analyst_model
 
-    # 分级分析已废弃，始终启用记忆与在线工具，轮次由阶段配置决定
+    # 轮次由阶段配置决定
     config["max_debate_rounds"] = 1
     config["max_risk_discuss_rounds"] = 1
     config["memory_enabled"] = True
     config["online_tools"] = True
-    # 兼容字段，标记已不分级
-    config["research_depth"] = "不分级"
 
     try:
-        quick_provider_info = get_provider_and_url_by_model_sync(quick_model)
-        deep_provider_info = get_provider_and_url_by_model_sync(deep_model)
+        analyst_provider_info = get_provider_and_url_by_model_sync(analyst_model)
+        debate_provider_info = get_provider_and_url_by_model_sync(debate_model)
 
-        config["backend_url"] = quick_provider_info["backend_url"]
-        config["quick_api_key"] = quick_provider_info.get("api_key")
-        config["deep_api_key"] = deep_provider_info.get("api_key")
+        config["backend_url"] = analyst_provider_info["backend_url"]
+        config["analyst_api_key"] = analyst_provider_info.get("api_key")
+        config["debate_api_key"] = debate_provider_info.get("api_key")
 
         # 始终设置 per-model provider，让 create_llm() 精确路由
-        config["quick_provider"] = quick_provider_info["provider"]
-        config["deep_provider"] = deep_provider_info["provider"]
-        config["quick_backend_url"] = quick_provider_info["backend_url"]
-        config["deep_backend_url"] = deep_provider_info["backend_url"]
+        config["analyst_provider"] = analyst_provider_info["provider"]
+        config["debate_provider"] = debate_provider_info["provider"]
+        config["analyst_backend_url"] = analyst_provider_info["backend_url"]
+        config["debate_backend_url"] = debate_provider_info["backend_url"]
     except Exception as e:
         logger.warning(f"⚠️  无法从数据库获取 backend_url 和 API Key: {e}")
         config["backend_url"] = _get_default_backend_url(llm_provider)
         # 回退：使用传入的 llm_provider 作为两个模型的 provider
-        config["quick_provider"] = llm_provider
-        config["deep_provider"] = llm_provider
-        config["quick_backend_url"] = config["backend_url"]
-        config["deep_backend_url"] = config["backend_url"]
+        config["analyst_provider"] = llm_provider
+        config["debate_provider"] = llm_provider
+        config["analyst_backend_url"] = config["backend_url"]
+        config["debate_backend_url"] = config["backend_url"]
 
     config["selected_analysts"] = selected_analysts
     config["debug"] = False
 
-    if quick_model_config:
-        config["quick_model_config"] = quick_model_config
-    if deep_model_config:
-        config["deep_model_config"] = deep_model_config
+    if analyst_model_config:
+        config["analyst_model_config"] = analyst_model_config
+    if debate_model_config:
+        config["debate_model_config"] = debate_model_config
 
-    # 阶段配置默认值（前端为基础阶段 + 最终决策）
+    # 阶段配置默认值（交易员始终执行）
     config.setdefault("phase2_enabled", False)
     config.setdefault("phase2_debate_rounds", 1)
     config.setdefault("phase3_enabled", False)
@@ -645,14 +642,14 @@ class AnalysisService:
                 logger.warning("无法获取当前事件循环，WebSocket 推送可能失效")
                 loop = None
 
-            # 阶段配置（与前端保持一致）
+            # 阶段配置（与前端保持一致，交易员始终执行）
             phase_config = {
                 "phase2_enabled": getattr(request.parameters, "phase2_enabled", False) if request.parameters else False,
                 "phase2_debate_rounds": getattr(request.parameters, "phase2_debate_rounds", 2) if request.parameters else 1,
                 "phase3_enabled": getattr(request.parameters, "phase3_enabled", False) if request.parameters else False,
                 "phase3_debate_rounds": getattr(request.parameters, "phase3_debate_rounds", 2) if request.parameters else 1,
-                "phase4_enabled": getattr(request.parameters, "phase4_enabled", True) if request.parameters else True,
-                "phase4_debate_rounds": getattr(request.parameters, "phase4_debate_rounds", 1) if request.parameters else 1,
+                "phase4_enabled": True,
+                "phase4_debate_rounds": 1,
             }
 
             selected_analysts = (
@@ -693,7 +690,7 @@ class AnalysisService:
                     analysts=selected_analysts,
                     phase_config=phase_config,
                     llm_provider=_get_default_provider_by_model(
-                        getattr(request.parameters, "quick_analysis_model", "qwen-turbo")
+                        getattr(request.parameters, "analyst_model", "qwen-turbo")
                     ),
                     on_update=progress_callback
                 )
@@ -790,10 +787,10 @@ class AnalysisService:
             effective_settings = await config_provider.get_effective_system_settings()
             params = request.parameters or AnalysisParameters()
             
-            if not getattr(params, 'quick_analysis_model', None):
-                params.quick_analysis_model = effective_settings.get("quick_analysis_model", "qwen-turbo")
-            if not getattr(params, 'deep_analysis_model', None):
-                params.deep_analysis_model = effective_settings.get("deep_analysis_model", "qwen-max")
+            if not getattr(params, 'analyst_model', None):
+                params.analyst_model = effective_settings.get("analyst_model", "qwen-turbo")
+            if not getattr(params, 'debate_model', None):
+                params.debate_model = effective_settings.get("debate_model", "qwen-max")
 
             stock_symbols = request.get_symbols()
             
@@ -967,24 +964,19 @@ class AnalysisService:
             from app.services.model_capability_service import get_model_capability_service
             capability_service = get_model_capability_service()
 
-            # 分级分析已废弃，内部始终使用“标准”推荐逻辑，但对外标记为“不分级”
-            raw_depth = request.parameters.research_depth if request.parameters else None
-            internal_depth = "标准"
-            depth_label = "不分级" if raw_depth is None or raw_depth == "不分级" else str(raw_depth)
-
             if (
                 request.parameters
-                and getattr(request.parameters, "quick_analysis_model", None)
-                and getattr(request.parameters, "deep_analysis_model", None)
+                and getattr(request.parameters, "analyst_model", None)
+                and getattr(request.parameters, "debate_model", None)
             ):
-                quick_model = request.parameters.quick_analysis_model
-                deep_model = request.parameters.deep_analysis_model
+                analyst_model = request.parameters.analyst_model
+                debate_model = request.parameters.debate_model
             else:
-                quick_model, deep_model = capability_service.recommend_models_for_depth(internal_depth)
+                analyst_model, debate_model = capability_service.recommend_models()
 
-            quick_provider_info = get_provider_and_url_by_model_sync(quick_model)
-            deep_provider_info = get_provider_and_url_by_model_sync(deep_model)
-            quick_provider = quick_provider_info["provider"]
+            analyst_provider_info = get_provider_and_url_by_model_sync(analyst_model)
+            debate_provider_info = get_provider_and_url_by_model_sync(debate_model)
+            analyst_provider = analyst_provider_info["provider"]
             
             # 获取市场类型 - 优先使用 StockUtils 自动识别
             if request.parameters and request.parameters.market_type:
@@ -1007,11 +999,10 @@ class AnalysisService:
                     market_type = "A股"
             
             config = create_analysis_config(
-                research_depth=internal_depth,
                 selected_analysts=selected_analysts,
-                quick_model=quick_model,
-                deep_model=deep_model,
-                llm_provider=quick_provider,
+                analyst_model=analyst_model,
+                debate_model=debate_model,
+                llm_provider=analyst_provider,
                 market_type=market_type
             )
             
@@ -1048,10 +1039,10 @@ class AnalysisService:
                 config["phase2_debate_rounds"] = getattr(request.parameters, "phase2_debate_rounds", 2)
                 config["phase3_enabled"] = getattr(request.parameters, "phase3_enabled", False)
                 config["phase3_debate_rounds"] = getattr(request.parameters, "phase3_debate_rounds", 2)
-                config["phase4_enabled"] = getattr(request.parameters, "phase4_enabled", False)
-                config["phase4_debate_rounds"] = getattr(request.parameters, "phase4_debate_rounds", 1)
+                config["phase4_enabled"] = True
+                config["phase4_debate_rounds"] = 1
             else:
-                # 默认阶段配置：仅开启最终交易阶段
+                # 默认阶段配置：交易员始终执行
                 config.setdefault("phase2_enabled", False)
                 config.setdefault("phase3_enabled", False)
                 config.setdefault("phase4_enabled", True)
@@ -1063,12 +1054,12 @@ class AnalysisService:
             config["max_debate_rounds"] = config.get("phase2_debate_rounds", 1)
             config["max_risk_discuss_rounds"] = config.get("phase3_debate_rounds", 1)
             
-            # 混合模式配置
-            config["quick_provider"] = quick_provider
-            config["deep_provider"] = deep_provider_info["provider"]
-            config["quick_backend_url"] = quick_provider_info["backend_url"]
-            config["deep_backend_url"] = deep_provider_info["backend_url"]
-            config["backend_url"] = quick_provider_info["backend_url"]
+            # 注入模型 provider 路由信息
+            config["analyst_provider"] = analyst_provider
+            config["debate_provider"] = debate_provider_info["provider"]
+            config["analyst_backend_url"] = analyst_provider_info["backend_url"]
+            config["debate_backend_url"] = debate_provider_info["backend_url"]
+            config["backend_url"] = analyst_provider_info["backend_url"]
 
             # 注入任务级 MCP 管理器
             config["task_mcp_manager"] = task_mcp_manager
@@ -1262,7 +1253,6 @@ class AnalysisService:
                 "decision": decision,
                 "model_info": decision.get('model_info', 'Unknown') if isinstance(decision, dict) else 'Unknown',
                 "analysts": request.parameters.selected_analysts if request.parameters else [],
-                "research_depth": depth_label,
             }
             return result
 
@@ -1681,7 +1671,6 @@ class AnalysisService:
                 'stock_symbol': stock_symbol,
                 'analysis_date': analysis_date_str,
                 'timestamp': format_iso(now_config_tz()),
-                'research_depth': result.get('research_depth', "不分级"),
                 'analysts': result.get('analysts', []),
                 'status': 'completed',
                 'reports_count': len(saved_files),
@@ -1731,7 +1720,6 @@ class AnalysisService:
             confidence_score = result.get("confidence_score", 0.0)
             key_points = result.get("key_points") or []
             analysts = result.get("analysts") or result.get("selected_analysts") or []
-            research_depth = result.get("research_depth") or result.get("parameters", {}).get("research_depth") or "不分级"
             model_info = result.get("model_info") or result.get("llm_model") or "Unknown"
             tokens_used = result.get("tokens_used") or result.get("token_usage", {}).get("total_tokens", 0)
             execution_time = result.get("execution_time", 0)
@@ -1757,7 +1745,6 @@ class AnalysisService:
                 "risk_level": risk_level,
                 "key_points": key_points,
                 "analysts": analysts,
-                "research_depth": research_depth,
                 "model_info": model_info,
                 "tokens_used": tokens_used,
                 "execution_time": execution_time,
@@ -1850,8 +1837,6 @@ class AnalysisService:
                 "estimated_total_time": elapsed_time,
                 "stock_code": report.get("stock_symbol"),
                 "stock_symbol": report.get("stock_symbol"),
-                "analysts": report.get("analysts", []),
-                "research_depth": report.get("research_depth", "快速"),
                 "source": "mongodb_reports",
             }
 
@@ -1911,7 +1896,6 @@ class AnalysisService:
                 "execution_time": mongo_result.get("execution_time", 0),
                 "tokens_used": mongo_result.get("tokens_used", 0),
                 "analysts": mongo_result.get("analysts", []),
-                "research_depth": mongo_result.get("research_depth", "快速"),
                 "reports": mongo_result.get("reports", {}),
                 "created_at": mongo_result.get("created_at"),
                 "updated_at": mongo_result.get("updated_at"),
@@ -1947,7 +1931,6 @@ class AnalysisService:
                     "execution_time": r.get("execution_time", 0),
                     "tokens_used": r.get("tokens_used", 0),
                     "analysts": r.get("analysts", []),
-                    "research_depth": r.get("research_depth", "快速"),
                     "reports": r.get("reports", {}),
                     "state": r.get("state", {}),
                     "detailed_analysis": r.get("detailed_analysis", {}),

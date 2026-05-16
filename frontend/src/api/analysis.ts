@@ -12,7 +12,6 @@ export interface AnalysisRequest {
   analysis_date: string
   analysis_type: string
   data_sources: string[]
-  analysis_depth: number
   include_news: boolean
   include_financials: boolean
   llm_provider?: string
@@ -26,14 +25,13 @@ export interface SingleAnalysisRequest {
   parameters?: {
     market_type?: string
     analysis_date?: string
-    research_depth?: string
     selected_analysts?: string[]
     custom_prompt?: string
     include_sentiment?: boolean
     include_risk?: boolean
     language?: string
-    quick_analysis_model?: string
-    deep_analysis_model?: string
+    analyst_model?: string
+    debate_model?: string
     mcp_tools?: string[]
   }
 }
@@ -312,7 +310,6 @@ export const MARKET_TYPES = {
 
 export const ANALYSIS_TYPES = {
   BASIC: 'basic',
-  DEEP: 'deep',
   TECHNICAL: 'technical',
   NEWS: 'news',
   COMPREHENSIVE: 'comprehensive'
@@ -402,7 +399,6 @@ export const validateAnalysisRequest = (request: Partial<AnalysisRequest>): stri
 export const formatAnalysisType = (type: string): string => {
   const typeMap: Record<string, string> = {
     basic: '基础分析',
-    deep: '深度分析',
     technical: '技术分析',
     news: '新闻分析',
     comprehensive: '综合分析'

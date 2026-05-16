@@ -249,10 +249,9 @@
             <div class="config-content">
               <!-- AI模型配置组件 -->
               <ModelConfig
-                v-model:quick-analysis-model="modelSettings.quickAnalysisModel"
-                v-model:deep-analysis-model="modelSettings.deepAnalysisModel"
+                v-model:analyst-model="modelSettings.analystModel"
+                v-model:debate-model="modelSettings.debateModel"
                 :available-models="availableModels"
-                analysis-depth="标准"
               />
 
               <!-- 分析选项 -->
@@ -432,8 +431,8 @@ const fetchAnalysts = async () => {
 
 // 模型设置
 const modelSettings = ref({
-  quickAnalysisModel: 'qwen-turbo',
-  deepAnalysisModel: 'qwen-max'
+  analystModel: 'qwen-turbo',
+  debateModel: 'qwen-max'
 })
 
 // 可用的模型列表（从配置中获取）
@@ -461,12 +460,12 @@ const getPhaseConfig = (phaseName: string) => {
   return (batchForm.phases as Record<string, { enabled: boolean; debateRounds: number }>)[phaseName]
 }
 
-// 归一化阶段配置，确保后续阶段依赖前置阶段
+// 归一化阶段配置：交易员始终执行，阶段2/3 可独立开关
 const buildPhasePayload = (phases: any) => {
   const phase2Enabled = phases.phase2.enabled
-  const phase3Enabled = phase2Enabled && phases.phase3.enabled
-  // phase4 (Trader) is linked to phase2 (Debate) in UI now
-  const phase4Enabled = phase2Enabled
+  const phase3Enabled = phases.phase3.enabled
+  // 交易员始终执行，phase4 始终为 true
+  const phase4Enabled = true
 
   return {
     phase2_enabled: phase2Enabled,
@@ -486,18 +485,7 @@ const estimatedTotalTime = computed(() => {
   return perStockTime * stockCount
 })
 
-// 阶段开关级联：后续阶段需要前置阶段
-watch(() => batchForm.phases.phase2.enabled, (enabled) => {
-  if (!enabled) {
-    batchForm.phases.phase3.enabled = false
-  }
-})
-
-watch(() => batchForm.phases.phase3.enabled, (enabled) => {
-  if (enabled && !batchForm.phases.phase2.enabled) {
-    batchForm.phases.phase2.enabled = true
-  }
-})
+// 阶段开关已独立：Phase 2（辩论）和 Phase 3（风险辩论）可分别开关，交易员始终执行
 
 // 使用通用校验器规范化代码，自动识别市场
 const normalizeCodeSmart = (raw: string): { symbol?: string; error?: string } => {
@@ -543,23 +531,23 @@ const initializeModelSettings = async () => {
   try {
     // 获取默认模型
     const defaultModels = await configApi.getDefaultModels()
-    modelSettings.value.quickAnalysisModel = defaultModels.quick_analysis_model
-    modelSettings.value.deepAnalysisModel = defaultModels.deep_analysis_model
+    modelSettings.value.analystModel = defaultModels.analyst_model
+    modelSettings.value.debateModel = defaultModels.debate_model
 
     // 获取所有可用的模型列表
     const llmConfigs = await configApi.getLLMConfigs()
     availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled)
 
     console.log('✅ 加载模型配置成功:', {
-      quick: modelSettings.value.quickAnalysisModel,
-      deep: modelSettings.value.deepAnalysisModel,
+      quick: modelSettings.value.analystModel,
+      deep: modelSettings.value.debateModel,
       available: availableModels.value.length
     })
   } catch (error) {
     console.error('加载默认模型配置失败:', error)
     // 使用硬编码的默认值
-    modelSettings.value.quickAnalysisModel = 'qwen-turbo'
-    modelSettings.value.deepAnalysisModel = 'qwen-max'
+    modelSettings.value.analystModel = 'qwen-turbo'
+    modelSettings.value.debateModel = 'qwen-max'
   }
 }
 
@@ -685,8 +673,8 @@ const submitBatchAnalysis = async () => {
         })(),
         selected_analysts: normalizeAnalystIds(batchForm.analysts), // 确保使用英文ID
         language: batchForm.language,
-        quick_analysis_model: modelSettings.value.quickAnalysisModel,
-        deep_analysis_model: modelSettings.value.deepAnalysisModel,
+        analyst_model: modelSettings.value.analystModel,
+        debate_model: modelSettings.value.debateModel,
 
         // 阶段配置（按顺序依赖）
         ...phasePayload,

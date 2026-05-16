@@ -47,8 +47,8 @@ class TestDefaultConfigKeys:
     def test_has_llm_settings(self, config):
         """应包含 LLM 配置"""
         assert "llm_provider" in config
-        assert "deep_think_llm" in config
-        assert "quick_think_llm" in config
+        assert "debate_llm" in config
+        assert "analyst_llm" in config
         assert "backend_url" in config
 
     def test_has_debate_settings(self, config):
@@ -81,15 +81,15 @@ class TestDefaultConfigValues:
         assert isinstance(config["llm_provider"], str)
         assert len(config["llm_provider"]) > 0
 
-    def test_deep_think_llm_is_string(self, config):
-        """deep_think_llm 应为非空字符串"""
-        assert isinstance(config["deep_think_llm"], str)
-        assert len(config["deep_think_llm"]) > 0
+    def test_debate_llm_is_string(self, config):
+        """debate_llm 应为非空字符串"""
+        assert isinstance(config["debate_llm"], str)
+        assert len(config["debate_llm"]) > 0
 
-    def test_quick_think_llm_is_string(self, config):
-        """quick_think_llm 应为非空字符串"""
-        assert isinstance(config["quick_think_llm"], str)
-        assert len(config["quick_think_llm"]) > 0
+    def test_analyst_llm_is_string(self, config):
+        """analyst_llm 应为非空字符串"""
+        assert isinstance(config["analyst_llm"], str)
+        assert len(config["analyst_llm"]) > 0
 
     def test_backend_url_is_valid_url(self, config):
         """backend_url 应为有效 URL"""

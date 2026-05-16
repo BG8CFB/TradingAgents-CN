@@ -224,28 +224,10 @@ class LLMConfig(BaseModel):
     output_price_per_1k: Optional[float] = Field(None, description="输出token价格(每1000个token)")
     currency: str = Field(default="CNY", description="货币单位(CNY/USD/EUR)")
 
-    # 🆕 模型能力分级系统
-    capability_level: int = Field(
-        default=2,
-        ge=1,
-        le=5,
-        description="模型能力等级(1-5): 1=基础, 2=标准, 3=高级, 4=专业, 5=旗舰"
-    )
+    # 模型用途分类
     suitable_roles: List[str] = Field(
         default_factory=lambda: ["both"],
-        description="适用角色: quick_analysis(快速分析), deep_analysis(深度分析), both(两者都适合)"
-    )
-    features: List[str] = Field(
-        default_factory=list,
-        description="模型特性: tool_calling(工具调用), long_context(长上下文), reasoning(推理), vision(视觉), fast_response(快速), cost_effective(经济)"
-    )
-    recommended_depths: List[str] = Field(
-        default_factory=lambda: ["快速", "基础", "标准"],
-        description="推荐的分析深度级别"
-    )
-    performance_metrics: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="性能指标: speed(速度1-5), cost(成本1-5), quality(质量1-5)"
+        description="适用角色: analyst(一阶段分析师), debate(辩论推理), both(两者都适合)"
     )
 
 
@@ -393,12 +375,8 @@ class LLMConfigRequest(BaseModel):
     output_price_per_1k: Optional[float] = None
     currency: str = "CNY"
 
-    # 🆕 模型能力分级系统
-    capability_level: int = Field(default=2, ge=1, le=5)
+    # 模型用途分类
     suitable_roles: List[str] = Field(default_factory=lambda: ["both"])
-    features: List[str] = Field(default_factory=list)
-    recommended_depths: List[str] = Field(default_factory=lambda: ["快速", "基础", "标准"])
-    performance_metrics: Optional[Dict[str, Any]] = None
 
 
 class DataSourceConfigRequest(BaseModel):

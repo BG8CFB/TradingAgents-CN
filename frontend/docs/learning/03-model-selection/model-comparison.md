@@ -48,7 +48,7 @@
 
 ## 3. 核心参数对股票分析的“微观”影响
 
-| 参数 | 取值区间 | 对股票任务的影响 | 推荐值（快速） | 推荐值（深度） |
+| 参数 | 取值区间 | 对股票任务的影响 | 推荐值（分析师） | 推荐值（辩论推理） |
 |------|----------|------------------|----------------|----------------|
 | temperature | 0 ~ 1 | 越高越发散，易“ hallucinate ”数字 | 0.2 ~ 0.3 | 0.1 ~ 0.2 |
 | top_p | 0 ~ 1 | 核采样，与 temp 联动，<0.7 会丢稀有概念 | 0.9 | 0.85 |
@@ -62,59 +62,61 @@
 
 ---
 
-## 4. 快速分析 vs 深度分析——官方定义
+## 4. 分析师模型 vs 辩论推理模型——双模型架构
 
-### 4.1 快速分析模型（Quick-Thinking LLM）
-**使用场景**：单一职责 Agent，只处理“局部”任务，无需多步推理。  
+### 4.1 分析师模型（一阶段）
+**使用场景**：一阶段分析师 Agent，侧重数据收集、工具调用和事实提取。  
 **典型 Agent**（源码级映射）：  
-- `Market Analyst` – 纯技术/趋势一句话总结  
-- `Fundamentals Analyst` – 只拉三张表，输出 5 个核心指标  
-- `Technical Analyst` – 仅计算均线/形态  
-- `News Analyst` – 摘要当日 20 条新闻，给出情绪分值  
-- `Bull/Bear Researcher` – 各找 3 条看多/看空理由  
-- `Trader` – 根据现成结论直接生成订单草案  
+- `Market Analyst` – 技术面/趋势分析  
+- `Fundamentals Analyst` – 拉取财务报表，提取核心指标  
+- `Technical Analyst` – 计算均线/形态  
+- `News Analyst` – 摘要新闻，给出情绪分值  
 
 **模型能力要求**：  
-- 函数调用一次到位，不依赖多轮对话  
-- 快速分析模型即可胜任，temperature 0.2–0.3 保证稳定  
-- 成本优先，支持高并发（≥100 只/小时）  
+- **低幻觉**：金融数据对准确性要求极高，模型必须忠实输出工具返回的数据  
+- **数字敏感**：能正确理解和处理价格、比率、百分比等数字信息  
+- **工具调用可靠**：函数调用一次到位，schema 遵循率高  
+- temperature 0.2–0.3 保证稳定输出  
 
-**官方配置片段**：  
+**配置片段**：  
 ```yaml
-# tradingagents/config/templates/quick.yaml
-provider: deepseek
-model: deepseek-chat   # 67 B MoE，但只跑单轮，速度仍 <1 s
+# 分析师模型示例
+provider: dashscope
+model: qwen-plus          # 标准级，工具调用可靠，数字准确
 temperature: 0.2
-max_tokens: 4000        # 足够输出“结论+理由”
-functions: []          # 由框架自动注入单工具，如 get_price
+max_tokens: 4000
 ```
 
-### 4.2 深度分析模型（Deep-Thinking LLM）
-**使用场景**：需要“跨报告综合 + 多轮辩论”的管理层 Agent。  
+### 4.2 辩论推理模型（二至四阶段）
+**使用场景**：二至四阶段 Agent，涉及多轮辩论、跨报告综合、风险决策。  
 **典型 Agent**：  
+- `Bull/Bear Researcher` – 基于一阶段报告进行多空辩论  
 - `Research Manager` – 读 5 份分析师报告，做多空辩论裁判，输出最终投资计划  
-- `Risk Manager` – 综合保守/中性/激进三方观点，给出风控条款  
+- `Risky/Neutral/Safe Analyst` – 从不同风险偏好角度辩论  
+- `Risk Manager` – 综合三方观点，给出风控条款  
+- `Trader` – 基于辩论结论生成交易决策  
+- `Summary Agent` – 综合全流程输出最终总结  
 
 **模型能力要求**：  
-- 128 k+ 上下文，能把 5 份报告 + 3 方辩论历史一次性读全  
-- 强指令跟随，确保“判决格式”不跑偏  
-- 参数规模 70 B 级或 MoE-32B 以上，temperature 0.1–0.2  
+- **强逻辑推理**：能在多轮辩论中保持论点一致性，识别逻辑漏洞  
+- **长上下文**：128 k+ 上下文，能把多份报告 + 辩论历史一次性读全  
+- **指令跟随**：确保输出格式严格符合框架要求  
+- temperature 0.1–0.2，参数规模 70 B 级或以上  
 
-**官方配置片段**：  
+**配置片段**：  
 ```yaml
-# tradingagents/config/templates/deep.yaml
+# 辩论推理模型示例
 provider: dashscope
-model: qwen-max-2025-11   # 70 B MoE，128 k 上下文
+model: qwen-max           # 专业级，强推理，长上下文
 temperature: 0.1
 max_tokens: 8000
-functions: []              # 框架注入多工具链，如 get_balance_sheet + get_sector_index
 ```
 
 ### 4.3 一句话总结
-- **快速模型** =“单工具 + 单轮输出” → 给普通 Analyst 用，省钱。  
-- **深度模型** =“多报告 + 多轮辩论” → 给 Manager 用，求准。  
+- **分析师模型** = 低幻觉 + 数据准确 → 一阶段分析师，侧重事实提取。  
+- **辩论推理模型** = 强逻辑 + 长上下文 → 二至四阶段辩论与决策，侧重推理质量。  
 
-> 两套模板已内置在 `tradingagents/config/templates/`，框架会根据 Agent 角色自动选择，无需手动切换。
+> 两个模型都是高质量模型，区别在于侧重点不同。系统会根据 Agent 所处阶段自动使用对应模型，用户也可在设置中自行选择。
 
 ---
 
@@ -147,9 +149,9 @@ functions: []              # 框架注入多工具链，如 get_balance_sheet + 
 
 ## 7. 结论（速记版）
 
-1. 快问快答/批量扫描 → deepseek-chat 或 qwen-flash，温度 0.2，token 800-1200。  
-2. 单股深度/行业横向 → qwen-plus 或 qwen-max，温度 0.1，token 3000-6000。  
-3. 长文公告/尽调报告 → qwen-long，温度 0.2，token 3000-4000。  
+1. 分析师模型（一阶段）→ qwen-plus 或 deepseek-chat，温度 0.2，侧重低幻觉和数据准确。
+2. 辩论推理模型（二至四阶段）→ qwen-max 或更强推理模型，温度 0.1，侧重逻辑推理质量。
+3. 长文公告/尽调报告 → qwen-long，温度 0.2，token 3000-4000。
 4. 工具调用密集型 → 优先 qwen-plus 及以上，deepseek 系列。  
 
 ---

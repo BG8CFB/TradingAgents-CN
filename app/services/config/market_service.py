@@ -222,329 +222,105 @@ class MarketService:
             print(f"删除模型目录失败: {e}")
             return False
 
-    async def init_default_model_catalog(self) -> bool:
-        """初始化默认模型目录"""
+    async def init_default_model_catalog(self, force: bool = False) -> bool:
+        """从厂家 API 动态获取模型列表并初始化/更新模型目录
+
+        Args:
+            force: 为 True 时强制刷新所有厂家的模型列表（覆盖已有目录）
+        """
         try:
             db = await self._get_db()
             catalog_collection = db.model_catalog
 
-            # 检查是否已有数据
-            count = await catalog_collection.count_documents({})
-            if count > 0:
-                print("模型目录已存在，跳过初始化")
+            # 获取所有已启用的厂家
+            providers_collection = db.llm_providers
+            providers_data = await providers_collection.find({"is_active": True}).to_list(None)
+
+            if not providers_data:
+                logger.info("没有已启用的厂家，跳过模型目录初始化")
                 return True
 
-            # 创建默认目录
-            default_catalogs = self._get_default_model_catalog()
+            import requests
+            import re
+            initialized_count = 0
 
-            for catalog_data in default_catalogs:
-                catalog = ModelCatalog(**catalog_data)
-                await self.save_model_catalog(catalog)
+            for provider_data in providers_data:
+                provider_name = provider_data.get("name")
+                display_name = provider_data.get("display_name", provider_name)
+                base_url = provider_data.get("default_base_url")
+                api_key = provider_data.get("api_key")
 
-            print(f"✅ 初始化了 {len(default_catalogs)} 个厂家的模型目录")
+                if not base_url:
+                    logger.info(f"跳过 {display_name}：未配置 API 地址")
+                    continue
+
+                # 已有目录的厂家：仅在 force 模式下刷新
+                existing = await catalog_collection.find_one({"provider": provider_name})
+                if existing and not force:
+                    logger.info(f"跳过 {display_name}：模型目录已存在")
+                    continue
+
+                try:
+                    # 从厂家 API 拉取模型列表
+                    url = base_url.rstrip("/")
+                    if not re.search(r'/v\d+$', url):
+                        url = url + "/v1"
+                    url = f"{url}/models"
+
+                    headers = {}
+                    if api_key:
+                        headers["Authorization"] = f"Bearer {api_key}"
+
+                    resp = requests.get(url, headers=headers, timeout=15)
+
+                    if resp.status_code != 200:
+                        logger.warning(f"获取 {display_name} 模型列表失败: HTTP {resp.status_code}")
+                        continue
+
+                    result = resp.json()
+                    models_data = result.get("data", [])
+                    if not isinstance(models_data, list) or len(models_data) == 0:
+                        logger.warning(f"{display_name} 返回空模型列表")
+                        continue
+
+                    # 去重并限制数量
+                    seen = set()
+                    models = []
+                    for m in models_data:
+                        mid = m.get("id", "")
+                        if not mid or mid in seen:
+                            continue
+                        seen.add(mid)
+                        models.append(ModelInfo(
+                            name=mid,
+                            display_name=mid,
+                            description=f"{display_name} 模型",
+                            context_length=m.get("context_length"),
+                        ))
+                        if len(models) >= 200:
+                            break
+
+                    catalog = ModelCatalog(
+                        provider=provider_name,
+                        provider_name=display_name,
+                        models=models,
+                    )
+                    await self.save_model_catalog(catalog)
+                    initialized_count += 1
+                    logger.info(f"✅ 初始化 {display_name} 模型目录: {len(models)} 个模型")
+
+                except Exception as e:
+                    logger.warning(f"获取 {display_name} 模型失败: {e}")
+                    continue
+
+            logger.info(f"模型目录初始化完成: 共 {initialized_count} 个厂家")
             return True
         except Exception as e:
-            print(f"初始化模型目录失败: {e}")
+            logger.error(f"初始化模型目录失败: {e}", exc_info=True)
             return False
 
-    def _get_default_model_catalog(self) -> List[Dict[str, Any]]:
-        """获取默认模型目录数据"""
-        return [
-            {
-                "provider": "dashscope",
-                "provider_name": "通义千问",
-                "models": [
-                    {
-                        "name": "qwen-turbo",
-                        "display_name": "Qwen Turbo - 快速经济 (1M上下文)",
-                        "input_price_per_1k": 0.0003,
-                        "output_price_per_1k": 0.0003,
-                        "context_length": 1000000,
-                        "currency": "CNY",
-                        "description": "Qwen2.5-Turbo，支持100万tokens超长上下文"
-                    },
-                    {
-                        "name": "qwen-plus",
-                        "display_name": "Qwen Plus - 平衡推荐",
-                        "input_price_per_1k": 0.0008,
-                        "output_price_per_1k": 0.002,
-                        "context_length": 32768,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "qwen-plus-latest",
-                        "display_name": "Qwen Plus Latest - 最新平衡",
-                        "input_price_per_1k": 0.0008,
-                        "output_price_per_1k": 0.002,
-                        "context_length": 32768,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "qwen-max",
-                        "display_name": "Qwen Max - 最强性能",
-                        "input_price_per_1k": 0.02,
-                        "output_price_per_1k": 0.06,
-                        "context_length": 8192,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "qwen-max-latest",
-                        "display_name": "Qwen Max Latest - 最新旗舰",
-                        "input_price_per_1k": 0.02,
-                        "output_price_per_1k": 0.06,
-                        "context_length": 8192,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "qwen-long",
-                        "display_name": "Qwen Long - 长文本",
-                        "input_price_per_1k": 0.0005,
-                        "output_price_per_1k": 0.002,
-                        "context_length": 1000000,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "qwen-vl-plus",
-                        "display_name": "Qwen VL Plus - 视觉理解",
-                        "input_price_per_1k": 0.008,
-                        "output_price_per_1k": 0.008,
-                        "context_length": 8192,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "qwen-vl-max",
-                        "display_name": "Qwen VL Max - 视觉旗舰",
-                        "input_price_per_1k": 0.02,
-                        "output_price_per_1k": 0.02,
-                        "context_length": 8192,
-                        "currency": "CNY"
-                    }
-                ]
-            },
-            {
-                "provider": "openai",
-                "provider_name": "OpenAI",
-                "models": [
-                    {
-                        "name": "gpt-4o",
-                        "display_name": "GPT-4o - 最新旗舰",
-                        "input_price_per_1k": 0.005,
-                        "output_price_per_1k": 0.015,
-                        "context_length": 128000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "gpt-4o-mini",
-                        "display_name": "GPT-4o Mini - 轻量旗舰",
-                        "input_price_per_1k": 0.00015,
-                        "output_price_per_1k": 0.0006,
-                        "context_length": 128000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "gpt-4-turbo",
-                        "display_name": "GPT-4 Turbo - 强化版",
-                        "input_price_per_1k": 0.01,
-                        "output_price_per_1k": 0.03,
-                        "context_length": 128000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "gpt-4",
-                        "display_name": "GPT-4 - 经典版",
-                        "input_price_per_1k": 0.03,
-                        "output_price_per_1k": 0.06,
-                        "context_length": 8192,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "gpt-3.5-turbo",
-                        "display_name": "GPT-3.5 Turbo - 经济版",
-                        "input_price_per_1k": 0.0005,
-                        "output_price_per_1k": 0.0015,
-                        "context_length": 16385,
-                        "currency": "USD"
-                    }
-                ]
-            },
-            {
-                "provider": "google",
-                "provider_name": "Google Gemini",
-                "models": [
-                    {
-                        "name": "gemini-2.5-pro",
-                        "display_name": "Gemini 2.5 Pro - 最新旗舰",
-                        "input_price_per_1k": 0.00125,
-                        "output_price_per_1k": 0.005,
-                        "context_length": 1000000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "gemini-2.5-flash",
-                        "display_name": "Gemini 2.5 Flash - 最新快速",
-                        "input_price_per_1k": 0.000075,
-                        "output_price_per_1k": 0.0003,
-                        "context_length": 1000000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "gemini-1.5-pro",
-                        "display_name": "Gemini 1.5 Pro - 专业版",
-                        "input_price_per_1k": 0.00125,
-                        "output_price_per_1k": 0.005,
-                        "context_length": 2000000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "gemini-1.5-flash",
-                        "display_name": "Gemini 1.5 Flash - 快速版",
-                        "input_price_per_1k": 0.000075,
-                        "output_price_per_1k": 0.0003,
-                        "context_length": 1000000,
-                        "currency": "USD"
-                    }
-                ]
-            },
-            {
-                "provider": "deepseek",
-                "provider_name": "DeepSeek",
-                "models": [
-                    {
-                        "name": "deepseek-chat",
-                        "display_name": "DeepSeek Chat - 通用对话",
-                        "input_price_per_1k": 0.0001,
-                        "output_price_per_1k": 0.0002,
-                        "context_length": 32768,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "deepseek-coder",
-                        "display_name": "DeepSeek Coder - 代码专用",
-                        "input_price_per_1k": 0.0001,
-                        "output_price_per_1k": 0.0002,
-                        "context_length": 16384,
-                        "currency": "CNY"
-                    }
-                ]
-            },
-            {
-                "provider": "anthropic",
-                "provider_name": "Anthropic Claude",
-                "models": [
-                    {
-                        "name": "claude-3-5-sonnet-20241022",
-                        "display_name": "Claude 3.5 Sonnet - 当前旗舰",
-                        "input_price_per_1k": 0.003,
-                        "output_price_per_1k": 0.015,
-                        "context_length": 200000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "claude-3-5-sonnet-20240620",
-                        "display_name": "Claude 3.5 Sonnet (旧版)",
-                        "input_price_per_1k": 0.003,
-                        "output_price_per_1k": 0.015,
-                        "context_length": 200000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "claude-3-opus-20240229",
-                        "display_name": "Claude 3 Opus - 强大性能",
-                        "input_price_per_1k": 0.015,
-                        "output_price_per_1k": 0.075,
-                        "context_length": 200000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "claude-3-sonnet-20240229",
-                        "display_name": "Claude 3 Sonnet - 平衡版",
-                        "input_price_per_1k": 0.003,
-                        "output_price_per_1k": 0.015,
-                        "context_length": 200000,
-                        "currency": "USD"
-                    },
-                    {
-                        "name": "claude-3-haiku-20240307",
-                        "display_name": "Claude 3 Haiku - 快速版",
-                        "input_price_per_1k": 0.00025,
-                        "output_price_per_1k": 0.00125,
-                        "context_length": 200000,
-                        "currency": "USD"
-                    }
-                ]
-            },
-            {
-                "provider": "qianfan",
-                "provider_name": "百度千帆",
-                "models": [
-                    {
-                        "name": "ernie-3.5-8k",
-                        "display_name": "ERNIE 3.5 8K - 快速高效",
-                        "input_price_per_1k": 0.0012,
-                        "output_price_per_1k": 0.0012,
-                        "context_length": 8192,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "ernie-4.0-turbo-8k",
-                        "display_name": "ERNIE 4.0 Turbo 8K - 强大推理",
-                        "input_price_per_1k": 0.03,
-                        "output_price_per_1k": 0.09,
-                        "context_length": 8192,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "ERNIE-Speed-8K",
-                        "display_name": "ERNIE Speed 8K - 极速响应",
-                        "input_price_per_1k": 0.0004,
-                        "output_price_per_1k": 0.0004,
-                        "context_length": 8192,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "ERNIE-Lite-8K",
-                        "display_name": "ERNIE Lite 8K - 轻量经济",
-                        "input_price_per_1k": 0.0003,
-                        "output_price_per_1k": 0.0006,
-                        "context_length": 8192,
-                        "currency": "CNY"
-                    }
-                ]
-            },
-            {
-                "provider": "zhipu",
-                "provider_name": "智谱AI",
-                "models": [
-                    {
-                        "name": "glm-4",
-                        "display_name": "GLM-4 - 旗舰版",
-                        "input_price_per_1k": 0.1,
-                        "output_price_per_1k": 0.1,
-                        "context_length": 128000,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "glm-4-plus",
-                        "display_name": "GLM-4 Plus - 增强版",
-                        "input_price_per_1k": 0.05,
-                        "output_price_per_1k": 0.05,
-                        "context_length": 128000,
-                        "currency": "CNY"
-                    },
-                    {
-                        "name": "glm-3-turbo",
-                        "display_name": "GLM-3 Turbo - 快速版",
-                        "input_price_per_1k": 0.001,
-                        "output_price_per_1k": 0.001,
-                        "context_length": 128000,
-                        "currency": "CNY"
-                    }
-                ]
-            }
-        ]
-
     async def get_available_models(self) -> List[Dict[str, Any]]:
-        """获取可用的模型列表（从数据库读取，如果为空则返回默认数据）"""
+        """获取可用的模型列表（从数据库读取，如果为空则从 API 动态获取）"""
         try:
             catalogs = await self.get_model_catalog()
 
@@ -576,6 +352,5 @@ class MarketService:
 
             return result
         except Exception as e:
-            print(f"获取模型列表失败: {e}")
-            # 失败时返回默认数据
-            return self._get_default_model_catalog()
+            logger.error(f"获取模型列表失败: {e}")
+            return []

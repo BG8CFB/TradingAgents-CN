@@ -11,9 +11,9 @@ logger = get_logger("graph.signal_processing")
 class SignalProcessor:
     """Processes trading signals to extract actionable decisions."""
 
-    def __init__(self, quick_thinking_llm: ChatOpenAI):
+    def __init__(self, llm: ChatOpenAI):
         """Initialize with an LLM for processing."""
-        self.quick_thinking_llm = quick_thinking_llm
+        self.llm = llm
 
     @log_graph_module("signal_processing")
     def process_signal(self, full_signal: str, stock_symbol: str = None) -> dict:
@@ -108,7 +108,7 @@ class SignalProcessor:
         logger.debug(f"🔍 [SignalProcessor] 准备调用LLM，消息数量: {len(messages)}, 信号长度: {len(full_signal)}")
 
         try:
-            response = self.quick_thinking_llm.invoke(messages).content
+            response = self.llm.invoke(messages).content
             logger.debug(f"🔍 [SignalProcessor] LLM响应: {response[:200]}...")
 
             # 尝试解析JSON响应

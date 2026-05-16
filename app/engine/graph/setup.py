@@ -24,8 +24,8 @@ class GraphSetup:
 
     def __init__(
         self,
-        quick_thinking_llm: ChatOpenAI,
-        deep_thinking_llm: ChatOpenAI,
+        analyst_llm: ChatOpenAI,
+        debate_llm: ChatOpenAI,
         toolkit: Toolkit,
         bull_memory,
         bear_memory,
@@ -37,8 +37,8 @@ class GraphSetup:
         react_llm = None,
     ):
         """Initialize with required components."""
-        self.quick_thinking_llm = quick_thinking_llm
-        self.deep_thinking_llm = deep_thinking_llm
+        self.analyst_llm = analyst_llm
+        self.debate_llm = debate_llm
         self.toolkit = toolkit
         self.bull_memory = bull_memory
         self.bear_memory = bear_memory
@@ -86,7 +86,7 @@ class GraphSetup:
         try:
             analyst_node_functions = SimpleAgentFactory.create_analysts(
                 selected_analysts=selected_analysts,
-                llm=self.quick_thinking_llm,
+                llm=self.analyst_llm,
                 toolkit=self.toolkit,
                 max_tool_calls=20  # 🔥 固定为20次，不从配置文件读取
             )
@@ -103,28 +103,28 @@ class GraphSetup:
 
         # Create researcher and manager nodes (Phase 2)
         bull_researcher_node = create_bull_researcher(
-            self.quick_thinking_llm, self.bull_memory
+            self.debate_llm, self.bull_memory
         )
         bear_researcher_node = create_bear_researcher(
-            self.quick_thinking_llm, self.bear_memory
+            self.debate_llm, self.bear_memory
         )
         research_manager_node = create_research_manager(
-            self.deep_thinking_llm, self.invest_judge_memory
+            self.debate_llm, self.invest_judge_memory
         )
-        # 交易员节点现在属于 Phase 2 的最后一步
-        trader_node = create_trader(self.quick_thinking_llm, self.trader_memory)
+        # 交易员节点（始终执行，不受阶段2开关控制）
+        trader_node = create_trader(self.debate_llm, self.trader_memory)
 
         # Create risk analysis nodes (Phase 3)
-        risky_analyst = create_risky_debator(self.quick_thinking_llm)
-        neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
-        safe_analyst = create_safe_debator(self.quick_thinking_llm)
+        risky_analyst = create_risky_debator(self.debate_llm)
+        neutral_analyst = create_neutral_debator(self.debate_llm)
+        safe_analyst = create_safe_debator(self.debate_llm)
         risk_manager_node = create_risk_manager(
-            self.deep_thinking_llm, self.risk_manager_memory
+            self.debate_llm, self.risk_manager_memory
         )
 
         # 导入 Summary Agent
         from app.engine.agents.stage_4.summary_agent import create_summary_agent
-        summary_node = create_summary_agent(self.quick_thinking_llm)
+        summary_node = create_summary_agent(self.debate_llm)
 
         # Create workflow
         workflow = StateGraph(AgentState)
@@ -153,11 +153,9 @@ class GraphSetup:
         workflow.add_node("Summary Agent", summary_node)
 
         # Define edges（阶段开关完全由前端传入控制）
-        # 顺序: Phase 2 (Research & Trader) -> Phase 3 (Risk) -> Summary
+        # 顺序: Phase 2 (Research) -> Trader (必执行) -> Phase 3 (Risk) -> Summary
         enable_phase2 = bool(self.config.get("phase2_enabled", False))
         enable_phase3 = bool(self.config.get("phase3_enabled", False))
-        # Phase 4 flag might still be passed but effectively redundant for flow control now
-        # enable_phase4 = bool(self.config.get("phase4_enabled", False)) 
 
         # Start with the first analyst
         if not normalized_analysts:
@@ -165,18 +163,14 @@ class GraphSetup:
         first_analyst = normalized_analysts[0]
         workflow.add_edge(START, f"{self._format_analyst_name(first_analyst)} Analyst")
 
-        # 确定 Phase 1 结束后的下一个节点
+        # Phase 1 结束后：Phase2 开启进入看涨/看跌辩论，否则直接进入 Trader
         if enable_phase2:
             next_entry_node = "Bull Researcher"
-        elif enable_phase3:
-            # 如果跳过 Phase 2，尝试直接进入 Phase 3（注意：可能缺少 Trader 计划）
-            next_entry_node = "Risky Analyst"
         else:
-            next_entry_node = "Summary Agent"
+            next_entry_node = "Trader"
 
         for i, analyst_type in enumerate(normalized_analysts):
             current_analyst = f"{self._format_analyst_name(analyst_type)} Analyst"
-            # 🔥 性能优化：删除消息清理节点后，直接从分析师节点连接到下一个节点
 
             # Connect to next analyst or to next phase entry node
             if i < len(normalized_analysts) - 1:
@@ -185,7 +179,7 @@ class GraphSetup:
             else:
                 workflow.add_edge(current_analyst, next_entry_node)
 
-        # Phase 2: Research Debate & Trader Plan
+        # Phase 2: Research Debate（看涨/看跌辩论 + 研究经理裁决）
         if enable_phase2:
             workflow.add_conditional_edges(
                 "Bull Researcher",
@@ -203,15 +197,16 @@ class GraphSetup:
                     "Research Manager": "Research Manager",
                 },
             )
-            
-            # Research Manager 结束后 -> Trader (生成原始计划)
+
+            # Research Manager 结束后 -> Trader（输入包含第一阶段报告 + 裁决）
             workflow.add_edge("Research Manager", "Trader")
-            
-            # Trader -> Phase 3 (如果启用) 或 Summary
-            if enable_phase3:
-                workflow.add_edge("Trader", "Risky Analyst")
-            else:
-                workflow.add_edge("Trader", "Summary Agent")
+
+        # Trader 必执行：Phase2 关闭时直接从分析师进入 Trader（仅用第一阶段报告）
+        # Trader 出口：Phase3 开启进入风险辩论，否则进入 Summary
+        if enable_phase3:
+            workflow.add_edge("Trader", "Risky Analyst")
+        else:
+            workflow.add_edge("Trader", "Summary Agent")
 
         # Phase 3: Risk Management
         if enable_phase3:

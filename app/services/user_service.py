@@ -97,7 +97,7 @@ class UserService:
                 "last_login": None,
                 "preferences": {
                     "default_market": "A股",
-                    "default_depth": "3",
+                    "default_debate_rounds": 2,
                     "default_analysts": [],
                     "auto_refresh": True,
                     "refresh_interval": 30,
@@ -368,7 +368,7 @@ class UserService:
                 "last_login": None,
                 "preferences": {
                     "default_market": "A股",
-                    "default_depth": "深度",
+                    "default_debate_rounds": 2,
                     "ui_theme": "light",
                     "language": "zh-CN",
                     "notifications_enabled": True,

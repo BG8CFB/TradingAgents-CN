@@ -6,15 +6,15 @@
       <div class="model-config">
         <div class="model-item">
           <div class="model-label">
-            <span>快速分析模型</span>
-            <el-tooltip content="用于市场分析、新闻分析、基本面分析等" placement="top">
+            <span>分析师模型（一阶段）</span>
+            <el-tooltip content="用于一阶段分析师（市场分析、新闻分析、基本面分析等），推荐选择低幻觉、数字敏感的模型" placement="top">
               <el-icon class="help-icon"><InfoFilled /></el-icon>
             </el-tooltip>
           </div>
-          <el-select v-model="localQuickModel" size="small" style="width: 100%" filterable @change="onQuickModelChange">
+          <el-select v-model="localAnalystModel" size="small" style="width: 100%" filterable @change="onAnalystModelChange">
             <el-option
               v-for="model in availableModels"
-              :key="`quick-${model.provider}/${model.model_name}`"
+              :key="`analyst-${model.provider}/${model.model_name}`"
               :label="model.model_display_name || model.model_name"
               :value="model.model_name"
             >
@@ -32,12 +32,12 @@
                   </el-tag>
                   <!-- 角色标签 -->
                   <el-tag
-                    v-if="isQuickAnalysisRole(model.suitable_roles)"
+                    v-if="isAnalystRole(model.suitable_roles)"
                     type="success"
                     size="small"
                     effect="plain"
                   >
-                    ⚡快速
+                    ⚡分析师
                   </el-tag>
                   <span style="font-size: 12px; color: #909399;">{{ model.provider }}</span>
                 </div>
@@ -48,15 +48,15 @@
 
         <div class="model-item">
           <div class="model-label">
-            <span>深度决策模型</span>
-            <el-tooltip content="用于研究管理者综合决策、风险管理者最终评估" placement="top">
+            <span>辩论推理模型（二至四阶段）</span>
+            <el-tooltip content="用于二至四阶段（辩论、风控、交易决策），推荐选择强逻辑推理能力的模型" placement="top">
               <el-icon class="help-icon"><InfoFilled /></el-icon>
             </el-tooltip>
           </div>
-          <el-select v-model="localDeepModel" size="small" style="width: 100%" filterable @change="onDeepModelChange">
+          <el-select v-model="localDebateModel" size="small" style="width: 100%" filterable @change="onDebateModelChange">
             <el-option
               v-for="model in availableModels"
-              :key="`deep-${model.provider}/${model.model_name}`"
+              :key="`debate-${model.provider}/${model.model_name}`"
               :label="model.model_display_name || model.model_name"
               :value="model.model_name"
             >
@@ -74,12 +74,12 @@
                   </el-tag>
                   <!-- 角色标签 -->
                   <el-tag
-                    v-if="isDeepAnalysisRole(model.suitable_roles)"
+                    v-if="isDebateRole(model.suitable_roles)"
                     type="warning"
                     size="small"
                     effect="plain"
                   >
-                    🧠深度
+                    🧠辩论
                   </el-tag>
                   <span style="font-size: 12px; color: #909399;">{{ model.provider }}</span>
                 </div>
@@ -103,7 +103,7 @@
               {{ modelRecommendation.message }}
             </div>
             <el-button
-              v-if="modelRecommendation.quickModel && modelRecommendation.deepModel"
+              v-if="modelRecommendation.analystModel && modelRecommendation.debateModel"
               type="primary"
               size="small"
               @click="applyRecommendedModels"
@@ -126,49 +126,48 @@ import { recommendModels } from '@/api/modelCapabilities'
 
 // Props
 interface Props {
-  quickAnalysisModel: string
-  deepAnalysisModel: string
+  analystModel: string
+  debateModel: string
   availableModels: any[]
-  analysisDepth: string | number  // 支持字符串（如"标准"）或数字（如3）
 }
 
 const props = defineProps<Props>()
 
 // Emits
 const emit = defineEmits<{
-  'update:quickAnalysisModel': [value: string]
-  'update:deepAnalysisModel': [value: string]
+  'update:analystModel': [value: string]
+  'update:debateModel': [value: string]
 }>()
 
 // Local state
-const localQuickModel = ref(props.quickAnalysisModel)
-const localDeepModel = ref(props.deepAnalysisModel)
+const localAnalystModel = ref(props.analystModel)
+const localDebateModel = ref(props.debateModel)
 
 // 模型推荐提示
 const modelRecommendation = ref<{
   title: string
   message: string
   type: 'success' | 'warning' | 'info' | 'error'
-  quickModel?: string
-  deepModel?: string
+  analystModel?: string
+  debateModel?: string
 } | null>(null)
 
 // Watch props changes
-watch(() => props.quickAnalysisModel, (newVal) => {
-  localQuickModel.value = newVal
+watch(() => props.analystModel, (newVal) => {
+  localAnalystModel.value = newVal
 })
 
-watch(() => props.deepAnalysisModel, (newVal) => {
-  localDeepModel.value = newVal
+watch(() => props.debateModel, (newVal) => {
+  localDebateModel.value = newVal
 })
 
 // Emit changes
-const onQuickModelChange = (value: string) => {
-  emit('update:quickAnalysisModel', value)
+const onAnalystModelChange = (value: string) => {
+  emit('update:analystModel', value)
 }
 
-const onDeepModelChange = (value: string) => {
-  emit('update:deepAnalysisModel', value)
+const onDebateModelChange = (value: string) => {
+  emit('update:debateModel', value)
 }
 
 /**
@@ -196,90 +195,57 @@ const getCapabilityTagType = (level: number): 'success' | 'info' | 'warning' | '
 }
 
 /**
- * 判断是否适合快速分析
+ * 判断是否适合一阶段分析
  */
-const isQuickAnalysisRole = (roles: string[] | undefined): boolean => {
+const isAnalystRole = (roles: string[] | undefined): boolean => {
   if (!roles || !Array.isArray(roles)) return false
-  return roles.includes('quick_analysis') || roles.includes('both')
+  return roles.includes('analyst') || roles.includes('both')
 }
 
 /**
- * 判断是否适合深度分析
+ * 判断是否适合辩论推理
  */
-const isDeepAnalysisRole = (roles: string[] | undefined): boolean => {
+const isDebateRole = (roles: string[] | undefined): boolean => {
   if (!roles || !Array.isArray(roles)) return false
-  return roles.includes('deep_analysis') || roles.includes('both')
+  return roles.includes('debate') || roles.includes('both')
 }
 
 /**
  * 检查模型适配性并提供推荐
  */
 const checkModelSuitability = async () => {
-  // 将分析深度转换为标准格式
-  let depthName: string
-  if (typeof props.analysisDepth === 'number') {
-    const depthNames: Record<number, string> = {
-      1: '快速',
-      2: '基础',
-      3: '标准',
-      4: '深度',
-      5: '全面'
-    }
-    depthName = depthNames[props.analysisDepth] || '标准'
-  } else {
-    depthName = props.analysisDepth
-  }
-
   try {
     // 获取推荐模型
-    const recommendRes = await recommendModels(depthName)
+    const recommendRes = await recommendModels()
     const responseData = recommendRes?.data?.data
 
     if (responseData) {
-      const quickModel = responseData.quick_model || '未知'
-      const deepModel = responseData.deep_model || '未知'
+      const analystModel = responseData.analyst_model || '未知'
+      const debateModel = responseData.debate_model || '未知'
 
       // 获取模型的显示名称
-      const quickModelInfo = props.availableModels.find(m => m.model_name === quickModel)
-      const deepModelInfo = props.availableModels.find(m => m.model_name === deepModel)
+      const analystModelInfo = props.availableModels.find(m => m.model_name === analystModel)
+      const debateModelInfo = props.availableModels.find(m => m.model_name === debateModel)
 
-      const quickDisplayName = quickModelInfo?.model_display_name || quickModel
-      const deepDisplayName = deepModelInfo?.model_display_name || deepModel
+      const analystDisplayName = analystModelInfo?.model_display_name || analystModel
+      const debateDisplayName = debateModelInfo?.model_display_name || debateModel
 
       // 获取推荐理由
       const reason = responseData.reason || ''
 
-      // 构建推荐说明
-      const depthDescriptions: Record<string, string> = {
-        '快速': '快速浏览，获取基本信息',
-        '基础': '基础分析，了解主要指标',
-        '标准': '标准分析，全面评估股票',
-        '深度': '深度研究，挖掘投资机会',
-        '全面': '全面分析，专业投资决策'
-      }
-
-      const message = `${depthDescriptions[depthName] || '标准分析'}\n\n推荐模型配置：\n• 快速模型：${quickDisplayName}\n• 深度模型：${deepDisplayName}\n\n${reason}`
+      const message = `推荐模型配置：\n• 分析师模型：${analystDisplayName}\n• 辩论模型：${debateDisplayName}\n\n${reason}`
 
       modelRecommendation.value = {
         title: '💡 模型推荐',
         message,
         type: 'info',
-        quickModel,
-        deepModel
+        analystModel,
+        debateModel
       }
     } else {
-      // 如果没有推荐数据，显示通用说明
-      const generalDescriptions: Record<string, string> = {
-        '快速': '快速分析：使用基础模型即可，注重速度和成本',
-        '基础': '基础分析：快速模型用基础级，深度模型用标准级',
-        '标准': '标准分析：快速模型用基础级，深度模型用标准级以上',
-        '深度': '深度分析：快速模型用标准级，深度模型用高级以上，需要推理能力',
-        '全面': '全面分析：快速模型用标准级，深度模型用专业级以上，强推理能力'
-      }
-
       modelRecommendation.value = {
         title: '💡 模型推荐',
-        message: generalDescriptions[depthName] || generalDescriptions['标准'],
+        message: '推荐根据模型能力自动选择最佳模型配置',
         type: 'info'
       }
     }
@@ -292,12 +258,12 @@ const checkModelSuitability = async () => {
  * 应用推荐的模型配置
  */
 const applyRecommendedModels = () => {
-  if (modelRecommendation.value?.quickModel && modelRecommendation.value?.deepModel) {
-    localQuickModel.value = modelRecommendation.value.quickModel
-    localDeepModel.value = modelRecommendation.value.deepModel
-    
-    emit('update:quickAnalysisModel', modelRecommendation.value.quickModel)
-    emit('update:deepAnalysisModel', modelRecommendation.value.deepModel)
+  if (modelRecommendation.value?.analystModel && modelRecommendation.value?.debateModel) {
+    localAnalystModel.value = modelRecommendation.value.analystModel
+    localDebateModel.value = modelRecommendation.value.debateModel
+
+    emit('update:analystModel', modelRecommendation.value.analystModel)
+    emit('update:debateModel', modelRecommendation.value.debateModel)
 
     // 清除推荐提示
     modelRecommendation.value = null
@@ -306,13 +272,8 @@ const applyRecommendedModels = () => {
   }
 }
 
-// 监听分析深度变化
-watch(() => props.analysisDepth, () => {
-  checkModelSuitability()
-})
-
 // 监听模型选择变化
-watch([localQuickModel, localDeepModel], () => {
+watch([localAnalystModel, localDebateModel], () => {
   checkModelSuitability()
 })
 

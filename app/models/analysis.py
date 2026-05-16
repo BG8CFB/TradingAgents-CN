@@ -31,26 +31,24 @@ class BatchStatus(str, Enum):
 
 
 class AnalysisParameters(BaseModel):
-    """分析参数模型（已移除分级深度概念，保留字段仅为兼容）"""
+    """分析参数模型"""
     market_type: str = "A股"
     analysis_date: Optional[datetime] = None
-    # ⚠️ 兼容字段：前端已取消分级分析，本字段仅为兼容旧数据，不再驱动任何逻辑
-    research_depth: Optional[str] = Field(default="不分级")
     selected_analysts: List[str] = Field(default_factory=list)
     custom_prompt: Optional[str] = None
     include_sentiment: bool = True
     include_risk: bool = True
     language: str = "zh-CN"
     # 模型配置
-    quick_analysis_model: Optional[str] = "qwen-turbo"
-    deep_analysis_model: Optional[str] = "qwen-max"
+    analyst_model: Optional[str] = "qwen-turbo"
+    debate_model: Optional[str] = "qwen-max"
 
     # 阶段配置
     phase2_enabled: bool = False
     phase2_debate_rounds: int = 2
     phase3_enabled: bool = False
     phase3_debate_rounds: int = 2
-    phase4_enabled: bool = False
+    phase4_enabled: bool = True  # 交易员始终执行
     phase4_debate_rounds: int = 1
 
     # MCP工具

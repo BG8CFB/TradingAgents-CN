@@ -81,19 +81,17 @@ class ReportExporter:
         stock_symbol = report_doc.get("stock_symbol", "unknown")
         analysis_date = report_doc.get("analysis_date", "")
         analysts = report_doc.get("analysts", [])
-        research_depth = report_doc.get("research_depth", 1)
         reports = report_doc.get("reports", {})
         summary = report_doc.get("summary", "")
-        
+
         content_parts = []
-        
+
         # 标题和元信息
         content_parts.append(f"# {stock_symbol} 股票分析报告")
         content_parts.append("")
         content_parts.append(f"**分析日期**: {analysis_date}")
         if analysts:
             content_parts.append(f"**分析师**: {', '.join(analysts)}")
-        content_parts.append(f"**研究深度**: {research_depth}")
         content_parts.append("")
         content_parts.append("---")
         content_parts.append("")

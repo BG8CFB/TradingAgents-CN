@@ -398,10 +398,10 @@ export const useAuthStore = defineStore('auth', {
         }
 
         // 同步分析偏好
-        if (prefs.default_market || prefs.default_depth || prefs.auto_refresh !== undefined || prefs.refresh_interval) {
+        if (prefs.default_market || prefs.default_debate_rounds !== undefined || prefs.auto_refresh !== undefined || prefs.refresh_interval) {
           appStore.updatePreferences({
             defaultMarket: prefs.default_market as any,
-            defaultDepth: prefs.default_depth as any,
+            defaultDebateRounds: prefs.default_debate_rounds,
             autoRefresh: prefs.auto_refresh,
             refreshInterval: prefs.refresh_interval
           })
