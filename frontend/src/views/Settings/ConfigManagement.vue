@@ -1236,8 +1236,8 @@ const loadProviders = async () => {
     console.log('🔄 开始加载厂家列表...')
     const providerListResp = await configApi.getLLMProviders()
     console.log('📊 厂家列表响应:', providerListResp)
-    providers.value = providerListResp.data
-    console.log('✅ 厂家列表加载成功，数量:', providerListResp.data.length)
+    providers.value = Array.isArray(providerListResp) ? providerListResp : providerListResp.data
+    console.log('✅ 厂家列表加载成功，数量:', providers.value.length)
   } catch (error) {
     console.error('❌ 加载厂家列表失败:', error)
     ElMessage.error('加载厂家列表失败')
@@ -1252,13 +1252,14 @@ const loadLLMConfigs = async () => {
     console.log('🔄 开始加载大模型配置...')
     const configsResp = await configApi.getLLMConfigs()
     console.log('📊 大模型配置响应:', configsResp)
-    llmConfigs.value = configsResp.data
-    console.log('✅ 大模型配置加载成功，数量:', configsResp.data.length)
+    llmConfigs.value = Array.isArray(configsResp) ? configsResp : configsResp.data
+    console.log('✅ 大模型配置加载成功，数量:', llmConfigs.value.length)
 
     // 获取默认LLM
     const systemConfig = await configApi.getSystemConfig()
     console.log('📊 系统配置响应:', systemConfig)
-    defaultLLM.value = systemConfig.data.default_llm || ''
+    const sysData = systemConfig.data || systemConfig
+    defaultLLM.value = sysData.default_llm || ''
 
     // 构建分组数据
     buildLLMConfigGroups()
@@ -1325,11 +1326,12 @@ const loadDataSourceConfigs = async () => {
   dataSourceLoading.value = true
   try {
     const configs = await configApi.getDataSourceConfigs()
-    dataSourceConfigs.value = configs.data
+    dataSourceConfigs.value = Array.isArray(configs) ? configs : configs.data
 
     // 获取默认数据源
     const systemConfig = await configApi.getSystemConfig()
-    defaultDataSource.value = systemConfig.data.default_data_source || ''
+    const sysData = systemConfig.data || systemConfig
+    defaultDataSource.value = sysData.default_data_source || ''
 
     // 加载分组相关数据
     await loadMarketCategories()
@@ -1345,7 +1347,8 @@ const loadDataSourceConfigs = async () => {
 // 加载市场分类
 const loadMarketCategories = async () => {
   try {
-    marketCategories.value = (await configApi.getMarketCategories()).data
+    const resp = await configApi.getMarketCategories()
+    marketCategories.value = Array.isArray(resp) ? resp : resp.data
   } catch (error) {
     console.error('加载市场分类失败:', error)
   }
@@ -1354,7 +1357,8 @@ const loadMarketCategories = async () => {
 // 加载数据源分组关系
 const loadDataSourceGroupings = async () => {
   try {
-    dataSourceGroupings.value = (await configApi.getDataSourceGroupings()).data
+    const resp = await configApi.getDataSourceGroupings()
+    dataSourceGroupings.value = Array.isArray(resp) ? resp : resp.data
   } catch (error) {
     console.error('加载数据源分组关系失败:', error)
   }
@@ -1415,7 +1419,8 @@ const buildDataSourceGroups = () => {
 const loadDatabaseConfigs = async () => {
   databaseLoading.value = true
   try {
-    databaseConfigs.value = (await configApi.getDatabaseConfigs()).data
+    const dbResp = await configApi.getDatabaseConfigs()
+    databaseConfigs.value = Array.isArray(dbResp) ? dbResp : dbResp.data
   } catch (error) {
     ElMessage.error('加载数据库配置失败')
   } finally {

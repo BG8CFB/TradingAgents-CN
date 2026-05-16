@@ -148,7 +148,7 @@ services:
     networks:
       - tradingagents-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -175,7 +175,7 @@ services:
     networks:
       - tradingagents-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -191,14 +191,14 @@ services:
       - "3000:80" 
     volumes:
       # 路径相对于 compose 文件所在目录（项目根目录）
-      - docker/nginx/reverse-proxy.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/reverse-proxy.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - frontend
       - backend
     networks:
       - tradingagents-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3

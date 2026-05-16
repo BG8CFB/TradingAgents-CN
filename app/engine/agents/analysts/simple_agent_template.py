@@ -1,13 +1,15 @@
 """
 第一阶段智能体模板
 
-参考阶段2-4的简单实现模式：
-- 手动构建消息列表
-- 直接 llm.invoke(messages)
-- 手动控制工具调用循环
-- 完全可控的执行流程
-- 🔥 防止工具调用陷入死循环：连续同一工具超过3次触发总结
-- 🔥 S11 修复：添加 LLM 调用速率限制
+重构版本：核心工具调用循环委托给 AgentExecutor，修复所有 P0-P2 问题：
+- P0: bind_tools 只在循环外调用一次
+- P0: 集成 LoopDetector 的 6 维循环检测
+- P1: Token 预算控制 + 自动上下文压缩
+- P1: 工具结果截断 + 结构化错误处理
+- P1: 白名单无效时严格报错而非静默回退
+- P2: 速率限制异常优雅降级
+- P2: 预注入数据保留但优化
+- P2: max_tool_calls 从 20 降到 12
 """
 
 import json
@@ -18,25 +20,9 @@ from app.utils.logging_init import get_logger
 
 logger = get_logger("simple_agent_template")
 
-# 🔥 S11: 导入速率限制器
-try:
-    from app.utils.llm_rate_limiter import get_rate_limiter
-    _RATE_LIMITER_AVAILABLE = True
-except ImportError:
-    _RATE_LIMITER_AVAILABLE = False
-    logger.warning("⚠️ LLM 速率限制器不可用，将不进行速率限制")
-
 
 def format_tool_result(tool_result: Any) -> str:
-    """
-    将工具调用结果转换为字符串格式
-
-    处理规则：
-    - None: 转换为空字符串
-    - dict: 转换为格式化的 JSON 字符串
-    - list: 转换为格式化的 JSON 字符串
-    - 其他类型: 转换为字符串表示
-    """
+    """将工具调用结果转换为字符串格式（向后兼容）"""
     if tool_result is None:
         return ""
     elif isinstance(tool_result, dict):
@@ -47,75 +33,10 @@ def format_tool_result(tool_result: Any) -> str:
         return str(tool_result)
 
 
-def _execute_tool_calls(
-    agent_name: str,
-    response: Any,
-    tools: List[Any],
-    messages: List,
-) -> int:
-    """执行 response 中的所有工具调用，将结果追加到 messages。返回执行的工具数量。"""
-    executed = 0
-    for tool_call in response.tool_calls:
-        if isinstance(tool_call, dict):
-            tool_name = tool_call.get("name", "")
-            tool_args = tool_call.get("args", {})
-            tool_call_id = tool_call.get("id", "")
-        else:
-            tool_name = getattr(tool_call, "name", "")
-            tool_args = getattr(tool_call, "args", {})
-            tool_call_id = getattr(tool_call, "id", "")
-
-        logger.info(f"🔧 [{agent_name}] 调用工具: {tool_name}")
-
-        # 查找工具
-        tool = next((t for t in tools if getattr(t, "name", None) == tool_name), None)
-
-        if tool:
-            try:
-                tool_result = tool.invoke(tool_args)
-                result_str = format_tool_result(tool_result)
-                messages.append(ToolMessage(
-                    content=result_str,
-                    tool_call_id=tool_call_id,
-                    name=tool_name
-                ))
-                executed += 1
-                logger.info(f"✅ [{agent_name}] 工具 {tool_name} 执行成功 (第{executed}次)")
-            except Exception as e:
-                logger.error(f"❌ [{agent_name}] 工具 {tool_name} 执行失败: {e}", exc_info=True)
-                messages.append(ToolMessage(
-                    content=f"工具调用失败: {str(e)}",
-                    tool_call_id=tool_call_id,
-                    name=tool_name
-                ))
-                executed += 1
-                logger.warning(f"⚠️ [{agent_name}] 工具 {tool_name} 执行失败，继续尝试")
-        else:
-            logger.warning(f"⚠️ [{agent_name}] 工具 {tool_name} 未找到")
-            executed += 1
-            messages.append(ToolMessage(
-                content=f"工具 {tool_name} 未找到",
-                tool_call_id=tool_call_id,
-                name=tool_name
-            ))
-    return executed
-
-
-def _build_tool_signature(response: Any) -> Optional[str]:
-    """从 LLM 响应中提取排序后的工具调用签名（用于循环检测）。"""
-    names = []
-    for tc in (response.tool_calls or []):
-        tc_name = tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
-        if tc_name:
-            names.append(tc_name)
-    return ",".join(sorted(names)) if names else None
-
-
 # === 自动数据注入：工具参数映射 ===
 # 格式: tool_name → {参数名: inject_context 字段或固定值}
 # inject_context 提供: ticker, trade_date, company_name
 _INJECT_TOOL_ARGS_MAP: Dict[str, Dict[str, Any]] = {
-    # ticker 参数名映射（不同工具使用不同的参数名）
     "get_stock_data": {"stock_code": "ticker"},
     "get_stock_data_minutes": {"stock_code": "ticker", "market_type": "cn"},
     "get_index_data": {"stock_code": "ticker"},
@@ -127,7 +48,6 @@ _INJECT_TOOL_ARGS_MAP: Dict[str, Dict[str, Any]] = {
     "get_block_trade": {"code": "ticker"},
     "get_money_flow": {"ts_code": "ticker", "query_type": "stock"},
     "get_margin_trade": {"data_type": "margin", "ts_code": "ticker"},
-    # 不依赖 ticker 的工具：仅注入日期
     "get_china_market_overview": {"date": "trade_date"},
     "get_finance_news": {},
     "get_hot_news_7x24": {},
@@ -146,16 +66,9 @@ def _inject_tool_data(
 
     通过在 messages 列表中插入 AIMessage(tool_calls) + ToolMessage(content) 对，
     模拟工具已执行的结果，使 LLM 在第一轮就能看到预加载数据。
-
-    Args:
-        agent_name: 分析师名称（用于日志）
-        inject_tools: 需要预加载的内置工具列表
-        inject_context: 注入上下文 {ticker, trade_date, company_name}
-        messages: 消息列表（就地修改）
     """
     ticker = inject_context.get("ticker", "")
     trade_date = inject_context.get("trade_date", "")
-    # trade_date_compact: YYYYMMDD 格式（龙虎榜/大宗交易等工具需要）
     trade_date_compact = trade_date.replace("-", "") if trade_date and "-" in trade_date else trade_date
 
     context_values = {
@@ -176,22 +89,17 @@ def _inject_tool_data(
             logger.debug(f"🔄 [{agent_name}] 跳过未注册的注入工具: {tool_name}")
             continue
 
-        # 构建工具调用参数
         tool_args = {}
         for arg_name, source in args_map.items():
             if isinstance(source, str) and not source:
-                # 空字符串 = 无需传参
                 continue
-            if isinstance(source, str) and not source.startswith("ticker") and not source.startswith("trade_date") and not source == "date":
-                # 固定值（如 "cn", "stock", "margin"）
+            if isinstance(source, str) and not source.startswith("ticker") and not source.startswith("trade_date") and source != "date":
                 tool_args[arg_name] = source
             else:
-                # 从 inject_context 获取值
                 val = context_values.get(source, "")
                 if val:
                     tool_args[arg_name] = val
 
-        # 跳过没有 ticker 的工具（除非工具本身不需要 ticker）
         needs_ticker = any(
             v in ("ticker",)
             for v in args_map.values()
@@ -201,7 +109,6 @@ def _inject_tool_data(
             logger.debug(f"🔄 [{agent_name}] 跳过 {tool_name}: 缺少 ticker")
             continue
 
-        # 调用工具
         try:
             import uuid
             call_id = f"pre_{uuid.uuid4().hex[:8]}_{tool_name}"
@@ -210,14 +117,9 @@ def _inject_tool_data(
             result = tool.invoke(tool_args)
             result_str = format_tool_result(result)
 
-            # 插入 AIMessage + ToolMessage 对到消息历史
             messages.append(AIMessage(
                 content="",
-                tool_calls=[{
-                    "name": tool_name,
-                    "args": tool_args,
-                    "id": call_id,
-                }]
+                tool_calls=[{"name": tool_name, "args": tool_args, "id": call_id}]
             ))
             messages.append(ToolMessage(
                 content=result_str,
@@ -229,7 +131,6 @@ def _inject_tool_data(
             logger.info(f"✅ [{agent_name}] 预加载成功: {tool_name} ({len(result_str)} 字符)")
         except Exception as e:
             logger.warning(f"⚠️ [{agent_name}] 预加载失败: {tool_name}, 错误: {e}")
-            # 预加载失败不阻断分析流程
             continue
 
     if injected_count > 0:
@@ -242,25 +143,14 @@ def create_simple_agent(
     llm: Any,
     tools: List[Any],
     system_prompt: str,
-    max_tool_calls: int = 20,
+    max_tool_calls: int = 12,
     llm_provider: str = "default",
     inject_tools: Optional[List[Any]] = None,
 ):
     """
     创建简单智能体节点函数
 
-    核心理念（参考阶段2-4）：
-    1. 手动构建消息列表（System + Human + AI history + Tool results）
-    2. llm.invoke(messages)
-    3. 检查是否有工具调用
-    4. 如果有，执行工具并继续
-    5. 如果没有，完成并返回报告
-
-    🔥 防止循环机制：
-    - 最大工具调用次数：20次（硬编码）
-    - 连续同一工具调用检测：如果同一工具连续调用超过3次，触发总结
-
-    🔥 S11 修复：添加 LLM 调用速率限制
+    重构版本：核心循环委托给 AgentExecutor，修复所有已知问题。
 
     Args:
         name: 智能体名称
@@ -268,44 +158,26 @@ def create_simple_agent(
         llm: LLM 实例
         tools: 工具列表
         system_prompt: 系统提示词
-        max_tool_calls: 最大工具调用次数（固定为20）
+        max_tool_calls: 最大工具调用次数（默认 12，从 20 降低）
         llm_provider: LLM 提供商名称（用于速率限制）
-        inject_tools: 需要自动预加载数据的内置工具列表（自动注入到消息上下文）
+        inject_tools: 需要自动预加载数据的内置工具列表
 
     Returns:
         节点函数（可以直接添加到 LangGraph）
     """
-    
-    # 🔥 S11: 获取速率限制器
-    rate_limiter = None
-    if _RATE_LIMITER_AVAILABLE:
-        try:
-            rate_limiter = get_rate_limiter()
-        except Exception as e:
-            logger.warning(f"⚠️ 获取速率限制器失败: {e}")
-    
-    def _invoke_with_rate_limit(llm_instance, messages):
-        """带速率限制的 LLM 调用"""
-        if rate_limiter:
-            return rate_limiter.rate_limited_call(
-                llm_provider,
-                llm_instance.invoke,
-                messages
-            )
-        return llm_instance.invoke(messages)
-    
+
     def simple_agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
         """
         简单智能体节点函数
-        
-        流程（完全参考阶段2的 bull_researcher）：
-        1. 构建系统提示词（包含公司名称、日期等上下文）
-        2. 构建消息列表
-        3. 循环：LLM 调用 → 工具执行 → LLM 调用 → ...
+
+        流程：
+        1. 获取上下文信息
+        2. 构建系统提示词和消息列表
+        3. 委托给 AgentExecutor 执行
         4. 返回更新后的 state
         """
         logger.info(f"🤖 [{name}] 开始分析")
-        
+
         # === 进度追踪 ===
         from app.engine.agents.analysts.dynamic_analyst import ProgressManager
         from app.engine.agents.analysts.simple_agent_factory import SimpleAgentFactory
@@ -314,17 +186,16 @@ def create_simple_agent(
         display_name = f"{icon} {name}"
         task_id = state.get("task_id")
         ProgressManager.node_start(display_name, task_id=task_id)
-        
+
         try:
-            # === 步骤1：获取上下文信息（参考 bull_researcher.py 第50-97行） ===
+            # === 步骤1：获取上下文信息 ===
             ticker = state.get("company_of_interest", "")
             trade_date = state.get("trade_date", "")
-        
-            # 获取公司名称
+
             from app.utils.stock_utils import StockUtils
             market_info = StockUtils.get_market_info(ticker)
-            
-            company_name = ticker  # 默认
+
+            company_name = ticker
             try:
                 if market_info["is_china"]:
                     from app.data.interface import get_china_stock_info_unified
@@ -343,183 +214,100 @@ def create_simple_agent(
                     company_name = us_stock_names.get(ticker.upper(), f"美股{ticker}")
             except Exception as e:
                 logger.warning(f"⚠️ [{name}] 获取公司名称失败: {e}")
-            
-            # 构建上下文前缀（参考 bull_researcher.py 第110-118行）
+
+            # === 步骤2：构建系统提示词 ===
             context_prefix = f"""
 股票代码：{ticker}
 公司名称：{company_name}
 分析日期：{trade_date}
 """
-            
-            # 构建完整系统提示词
             full_system_prompt = context_prefix + "\n\n" + system_prompt
-            
-            # === 步骤2：构建初始消息列表（参考 bull_researcher.py 第120行） ===
+
+            # === 步骤3：构建初始消息并委托给 AgentExecutor ===
             messages = [SystemMessage(content=full_system_prompt)]
-            
-            # 添加任务描述
             task_message = f"请对股票 {company_name} ({ticker}) 进行全面分析，交易日期：{trade_date}"
             messages.append(HumanMessage(content=task_message))
 
-            # === 自动数据注入：预加载内置工具数据到消息上下文 ===
-            if inject_tools:
-                inject_ctx = {
+            # 获取速率限制器（可选）
+            rate_limiter = None
+            try:
+                from app.utils.llm_rate_limiter import get_rate_limiter
+                rate_limiter = get_rate_limiter()
+            except Exception:
+                pass
+
+            from app.engine.agents.executors import AgentExecutor
+
+            executor = AgentExecutor(
+                llm=llm,
+                tools=tools,
+                max_iterations=max_tool_calls,
+                system_prompt=full_system_prompt,
+                rate_limiter=rate_limiter,
+                llm_provider=llm_provider,
+                inject_tools=inject_tools,
+                inject_context={
                     "ticker": ticker,
                     "trade_date": trade_date,
                     "company_name": company_name,
-                }
-                _inject_tool_data(
-                    name, inject_tools, inject_ctx, messages
+                },
+            )
+
+            result = executor.execute(messages)
+
+            final_report = result.final_report
+
+            if result.loop_detected:
+                logger.warning(
+                    f"⚠️ [{name}] 检测到工具调用循环 ({result.loop_type}), "
+                    f"在第 {result.iterations} 次迭代时强制停止"
+                )
+            elif result.forced_stop:
+                logger.warning(
+                    f"⚠️ [{name}] 达到最大迭代次数 ({result.iterations}), 强制总结"
+                )
+            else:
+                logger.info(
+                    f"✅ [{name}] 分析完成: {result.iterations} 迭代, "
+                    f"{result.tool_calls_executed} 工具调用"
                 )
 
-            # === 步骤3：LLM + 工具调用循环（参考 GenericAgent，但简化） ===
-            tool_call_count = 0
-            final_report = ""
-            
-            # 🔥 防止循环机制：记录连续调用同一工具的次数
-            last_tool_name = None
-            consecutive_same_tool_count = 0
-            MAX_CONSECUTIVE_SAME_TOOL = 3  # 连续同一工具最大调用次数
-            
-            logger.info(f"🔧 [{name}] 开始分析循环，最大工具调用次数: {max_tool_calls}")
-            
-            while tool_call_count < max_tool_calls:
-                # 调用 LLM
-                logger.debug(f"🧠 [{name}] 第 {tool_call_count + 1} 次 LLM 调用")
-                
-                try:
-                    # 绑定工具到 LLM
-                    llm_with_tools = llm.bind_tools(tools)
-                    # 🔥 S11: 使用速率限制的调用
-                    response = _invoke_with_rate_limit(llm_with_tools, messages)
-                    logger.debug(f"✅ [{name}] LLM 调用成功，响应类型: {type(response).__name__}")
-                except Exception as e:
-                    logger.error(f"❌ [{name}] LLM 调用失败: {e}", exc_info=True)
-                    # LLM 调用失败，使用当前最后的消息作为报告
-                    last_ai_message = [msg for msg in messages if isinstance(msg, AIMessage)][-1] if messages else None
-                    if last_ai_message:
-                        final_report = last_ai_message.content
-                        logger.warning(f"⚠️ [{name}] LLM 调用失败，使用最后一条消息作为报告")
-                    else:
-                        final_report = f"❌ 分析失败：LLM 调用异常 - {str(e)}"
-                    break
-                
-                # 检查是否有工具调用
-                if hasattr(response, "tool_calls") and response.tool_calls:
-                    logger.info(f"🔧 [{name}] 检测到 {len(response.tool_calls)} 个工具调用")
-
-                    # 🔥 循环检测：使用辅助函数提取工具签名
-                    current_tool_name = _build_tool_signature(response)
-
-                    # 检查连续调用同一工具组合
-                    if current_tool_name == last_tool_name and current_tool_name:
-                        consecutive_same_tool_count += 1
-                        logger.warning(f"⚠️ [{name}] 连续调用相同工具组合 [{current_tool_name}] 第 {consecutive_same_tool_count} 次")
-
-                        # 🔥 触发总结机制：连续相同工具组合超过3次
-                        if consecutive_same_tool_count >= MAX_CONSECUTIVE_SAME_TOOL:
-                            logger.warning(f"🚨 [{name}] 检测到工具调用死循环！连续调用 [{current_tool_name}] 超过 {MAX_CONSECUTIVE_SAME_TOOL} 次，触发总结机制")
-
-                            # 先添加 AI 响应到消息历史（即使触发总结也要保留）
-                            messages.append(response)
-
-                            # 添加强制总结指令
-                            force_summary_prompt = HumanMessage(
-                                content=f"""
-🚨【系统紧急指令】🚨
-
-检测到工具调用可能陷入循环（连续调用 {current_tool_name} 超过 {MAX_CONSECUTIVE_SAME_TOOL} 次）。
-
-请立即停止调用任何工具，基于已获取的所有工具结果，生成最终分析报告。
-
-不要再调用任何工具！直接输出完整的分析报告内容。
-"""
-                            )
-                            messages.append(force_summary_prompt)
-
-                            # 最后一次 LLM 调用（不绑定工具，强制生成报告）
-                            try:
-                                final_response = _invoke_with_rate_limit(llm, messages)
-                                final_report = final_response.content
-                                messages.append(final_response)
-                                logger.info(f"✅ [{name}] 强制总结完成，报告长度: {len(final_report)} 字符")
-                            except Exception as e:
-                                logger.error(f"❌ [{name}] 强制总结失败: {e}", exc_info=True)
-                                last_ai_message = [msg for msg in messages if isinstance(msg, AIMessage)][-1] if messages else None
-                                if last_ai_message:
-                                    final_report = last_ai_message.content
-                                else:
-                                    final_report = f"❌ 分析失败：工具调用陷入循环，且强制总结失败"
-                            break
-                    else:
-                        # 工具切换或首次调用，重置计数器
-                        if current_tool_name:
-                            consecutive_same_tool_count = 1
-                            last_tool_name = current_tool_name
-
-                    # 执行工具调用（只有在未触发总结机制时才执行）
-                    if not final_report:
-                        messages.append(response)
-                        tool_call_count += _execute_tool_calls(name, response, tools, messages)
-                else:
-                    # 没有工具调用，说明已完成
-                    logger.info(f"✅ [{name}] 分析完成（未检测到工具调用）")
-                    final_report = response.content
-                    messages.append(response)
-                    break
-            
-            # 如果达到最大工具调用次数还没有完成，强制使用最后一条消息作为报告
-            if not final_report:
-                last_ai_message = [msg for msg in messages if isinstance(msg, AIMessage)][-1] if messages else None
-                if last_ai_message:
-                    final_report = last_ai_message.content
-                    logger.warning(f"⚠️ [{name}] 达到最大工具调用次数 ({max_tool_calls})，使用最后一条消息作为报告")
-                else:
-                    final_report = "❌ 分析未完成：没有生成任何报告"
-                    logger.error(f"❌ [{name}] 分析未完成：没有生成任何报告")
-            
-            # === 步骤4：更新 state 并返回（参考 bull_researcher.py 第261-267行） ===
+            # === 步骤4：更新 state 并返回 ===
             internal_key = slug.replace("-analyst", "").replace("-", "_")
             report_key = f"{internal_key}_report"
-            
-            logger.info(f"✅ [{name}] 分析完成，报告长度: {len(final_report)} 字符")
-            
-            # 进度追踪：节点执行完成
+
+            logger.info(f"✅ [{name}] 报告长度: {len(final_report)} 字符")
+
             ProgressManager.node_end(display_name, task_id=task_id)
-            
-            # 🔥 只返回报告内容，不返回完整消息历史，避免 token 溢出
-            # 参考 dynamic_analyst.py 中 analyst_subgraph_node 的实现
+
             final_message = AIMessage(content=final_report) if final_report else None
-            
+
             return {
-                **state,  # 保留所有原有字段
-                "messages": [final_message] if final_message else [],  # 🔥 只返回最后一条消息（报告）
-                report_key: final_report,  # 添加报告
+                **state,
+                "messages": [final_message] if final_message else [],
+                report_key: final_report,
                 "reports": {
                     **state.get("reports", {}),
-                    report_key: final_report  # 合并到 reports 字典
+                    report_key: final_report,
                 }
             }
         except Exception as e:
-            # 确保进度追踪在异常时也能结束
             task_id = state.get("task_id")
             ProgressManager.node_end(display_name, task_id=task_id)
             logger.error(f"❌ [{name}] 分析过程中发生异常: {e}", exc_info=True)
-            
-            # 返回错误报告
+
             internal_key = slug.replace("-analyst", "").replace("-", "_")
             report_key = f"{internal_key}_report"
             error_report = f"❌ 分析失败：{str(e)}"
-            
+
             return {
                 **state,
                 report_key: error_report,
                 "messages": [AIMessage(content=error_report)],
                 "reports": {
                     **state.get("reports", {}),
-                    report_key: error_report
+                    report_key: error_report,
                 }
             }
-    
-    return simple_agent_node
 
+    return simple_agent_node

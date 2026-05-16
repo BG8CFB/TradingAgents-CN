@@ -45,7 +45,7 @@ class DataSourceManager:
             from app.services.data_sources.data_consistency_checker import DataConsistencyChecker
             self.consistency_checker = DataConsistencyChecker()
         except Exception:
-            logger.warning("⚠️ 数据一致性检查器不可用")
+            logger.debug("⚠️ 数据一致性检查器不可用")
             self.consistency_checker = None
 
     def _load_priority_from_database(self):
@@ -115,7 +115,7 @@ class DataSourceManager:
                     f"Data source {adapter.name} is available (priority: {adapter.priority})"
                 )
             else:
-                logger.warning(f"Data source {adapter.name} is not available")
+                logger.debug(f"Data source {adapter.name} is not available")
         return available
 
     def _save_kline_to_db(self, code: str, items: List[Dict], source: str, period: str):

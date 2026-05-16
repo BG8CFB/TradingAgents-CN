@@ -125,7 +125,7 @@ def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
                     name for name, detail in summary['details'].items()
                     if not detail['available']
                 ]
-                logger.warning(f"   不可用工具: {', '.join(unavailable_names)}")
+                logger.debug(f"   不可用工具: {', '.join(unavailable_names)}")
 
     logger.info(f"✅ 内置工具加载完成: {len(all_tools)} 个")
     return all_tools

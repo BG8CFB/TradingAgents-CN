@@ -1,11 +1,14 @@
 """
 MCP 工具管理 API 测试
 
-测试工具管理路由的功能、数据结构和端点行为
+测试工具管理路由的功能、数据结构和端点行为。
+直接调用真实的数据结构和函数，不使用 patch/MagicMock。
 """
 
+import os
+import json
+import tempfile
 import pytest
-from unittest.mock import patch, AsyncMock
 
 
 class TestMCPToolsAPI:
@@ -48,19 +51,37 @@ class TestMCPToolsAPI:
 
     def test_disabled_tools_file_handling(self):
         """验证禁用工具文件读写"""
-        from app.routers.tools import _get_disabled_tools, _save_disabled_tools
+        from app.routers.tools import _get_disabled_tools
 
         disabled = _get_disabled_tools()
         assert isinstance(disabled, set)
 
-    def test_disabled_tools_save_and_load(self):
-        """验证禁用工具的保存和读取"""
-        from app.routers.tools import _get_disabled_tools, _save_disabled_tools
+    def test_disabled_tools_save_and_load(self, tmp_path):
+        """验证禁用工具的保存和读取（使用临时文件）"""
+        from app.routers.tools import _save_disabled_tools
+        from pathlib import Path
+        import app.routers.tools as tools_module
 
-        test_tools = {"test_tool_1", "test_tool_2"}
-        with patch("app.routers.tools._save_disabled_tools") as mock_save:
-            mock_save(test_tools)
-            mock_save.assert_called_once_with(test_tools)
+        # 备份原始文件路径
+        original_file = tools_module._DISABLED_TOOLS_FILE
+
+        try:
+            # 使用临时文件替代
+            temp_file = tmp_path / "disabled_tools.json"
+            tools_module._DISABLED_TOOLS_FILE = temp_file
+
+            test_tools = {"test_tool_1", "test_tool_2"}
+            _save_disabled_tools(test_tools)
+
+            # 验证文件内容
+            assert temp_file.exists()
+            with open(temp_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            assert set(data["disabled"]) == test_tools
+
+        finally:
+            # 恢复原始文件路径
+            tools_module._DISABLED_TOOLS_FILE = original_file
 
     def test_mcp_tool_categories(self):
         """验证工具分类合理"""

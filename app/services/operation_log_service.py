@@ -268,17 +268,20 @@ async def log_operation(
     user_agent: Optional[str] = None,
     session_id: Optional[str] = None
 ) -> str:
-    """记录操作日志的便捷函数"""
-    service = get_operation_log_service()
-    log_data = OperationLogCreate(
-        action_type=action_type,
-        action=action,
-        details=details,
-        success=success,
-        error_message=error_message,
-        duration_ms=duration_ms,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        session_id=session_id
-    )
-    return await service.create_log(user_id, username, log_data, ip_address, user_agent)
+    """记录操作日志的便捷函数（日志失败不影响主流程）"""
+    try:
+        service = get_operation_log_service()
+        log_data = OperationLogCreate(
+            action_type=action_type,
+            action=action,
+            details=details,
+            success=success,
+            error_message=error_message,
+            duration_ms=duration_ms,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            session_id=session_id
+        )
+        return await service.create_log(user_id, username, log_data, ip_address, user_agent)
+    except Exception:
+        return ""

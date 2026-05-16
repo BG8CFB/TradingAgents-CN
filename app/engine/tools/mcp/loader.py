@@ -8,15 +8,13 @@ MCP 工具加载器 - 应用级基础设施版本
 核心设计原则：
 1. 应用级生命周期管理：在应用启动时建立连接，关闭时清理
 2. 连接复用：所有任务共享同一个 MCP 连接池
-3. 子进程跟踪：使用 psutil 跟踪所有子进程，确保正确清理
-4. 健康检查：定期检查服务器状态，自动重启失败的进程
-5. 配置手动重载：配置变更不自动触发重载，需手动调用
+3. 健康检查：基于 MCP 协议 ping 机制（send_ping），定期检查服务器状态
+4. 配置手动重载：配置变更不自动触发重载，需手动调用
 """
 import asyncio
 import atexit
 import logging
 import os
-import signal
 import time
 from datetime import datetime
 from app.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
@@ -44,6 +42,15 @@ except ImportError:
     LANGCHAIN_MCP_AVAILABLE = False
     logger.warning("langchain-mcp-adapters 未安装，外部 MCP 服务器不可用")
 
+# MCP Python SDK — 用于创建持久 ping 会话
+try:
+    from mcp.client.stdio import stdio_client as mcp_stdio_client, StdioServerParameters
+    from mcp.client.session import ClientSession as MCPClientSession
+    MCP_SDK_AVAILABLE = True
+except ImportError:
+    MCP_SDK_AVAILABLE = False
+    logger.warning("mcp SDK 未安装，MCP ping 健康检查不可用")
+
 # 检查 LangChain 工具是否可用
 try:
     from langchain_core.tools import tool, StructuredTool, BaseTool
@@ -54,14 +61,6 @@ except ImportError:
     BaseTool = None  # type: ignore
     tool = None  # type: ignore
     logger.warning("langchain-core 未安装，工具转换功能受限")
-
-# 检查 psutil 是否可用（用于子进程跟踪）
-try:
-    import psutil
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    PSUTIL_AVAILABLE = False
-    logger.warning("psutil 未安装，子进程跟踪功能受限")
 
 # 可选：用于识别并展开 RunnableBinding（langchain-mcp-adapters 输出常见类型）
 try:
@@ -114,8 +113,7 @@ class MCPToolLoaderFactory:
     核心设计原则：
     1. 应用级生命周期管理：在应用启动时建立连接，关闭时清理
     2. 连接复用：所有任务共享同一个 MCP 连接池
-    3. 子进程跟踪：使用 psutil 跟踪所有子进程
-    4. 健康检查：定期检查服务器状态，自动重启失败的进程
+    3. 健康检查：基于 MCP 协议 ping（send_ping），通过持久 ClientSession 检测
 
     支持两种传输模式：
     - stdio: 通过子进程通信的本地服务器
@@ -147,8 +145,9 @@ class MCPToolLoaderFactory:
         # 初始化锁，防止并发调用导致重复初始化
         self._lock = asyncio.Lock()
 
-        # 子进程跟踪：{server_name: [pid1, pid2, ...]}
-        self._tracked_pids: Dict[str, List[int]] = {}
+        # MCP 协议 ping 健康检查会话
+        # {server_name: (exit_stack, session)}
+        self._ping_sessions: Dict[str, tuple] = {}
 
         # 服务器重启计数：{server_name: count}
         self._restart_counts: Dict[str, int] = {}
@@ -326,151 +325,84 @@ class MCPToolLoaderFactory:
         return tool
 
     # ------------------------------------------------------------------
-    # 子进程跟踪（使用 psutil）
+    # MCP 协议 Ping 会话管理
     # ------------------------------------------------------------------
-    async def _track_subprocess_for_server(self, server_name: str, command: str) -> None:
+    async def _create_ping_session(self, server_name: str, params: Dict[str, Any]) -> bool:
         """
-        跟踪指定服务器的子进程
+        为指定服务器创建持久的 MCP ClientSession，用于 send_ping() 健康检查。
 
-        通过查找匹配命令行参数的进程来跟踪 MultiServerMCPClient 创建的子进程。
-
-        注意：
-        - 子进程跟踪失败不影响服务器可用性
-        - 对于需要下载包的 npx 命令，等待时间需要更长
-        - 跟踪失败只会记录警告，不会导致服务器初始化失败
+        使用 MCP Python SDK 直接创建会话，与 langchain-mcp-adapters 的
+        工具加载客户端独立。stdio 模式下会保持子进程存活。
         """
-        if not PSUTIL_AVAILABLE:
-            logger.warning(f"[MCP] psutil 不可用，无法跟踪服务器 {server_name} 的子进程")
-            return
+        if not MCP_SDK_AVAILABLE:
+            logger.debug(f"[MCP] MCP SDK 不可用，跳过 ping 会话创建: {server_name}")
+            return False
+
+        transport = params.get("transport", "")
 
         try:
-            # 等待子进程启动
-            # 对于需要下载包的 npx 命令，可能需要更长时间
-            # 这里等待 8 秒，给子进程足够的启动时间
-            wait_time = 8.0
-            logger.debug(f"[MCP] 等待 {wait_time} 秒以跟踪服务器 {server_name} 的子进程...")
-            await asyncio.sleep(wait_time)
+            from contextlib import AsyncExitStack
 
-            # 获取当前进程的所有子进程
-            current_process = psutil.Process()
-            children = current_process.children(recursive=True)
+            stack = AsyncExitStack()
 
-            # 构建匹配关键词：命令名和常见参数
-            match_keywords = [command]
-            # 添加命令的不带路径版本
-            match_keywords.append(command.split("/")[-1])
-            match_keywords.append(command.split("\\")[-1])
-            # 对于 npx 命令，添加包名
-            if "npx" in command.lower():
-                parts = command.split()
-                for part in parts:
-                    if part.startswith("@") or "/" in part:
-                        match_keywords.append(part)
-
-            # 查找匹配的进程
-            matched_pids = []
-            for child in children:
-                try:
-                    cmdline_parts = child.cmdline()
-                    if not cmdline_parts:
-                        continue
-                    cmdline_str = " ".join(cmdline_parts).lower()
-                    command_lower = command.lower()
-
-                    # 更灵活的匹配逻辑
-                    is_match = (
-                        command_lower in cmdline_str or
-                        any(kw.lower() in cmdline_str for kw in match_keywords) or
-                        any(kw.lower() in " ".join(cmdline_parts).lower()
-                            for kw in match_keywords)
-                    )
-
-                    if is_match:
-                        matched_pids.append(child.pid)
-                        logger.debug(f"[MCP] 跟踪子进程: {server_name} -> PID {child.pid}, 命令: {cmdline_parts[:2]}")
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-
-            if matched_pids:
-                self._tracked_pids[server_name] = matched_pids
-                logger.info(f"[MCP] 已跟踪服务器 {server_name} 的 {len(matched_pids)} 个子进程")
-            else:
-                # 子进程跟踪失败只记录警告，不影响服务器可用性
-                logger.warning(
-                    f"[MCP] 未找到服务器 {server_name} 的子进程 "
-                    f"(命令: {command})，但这不影响服务器功能"
+            if transport == "stdio":
+                server_params = StdioServerParameters(
+                    command=params["command"],
+                    args=params.get("args", []),
+                    env=params.get("env"),
                 )
+                read_stream, write_stream = await stack.enter_async_context(
+                    mcp_stdio_client(server_params)
+                )
+                session = await stack.enter_async_context(
+                    MCPClientSession(read_stream, write_stream)
+                )
+                await session.initialize()
+                self._ping_sessions[server_name] = (stack, session)
+                logger.info(f"[MCP] ping 会话已建立: {server_name}")
+                return True
+
+            # HTTP 类型暂不支持持久 ping 会话，回退到客户端实例检查
+            logger.debug(f"[MCP] 传输类型 {transport} 暂不支持 ping 会话: {server_name}")
+            return False
 
         except Exception as e:
-            # 子进程跟踪失败只记录警告，不影响服务器可用性
-            logger.warning(f"[MCP] 跟踪服务器 {server_name} 子进程失败: {e}，但这不影响服务器功能")
-
-    def _terminate_server_subprocesses(self, server_name: str) -> None:
-        """终止指定服务器的所有子进程"""
-        if server_name not in self._tracked_pids:
-            return
-
-        pids = self._tracked_pids[server_name]
-        if not pids:
-            return
-
-        logger.info(f"[MCP] 正在终止服务器 {server_name} 的 {len(pids)} 个子进程...")
-
-        for pid in pids:
-            try:
-                if PSUTIL_AVAILABLE:
-                    try:
-                        process = psutil.Process(pid)
-                        if process.is_running():
-                            process.terminate()
-                        logger.debug(f"[MCP] 已终止子进程: PID {pid}")
-                    except psutil.NoSuchProcess:
-                        logger.debug(f"[MCP] 子进程已不存在: PID {pid}")
-                    except psutil.AccessDenied:
-                        logger.warning(f"[MCP] 无权限终止子进程: PID {pid}")
-                else:
-                    # 降级方案：使用 os.kill
-                    try:
-                        sig = signal.SIGTERM if hasattr(signal, 'SIGTERM') else signal.SIGINT
-                        os.kill(pid, sig)
-                        logger.debug(f"[MCP] 已终止子进程: PID {pid}")
-                    except ProcessLookupError:
-                        logger.debug(f"[MCP] 子进程已不存在: PID {pid}")
-            except Exception as e:
-                logger.warning(f"[MCP] 终止子进程失败 (PID {pid}): {e}")
-
-        del self._tracked_pids[server_name]
-
-    def _has_live_stdio_process(self, server_name: str) -> bool:
-        """基于真实进程状态检测 stdio 服务器是否仍然存活。"""
-        tracked_pids = self._tracked_pids.get(server_name) or []
-        if not tracked_pids:
-            logger.debug(f"[MCP] 服务器 {server_name} 未记录可探测的 stdio 进程")
+            logger.warning(f"[MCP] 创建 ping 会话失败: {server_name} - {e}")
             return False
 
-        if not PSUTIL_AVAILABLE:
-            logger.warning(f"[MCP] 无法探测服务器 {server_name} 的 stdio 进程状态：psutil 不可用")
+    async def _close_ping_session(self, server_name: str) -> None:
+        """关闭指定服务器的 ping 会话。"""
+        if server_name not in self._ping_sessions:
+            return
+
+        stack, _ = self._ping_sessions.pop(server_name)
+        try:
+            await stack.aclose()
+            logger.debug(f"[MCP] ping 会话已关闭: {server_name}")
+        except Exception as e:
+            logger.warning(f"[MCP] 关闭 ping 会话失败: {server_name} - {e}")
+
+    async def _ping_server(self, server_name: str, timeout: float = 5.0) -> bool:
+        """
+        通过 MCP 协议 send_ping() 检查服务器是否存活。
+
+        Returns:
+            True = ping 成功，服务器健康
+            False = ping 失败或无可用会话
+        """
+        if server_name not in self._ping_sessions:
             return False
 
-        live_pids: List[int] = []
-        for pid in tracked_pids:
-            try:
-                process = psutil.Process(pid)
-                if process.is_running() and process.status() != psutil.STATUS_ZOMBIE:
-                    live_pids.append(pid)
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
-            except Exception as exc:
-                logger.debug(f"[MCP] 检查服务器 {server_name} 进程 {pid} 失败: {exc}")
-
-        if live_pids:
-            if live_pids != tracked_pids:
-                self._tracked_pids[server_name] = live_pids
+        _, session = self._ping_sessions[server_name]
+        try:
+            await asyncio.wait_for(session.send_ping(), timeout=timeout)
             return True
-
-        logger.warning(f"[MCP] 服务器 {server_name} 的 stdio 进程均不可用: {tracked_pids}")
-        self._tracked_pids.pop(server_name, None)
-        return False
+        except asyncio.TimeoutError:
+            logger.warning(f"[MCP] ping 超时 ({timeout}s): {server_name}")
+            return False
+        except Exception as e:
+            logger.warning(f"[MCP] ping 失败: {server_name} - {e}")
+            return False
 
     # ------------------------------------------------------------------
     # 重启管理
@@ -708,6 +640,7 @@ class MCPToolLoaderFactory:
                     if not server_config.enabled:
                         self._health_monitor.mark_server_stopped(server_name)
                     else:
+                        # 健康状态由 health_check_all() 通过 send_ping() 更新
                         self._health_monitor.register_server(
                             server_name,
                             lambda: True,
@@ -766,9 +699,8 @@ class MCPToolLoaderFactory:
 
             self._mcp_tools.extend(annotated_tools)
 
-            # 跟踪子进程
-            if params.get("transport") == "stdio" and params.get("command"):
-                await self._track_subprocess_for_server(name, params["command"])
+            # 创建持久 ping 会话用于健康检查
+            await self._create_ping_session(name, params)
 
             # 更新健康状态
             self._health_monitor._update_status(
@@ -790,9 +722,8 @@ class MCPToolLoaderFactory:
             if name in self._mcp_clients:
                 del self._mcp_clients[name]
 
-            # 清理可能残留的子进程跟踪记录
-            if name in self._tracked_pids:
-                del self._tracked_pids[name]
+            # 清理可能残留的 ping 会话
+            await self._close_ping_session(name)
 
             self._health_monitor._update_status(
                 name,
@@ -896,11 +827,11 @@ class MCPToolLoaderFactory:
                 if server_name in self._mcp_clients:
                     del self._mcp_clients[server_name]
 
-            # 终止子进程
+            # 关闭 ping 会话
             try:
-                self._terminate_server_subprocesses(server_name)
+                await self._close_ping_session(server_name)
             except Exception as e:
-                logger.warning(f"[MCP] 终止服务器 {server_name} 子进程失败: {e}")
+                logger.warning(f"[MCP] 关闭服务器 {server_name} ping 会话失败: {e}")
 
             # 移除工具
             try:
@@ -968,10 +899,11 @@ class MCPToolLoaderFactory:
     # ------------------------------------------------------------------
     async def health_check_all(self) -> Dict[str, ServerStatus]:
         """
-        对所有服务器执行健康检查
+        基于 MCP 协议 ping 对所有服务器执行健康检查。
 
-        注意：此方法只检查和记录状态，不触发任何自动操作。
-        重启应由外部手动触发或由独立的恢复任务处理。
+        对每个已启用的服务器调用 send_ping()：
+        - ping 成功 → HEALTHY
+        - ping 失败或无会话 → 回退检查客户端实例 → UNREACHABLE
 
         Returns:
             {server_name: status} 字典
@@ -981,16 +913,13 @@ class MCPToolLoaderFactory:
         for server_name in list(self._server_configs.keys()):
             config = self._server_configs.get(server_name)
 
-            # 跳过配置无效的服务器
             if config is None:
-                logger.warning(f"[MCP] 服务器 {server_name} 配置为 None，跳过健康检查")
                 continue
 
             if not config.enabled:
                 results[server_name] = ServerStatus.STOPPED
                 continue
 
-            # 检查进程是否存活
             is_alive = await self._check_server_alive(server_name)
 
             if is_alive:
@@ -1005,21 +934,19 @@ class MCPToolLoaderFactory:
                 self._health_monitor._update_status(
                     server_name,
                     ServerStatus.UNREACHABLE,
-                    error="进程未运行"
+                    error="ping 失败，服务器不可达"
                 )
 
         return results
 
     async def _check_server_alive(self, server_name: str) -> bool:
         """
-        检查服务器是否存活
+        检查服务器是否存活（基于 MCP 协议 ping）。
 
-        🔥 修复 S7: 增强健康检查，不仅检查连接存在，还验证连接可用性
-
-        Returns:
-            是否存活
+        检查优先级：
+        1. send_ping() — 如果存在持久 ping 会话，直接 ping 验证
+        2. 回退检查 — 客户端实例是否存在（适用于 HTTP 类型或 ping 会话未建立的场景）
         """
-        # 检查配置是否存在
         if server_name not in self._server_configs:
             return False
 
@@ -1027,30 +954,12 @@ class MCPToolLoaderFactory:
         if config is None:
             return False
 
-        # 对于非 stdio 类型（HTTP/SSE），至少要求客户端实例仍存在
-        if not config.is_stdio():
-            return server_name in self._mcp_clients
+        # 优先使用 MCP 协议 ping
+        if server_name in self._ping_sessions:
+            return await self._ping_server(server_name)
 
-        # 对于 stdio 类型，必须同时满足客户端实例存在且底层进程存活
-        if server_name not in self._mcp_clients:
-            logger.debug(f"[MCP] 服务器 {server_name} 没有客户端实例")
-            return False
-
-        if not self._has_live_stdio_process(server_name):
-            logger.warning(f"[MCP] 服务器 {server_name} 的 stdio 进程未存活")
-            return False
-
-        client = self._mcp_clients[server_name]
-        try:
-            if hasattr(client, '_tools') and client._tools:
-                return True
-            if hasattr(client, '_sessions') and client._sessions:
-                return True
-            logger.debug(f"[MCP] 服务器 {server_name} 进程存活，但客户端尚未暴露工具或会话")
-            return True
-        except Exception as e:
-            logger.warning(f"[MCP] 检查服务器 {server_name} 客户端状态时出错: {e}")
-            return False
+        # 回退：检查客户端实例是否存在
+        return server_name in self._mcp_clients
 
     # ------------------------------------------------------------------
     # 工具加载
@@ -1212,16 +1121,9 @@ class MCPToolLoaderFactory:
         手动重新加载配置并重新初始化连接
 
         注意：此操作会关闭所有现有连接并重新建立
-        警告：这将启动所有 MCP 服务器的新的 npx 进程，可能需要重新下载 npm 包
         """
-        # 🔥 警告日志：此操作会重启所有 MCP 服务器
-        logger.warning("[MCP] 正在重载配置，这将重启所有 MCP 服务器并启动新的 npx 进程")
+        logger.warning("[MCP] 正在重载配置，这将重启所有 MCP 服务器")
         async with self._lock:
-            # 关闭现有连接
-            # 注意：这里不能直接调用 self.close()，因为它会销毁 exit_stack
-            # 我们只需要重新初始化连接，不需要销毁整个 stack
-
-            # 手动关闭现有客户端
             for name, client in self._mcp_clients.items():
                 try:
                     if hasattr(client, "aclose"):
@@ -1233,23 +1135,19 @@ class MCPToolLoaderFactory:
                 except Exception as e:
                     logger.warning(f"[MCP] 重载时关闭服务器 {name} 失败: {e}")
 
+            # 关闭所有 ping 会话
+            for server_name in list(self._ping_sessions.keys()):
+                await self._close_ping_session(server_name)
+
             self._mcp_clients.clear()
             self._mcp_tools.clear()
             self._server_configs.clear()
-
-            # 清理子进程跟踪信息
-            for server_name in list(self._tracked_pids.keys()):
-                self._terminate_server_subprocesses(server_name)
-            self._tracked_pids.clear()
             self._restart_counts.clear()
             self._last_restart_time.clear()
 
-            # 重置状态
             self._initialized = False
 
-        # 重新初始化 (会获取锁)
         await self.initialize_connections()
-
         logger.info("[MCP] 配置重载完成")
 
     # ------------------------------------------------------------------
@@ -1260,13 +1158,7 @@ class MCPToolLoaderFactory:
         if self._cleanup_registered:
             return
 
-        def cleanup_subprocesses():
-            """清理所有子进程"""
-            logger.info("[MCP] atexit 清理子进程...")
-            for server_name in list(self._tracked_pids.keys()):
-                self._terminate_server_subprocesses(server_name)
-
-        atexit.register(cleanup_subprocesses)
+        atexit.register(lambda: logger.info("[MCP] atexit 清理"))
         self._cleanup_registered = True
         logger.info("[MCP] 已注册 atexit 清理函数")
 
@@ -1276,8 +1168,8 @@ class MCPToolLoaderFactory:
 
         清理步骤：
         1. 停止健康检查任务
-        2. 关闭所有 MCP 客户端连接
-        3. 终止所有子进程
+        2. 关闭所有 ping 会话
+        3. 关闭所有 MCP 客户端连接
         4. 清空工具和配置缓存
         """
         logger.info("[MCP] 开始清理资源...")
@@ -1291,6 +1183,10 @@ class MCPToolLoaderFactory:
                 pass
             logger.info("[MCP] 健康检查任务已停止")
 
+        # 关闭所有 ping 会话
+        for server_name in list(self._ping_sessions.keys()):
+            await self._close_ping_session(server_name)
+
         # 关闭所有客户端连接
         for name, client in list(self._mcp_clients.items()):
             try:
@@ -1303,15 +1199,11 @@ class MCPToolLoaderFactory:
             except Exception as e:
                 logger.warning(f"[MCP] 关闭服务器 {name} 连接失败: {e}")
 
-        # 终止所有子进程
-        for server_name in list(self._tracked_pids.keys()):
-            self._terminate_server_subprocesses(server_name)
-
         # 清空缓存
         self._mcp_clients.clear()
         self._mcp_tools.clear()
         self._server_configs.clear()
-        self._tracked_pids.clear()
+        self._ping_sessions.clear()
         self._restart_counts.clear()
         self._last_restart_time.clear()
         self._initialized = False

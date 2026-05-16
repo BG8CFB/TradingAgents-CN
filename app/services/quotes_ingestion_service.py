@@ -454,8 +454,8 @@ class QuotesIngestionService:
             docs = await cursor.to_list(length=None)
 
             if not docs:
-                logger.warning(f"⚠️ 历史数据集合中未找到 {latest_trade_date} 的数据")
-                logger.warning("⚠️ market_quotes 和历史数据集合都为空，请先同步历史数据或实时行情")
+                logger.debug(f"⚠️ 历史数据集合中未找到 {latest_trade_date} 的数据")
+                logger.debug("⚠️ market_quotes 和历史数据集合都为空，请先同步历史数据或实时行情")
                 return
 
             logger.info(f"✅ 从历史数据集合找到 {len(docs)} 条记录")

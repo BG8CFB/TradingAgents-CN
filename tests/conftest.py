@@ -1,5 +1,10 @@
 """
 测试基础设施 - 全局 fixtures 和配置
+
+设计原则：
+- 调用实际代码函数，不使用 MagicMock/patch 替代被测逻辑
+- DB/Redis 使用模拟数据（真实数据结构），连接不可用时优雅降级
+- LLM 测试拆分为：业务逻辑测试（无 LLM 调用）和 LLM 集成测试（真实 API）
 """
 
 import asyncio
@@ -7,7 +12,6 @@ import os
 import sys
 import warnings
 from typing import AsyncGenerator, Generator
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -62,41 +66,102 @@ def settings():
     return get_settings()
 
 
-@pytest.fixture
-def mock_mongo_db():
-    """模拟 MongoDB 数据库实例"""
-    db = AsyncMock()
-    db.list_collection_names = AsyncMock(return_value=[])
-    db.command = AsyncMock(return_value={"ok": 1})
-    return db
+# ============================================================
+# DB/Redis 可用性检测与模拟数据 Fixtures
+# ============================================================
+
+def _check_mongodb_available() -> bool:
+    """检测 MongoDB 是否可用"""
+    try:
+        import pymongo
+        client = pymongo.MongoClient(
+            os.environ.get("MONGODB_HOST", "localhost"),
+            int(os.environ.get("MONGODB_PORT", "27017")),
+            username=os.environ.get("MONGODB_USERNAME", "admin"),
+            password=os.environ.get("MONGODB_PASSWORD", "tradingagents123"),
+            serverSelectionTimeoutMS=2000,
+        )
+        client.admin.command("ping")
+        client.close()
+        return True
+    except Exception:
+        return False
+
+
+def _check_redis_available() -> bool:
+    """检测 Redis 是否可用"""
+    try:
+        import redis
+        r = redis.Redis(
+            host=os.environ.get("REDIS_HOST", "localhost"),
+            port=int(os.environ.get("REDIS_PORT", "6379")),
+            password=os.environ.get("REDIS_PASSWORD", "tradingagents123"),
+            socket_timeout=2,
+        )
+        r.ping()
+        r.close()
+        return True
+    except Exception:
+        return False
+
+
+# 缓存可用性检测结果（session 级别）
+_MONGODB_AVAILABLE = None
+_REDIS_AVAILABLE = None
+
+
+def is_mongodb_available() -> bool:
+    global _MONGODB_AVAILABLE
+    if _MONGODB_AVAILABLE is None:
+        _MONGODB_AVAILABLE = _check_mongodb_available()
+    return _MONGODB_AVAILABLE
+
+
+def is_redis_available() -> bool:
+    global _REDIS_AVAILABLE
+    if _REDIS_AVAILABLE is None:
+        _REDIS_AVAILABLE = _check_redis_available()
+    return _REDIS_AVAILABLE
 
 
 @pytest.fixture
-def mock_redis_client():
-    """模拟 Redis 客户端"""
-    client = AsyncMock()
-    client.ping = AsyncMock(return_value=True)
-    client.get = AsyncMock(return_value=None)
-    client.set = AsyncMock(return_value=True)
-    client.delete = AsyncMock(return_value=1)
-    client.exists = AsyncMock(return_value=0)
-    client.expire = AsyncMock(return_value=True)
-    client.close = AsyncMock()
-    return client
+def mongodb_available():
+    """MongoDB 可用性 fixture，不可用时跳过测试"""
+    if not is_mongodb_available():
+        pytest.skip("MongoDB 不可用，跳过数据库相关测试")
+    return True
+
+
+@pytest.fixture
+def redis_available():
+    """Redis 可用性 fixture，不可用时跳过测试"""
+    if not is_redis_available():
+        pytest.skip("Redis 不可用，跳过 Redis 相关测试")
+    return True
 
 
 # ============================================================
-# 数据库 patch fixtures（用于需要隔离数据库的场景）
+# 模拟数据 Fixtures（真实数据结构，非 MagicMock）
 # ============================================================
 
-@pytest_asyncio.fixture
-async def patched_db(mock_mongo_db, mock_redis_client):
-    """Patch 数据库全局变量，让服务代码使用 mock 数据库"""
-    with patch("app.core.database.mongo_db", mock_mongo_db), \
-         patch("app.core.database.redis_client", mock_redis_client), \
-         patch("app.core.database.get_mongo_db", return_value=mock_mongo_db), \
-         patch("app.core.database.get_redis_client", return_value=mock_redis_client):
-        yield mock_mongo_db, mock_redis_client
+import importlib
+import os as _os
+_sys_path_test = _os.path.dirname(_os.path.abspath(__file__))
+if _sys_path_test not in sys.path:
+    sys.path.insert(0, _sys_path_test)
+from test_infra import SimulatedMongoDB, SimulatedRedis
+
+
+@pytest.fixture
+def sim_db():
+    """创建内存模拟的 MongoDB 数据库"""
+    return SimulatedMongoDB()
+
+
+@pytest.fixture
+def sim_redis():
+    """创建内存模拟的 Redis 客户端"""
+    return SimulatedRedis()
 
 
 # ============================================================
@@ -105,7 +170,7 @@ async def patched_db(mock_mongo_db, mock_redis_client):
 
 @pytest.fixture
 def auth_service():
-    """获取 AuthService 实例"""
+    """获取 AuthService 类"""
     from app.services.auth_service import AuthService
     return AuthService
 
@@ -135,8 +200,8 @@ def user_headers(user_token):
 
 
 @pytest.fixture
-def mock_admin_user():
-    """模拟管理员用户数据"""
+def admin_user_data():
+    """管理员用户测试数据"""
     return {
         "id": "507f1f77bcf86cd799439011",
         "username": "test_admin",
@@ -149,8 +214,8 @@ def mock_admin_user():
 
 
 @pytest.fixture
-def mock_normal_user():
-    """模拟普通用户数据"""
+def normal_user_data():
+    """普通用户测试数据"""
     return {
         "id": "507f1f77bcf86cd799439012",
         "username": "test_user",
@@ -166,35 +231,10 @@ def mock_normal_user():
 # FastAPI Test Client
 # ============================================================
 
-def _create_test_app():
-    """创建用于测试的 FastAPI 应用（不启动 lifespan）"""
-    from fastapi import FastAPI
-    from app.core.config import settings
-
-    app = FastAPI(
-        title="TradingAgents-CN Test API",
-        version="1.1.0-preview",
-    )
-
-    # 添加 CORS
-    from fastapi.middleware.cors import CORSMiddleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    return app
-
-
 @pytest_asyncio.fixture
 async def client():
     """创建测试 HTTP 客户端（直接使用实际 app，跳过 lifespan）"""
     from app.main import app
-
-    # Patch lifespan 为空上下文
     from contextlib import asynccontextmanager
 
     @asynccontextmanager
@@ -212,27 +252,18 @@ async def client():
 
 
 @pytest_asyncio.fixture
-async def authed_client(client, admin_token, mock_admin_user):
-    """带认证的测试客户端（mock 用户验证）"""
-    from app.services.user_service import User
+async def authed_client(client, admin_token, admin_user_data):
+    """带认证的测试客户端"""
+    from app.routers.auth_db import get_current_user
 
-    mock_user = MagicMock()
-    mock_user.id = MagicMock()
-    mock_user.id.__str__ = lambda self: mock_admin_user["id"]
-    mock_user.username = mock_admin_user["username"]
-    mock_user.email = mock_admin_user["email"]
-    mock_user.is_admin = mock_admin_user["is_admin"]
-    mock_user.is_active = True
-    mock_user.preferences = MagicMock()
-    mock_user.preferences.model_dump = MagicMock(return_value=mock_admin_user["preferences"])
+    async def override_get_current_user():
+        return admin_user_data
 
-    with patch("app.routers.auth_db.user_service") as mock_us, \
-         patch("app.services.operation_log_service.log_operation", new_callable=AsyncMock):
-        mock_us.get_user_by_username = AsyncMock(return_value=mock_user)
-        client._mock_user_service = mock_us
-        client._mock_user = mock_user
-        client.headers.update({"Authorization": f"Bearer {admin_token}"})
-        yield client
+    from app.main import app
+    app.dependency_overrides[get_current_user] = override_get_current_user
+    client.headers.update({"Authorization": f"Bearer {admin_token}"})
+    yield client
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 # ============================================================
@@ -269,19 +300,8 @@ def sample_analysis_task():
 
 
 # ============================================================
-# Engine 测试 Fixtures
+# Engine 测试数据 Fixtures
 # ============================================================
-
-@pytest.fixture
-def mock_llm():
-    """模拟 LLM 实例，可配置返回内容"""
-    llm = MagicMock()
-    default_response = MagicMock()
-    default_response.content = '{"action": "持有", "target_price": null, "confidence": 0.7, "risk_score": 0.5, "reasoning": "测试"}'
-    llm.invoke = MagicMock(return_value=default_response)
-    llm.bind_tools = MagicMock(return_value=llm)
-    return llm
-
 
 @pytest.fixture
 def sample_agent_state():
@@ -360,15 +380,6 @@ def sample_yaml_config(tmp_path):
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config, f, allow_unicode=True)
     return str(config_path)
-
-
-@pytest.fixture
-def mock_memory():
-    """模拟 FinancialSituationMemory"""
-    memory = MagicMock()
-    memory.add_situations = MagicMock()
-    memory.get_memories = MagicMock(return_value=[])
-    return memory
 
 
 # ============================================================

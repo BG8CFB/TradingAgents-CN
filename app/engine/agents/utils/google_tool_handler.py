@@ -20,7 +20,7 @@ class GoogleToolCallHandler:
     @staticmethod
     def is_google_model(llm) -> bool:
         """检查是否为Google模型"""
-        return 'Google' in llm.__class__.__name__ or 'ChatGoogleOpenAI' in llm.__class__.__name__
+        return 'Google' in llm.__class__.__name__ or 'GoogleNative' in llm.__class__.__name__
     
     @staticmethod
     def handle_google_tool_calls(

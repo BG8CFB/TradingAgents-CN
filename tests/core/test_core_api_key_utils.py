@@ -1,8 +1,8 @@
+from test_infra import env_vars
 """测试 API Key 工具函数"""
 
 import os
 import pytest
-from unittest.mock import patch
 
 from app.utils.api_key_utils import (
     is_placeholder_api_key,
@@ -98,35 +98,35 @@ class TestTruncateApiKey:
 
 class TestGetEnvApiKeyForProvider:
     def test_reads_correct_env_var(self):
-        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test-deepseek"}):
+        with env_vars({"DEEPSEEK_API_KEY": "sk-test-deepseek"}):
             result = get_env_api_key_for_provider("deepseek")
             assert result == "sk-test-deepseek"
 
     def test_returns_none_for_missing(self):
-        with patch.dict(os.environ, {}, clear=False):
+        with env_vars({}):
             os.environ.pop("NONEXISTENT_PROVIDER_API_KEY", None)
             result = get_env_api_key_for_provider("nonexistent_provider")
             assert result is None
 
     def test_returns_none_for_placeholder_value(self):
-        with patch.dict(os.environ, {"TESTPROV_API_KEY": "your-api-key"}):
+        with env_vars({"TESTPROV_API_KEY": "your-api-key"}):
             result = get_env_api_key_for_provider("testprov")
             assert result is None
 
     def test_case_insensitive_provider(self):
-        with patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-real-key-12345"}):
+        with env_vars({"DASHSCOPE_API_KEY": "sk-real-key-12345"}):
             result = get_env_api_key_for_provider("DashScope")
             assert result == "sk-real-key-12345"
 
 
 class TestGetEnvApiKeyForDatasource:
     def test_tushare_maps_to_tushare_token(self):
-        with patch.dict(os.environ, {"TUSHARE_TOKEN": "real-tushare-token-12345"}):
+        with env_vars({"TUSHARE_TOKEN": "real-tushare-token-12345"}):
             result = get_env_api_key_for_datasource("tushare")
             assert result == "real-tushare-token-12345"
 
     def test_finnhub_maps_correctly(self):
-        with patch.dict(os.environ, {"FINNHUB_API_KEY": "sk-finnhub-real-123456"}):
+        with env_vars({"FINNHUB_API_KEY": "sk-finnhub-real-123456"}):
             result = get_env_api_key_for_datasource("finnhub")
             assert result == "sk-finnhub-real-123456"
 
@@ -135,7 +135,7 @@ class TestGetEnvApiKeyForDatasource:
         assert result is None
 
     def test_returns_none_for_placeholder(self):
-        with patch.dict(os.environ, {"TUSHARE_TOKEN": "xxx"}):
+        with env_vars({"TUSHARE_TOKEN": "xxx"}):
             result = get_env_api_key_for_datasource("tushare")
             assert result is None
 

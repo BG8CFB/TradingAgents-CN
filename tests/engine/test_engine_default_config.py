@@ -1,3 +1,4 @@
+from test_infra import env_vars
 """
 默认配置测试
 测试 DEFAULT_CONFIG 的键完整性、路径解析和工具开关
@@ -5,7 +6,6 @@
 
 import os
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -167,7 +167,7 @@ class TestDefaultConfigToolToggles:
     def test_online_tools_defaults_to_false(self):
         """online_tools 默认应为 False（当环境变量未设置时）"""
         # 清理环境变量后重新导入
-        with patch.dict(os.environ, {}, clear=False):
+        with env_vars({}):
             os.environ.pop("ONLINE_TOOLS_ENABLED", None)
             # 重新计算默认值
             expected = os.getenv("ONLINE_TOOLS_ENABLED", "false").lower() == "true"
@@ -175,20 +175,20 @@ class TestDefaultConfigToolToggles:
 
     def test_online_news_defaults_to_true(self):
         """online_news 默认应为 True"""
-        with patch.dict(os.environ, {}, clear=False):
+        with env_vars({}):
             os.environ.pop("ONLINE_NEWS_ENABLED", None)
             expected = os.getenv("ONLINE_NEWS_ENABLED", "true").lower() == "true"
             assert expected is True
 
     def test_online_tools_enabled_via_env(self):
         """设置环境变量 ONLINE_TOOLS_ENABLED=true 应启用在线工具"""
-        with patch.dict(os.environ, {"ONLINE_TOOLS_ENABLED": "true"}):
+        with env_vars({"ONLINE_TOOLS_ENABLED": "true"}):
             result = os.getenv("ONLINE_TOOLS_ENABLED", "false").lower() == "true"
             assert result is True
 
     def test_online_tools_disabled_via_env(self):
         """设置环境变量 ONLINE_TOOLS_ENABLED=false 应禁用在线工具"""
-        with patch.dict(os.environ, {"ONLINE_TOOLS_ENABLED": "false"}):
+        with env_vars({"ONLINE_TOOLS_ENABLED": "false"}):
             result = os.getenv("ONLINE_TOOLS_ENABLED", "false").lower() == "true"
             assert result is False
 

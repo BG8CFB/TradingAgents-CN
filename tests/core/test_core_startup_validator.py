@@ -2,8 +2,6 @@
 测试 app/core/startup_validator.py — 启动配置验证器
 """
 
-from unittest.mock import patch, MagicMock
-
 import pytest
 
 from app.core.startup_validator import (
@@ -17,7 +15,6 @@ from app.core.startup_validator import (
 
 
 class TestConfigLevel:
-    """测试 ConfigLevel 枚举"""
 
     def test_required_level(self):
         assert ConfigLevel.REQUIRED.value == "required"
@@ -30,10 +27,8 @@ class TestConfigLevel:
 
 
 class TestConfigItem:
-    """测试 ConfigItem 数据类"""
 
     def test_config_item_basic_fields(self):
-        """基本字段正确"""
         item = ConfigItem(
             key="TEST_KEY",
             level=ConfigLevel.REQUIRED,
@@ -47,7 +42,6 @@ class TestConfigItem:
         assert item.validator is None
 
     def test_config_item_with_all_fields(self):
-        """所有字段正确"""
         validator = lambda v: len(v) > 0
         item = ConfigItem(
             key="TEST_KEY",
@@ -63,10 +57,8 @@ class TestConfigItem:
 
 
 class TestValidationResult:
-    """测试 ValidationResult 数据类"""
 
     def test_default_values(self):
-        """默认值正确"""
         result = ValidationResult(
             success=True,
             missing_required=[],
@@ -82,10 +74,8 @@ class TestValidationResult:
 
 
 class TestStartupValidator:
-    """测试 StartupValidator 核心验证逻辑"""
 
     def test_init_creates_empty_result(self):
-        """初始化创建空的验证结果"""
         validator = StartupValidator()
         assert validator.result.success is True
         assert validator.result.missing_required == []
@@ -94,92 +84,101 @@ class TestStartupValidator:
         assert validator.result.warnings == []
 
     def test_validate_with_all_required_present(self):
-        """所有必需配置都存在时验证通过"""
+        """conftest.py 已设置所有必需环境变量"""
         validator = StartupValidator()
-        # conftest.py 已设置所有必需环境变量
         result = validator.validate()
         assert isinstance(result, ValidationResult)
-        # 在测试环境中，必需配置应该都已通过 conftest 设置
         assert result.success is True
 
     def test_validate_detects_missing_required(self):
         """缺少必需配置时验证失败"""
+        from app.core.config import settings
+
         validator = StartupValidator()
-
-        # 创建一个配置对象模拟 MONGODB_HOST 为空
-        mock_settings = MagicMock()
-        mock_settings.MONGODB_HOST = ""
-        mock_settings.MONGODB_PORT = "27017"
-        mock_settings.MONGODB_DATABASE = "tradingagents"
-        mock_settings.REDIS_HOST = "localhost"
-        mock_settings.REDIS_PORT = "6379"
-        mock_settings.JWT_SECRET = "test-jwt-secret-for-testing-only"
-
-        with patch("app.core.startup_validator.settings", mock_settings):
+        original_host = settings.MONGODB_HOST
+        settings.MONGODB_HOST = ""
+        try:
             validator._validate_required_configs()
             assert len(validator.result.missing_required) > 0
+        finally:
+            settings.MONGODB_HOST = original_host
 
     def test_validate_recommended_configs(self):
         """缺少推荐配置时加入 missing_recommended"""
+        import os
+
         validator = StartupValidator()
 
-        # 创建一个配置对象模拟所有推荐 API key 都为空
-        mock_settings = MagicMock()
-        mock_settings.DEEPSEEK_API_KEY = ""
-        mock_settings.DASHSCOPE_API_KEY = ""
-        mock_settings.TUSHARE_TOKEN = ""
+        # 使用环境变量控制（settings 从 env 读取）
+        original_deepseek = os.environ.get("DEEPSEEK_API_KEY", "")
+        original_dashscope = os.environ.get("DASHSCOPE_API_KEY", "")
+        original_tushare = os.environ.get("TUSHARE_TOKEN", "")
 
-        with patch("app.core.startup_validator.settings", mock_settings):
+        os.environ["DEEPSEEK_API_KEY"] = ""
+        os.environ["DASHSCOPE_API_KEY"] = ""
+        os.environ["TUSHARE_TOKEN"] = ""
+        try:
             validator._validate_recommended_configs()
-            # 至少应该有 3 个缺少的推荐配置
             assert len(validator.result.missing_recommended) >= 3
+        finally:
+            if original_deepseek:
+                os.environ["DEEPSEEK_API_KEY"] = original_deepseek
+            else:
+                os.environ.pop("DEEPSEEK_API_KEY", None)
+            if original_dashscope:
+                os.environ["DASHSCOPE_API_KEY"] = original_dashscope
+            else:
+                os.environ.pop("DASHSCOPE_API_KEY", None)
+            if original_tushare:
+                os.environ["TUSHARE_TOKEN"] = original_tushare
+            else:
+                os.environ.pop("TUSHARE_TOKEN", None)
 
     def test_validate_detects_invalid_jwt_secret_too_short(self):
-        """JWT_SECRET 过短时检测为无效配置"""
+        from app.core.config import settings
+
         validator = StartupValidator()
-
-        mock_settings = MagicMock()
-        mock_settings.MONGODB_HOST = "localhost"
-        mock_settings.MONGODB_PORT = "27017"
-        mock_settings.MONGODB_DATABASE = "tradingagents"
-        mock_settings.REDIS_HOST = "localhost"
-        mock_settings.REDIS_PORT = "6379"
-        mock_settings.JWT_SECRET = "short"  # 少于 16 个字符
-
-        with patch("app.core.startup_validator.settings", mock_settings):
+        original_jwt = settings.JWT_SECRET
+        settings.JWT_SECRET = "short"
+        try:
             validator._validate_required_configs()
-            # JWT_SECRET 过短应被检测为无效
             invalid_keys = [c.key for c, _ in validator.result.invalid_configs]
             assert "JWT_SECRET" in invalid_keys
+        finally:
+            settings.JWT_SECRET = original_jwt
 
     def test_validate_detects_insecure_jwt_default(self):
-        """检测到不安全的 JWT_SECRET 默认值"""
+        from app.core.config import settings
+
         validator = StartupValidator()
-
-        mock_settings = MagicMock()
-        mock_settings.JWT_SECRET = "change-me-in-production"
-        mock_settings.CSRF_SECRET = "change-me-csrf-secret"
-
-        with patch("app.core.startup_validator.settings", mock_settings):
+        original_jwt = settings.JWT_SECRET
+        original_csrf = settings.CSRF_SECRET
+        settings.JWT_SECRET = "change-me-in-production"
+        settings.CSRF_SECRET = "change-me-csrf-secret"
+        try:
             validator._check_security_configs()
             assert len(validator.result.warnings) >= 2
+        finally:
+            settings.JWT_SECRET = original_jwt
+            settings.CSRF_SECRET = original_csrf
 
     def test_validate_detects_insecure_csrf_default(self):
-        """检测到不安全的 CSRF_SECRET 默认值"""
+        from app.core.config import settings
+
         validator = StartupValidator()
-
-        mock_settings = MagicMock()
-        mock_settings.JWT_SECRET = "valid-long-secret-key-here"
-        mock_settings.CSRF_SECRET = "change-me-csrf-secret"
-
-        with patch("app.core.startup_validator.settings", mock_settings):
+        original_jwt = settings.JWT_SECRET
+        original_csrf = settings.CSRF_SECRET
+        settings.JWT_SECRET = "valid-long-secret-key-here"
+        settings.CSRF_SECRET = "change-me-csrf-secret"
+        try:
             validator._check_security_configs()
             warning_text = " ".join(validator.result.warnings)
             assert "CSRF_SECRET" in warning_text
+        finally:
+            settings.JWT_SECRET = original_jwt
+            settings.CSRF_SECRET = original_csrf
 
     def test_validate_port_range_validator(self):
-        """端口范围验证器正确工作"""
-        # 从 REQUIRED_CONFIGS 找到 REDIS_PORT 的 validator
         redis_port_config = None
         for c in StartupValidator.REQUIRED_CONFIGS:
             if c.key == "REDIS_PORT":
@@ -189,13 +188,10 @@ class TestStartupValidator:
         assert redis_port_config is not None
         validator = redis_port_config.validator
 
-        # 有效端口
         assert validator("6379") is True
         assert validator("27017") is True
         assert validator("1") is True
         assert validator("65535") is True
-
-        # 无效端口
         assert validator("0") is False
         assert validator("65536") is False
         assert validator("-1") is False
@@ -203,7 +199,6 @@ class TestStartupValidator:
         assert validator("") is False
 
     def test_validate_jwt_length_validator(self):
-        """JWT 密钥长度验证器正确工作"""
         jwt_config = None
         for c in StartupValidator.REQUIRED_CONFIGS:
             if c.key == "JWT_SECRET":
@@ -213,78 +208,55 @@ class TestStartupValidator:
         assert jwt_config is not None
         validator = jwt_config.validator
 
-        # 有效长度
         assert validator("a" * 16) is True
         assert validator("this-is-a-valid-jwt-secret-key") is True
-
-        # 无效长度
         assert validator("short") is False
         assert validator("a" * 15) is False
 
 
 class TestRaiseIfFailed:
-    """测试 raise_if_failed() 方法"""
 
     def test_raise_if_failed_no_error_on_success(self):
-        """验证成功时不抛异常"""
         validator = StartupValidator()
         validator.result.success = True
-        # 不应抛出异常
         validator.raise_if_failed()
 
     def test_raise_if_failed_raises_on_failure(self):
-        """验证失败时抛出 ConfigurationError"""
         validator = StartupValidator()
         validator.result.success = False
         validator.result.missing_required.append(
-            ConfigItem(
-                key="TEST_KEY",
-                level=ConfigLevel.REQUIRED,
-                description="测试",
-            )
+            ConfigItem(key="TEST_KEY", level=ConfigLevel.REQUIRED, description="测试")
         )
         with pytest.raises(ConfigurationError):
             validator.raise_if_failed()
 
     def test_raise_if_failed_error_message_contains_missing_keys(self):
-        """错误消息包含缺少的配置键名"""
         validator = StartupValidator()
         validator.result.success = False
         validator.result.missing_required.append(
-            ConfigItem(
-                key="MISSING_KEY_A",
-                level=ConfigLevel.REQUIRED,
-                description="测试A",
-            )
+            ConfigItem(key="MISSING_KEY_A", level=ConfigLevel.REQUIRED, description="测试A")
         )
         with pytest.raises(ConfigurationError, match="MISSING_KEY_A"):
             validator.raise_if_failed()
 
 
 class TestValidateStartupConfig:
-    """测试 validate_startup_config() 便捷函数"""
 
     def test_returns_validation_result(self):
-        """返回 ValidationResult 实例"""
-        # conftest 已设置所有必需配置
         result = validate_startup_config()
         assert isinstance(result, ValidationResult)
 
     def test_success_when_all_required_present(self):
-        """所有必需配置存在时成功"""
         result = validate_startup_config()
         assert result.success is True
 
 
 class TestConfigurationError:
-    """测试 ConfigurationError 异常"""
 
     def test_is_exception(self):
-        """ConfigurationError 是 Exception 子类"""
         assert issubclass(ConfigurationError, Exception)
 
     def test_can_be_caught(self):
-        """可以被 try/except 捕获"""
         try:
             raise ConfigurationError("test error")
         except ConfigurationError as e:

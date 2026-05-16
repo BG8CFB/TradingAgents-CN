@@ -132,7 +132,7 @@ class TushareProvider(BaseStockDataProvider):
                     try:
                         test_data = self.api.stock_basic(list_status='L', limit=1)
                     except Exception as e:
-                        self.logger.warning(f"⚠️ Tushare Token 验证失败: {e}")
+                        self.logger.debug(f"⚠️ Tushare Token 验证失败: {e}")
                         return False
 
                     if test_data is not None and not test_data.empty:
@@ -141,7 +141,7 @@ class TushareProvider(BaseStockDataProvider):
                         self.logger.info(f"✅ Tushare连接成功 (Token来源: .env)")
                         return True
                     else:
-                        self.logger.warning("⚠️ Tushare Token 验证失败")
+                        self.logger.debug("⚠️ Tushare Token 验证失败")
                         return False
                 except Exception as e:
                     self.logger.warning(f"⚠️ Tushare连接失败: {e}")
@@ -228,7 +228,7 @@ class TushareProvider(BaseStockDataProvider):
                         self.logger.error("❌ .env Token 测试失败")
                         return False
                 except Exception as e:
-                    self.logger.error(f"❌ .env Token 连接失败: {e}")
+                    self.logger.debug(f"❌ .env Token 连接失败: {e}")
                     return False
 
             # 两个都没有

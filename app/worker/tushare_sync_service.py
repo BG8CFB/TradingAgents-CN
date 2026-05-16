@@ -1209,6 +1209,11 @@ async def get_tushare_sync_service() -> TushareSyncService:
     """获取Tushare同步服务实例"""
     global _tushare_sync_service
     if _tushare_sync_service is None:
+        # 前置检查 Token 有效性，避免无效连接反复报错
+        token = getattr(settings, "TUSHARE_TOKEN", "")
+        if not token or token.startswith("your_") or "here" in token.lower():
+            logger.debug("Tushare Token 未配置或为占位符，跳过同步服务初始化")
+            return None
         _tushare_sync_service = TushareSyncService()
         await _tushare_sync_service.initialize()
     return _tushare_sync_service
@@ -1219,6 +1224,8 @@ async def run_tushare_basic_info_sync(force_update: bool = False):
     """APScheduler任务：同步股票基础信息"""
     try:
         service = await get_tushare_sync_service()
+        if service is None:
+            return {"skipped": True, "reason": "Tushare Token 未配置"}
         result = await service.sync_stock_basic_info(force_update, job_id="tushare_basic_info_sync")
         logger.info(f"✅ Tushare基础信息同步完成: {result}")
         return result
@@ -1236,6 +1243,8 @@ async def run_tushare_quotes_sync(force: bool = False):
     """
     try:
         service = await get_tushare_sync_service()
+        if service is None:
+            return {"skipped": True, "reason": "Tushare Token 未配置"}
         result = await service.sync_realtime_quotes(force=force)
         logger.info(f"✅ Tushare行情同步完成: {result}")
         return result
@@ -1249,6 +1258,8 @@ async def run_tushare_historical_sync(incremental: bool = True):
     logger.info(f"🚀 [APScheduler] 开始执行 Tushare 历史数据同步任务 (incremental={incremental})")
     try:
         service = await get_tushare_sync_service()
+        if service is None:
+            return {"skipped": True, "reason": "Tushare Token 未配置"}
         logger.info(f"✅ [APScheduler] Tushare 同步服务已初始化")
         result = await service.sync_historical_data(incremental=incremental, job_id="tushare_historical_sync")
         logger.info(f"✅ [APScheduler] Tushare历史数据同步完成: {result}")
@@ -1264,6 +1275,8 @@ async def run_tushare_financial_sync():
     """APScheduler任务：同步财务数据（获取最近20期，约5年）"""
     try:
         service = await get_tushare_sync_service()
+        if service is None:
+            return {"skipped": True, "reason": "Tushare Token 未配置"}
         result = await service.sync_financial_data(limit=20, job_id="tushare_financial_sync")  # 获取最近20期（约5年数据）
         logger.info(f"✅ Tushare财务数据同步完成: {result}")
         return result
@@ -1276,6 +1289,8 @@ async def run_tushare_status_check():
     """APScheduler任务：检查同步状态"""
     try:
         service = await get_tushare_sync_service()
+        if service is None:
+            return {"skipped": True, "reason": "Tushare Token 未配置"}
         result = await service.get_sync_status()
         logger.info(f"✅ Tushare状态检查完成: {result}")
         return result
@@ -1288,6 +1303,8 @@ async def run_tushare_news_sync(hours_back: int = 24, max_news_per_stock: int = 
     """APScheduler任务：同步新闻数据"""
     try:
         service = await get_tushare_sync_service()
+        if service is None:
+            return {"skipped": True, "reason": "Tushare Token 未配置"}
         result = await service.sync_news_data(
             hours_back=hours_back,
             max_news_per_stock=max_news_per_stock,

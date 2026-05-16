@@ -1,7 +1,10 @@
-"""测试 MCP ToolNode 错误处理和工厂"""
+"""测试 MCP ToolNode 错误处理和工厂
+
+调用真实的异常类、错误处理函数和工厂函数，
+验证错误处理、ToolNode 创建和默认处理器行为。
+"""
 
 import pytest
-from unittest.mock import patch, MagicMock
 
 from app.engine.tools.mcp.tool_node import (
     MCPToolError,

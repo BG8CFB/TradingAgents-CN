@@ -541,7 +541,7 @@ class NewsDataService:
                 for i, r in enumerate(results[:3], 1):
                     self.logger.info(f"      {i}. symbol={r.get('symbol')}, title={r.get('title', 'N/A')[:50]}..., publish_time={r.get('publish_time')}")
             else:
-                self.logger.warning(f"   ⚠️ 查询结果为空")
+                self.logger.debug(f"   ⚠️ 查询结果为空")
 
             self.logger.info(f"✅ [query_news] 查询完成，返回 {len(results)} 条记录")
             return results

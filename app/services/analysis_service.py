@@ -307,9 +307,20 @@ def create_analysis_config(
         config["backend_url"] = quick_provider_info["backend_url"]
         config["quick_api_key"] = quick_provider_info.get("api_key")
         config["deep_api_key"] = deep_provider_info.get("api_key")
+
+        # 始终设置 per-model provider，让 create_llm() 精确路由
+        config["quick_provider"] = quick_provider_info["provider"]
+        config["deep_provider"] = deep_provider_info["provider"]
+        config["quick_backend_url"] = quick_provider_info["backend_url"]
+        config["deep_backend_url"] = deep_provider_info["backend_url"]
     except Exception as e:
         logger.warning(f"⚠️  无法从数据库获取 backend_url 和 API Key: {e}")
         config["backend_url"] = _get_default_backend_url(llm_provider)
+        # 回退：使用传入的 llm_provider 作为两个模型的 provider
+        config["quick_provider"] = llm_provider
+        config["deep_provider"] = llm_provider
+        config["quick_backend_url"] = config["backend_url"]
+        config["deep_backend_url"] = config["backend_url"]
 
     config["selected_analysts"] = selected_analysts
     config["debug"] = False

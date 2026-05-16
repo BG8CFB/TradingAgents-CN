@@ -1,7 +1,6 @@
 """测试 GraphSetup 图构建"""
 
 import pytest
-from unittest.mock import MagicMock
 
 from app.engine.graph.setup import GraphSetup
 from app.engine.graph.conditional_logic import ConditionalLogic
@@ -10,13 +9,23 @@ from app.engine.graph.conditional_logic import ConditionalLogic
 class TestGraphSetupInit:
     @pytest.fixture
     def components(self):
-        mock_llm = MagicMock()
-        toolkit = MagicMock()
-        memories = [MagicMock()] * 5
+
+        class FakeLLM:
+            pass
+
+        class FakeToolkit:
+            pass
+
+        class FakeMemory:
+            pass
+
+        llm = FakeLLM()
+        toolkit = FakeToolkit()
+        memories = [FakeMemory()] * 5
         cl = ConditionalLogic(max_debate_rounds=2, max_risk_discuss_rounds=3)
         return {
-            "quick_thinking_llm": mock_llm,
-            "deep_thinking_llm": mock_llm,
+            "quick_thinking_llm": llm,
+            "deep_thinking_llm": llm,
             "toolkit": toolkit,
             "bull_memory": memories[0],
             "bear_memory": memories[1],

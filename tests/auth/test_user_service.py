@@ -2,11 +2,10 @@
 用户服务的单元测试。
 
 测试 app/services/user_service.py 中的 UserService 类。
-所有 MongoDB 操作通过 AsyncMock 模拟，确保测试自包含且无外部依赖。
+所有 MongoDB 操作通过 SimulatedMongoDB 模拟，确保测试自包含且无外部依赖。
 """
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 from bson import ObjectId
 
 import pytest
@@ -14,6 +13,7 @@ import pytest
 from app.models.user import User, UserCreate, UserUpdate, UserResponse
 from app.services.user_service import UserService
 from app.utils.passwords import hash_password
+from test_infra import SimulatedMongoDB
 
 
 # ---------------------------------------------------------------------------
@@ -65,27 +65,9 @@ def _make_user_doc(
     }
 
 
-def _mock_update_result(modified_count=1, matched_count=1):
-    """构造模拟的 MongoDB update_one 结果。"""
-    result = MagicMock()
-    result.modified_count = modified_count
-    result.matched_count = matched_count
-    result.inserted_id = ObjectId()
-    return result
-
-
-def _mock_insert_result():
-    """构造模拟的 MongoDB insert_one 结果。"""
-    result = MagicMock()
-    result.inserted_id = ObjectId()
-    return result
-
-
-def _setup_db_mock():
-    """创建一个带 users 集合的 mock 数据库。"""
-    db = AsyncMock()
-    db.users = AsyncMock()
-    return db
+def _setup_db():
+    """创建一个 SimulatedMongoDB 实例。"""
+    return SimulatedMongoDB()
 
 
 # ---------------------------------------------------------------------------
@@ -125,11 +107,8 @@ class TestCreateUser:
     async def test_creates_user_successfully(self):
         """正常创建用户应返回 User 对象。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        db.users.find_one = AsyncMock(side_effect=[None, None])  # 用户名不重复、邮箱不重复
-        db.users.insert_one = AsyncMock(return_value=_mock_insert_result())
 
         user_data = UserCreate(
             username="newuser", email="new@example.com", password="password123"
@@ -147,11 +126,12 @@ class TestCreateUser:
     async def test_returns_none_for_duplicate_username(self):
         """用户名已存在时返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
+        # 先插入一个已有用户
         existing_doc = _make_user_doc(username="existing_user")
-        db.users.find_one = AsyncMock(return_value=existing_doc)
+        await db.users.insert_one(existing_doc)
 
         user_data = UserCreate(
             username="existing_user", email="other@example.com", password="pass123"
@@ -163,12 +143,12 @@ class TestCreateUser:
     async def test_returns_none_for_duplicate_email(self):
         """邮箱已存在时返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        # 第一次 find_one（用户名）返回 None，第二次（邮箱）返回已有记录
-        existing_doc = _make_user_doc(email="dup@example.com")
-        db.users.find_one = AsyncMock(side_effect=[None, existing_doc])
+        # 先插入一个已有邮箱的用户
+        existing_doc = _make_user_doc(username="other_user", email="dup@example.com")
+        await db.users.insert_one(existing_doc)
 
         user_data = UserCreate(
             username="newname", email="dup@example.com", password="pass123"
@@ -192,27 +172,26 @@ class TestCreateUser:
     async def test_inserted_document_has_correct_fields(self):
         """插入的用户文档应包含所有必需字段。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        db.users.find_one = AsyncMock(side_effect=[None, None])
-        db.users.insert_one = AsyncMock(return_value=_mock_insert_result())
 
         user_data = UserCreate(
             username="fieldcheck", email="fields@example.com", password="pass123"
         )
         await svc.create_user(user_data)
 
-        call_args = db.users.insert_one.call_args[0][0]
-        assert call_args["username"] == "fieldcheck"
-        assert call_args["email"] == "fields@example.com"
-        assert "hashed_password" in call_args
-        assert call_args["is_active"] is True
-        assert call_args["is_verified"] is False
-        assert call_args["is_admin"] is False
-        assert "preferences" in call_args
-        assert call_args["daily_quota"] == 1000
-        assert call_args["concurrent_limit"] == 3
+        # 通过 SimulatedMongoDB 查询验证
+        inserted_doc = await db.users.find_one({"username": "fieldcheck"})
+        assert inserted_doc is not None
+        assert inserted_doc["username"] == "fieldcheck"
+        assert inserted_doc["email"] == "fields@example.com"
+        assert "hashed_password" in inserted_doc
+        assert inserted_doc["is_active"] is True
+        assert inserted_doc["is_verified"] is False
+        assert inserted_doc["is_admin"] is False
+        assert "preferences" in inserted_doc
+        assert inserted_doc["daily_quota"] == 1000
+        assert inserted_doc["concurrent_limit"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -227,13 +206,12 @@ class TestAuthenticateUser:
     async def test_returns_user_for_correct_credentials(self):
         """正确凭据应返回 User 对象。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         password = "correct_pass"
         doc = _make_user_doc(username="authuser", password=password)
-        db.users.find_one = AsyncMock(return_value=doc)
-        db.users.update_one = AsyncMock(return_value=_mock_update_result())
+        await db.users.insert_one(doc)
 
         user = await svc.authenticate_user("authuser", password)
         assert user is not None
@@ -244,11 +222,11 @@ class TestAuthenticateUser:
     async def test_returns_none_for_wrong_password(self):
         """错误密码应返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         doc = _make_user_doc(username="authuser", password="right_pass")
-        db.users.find_one = AsyncMock(return_value=doc)
+        await db.users.insert_one(doc)
 
         result = await svc.authenticate_user("authuser", "wrong_pass")
         assert result is None
@@ -257,10 +235,8 @@ class TestAuthenticateUser:
     async def test_returns_none_for_nonexistent_user(self):
         """不存在的用户应返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        db.users.find_one = AsyncMock(return_value=None)
 
         result = await svc.authenticate_user("ghost", "any_pass")
         assert result is None
@@ -269,11 +245,11 @@ class TestAuthenticateUser:
     async def test_returns_none_for_inactive_user(self):
         """被禁用的用户应返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         doc = _make_user_doc(username="inactive_user", password="pass", is_active=False)
-        db.users.find_one = AsyncMock(return_value=doc)
+        await db.users.insert_one(doc)
 
         result = await svc.authenticate_user("inactive_user", "pass")
         assert result is None
@@ -289,25 +265,24 @@ class TestAuthenticateUser:
     async def test_updates_last_login_on_success(self):
         """认证成功时应更新 last_login。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         doc = _make_user_doc(username="loginuser", password="pass")
-        db.users.find_one = AsyncMock(return_value=doc)
-        db.users.update_one = AsyncMock(return_value=_mock_update_result())
+        await db.users.insert_one(doc)
 
         await svc.authenticate_user("loginuser", "pass")
-        db.users.update_one.assert_called_once()
 
-        update_call = db.users.update_one.call_args
-        assert "$set" in update_call[0][1]
-        assert "last_login" in update_call[0][1]["$set"]
+        # 验证数据库中 last_login 已被更新
+        updated_doc = await db.users.find_one({"username": "loginuser"})
+        assert updated_doc is not None
+        assert updated_doc["last_login"] is not None
 
     @pytest.mark.asyncio
     async def test_rehashes_password_if_needed(self):
         """如果哈希需要升级（SHA256），认证成功后应自动重哈希。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         # 使用 SHA256 哈希（需要重哈希）
@@ -315,17 +290,15 @@ class TestAuthenticateUser:
         doc = _make_user_doc(username="legacy_user")
         from app.utils.passwords import legacy_sha256_hash
         doc["hashed_password"] = legacy_sha256_hash(sha_password)
-
-        db.users.find_one = AsyncMock(return_value=doc)
-        db.users.update_one = AsyncMock(return_value=_mock_update_result())
+        await db.users.insert_one(doc)
 
         user = await svc.authenticate_user("legacy_user", sha_password)
         assert user is not None
 
-        # 验证 update_one 被调用，且更新了 hashed_password
-        update_call = db.users.update_one.call_args
-        set_data = update_call[0][1]["$set"]
-        assert "hashed_password" in set_data
+        # 验证数据库中的密码已被更新为 bcrypt 格式
+        updated_doc = await db.users.find_one({"username": "legacy_user"})
+        assert updated_doc is not None
+        assert updated_doc["hashed_password"].startswith(("$2a$", "$2b$", "$2y$"))
 
 
 # ---------------------------------------------------------------------------
@@ -340,11 +313,11 @@ class TestGetUserByUsername:
     async def test_returns_user_when_found(self):
         """用户存在时应返回 User 对象。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         doc = _make_user_doc(username="findme")
-        db.users.find_one = AsyncMock(return_value=doc)
+        await db.users.insert_one(doc)
 
         user = await svc.get_user_by_username("findme")
         assert user is not None
@@ -354,10 +327,8 @@ class TestGetUserByUsername:
     async def test_returns_none_when_not_found(self):
         """用户不存在时应返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        db.users.find_one = AsyncMock(return_value=None)
 
         result = await svc.get_user_by_username("nonexistent")
         assert result is None
@@ -382,12 +353,11 @@ class TestUpdateUser:
     async def test_updates_email_successfully(self):
         """应成功更新用户邮箱。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        updated_doc = _make_user_doc(username="upuser", email="new@example.com")
-        db.users.find_one = AsyncMock(side_effect=[None, updated_doc])  # 邮箱不重复 + get_user_by_username
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(modified_count=1))
+        doc = _make_user_doc(username="upuser", email="old@example.com")
+        await db.users.insert_one(doc)
 
         user_data = UserUpdate(email="new@example.com")
         result = await svc.update_user("upuser", user_data)
@@ -398,11 +368,14 @@ class TestUpdateUser:
     async def test_returns_none_for_duplicate_email(self):
         """更新邮箱为已存在的邮箱时返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        existing_doc = _make_user_doc(username="other", email="taken@example.com")
-        db.users.find_one = AsyncMock(return_value=existing_doc)
+        # 插入两个用户
+        doc1 = _make_user_doc(username="other", email="taken@example.com")
+        doc2 = _make_user_doc(username="upuser", email="upuser@example.com")
+        await db.users.insert_one(doc1)
+        await db.users.insert_one(doc2)
 
         user_data = UserUpdate(email="taken@example.com")
         result = await svc.update_user("upuser", user_data)
@@ -410,17 +383,14 @@ class TestUpdateUser:
 
     @pytest.mark.asyncio
     async def test_returns_none_when_no_modification(self):
-        """没有实际修改时返回 None。"""
+        """没有实际修改（用户不存在）时返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(modified_count=0))
-
         user_data = UserUpdate(email="same@example.com")
-        # 先让邮箱检查通过（find_one 返回 None）
-        db.users.find_one = AsyncMock(return_value=None)
         result = await svc.update_user("upuser", user_data)
+        # 用户不存在，update_one 的 modified_count 为 0
         assert result is None
 
     @pytest.mark.asyncio
@@ -443,15 +413,12 @@ class TestChangePassword:
     async def test_succeeds_with_correct_old_password(self):
         """旧密码正确时应成功修改密码。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         old_password = "old_pass123"
         doc = _make_user_doc(username="pwuser", password=old_password)
-
-        # authenticate_user 会调用 find_one 和 update_one
-        db.users.find_one = AsyncMock(return_value=doc)
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(modified_count=1))
+        await db.users.insert_one(doc)
 
         result = await svc.change_password("pwuser", old_password, "new_pass456")
         assert result is True
@@ -460,11 +427,11 @@ class TestChangePassword:
     async def test_fails_with_wrong_old_password(self):
         """旧密码错误时应失败。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         doc = _make_user_doc(username="pwuser", password="real_pass")
-        db.users.find_one = AsyncMock(return_value=doc)
+        await db.users.insert_one(doc)
 
         result = await svc.change_password("pwuser", "wrong_pass", "new_pass")
         assert result is False
@@ -482,27 +449,25 @@ class TestResetPassword:
     async def test_resets_password_successfully(self):
         """应成功重置密码。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(modified_count=1))
+        doc = _make_user_doc(username="someuser")
+        await db.users.insert_one(doc)
 
         result = await svc.reset_password("someuser", "new_reset_pass")
         assert result is True
 
-        # 验证 update_one 被调用
-        update_call = db.users.update_one.call_args
-        assert update_call[0][0] == {"username": "someuser"}
-        assert "hashed_password" in update_call[0][1]["$set"]
+        # 验证密码确实被更新（可以用新密码认证）
+        user = await svc.authenticate_user("someuser", "new_reset_pass")
+        assert user is not None
 
     @pytest.mark.asyncio
     async def test_returns_false_when_user_not_found(self):
         """用户不存在时应返回 False。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(modified_count=0))
 
         result = await svc.reset_password("ghost", "new_pass")
         assert result is False
@@ -527,11 +492,8 @@ class TestCreateAdminUser:
     async def test_creates_admin_user(self):
         """应成功创建管理员用户。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        db.users.find_one = AsyncMock(return_value=None)  # 不存在
-        db.users.insert_one = AsyncMock(return_value=_mock_insert_result())
 
         admin = await svc.create_admin_user(
             username="admin", password="admin_pass", email="admin@example.com"
@@ -546,11 +508,11 @@ class TestCreateAdminUser:
     async def test_returns_existing_admin_if_already_exists(self):
         """管理员已存在时应返回现有用户。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         existing_doc = _make_user_doc(username="admin", is_admin=True)
-        db.users.find_one = AsyncMock(return_value=existing_doc)
+        await db.users.insert_one(existing_doc)
 
         admin = await svc.create_admin_user(
             username="admin", password="admin_pass"
@@ -558,14 +520,15 @@ class TestCreateAdminUser:
         assert admin is not None
         assert admin.username == "admin"
 
-        # 不应调用 insert_one
-        db.users.insert_one.assert_not_called()
+        # 验证数据库中只有一条记录（没有新增）
+        count = await db.users.count_documents({"username": "admin"})
+        assert count == 1
 
     @pytest.mark.asyncio
     async def test_returns_none_when_no_password(self):
         """未提供密码时应返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         result = await svc.create_admin_user(username="admin", password=None)
@@ -575,7 +538,7 @@ class TestCreateAdminUser:
     async def test_returns_none_when_empty_password(self):
         """空密码应返回 None。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         result = await svc.create_admin_user(username="admin", password="")
@@ -601,45 +564,27 @@ class TestListUsers:
     async def test_returns_list_of_user_response(self):
         """应返回 UserResponse 列表。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
         doc1 = _make_user_doc(username="user1")
         doc2 = _make_user_doc(username="user2", email="user2@example.com")
-
-        # 模拟 async for cursor
-        async def mock_cursor_iter():
-            yield doc1
-            yield doc2
-
-        mock_cursor = MagicMock()
-        mock_cursor.skip = MagicMock(return_value=mock_cursor)
-        mock_cursor.limit = MagicMock(return_value=mock_cursor)
-        mock_cursor.__aiter__ = MagicMock(return_value=mock_cursor_iter())
-        db.users.find = MagicMock(return_value=mock_cursor)
+        await db.users.insert_one(doc1)
+        await db.users.insert_one(doc2)
 
         result = await svc.list_users()
         assert len(result) == 2
         assert all(isinstance(u, UserResponse) for u in result)
-        assert result[0].username == "user1"
-        assert result[1].username == "user2"
+        usernames = {u.username for u in result}
+        assert "user1" in usernames
+        assert "user2" in usernames
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_users(self):
         """没有用户时应返回空列表。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        async def mock_empty_cursor():
-            return
-            yield  # 使其成为 async generator
-
-        mock_cursor = MagicMock()
-        mock_cursor.skip = MagicMock(return_value=mock_cursor)
-        mock_cursor.limit = MagicMock(return_value=mock_cursor)
-        mock_cursor.__aiter__ = MagicMock(return_value=mock_empty_cursor())
-        db.users.find = MagicMock(return_value=mock_cursor)
 
         result = await svc.list_users()
         assert result == []
@@ -655,22 +600,18 @@ class TestListUsers:
     async def test_respects_skip_and_limit(self):
         """应传递 skip 和 limit 参数。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        async def mock_empty_cursor():
-            return
-            yield
+        # 插入 5 个用户
+        for i in range(5):
+            await db.users.insert_one(
+                _make_user_doc(username=f"user_{i}", email=f"user{i}@example.com")
+            )
 
-        mock_cursor = MagicMock()
-        mock_cursor.skip = MagicMock(return_value=mock_cursor)
-        mock_cursor.limit = MagicMock(return_value=mock_cursor)
-        mock_cursor.__aiter__ = MagicMock(return_value=mock_empty_cursor())
-        db.users.find = MagicMock(return_value=mock_cursor)
-
-        await svc.list_users(skip=10, limit=5)
-        mock_cursor.skip.assert_called_once_with(10)
-        mock_cursor.limit.assert_called_once_with(5)
+        # skip=2, limit=2 应返回第 3、4 个
+        result = await svc.list_users(skip=2, limit=2)
+        assert len(result) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -685,26 +626,25 @@ class TestDeactivateUser:
     async def test_deactivates_successfully(self):
         """应成功禁用用户。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(modified_count=1))
+        doc = _make_user_doc(username="targetuser")
+        await db.users.insert_one(doc)
 
         result = await svc.deactivate_user("targetuser")
         assert result is True
 
-        update_call = db.users.update_one.call_args
-        assert update_call[0][0] == {"username": "targetuser"}
-        assert update_call[0][1]["$set"]["is_active"] is False
+        # 验证数据库中用户已被禁用
+        updated_doc = await db.users.find_one({"username": "targetuser"})
+        assert updated_doc["is_active"] is False
 
     @pytest.mark.asyncio
     async def test_returns_false_when_user_not_found(self):
         """用户不存在时返回 False。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(modified_count=0))
 
         result = await svc.deactivate_user("ghost")
         assert result is False
@@ -729,25 +669,25 @@ class TestActivateUser:
     async def test_activates_successfully(self):
         """应成功激活用户。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(modified_count=1))
+        doc = _make_user_doc(username="disableduser", is_active=False)
+        await db.users.insert_one(doc)
 
         result = await svc.activate_user("disableduser")
         assert result is True
 
-        update_call = db.users.update_one.call_args
-        assert update_call[0][1]["$set"]["is_active"] is True
+        # 验证数据库中用户已被激活
+        updated_doc = await db.users.find_one({"username": "disableduser"})
+        assert updated_doc["is_active"] is True
 
     @pytest.mark.asyncio
     async def test_returns_false_when_user_not_found(self):
         """用户不存在时返回 False。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(modified_count=0))
 
         result = await svc.activate_user("ghost")
         assert result is False
@@ -772,40 +712,42 @@ class TestSetAdminStatus:
     async def test_sets_admin_true(self):
         """应成功设置用户为管理员。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(matched_count=1))
+        doc = _make_user_doc(username="targetuser")
+        await db.users.insert_one(doc)
 
         result = await svc.set_admin_status("targetuser", True)
         assert result is True
 
-        update_call = db.users.update_one.call_args
-        assert update_call[0][1]["$set"]["is_admin"] is True
+        # 验证数据库中 is_admin 已更新
+        updated_doc = await db.users.find_one({"username": "targetuser"})
+        assert updated_doc["is_admin"] is True
 
     @pytest.mark.asyncio
     async def test_sets_admin_false(self):
         """应成功移除用户管理员权限。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
 
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(matched_count=1))
+        doc = _make_user_doc(username="targetuser", is_admin=True)
+        await db.users.insert_one(doc)
 
         result = await svc.set_admin_status("targetuser", False)
         assert result is True
 
-        update_call = db.users.update_one.call_args
-        assert update_call[0][1]["$set"]["is_admin"] is False
+        # 验证数据库中 is_admin 已更新
+        updated_doc = await db.users.find_one({"username": "targetuser"})
+        assert updated_doc["is_admin"] is False
 
     @pytest.mark.asyncio
     async def test_returns_false_when_user_not_found(self):
-        """用户不存在（matched_count=0）时返回 False。"""
+        """用户不存在时返回 False。"""
         svc = UserService()
-        db = _setup_db_mock()
+        db = _setup_db()
         svc.set_database(db)
-
-        db.users.update_one = AsyncMock(return_value=_mock_update_result(matched_count=0))
 
         result = await svc.set_admin_status("ghost", True)
         assert result is False

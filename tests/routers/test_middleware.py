@@ -1,17 +1,19 @@
 """
 中间件组件测试
 测试 RequestIDMiddleware、RateLimitMiddleware 和 OperationLogMiddleware
+使用真实的 Starlette Request 对象替代 MagicMock
 """
 
 import asyncio
+import os
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from fastapi import FastAPI, Request, Response
+from starlette.testclient import TestClient
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +46,34 @@ def _create_app_with_middleware(middleware_cls, **kwargs):
 
     app.add_middleware(middleware_cls, **kwargs)
     return app
+
+
+def _build_real_request(
+    path: str = "/test",
+    method: str = "GET",
+    headers: dict = None,
+    client_host: str = "192.168.1.1",
+    scope_extra: dict = None,
+) -> Request:
+    """构建真实的 Starlette Request 对象。"""
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": [],
+        "server": ("testserver", 80),
+        "scheme": "http",
+        "client": (client_host, 12345),
+    }
+    if headers:
+        scope["headers"] = [
+            (k.lower().encode(), v.encode()) for k, v in headers.items()
+        ]
+    if scope_extra:
+        scope.update(scope_extra)
+    return Request(scope)
 
 
 # ---------------------------------------------------------------------------
@@ -139,30 +169,41 @@ class TestRateLimitMiddleware:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_normal_request_passes_when_redis_unavailable(self, rate_limit_client):
-        """Redis 不可用时请求应通过"""
-        with patch("app.middleware.rate_limit._get_redis_service_safe", return_value=None):
-            response = await rate_limit_client.get("/test")
-            assert response.status_code == 200
+    async def test_normal_request_passes(self, rate_limit_client):
+        """正常请求应通过（无论 Redis 是否可用都允许）"""
+        response = await rate_limit_client.get("/test")
+        assert response.status_code == 200
 
     def test_endpoint_limits_configuration(self):
         """端点限流配置应包含关键端点"""
         from app.middleware.rate_limit import RateLimitMiddleware
 
-        middleware = RateLimitMiddleware(MagicMock(), default_rate_limit=100)
+        # 使用 FastAPI 实例创建中间件（替代 MagicMock）
+        dummy_app = FastAPI()
+        middleware = RateLimitMiddleware(dummy_app, default_rate_limit=100)
         assert "/api/analysis/single" in middleware.endpoint_limits
         assert "/api/analysis/batch" in middleware.endpoint_limits
         assert "/api/auth/login" in middleware.endpoint_limits
 
     @pytest.mark.asyncio
     async def test_check_rate_limit_skips_when_redis_unavailable(self):
-        """Redis 不可用时 check_rate_limit 应直接返回"""
-        from app.middleware.rate_limit import RateLimitMiddleware
+        """Redis 不可用时 check_rate_limit 应直接返回（不抛异常）"""
+        import app.middleware.rate_limit as rate_limit_mod
 
-        middleware = RateLimitMiddleware(MagicMock())
-        with patch("app.middleware.rate_limit._get_redis_service_safe", return_value=None):
+        # 保存并设置全局标志，模拟 Redis 已确认不可用的状态
+        original_redis_available = rate_limit_mod._redis_available
+        rate_limit_mod._redis_available = False
+        try:
+            from app.middleware.rate_limit import RateLimitMiddleware
+
+            dummy_app = FastAPI()
+            middleware = RateLimitMiddleware(dummy_app)
+
+            # check_rate_limit 在 Redis 不可用时应静默通过
             # 不应抛异常
             await middleware.check_rate_limit("user1", "/api/test")
+        finally:
+            rate_limit_mod._redis_available = original_redis_available
 
 
 class TestGetClientIP:
@@ -172,11 +213,7 @@ class TestGetClientIP:
         """无代理时应返回客户端 IP"""
         from app.middleware.rate_limit import _get_client_ip
 
-        request = MagicMock()
-        request.client = MagicMock()
-        request.client.host = "192.168.1.100"
-        request.headers = {}
-
+        request = _build_real_request(client_host="192.168.1.100")
         result = _get_client_ip(request)
         assert result == "192.168.1.100"
 
@@ -184,11 +221,10 @@ class TestGetClientIP:
         """可信代理应读取 X-Forwarded-For 头"""
         from app.middleware.rate_limit import _get_client_ip
 
-        request = MagicMock()
-        request.client = MagicMock()
-        request.client.host = "127.0.0.1"
-        request.headers = {"x-forwarded-for": "10.0.0.1, 192.168.1.1"}
-
+        request = _build_real_request(
+            client_host="127.0.0.1",
+            headers={"x-forwarded-for": "10.0.0.1, 192.168.1.1"},
+        )
         result = _get_client_ip(request)
         assert result == "10.0.0.1"
 
@@ -196,11 +232,10 @@ class TestGetClientIP:
         """可信代理应读取 X-Real-IP 头"""
         from app.middleware.rate_limit import _get_client_ip
 
-        request = MagicMock()
-        request.client = MagicMock()
-        request.client.host = "::1"
-        request.headers = {"x-real-ip": "10.0.0.2"}
-
+        request = _build_real_request(
+            client_host="::1",
+            headers={"x-real-ip": "10.0.0.2"},
+        )
         result = _get_client_ip(request)
         assert result == "10.0.0.2"
 
@@ -208,11 +243,10 @@ class TestGetClientIP:
         """不可信代理应忽略转发头"""
         from app.middleware.rate_limit import _get_client_ip
 
-        request = MagicMock()
-        request.client = MagicMock()
-        request.client.host = "203.0.113.1"
-        request.headers = {"x-forwarded-for": "10.0.0.1"}
-
+        request = _build_real_request(
+            client_host="203.0.113.1",
+            headers={"x-forwarded-for": "10.0.0.1"},
+        )
         result = _get_client_ip(request)
         assert result == "203.0.113.1"
 
@@ -220,10 +254,19 @@ class TestGetClientIP:
         """无客户端信息应返回 unknown"""
         from app.middleware.rate_limit import _get_client_ip
 
-        request = MagicMock()
-        request.client = None
-        request.headers = {}
-
+        # 构建没有 client 信息的 scope
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/test",
+            "raw_path": b"/test",
+            "query_string": b"",
+            "headers": [],
+            "server": ("testserver", 80),
+            "scheme": "http",
+            # 不设置 "client"
+        }
+        request = Request(scope)
         result = _get_client_ip(request)
         assert result == "unknown"
 
@@ -231,11 +274,15 @@ class TestGetClientIP:
 class TestOperationLogMiddleware:
     """OperationLogMiddleware 测试"""
 
+    def _make_middleware(self):
+        """创建 OperationLogMiddleware 实例"""
+        from app.middleware.operation_log_middleware import OperationLogMiddleware
+        dummy_app = FastAPI()
+        return OperationLogMiddleware(dummy_app)
+
     def test_default_skip_paths(self):
         """默认跳过路径应包含健康检查和文档路径"""
-        from app.middleware.operation_log_middleware import OperationLogMiddleware
-
-        middleware = OperationLogMiddleware(MagicMock())
+        middleware = self._make_middleware()
         expected_skips = [
             "/health", "/healthz", "/readyz", "/docs", "/redoc",
             "/openapi.json",
@@ -246,74 +293,47 @@ class TestOperationLogMiddleware:
     def test_custom_skip_paths(self):
         """自定义跳过路径应生效"""
         from app.middleware.operation_log_middleware import OperationLogMiddleware
-
+        dummy_app = FastAPI()
         custom_paths = ["/custom/skip"]
-        middleware = OperationLogMiddleware(MagicMock(), skip_paths=custom_paths)
+        middleware = OperationLogMiddleware(dummy_app, skip_paths=custom_paths)
         assert "/custom/skip" in middleware.skip_paths
 
     def test_should_skip_logging_for_health(self):
         """健康检查路径应跳过日志"""
-        from app.middleware.operation_log_middleware import OperationLogMiddleware
-
-        middleware = OperationLogMiddleware(MagicMock())
-        request = MagicMock()
-        request.url = MagicMock()
-        request.url.path = "/health"
-        request.method = "GET"
-
+        middleware = self._make_middleware()
+        request = _build_real_request(path="/health", method="GET")
         result = middleware._should_skip_logging(request)
         assert result is True
 
     def test_should_skip_logging_for_non_api(self):
         """非 API 路径应跳过日志"""
-        from app.middleware.operation_log_middleware import OperationLogMiddleware
-
-        middleware = OperationLogMiddleware(MagicMock())
-        request = MagicMock()
-        request.url = MagicMock()
-        request.url.path = "/favicon.ico"
-        request.method = "GET"
-
+        middleware = self._make_middleware()
+        request = _build_real_request(path="/favicon.ico", method="GET")
         result = middleware._should_skip_logging(request)
         assert result is True
 
     def test_should_skip_logging_for_get_method(self):
         """GET 请求应跳过日志（只记录写操作）"""
-        from app.middleware.operation_log_middleware import OperationLogMiddleware
-
-        middleware = OperationLogMiddleware(MagicMock())
-        request = MagicMock()
-        request.url = MagicMock()
-        request.url.path = "/api/analysis/tasks"
-        request.method = "GET"
-
+        middleware = self._make_middleware()
+        request = _build_real_request(path="/api/analysis/tasks", method="GET")
         result = middleware._should_skip_logging(request)
         assert result is True
 
     def test_should_not_skip_for_post_api(self):
         """POST API 请求不应跳过日志"""
-        from app.middleware.operation_log_middleware import OperationLogMiddleware
-
-        middleware = OperationLogMiddleware(MagicMock())
-        request = MagicMock()
-        request.url = MagicMock()
-        request.url.path = "/api/analysis/single"
-        request.method = "POST"
-
+        middleware = self._make_middleware()
+        request = _build_real_request(path="/api/analysis/single", method="POST")
         result = middleware._should_skip_logging(request)
         assert result is False
 
     def test_should_skip_when_globally_disabled(self):
         """全局禁用时应跳过日志"""
         from app.middleware.operation_log_middleware import (
-            OperationLogMiddleware, set_operation_log_enabled, OPLOG_ENABLED,
+            OperationLogMiddleware, set_operation_log_enabled,
         )
 
-        middleware = OperationLogMiddleware(MagicMock())
-        request = MagicMock()
-        request.url = MagicMock()
-        request.url.path = "/api/analysis/single"
-        request.method = "POST"
+        middleware = self._make_middleware()
+        request = _build_real_request(path="/api/analysis/single", method="POST")
 
         # 禁用
         set_operation_log_enabled(False)
@@ -328,7 +348,7 @@ class TestOperationLogMiddleware:
         from app.middleware.operation_log_middleware import OperationLogMiddleware
         from app.models.operation_log import ActionType
 
-        middleware = OperationLogMiddleware(MagicMock())
+        middleware = self._make_middleware()
 
         assert middleware._get_action_type("/api/analysis/single") == ActionType.STOCK_ANALYSIS
         assert middleware._get_action_type("/api/auth/login") == ActionType.USER_LOGIN
@@ -340,8 +360,8 @@ class TestOperationLogMiddleware:
         """分析路径的操作描述应正确"""
         from app.middleware.operation_log_middleware import OperationLogMiddleware
 
-        middleware = OperationLogMiddleware(MagicMock())
-        request = MagicMock()
+        middleware = self._make_middleware()
+        request = _build_real_request(path="/api/analysis/single", method="POST")
 
         desc = middleware._get_action_description("POST", "/api/analysis/single", request)
         assert "单股分析" in desc
@@ -353,8 +373,8 @@ class TestOperationLogMiddleware:
         """认证路径的操作描述应正确"""
         from app.middleware.operation_log_middleware import OperationLogMiddleware
 
-        middleware = OperationLogMiddleware(MagicMock())
-        request = MagicMock()
+        middleware = self._make_middleware()
+        request = _build_real_request(path="/api/auth/login", method="POST")
 
         desc = middleware._get_action_description("POST", "/api/auth/login", request)
         assert "登录" in desc
@@ -366,14 +386,14 @@ class TestOperationLogMiddleware:
         """_get_client_ip 非受信代理应忽略 X-Forwarded-For"""
         from app.middleware.operation_log_middleware import OperationLogMiddleware
 
-        middleware = OperationLogMiddleware(MagicMock())
-        request = MagicMock()
-        request.headers = {"x-forwarded-for": "10.0.0.1"}
-        request.client = MagicMock()
-        request.client.host = "192.168.1.1"
+        middleware = self._make_middleware()
+        request = _build_real_request(
+            client_host="192.168.1.1",
+            headers={"x-forwarded-for": "10.0.0.1"},
+        )
 
         ip = middleware._get_client_ip(request)
-        # 192.168.1.1 不是受信代理，应使用直连 IP
+        # 192.168.1.1 不是受信代理（只有 127.0.0.1 和 ::1 受信），应使用直连 IP
         assert ip == "192.168.1.1"
 
 
@@ -416,11 +436,10 @@ class TestGetClientIPFromRequest:
         """非受信代理应忽略 X-Forwarded-For"""
         from app.middleware.operation_log_middleware import _get_client_ip_from_request
 
-        request = MagicMock()
-        request.headers = {"x-forwarded-for": "10.0.0.1"}
-        request.client = MagicMock()
-        request.client.host = "192.168.1.1"
-
+        request = _build_real_request(
+            client_host="192.168.1.1",
+            headers={"x-forwarded-for": "10.0.0.1"},
+        )
         result = _get_client_ip_from_request(request)
         assert result == "192.168.1.1"
 
@@ -428,11 +447,10 @@ class TestGetClientIPFromRequest:
         """受信代理应使用 X-Forwarded-For"""
         from app.middleware.operation_log_middleware import _get_client_ip_from_request
 
-        request = MagicMock()
-        request.headers = {"x-forwarded-for": "10.0.0.1"}
-        request.client = MagicMock()
-        request.client.host = "127.0.0.1"
-
+        request = _build_real_request(
+            client_host="127.0.0.1",
+            headers={"x-forwarded-for": "10.0.0.1"},
+        )
         result = _get_client_ip_from_request(request)
         assert result == "10.0.0.1"
 
@@ -440,11 +458,10 @@ class TestGetClientIPFromRequest:
         """受信代理无 Forwarded-For 时应使用 X-Real-IP"""
         from app.middleware.operation_log_middleware import _get_client_ip_from_request
 
-        request = MagicMock()
-        request.headers = {"x-real-ip": "10.0.0.2"}
-        request.client = MagicMock()
-        request.client.host = "127.0.0.1"
-
+        request = _build_real_request(
+            client_host="127.0.0.1",
+            headers={"x-real-ip": "10.0.0.2"},
+        )
         result = _get_client_ip_from_request(request)
         assert result == "10.0.0.2"
 
@@ -452,11 +469,10 @@ class TestGetClientIPFromRequest:
         """非受信代理应忽略 X-Real-IP"""
         from app.middleware.operation_log_middleware import _get_client_ip_from_request
 
-        request = MagicMock()
-        request.headers = {"x-real-ip": "10.0.0.2"}
-        request.client = MagicMock()
-        request.client.host = "192.168.1.1"
-
+        request = _build_real_request(
+            client_host="192.168.1.1",
+            headers={"x-real-ip": "10.0.0.2"},
+        )
         result = _get_client_ip_from_request(request)
         assert result == "192.168.1.1"
 
@@ -464,11 +480,7 @@ class TestGetClientIPFromRequest:
         """无头时应使用 client.host"""
         from app.middleware.operation_log_middleware import _get_client_ip_from_request
 
-        request = MagicMock()
-        request.headers = {}
-        request.client = MagicMock()
-        request.client.host = "192.168.1.1"
-
+        request = _build_real_request(client_host="192.168.1.1")
         result = _get_client_ip_from_request(request)
         assert result == "192.168.1.1"
 
@@ -476,9 +488,16 @@ class TestGetClientIPFromRequest:
         """无客户端信息应返回 unknown"""
         from app.middleware.operation_log_middleware import _get_client_ip_from_request
 
-        request = MagicMock()
-        request.headers = {}
-        request.client = None
-
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/test",
+            "raw_path": b"/test",
+            "query_string": b"",
+            "headers": [],
+            "server": ("testserver", 80),
+            "scheme": "http",
+        }
+        request = Request(scope)
         result = _get_client_ip_from_request(request)
         assert result == "unknown"

@@ -1,10 +1,11 @@
+from test_infra import env_vars
+from test_infra import env_vars
 """测试统一配置管理"""
 
 import json
 import os
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from app.core.unified_config import UnifiedConfigManager
 
@@ -118,15 +119,9 @@ class TestModelAccessors:
 
 class TestDatabaseConfigs:
     def test_returns_mongodb_and_redis(self, manager):
-        with patch("app.core.config.settings") as mock_settings:
-            mock_settings.MONGODB_HOST = "localhost"
-            mock_settings.MONGODB_PORT = 27017
-            mock_settings.MONGODB_DATABASE = "test"
-            mock_settings.REDIS_HOST = "localhost"
-            mock_settings.REDIS_PORT = 6379
-            mock_settings.REDIS_DB = 0
-            result = manager.get_database_configs()
-            assert len(result) == 2
-            types = {c.type for c in result}
-            assert "mongodb" in types
-            assert "redis" in types
+        from app.core.config import settings
+        result = manager.get_database_configs()
+        assert len(result) == 2
+        types = {c.type for c in result}
+        assert "mongodb" in types
+        assert "redis" in types

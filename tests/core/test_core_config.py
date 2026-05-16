@@ -1,10 +1,10 @@
+from test_infra import env_vars
 """
 测试 app/core/config.py — Settings 配置类
 """
 
 import os
 import warnings
-from unittest.mock import patch
 
 import pytest
 
@@ -232,8 +232,8 @@ class TestLegacyEnvAliases:
         """API_PORT 环境变量映射到 PORT"""
         from app.core.config import Settings
 
-        with patch.dict(os.environ, {"API_PORT": "9000"}, clear=False):
+        with env_vars({"API_PORT": "9000"}):
             # 清除已有 PORT 以便测试别名映射
-            with patch.dict(os.environ, {"PORT": "9000"}, clear=False):
+            with env_vars({"PORT": "9000"}):
                 s = Settings()
                 assert s.PORT == 9000

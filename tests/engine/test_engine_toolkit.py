@@ -1,7 +1,7 @@
 """测试 Toolkit 工具集"""
 
 import pytest
-from unittest.mock import MagicMock
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 
 from app.engine.agents.utils.agent_utils import Toolkit, create_msg_delete
 
@@ -13,16 +13,17 @@ class TestCreateMsgDelete:
 
     def test_returns_removal_operations_and_placeholder(self):
         fn = create_msg_delete()
-        mock_msg1 = MagicMock()
-        mock_msg1.id = "msg-1"
-        mock_msg2 = MagicMock()
-        mock_msg2.id = "msg-2"
-        state = {"messages": [mock_msg1, mock_msg2]}
+        msg1 = AIMessage(content="hello", id="msg-1")
+        msg2 = AIMessage(content="world", id="msg-2")
+        state = {"messages": [msg1, msg2]}
         result = fn(state)
         assert "messages" in result
         msgs = result["messages"]
         assert len(msgs) == 3  # 2 removals + 1 placeholder
-        assert msgs[-1].content == "Continue"
+        assert isinstance(msgs[0], RemoveMessage)
+        assert isinstance(msgs[1], RemoveMessage)
+        assert isinstance(msgs[2], HumanMessage)
+        assert msgs[2].content == "Continue"
 
 
 class TestToolkitInit:
@@ -54,6 +55,10 @@ class TestToolkitProperties:
         assert tk.mcp_tool_loader is None
 
     def test_mcp_tool_loader_set(self):
-        loader = MagicMock()
+
+        class FakeLoader:
+            pass
+
+        loader = FakeLoader()
         tk = Toolkit(config={"mcp_tool_loader": loader})
         assert tk.mcp_tool_loader is loader

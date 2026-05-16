@@ -1,17 +1,26 @@
-"""测试 TradingGraph LLM provider 路由"""
+"""
+测试统一 LLM 工厂函数 create_llm 的 provider 路由
 
+直接调用 create_llm 真实函数，验证返回正确的适配器类型
+"""
+
+import os
 import pytest
-from unittest.mock import patch, MagicMock
 
-from app.engine.graph.trading_graph import create_llm_by_provider
+os.environ.pop("SSL_CERT_FILE", None)
+
+from app.engine.llm_adapters.factory import create_llm, PROVIDER_DEFAULTS
+from app.engine.llm_adapters.openai_compatible import OpenAICompatibleAdapter
+from app.engine.llm_adapters.anthropic_adapter import AnthropicAdapter
+from app.engine.llm_adapters.google_native import GoogleNativeAdapter
 
 
-class TestCreateLlmByProvider:
+class TestCreateLlm:
     def _base_kwargs(self, **overrides):
         defaults = {
             "provider": "openai",
             "model": "gpt-4",
-            "backend_url": "https://api.openai.com/v1",
+            "base_url": "https://api.openai.com/v1",
             "temperature": 0.7,
             "max_tokens": 4000,
             "timeout": 60,
@@ -20,55 +29,69 @@ class TestCreateLlmByProvider:
         defaults.update(overrides)
         return defaults
 
-    @patch("app.engine.graph.trading_graph.ChatOpenAI")
-    def test_openai_provider(self, mock_cls):
-        mock_cls.return_value = MagicMock()
-        result = create_llm_by_provider(**self._base_kwargs(provider="openai"))
-        mock_cls.assert_called_once()
+    def test_openai_provider_returns_openai_compatible(self):
+        llm = create_llm(**self._base_kwargs(provider="openai"))
+        assert isinstance(llm, OpenAICompatibleAdapter)
 
-    @patch("app.engine.llm_adapters.deepseek_adapter.ChatDeepSeek")
-    def test_deepseek_provider(self, mock_cls):
-        mock_cls.return_value = MagicMock()
-        result = create_llm_by_provider(**self._base_kwargs(provider="deepseek"))
-        assert result is not None
+    def test_deepseek_provider_returns_openai_compatible(self):
+        llm = create_llm(**self._base_kwargs(provider="deepseek", model="deepseek-chat"))
+        assert isinstance(llm, OpenAICompatibleAdapter)
 
-    @patch("app.engine.llm_adapters.dashscope_openai_adapter.ChatDashScopeOpenAI")
-    def test_dashscope_provider(self, mock_cls):
-        mock_cls.return_value = MagicMock()
-        result = create_llm_by_provider(**self._base_kwargs(provider="dashscope"))
-        assert result is not None
+    def test_dashscope_provider_returns_openai_compatible(self):
+        llm = create_llm(**self._base_kwargs(provider="dashscope", model="qwen-turbo"))
+        assert isinstance(llm, OpenAICompatibleAdapter)
 
-    @patch("app.engine.graph.trading_graph.ChatAnthropic")
-    def test_anthropic_provider(self, mock_cls):
-        mock_cls.return_value = MagicMock()
-        result = create_llm_by_provider(**self._base_kwargs(provider="anthropic"))
-        mock_cls.assert_called_once()
+    def test_zhipu_provider_returns_openai_compatible(self):
+        llm = create_llm(**self._base_kwargs(provider="zhipu", model="glm-4"))
+        assert isinstance(llm, OpenAICompatibleAdapter)
 
-    @patch("app.engine.llm_adapters.google_openai_adapter.ChatGoogleOpenAI")
-    def test_google_provider(self, mock_cls):
-        mock_cls.return_value = MagicMock()
-        with patch.dict("os.environ", {"GOOGLE_API_KEY": "test-google-key"}):
-            result = create_llm_by_provider(**self._base_kwargs(provider="google"))
-        assert result is not None
+    def test_anthropic_provider_returns_anthropic_adapter(self):
+        llm = create_llm(**self._base_kwargs(provider="anthropic", model="claude-sonnet-4-20250514"))
+        assert isinstance(llm, AnthropicAdapter)
 
-    @patch("app.engine.graph.trading_graph.ChatOpenAI")
-    def test_unknown_provider_falls_back_to_openai(self, mock_cls):
-        mock_cls.return_value = MagicMock()
-        result = create_llm_by_provider(**self._base_kwargs(provider="unknown_provider"))
-        mock_cls.assert_called_once()
+    def test_google_provider_returns_google_native(self):
+        llm = create_llm(**self._base_kwargs(provider="google", model="gemini-2.0-flash"))
+        assert isinstance(llm, GoogleNativeAdapter)
 
-    @patch("app.engine.graph.trading_graph.ChatOpenAI")
-    def test_passes_model_and_temperature(self, mock_cls):
-        mock_cls.return_value = MagicMock()
-        create_llm_by_provider(**self._base_kwargs(model="gpt-4o", temperature=0.3))
-        assert mock_cls.call_args is not None
-        call_kwargs = mock_cls.call_args[1]
-        assert call_kwargs.get("model_name") == "gpt-4o" or call_kwargs.get("model") == "gpt-4o"
-        assert call_kwargs.get("temperature") == 0.3
+    def test_unknown_provider_defaults_to_openai_compatible(self):
+        llm = create_llm(**self._base_kwargs(provider="some_unknown_provider"))
+        assert isinstance(llm, OpenAICompatibleAdapter)
 
-    def test_returns_llm_instance(self):
-        with patch("app.engine.graph.trading_graph.ChatOpenAI") as mock_cls:
-            mock_instance = MagicMock()
-            mock_cls.return_value = mock_instance
-            result = create_llm_by_provider(**self._base_kwargs(provider="openai"))
-            assert result is mock_instance
+    def test_ollama_provider_allows_no_api_key(self):
+        llm = create_llm(
+            provider="ollama",
+            model="qwen2:7b",
+            base_url="http://localhost:11434/v1",
+            api_key="ollama",
+        )
+        assert isinstance(llm, OpenAICompatibleAdapter)
+
+    def test_dashscope_url_normalization(self):
+        llm = create_llm(
+            **self._base_kwargs(
+                provider="dashscope",
+                model="qwen-turbo",
+                base_url="https://dashscope.aliyuncs.com/api/v1",
+            )
+        )
+        actual_url = llm.openai_api_base
+        assert "compatible-mode" in actual_url
+
+    def test_provider_defaults_registry_completeness(self):
+        required_providers = ["openai", "deepseek", "dashscope", "zhipu", "qianfan",
+                              "anthropic", "google", "ollama", "siliconflow", "openrouter"]
+        for p in required_providers:
+            assert p in PROVIDER_DEFAULTS, f"{p} 未在 PROVIDER_DEFAULTS 中注册"
+
+    def test_provider_defaults_have_protocol(self):
+        for name, cfg in PROVIDER_DEFAULTS.items():
+            assert "protocol" in cfg, f"{name} 缺少 protocol 字段"
+            assert cfg["protocol"] in ("openai", "anthropic", "google")
+
+    def test_openai_compatible_has_provider_name(self):
+        llm = create_llm(**self._base_kwargs(provider="deepseek", model="deepseek-chat"))
+        assert llm.provider_name == "deepseek"
+
+    def test_factory_sets_model_name(self):
+        llm = create_llm(**self._base_kwargs(provider="openai", model="gpt-4o"))
+        assert llm.model_name == "gpt-4o"

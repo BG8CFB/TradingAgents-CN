@@ -1,8 +1,11 @@
-"""测试 SimpleAgentFactory 工厂模块"""
+"""测试 SimpleAgentFactory 工厂模块
+
+使用真实的 YAML 配置文件替代 patch/mock，
+验证配置加载、智能体查找、进度映射和图标推断。
+"""
 
 import os
 import pytest
-from unittest.mock import patch, MagicMock
 
 from app.engine.agents.analysts.simple_agent_factory import SimpleAgentFactory
 
@@ -19,9 +22,16 @@ class TestLoadConfig:
 
     def test_env_var_takes_priority(self, sample_yaml_config):
         config_dir = os.path.dirname(sample_yaml_config)
-        with patch.dict(os.environ, {"AGENT_CONFIG_DIR": config_dir}):
+        original = os.environ.get("AGENT_CONFIG_DIR")
+        try:
+            os.environ["AGENT_CONFIG_DIR"] = config_dir
             config = SimpleAgentFactory.load_config()
             assert "customModes" in config
+        finally:
+            if original is not None:
+                os.environ["AGENT_CONFIG_DIR"] = original
+            else:
+                os.environ.pop("AGENT_CONFIG_DIR", None)
 
 
 class TestGetAgentConfig:
@@ -50,10 +60,15 @@ class TestGetAllAgents:
         agents = SimpleAgentFactory.get_all_agents(sample_yaml_config)
         assert len(agents) == 3  # 2 customModes + 1 agents
 
-    def test_returns_empty_list_for_empty_config(self):
-        with patch.object(SimpleAgentFactory, "load_config", return_value={}):
-            agents = SimpleAgentFactory.get_all_agents()
-            assert agents == []
+    def test_returns_empty_list_for_empty_config(self, tmp_path):
+        """空配置文件应返回空列表"""
+        import yaml
+        config_path = tmp_path / "phase1_agents_config.yaml"
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump({}, f)
+
+        agents = SimpleAgentFactory.get_all_agents(str(config_path))
+        assert agents == []
 
 
 class TestBuildProgressMap:

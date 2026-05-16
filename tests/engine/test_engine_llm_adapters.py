@@ -1,93 +1,97 @@
-"""测试 LLM 适配器初始化逻辑"""
+"""测试 LLM 适配器：OpenAICompatibleAdapter、BaseChatAdapter、factory"""
 
+import os
 import pytest
-from unittest.mock import patch, MagicMock
 
-from app.engine.llm_adapters.openai_compatible_base import (
-    OpenAICompatibleBase,
-    OPENAI_COMPATIBLE_PROVIDERS,
-    create_openai_compatible_llm,
-)
+from app.engine.llm_adapters.factory import create_llm, PROVIDER_DEFAULTS
+from app.engine.llm_adapters.openai_compatible import OpenAICompatibleAdapter
+from app.engine.llm_adapters.base import BaseChatAdapter
+from test_infra import env_vars
 
 
-class TestOpenAICompatibleBaseInit:
-    @patch("app.engine.llm_adapters.openai_compatible_base.ChatOpenAI.__init__", return_value=None)
-    def test_with_explicit_api_key(self, mock_init):
-        base = OpenAICompatibleBase(
-            provider_name="test_provider",
-            model="test-model",
-            api_key_env_var="TEST_API_KEY",
-            base_url="https://api.test.com/v1",
-            api_key="sk-explicit-key",
+class TestBaseChatAdapterResolveApiKey:
+    """测试 API Key 解析逻辑"""
+
+    def test_explicit_api_key_takes_priority(self):
+        key = BaseChatAdapter.resolve_api_key("test", api_key="sk-explicit", api_key_env="TEST_KEY")
+        assert key == "sk-explicit"
+
+    def test_reads_from_env_when_no_explicit(self):
+        with env_vars({"TEST_ENV_KEY": "sk-env-value"}):
+            key = BaseChatAdapter.resolve_api_key("test", api_key=None, api_key_env="TEST_ENV_KEY")
+            assert key == "sk-env-value"
+
+    def test_returns_none_when_no_key(self):
+        key = BaseChatAdapter.resolve_api_key("test", api_key=None, api_key_env="MISSING_KEY")
+        assert key is None
+
+    def test_returns_none_when_no_env_var(self):
+        key = BaseChatAdapter.resolve_api_key("test", api_key=None, api_key_env=None)
+        assert key is None
+
+    def test_rejects_placeholder_api_key(self):
+        with env_vars({"TEST_KEY": "your-api-key"}):
+            key = BaseChatAdapter.resolve_api_key("test", api_key=None, api_key_env="TEST_KEY")
+            assert key is None
+
+
+class TestOpenAICompatibleAdapterInit:
+    """测试 OpenAICompatibleAdapter 初始化"""
+
+    def test_creates_with_explicit_api_key(self):
+        llm = OpenAICompatibleAdapter(
+            provider="openai",
+            model="gpt-4",
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
         )
-        assert base.provider_name == "test_provider"
+        assert llm.provider_name == "openai"
 
-    @patch("app.engine.llm_adapters.openai_compatible_base.ChatOpenAI.__init__", return_value=None)
-    def test_reads_api_key_from_env(self, mock_init):
-        with patch.dict("os.environ", {"TEST_ENV_KEY": "sk-env-key"}):
-            base = OpenAICompatibleBase(
-                provider_name="test_provider",
-                model="test-model",
-                api_key_env_var="TEST_ENV_KEY",
-                base_url="https://api.test.com/v1",
+    def test_creates_deepseek_adapter(self):
+        llm = create_llm(provider="deepseek", model="deepseek-chat", api_key="sk-test")
+        assert isinstance(llm, OpenAICompatibleAdapter)
+        assert llm.provider_name == "deepseek"
+
+    def test_creates_dashscope_adapter(self):
+        llm = create_llm(provider="dashscope", model="qwen-turbo", api_key="sk-test")
+        assert isinstance(llm, OpenAICompatibleAdapter)
+        assert llm.provider_name == "dashscope"
+
+    def test_raises_on_missing_api_key(self):
+        with pytest.raises(ValueError, match="API 密钥"):
+            OpenAICompatibleAdapter(
+                provider="openai",
+                model="gpt-4",
+                base_url="https://api.openai.com/v1",
             )
-        assert base.provider_name == "test_provider"
 
-    @patch("app.engine.llm_adapters.openai_compatible_base.ChatOpenAI.__init__", return_value=None)
-    def test_raises_on_missing_api_key(self, mock_init):
-        with patch.dict("os.environ", {}, clear=False):
-            os_env = {}
-            with patch("os.getenv", side_effect=lambda k, d=None: os_env.get(k, d)):
-                with pytest.raises(ValueError, match="API密钥"):
-                    OpenAICompatibleBase(
-                        provider_name="test_provider",
-                        model="test-model",
-                        api_key_env_var="MISSING_KEY",
-                        base_url="https://api.test.com/v1",
-                    )
-
-    @patch("app.engine.llm_adapters.openai_compatible_base.ChatOpenAI.__init__", return_value=None)
-    def test_rejects_placeholder_api_key(self, mock_init):
-        with patch.dict("os.environ", {"TEST_KEY": "your-api-key"}):
-            with pytest.raises(ValueError):
-                OpenAICompatibleBase(
-                    provider_name="test_provider",
-                    model="test-model",
-                    api_key_env_var="TEST_KEY",
-                    base_url="https://api.test.com/v1",
-                )
+    def test_ollama_allows_no_key(self):
+        llm = OpenAICompatibleAdapter(
+            provider="ollama",
+            model="qwen2:7b",
+            base_url="http://localhost:11434/v1",
+            api_key="ollama",
+        )
+        assert llm.provider_name == "ollama"
 
 
-class TestProvidersConfig:
+class TestProviderDefaultsRegistry:
+    """测试 PROVIDER_DEFAULTS 注册表"""
+
     def test_all_expected_providers_registered(self):
-        expected = ["deepseek", "dashscope", "qianfan", "zhipu", "custom_openai"]
+        expected = [
+            "openai", "deepseek", "dashscope", "zhipu", "qianfan",
+            "siliconflow", "openrouter", "ollama", "anthropic", "google",
+        ]
         for p in expected:
-            assert p in OPENAI_COMPATIBLE_PROVIDERS
+            assert p in PROVIDER_DEFAULTS, f"{p} 未在 PROVIDER_DEFAULTS 中注册"
 
     def test_each_provider_has_required_fields(self):
-        for provider, info in OPENAI_COMPATIBLE_PROVIDERS.items():
-            assert "adapter_class" in info, f"{provider} 缺少 adapter_class"
-            assert "api_key_env" in info, f"{provider} 缺少 api_key_env"
-            assert "models" in info, f"{provider} 缺少 models"
-            assert len(info["models"]) > 0, f"{provider} 没有模型定义"
+        for name, cfg in PROVIDER_DEFAULTS.items():
+            assert "protocol" in cfg, f"{name} 缺少 protocol 字段"
+            assert cfg["protocol"] in ("openai", "anthropic", "google")
 
-
-class TestCreateOpenAICompatibleLLM:
-    @patch("app.engine.llm_adapters.openai_compatible_base.ChatOpenAI.__init__", return_value=None)
-    def test_unsupported_provider_raises(self, mock_init):
-        with pytest.raises(ValueError, match="不支持"):
-            create_openai_compatible_llm(provider="nonexistent", model="x", api_key="test")
-
-    @patch("app.engine.llm_adapters.openai_compatible_base.ChatOpenAI.__init__", return_value=None)
-    def test_deepseek_creation(self, mock_init):
-        llm = create_openai_compatible_llm(
-            provider="deepseek", model="deepseek-chat", api_key="sk-test"
-        )
-        assert llm is not None
-
-    @patch("app.engine.llm_adapters.openai_compatible_base.ChatOpenAI.__init__", return_value=None)
-    def test_dashscope_creation(self, mock_init):
-        llm = create_openai_compatible_llm(
-            provider="dashscope", model="qwen-turbo", api_key="sk-test"
-        )
-        assert llm is not None
+    def test_api_key_env_is_string_or_none(self):
+        for name, cfg in PROVIDER_DEFAULTS.items():
+            if "api_key_env" in cfg:
+                assert cfg["api_key_env"] is None or isinstance(cfg["api_key_env"], str)

@@ -2,8 +2,8 @@
 
 import os
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
+from test_infra import env_vars
 from app.core.config_bridge import (
     get_bridged_api_key,
     get_bridged_model,
@@ -13,12 +13,12 @@ from app.core.config_bridge import (
 
 class TestGetBridgedApiKey:
     def test_reads_from_env(self):
-        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test-key"}):
+        with env_vars({"DEEPSEEK_API_KEY": "sk-test-key"}):
             result = get_bridged_api_key("deepseek")
             assert result == "sk-test-key"
 
     def test_case_insensitive_provider(self):
-        with patch.dict(os.environ, {"GOOGLE_API_KEY": "test-google-key"}):
+        with env_vars({"GOOGLE_API_KEY": "test-google-key"}):
             result = get_bridged_api_key("Google")
             assert result == "test-google-key"
 
@@ -30,22 +30,22 @@ class TestGetBridgedApiKey:
 
 class TestGetBridgedModel:
     def test_default_model(self):
-        with patch.dict(os.environ, {"TRADINGAGENTS_DEFAULT_MODEL": "qwen-max"}):
+        with env_vars({"TRADINGAGENTS_DEFAULT_MODEL": "qwen-max"}):
             result = get_bridged_model("default")
             assert result == "qwen-max"
 
     def test_quick_model(self):
-        with patch.dict(os.environ, {"TRADINGAGENTS_QUICK_MODEL": "qwen-turbo"}):
+        with env_vars({"TRADINGAGENTS_QUICK_MODEL": "qwen-turbo"}):
             result = get_bridged_model("quick")
             assert result == "qwen-turbo"
 
     def test_deep_model(self):
-        with patch.dict(os.environ, {"TRADINGAGENTS_DEEP_MODEL": "qwen-max"}):
+        with env_vars({"TRADINGAGENTS_DEEP_MODEL": "qwen-max"}):
             result = get_bridged_model("deep")
             assert result == "qwen-max"
 
     def test_unknown_type_returns_default(self):
-        with patch.dict(os.environ, {"TRADINGAGENTS_DEFAULT_MODEL": "qwen-plus"}):
+        with env_vars({"TRADINGAGENTS_DEFAULT_MODEL": "qwen-plus"}):
             result = get_bridged_model("unknown")
             assert result == "qwen-plus"
 
@@ -57,7 +57,7 @@ class TestGetBridgedModel:
 
 class TestClearBridgedConfig:
     def test_clears_model_env_vars(self):
-        with patch.dict(os.environ, {
+        with env_vars({
             "TRADINGAGENTS_DEFAULT_MODEL": "test",
             "TRADINGAGENTS_QUICK_MODEL": "test",
             "TRADINGAGENTS_DEEP_MODEL": "test",
@@ -68,7 +68,7 @@ class TestClearBridgedConfig:
             assert "TRADINGAGENTS_DEEP_MODEL" not in os.environ
 
     def test_clears_provider_api_keys(self):
-        with patch.dict(os.environ, {
+        with env_vars({
             "OPENAI_API_KEY": "test",
             "DEEPSEEK_API_KEY": "test",
             "GOOGLE_API_KEY": "test",
@@ -79,7 +79,7 @@ class TestClearBridgedConfig:
             assert "GOOGLE_API_KEY" not in os.environ
 
     def test_clears_datasource_keys(self):
-        with patch.dict(os.environ, {
+        with env_vars({
             "TUSHARE_TOKEN": "test",
             "FINNHUB_API_KEY": "test",
         }):

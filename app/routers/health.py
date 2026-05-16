@@ -16,9 +16,7 @@ def get_version() -> str:
     return "0.1.16"  # 默认版本号
 
 
-@router.get("/health")
-async def health():
-    """健康检查接口 - 前端使用"""
+def _health_response():
     return {
         "success": True,
         "data": {
@@ -30,10 +28,19 @@ async def health():
         "message": "服务运行正常"
     }
 
+
+@router.get("/health")
+@router.get("/api/health")
+async def health():
+    """健康检查接口 - 前端使用 /health 或 /api/health"""
+    return _health_response()
+
+
 @router.get("/healthz")
 async def healthz():
     """Kubernetes健康检查"""
     return {"status": "ok"}
+
 
 @router.get("/readyz")
 async def readyz():

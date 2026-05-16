@@ -1,7 +1,6 @@
 """测试报告服务"""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestReportsServiceImport:

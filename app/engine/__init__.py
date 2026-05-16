@@ -17,7 +17,7 @@
 
 使用示例:
     from app.engine.config import token_tracker, ModelConfig
-    from app.engine.llm_adapters import get_llm_adapter
+    from app.engine.llm_adapters import create_llm
 
 版本: 2.0.0
 """
