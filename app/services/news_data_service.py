@@ -399,18 +399,11 @@ class NewsDataService:
         return standardized
     
     def _get_full_symbol(self, symbol: str, market: str) -> str:
-        """获取完整股票代码"""
+        """获取完整股票代码 — 委托到全局统一函数"""
         if not symbol:
             return None
-        
-        if market == "CN":
-            if len(symbol) == 6:
-                if symbol.startswith(('60', '68')):
-                    return f"{symbol}.SH"
-                elif symbol.startswith(('00', '30')):
-                    return f"{symbol}.SZ"
-        
-        return symbol
+        from app.data.schema.base import get_full_symbol
+        return get_full_symbol(symbol, market or "CN")
     
     def _parse_datetime(self, dt_value) -> Optional[datetime]:
         """解析日期时间"""

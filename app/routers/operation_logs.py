@@ -7,9 +7,10 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.services.operation_log_service import get_operation_log_service
 from app.utils.timezone import now_config_tz, format_date_compact
+from app.core.response import safe_error_message
 from app.models.operation_log import (
     OperationLogQuery,
     OperationLogListResponse,
@@ -67,7 +68,7 @@ async def get_operation_logs(
         logger.error(f"获取操作日志列表失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取操作日志列表失败: {str(e)}"
+            detail=safe_error_message(e, "获取操作日志列表失败")
         )
 
 
@@ -93,7 +94,7 @@ async def get_operation_log_stats(
         logger.error(f"获取操作日志统计失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取操作日志统计失败: {str(e)}"
+            detail=safe_error_message(e, "获取操作日志统计失败")
         )
 
 
@@ -127,14 +128,14 @@ async def get_operation_log_detail(
         logger.error(f"获取操作日志详情失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取操作日志详情失败: {str(e)}"
+            detail=safe_error_message(e, "获取操作日志详情失败")
         )
 
 
 @router.post("/clear", response_model=ClearLogsResponse)
 async def clear_operation_logs(
     request: ClearLogsRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """清空操作日志"""
     try:
@@ -162,7 +163,7 @@ async def clear_operation_logs(
         logger.error(f"清空操作日志失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"清空操作日志失败: {str(e)}"
+            detail=safe_error_message(e, "清空操作日志失败")
         )
 
 
@@ -200,7 +201,7 @@ async def create_operation_log(
         logger.error(f"创建操作日志失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"创建操作日志失败: {str(e)}"
+            detail=safe_error_message(e, "创建操作日志失败")
         )
 
 
@@ -267,5 +268,5 @@ async def export_logs_csv(
         logger.error(f"导出操作日志CSV失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"导出操作日志CSV失败: {str(e)}"
+            detail=safe_error_message(e, "导出操作日志CSV失败")
         )

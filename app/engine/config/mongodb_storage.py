@@ -32,8 +32,7 @@ class MongoDBStorage:
     def __init__(self, connection_string: str = None, database_name: str = "tradingagents"):
         if not MONGODB_AVAILABLE:
             raise ImportError("pymongo is not installed. Please install it with: pip install pymongo")
-        
-        # 修复硬编码问题 - 如果没有提供连接字符串且环境变量也未设置，则抛出错误
+
         self.connection_string = connection_string or os.getenv("MONGODB_CONNECTION_STRING")
         if not self.connection_string:
             raise ValueError(
@@ -41,6 +40,13 @@ class MongoDBStorage:
                 "1. 设置环境变量 MONGODB_CONNECTION_STRING\n"
                 "2. 在初始化时传入 connection_string 参数\n"
                 "例如: MONGODB_CONNECTION_STRING=mongodb://localhost:27017/"
+            )
+
+        # 验证连接字符串格式
+        if not (self.connection_string.startswith("mongodb://") or self.connection_string.startswith("mongodb+srv://")):
+            raise ValueError(
+                f"MongoDB 连接字符串格式无效，必须以 mongodb:// 或 mongodb+srv:// 开头，"
+                f"实际前缀: {self.connection_string[:20]}..."
             )
         
         self.database_name = database_name
@@ -57,8 +63,6 @@ class MongoDBStorage:
     def _connect(self):
         """连接到MongoDB"""
         try:
-            # 从环境变量读取超时配置，使用合理的默认值
-            import os
             connect_timeout = int(os.getenv("MONGO_CONNECT_TIMEOUT_MS", "30000"))
             socket_timeout = int(os.getenv("MONGO_SOCKET_TIMEOUT_MS", "60000"))
             server_selection_timeout = int(os.getenv("MONGO_SERVER_SELECTION_TIMEOUT_MS", "5000"))

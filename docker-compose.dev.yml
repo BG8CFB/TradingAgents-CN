@@ -19,12 +19,12 @@ services:
     volumes:
       - tradingagents_mongodb_data:/data/db
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: tradingagents123
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:-tradingagents123}
       MONGO_INITDB_DATABASE: tradingagents
       TZ: "Asia/Shanghai"
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     networks:
       - tradingagents-network
     healthcheck:
@@ -42,13 +42,13 @@ services:
       - tradingagents_redis_data:/data
     environment:
       TZ: "Asia/Shanghai"
-    command: redis-server --appendonly yes --requirepass tradingagents123
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-tradingagents123}
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     networks:
       - tradingagents-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "tradingagents123", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-tradingagents123}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -81,24 +81,24 @@ services:
       TRADINGAGENTS_LOG_FILE: "/app/runtime/logs/tradingagents.log"
       MONGODB_HOST: "mongodb"
       MONGODB_PORT: "27017"
-      MONGODB_USERNAME: "admin"
-      MONGODB_PASSWORD: "tradingagents123"
+      MONGODB_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
+      MONGODB_PASSWORD: ${MONGODB_PASSWORD:-tradingagents123}
       MONGODB_DATABASE: "tradingagents"
       MONGODB_AUTH_SOURCE: "admin"
-      MONGODB_URL: "mongodb://admin:tradingagents123@mongodb:27017/tradingagents?authSource=admin"
-      MONGODB_CONNECTION_STRING: "mongodb://admin:tradingagents123@mongodb:27017/tradingagents?authSource=admin"
+      MONGODB_URL: "mongodb://${MONGO_ROOT_USERNAME:-admin}:${MONGODB_PASSWORD:-tradingagents123}@mongodb:27017/tradingagents?authSource=admin"
+      MONGODB_CONNECTION_STRING: "mongodb://${MONGO_ROOT_USERNAME:-admin}:${MONGODB_PASSWORD:-tradingagents123}@mongodb:27017/tradingagents?authSource=admin"
       REDIS_HOST: "redis"
       REDIS_PORT: "6379"
-      REDIS_PASSWORD: "tradingagents123"
-      REDIS_URL: "redis://:tradingagents123@redis:6379/0"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-tradingagents123}
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-tradingagents123}@redis:6379/0"
       DOCKER_CONTAINER: "true"
       MCP_CONFIG_PATH: "/app/config/mcp.json"
       AGENT_CONFIG_DIR: "/app/config/agents"
-      JWT_SECRET: "docker-jwt-secret-key-change-in-production-2024"
+      JWT_SECRET: ${JWT_SECRET:-docker-jwt-secret-key-change-in-production-2024}
       JWT_ALGORITHM: "HS256"
       ACCESS_TOKEN_EXPIRE_MINUTES: "480"
       REFRESH_TOKEN_EXPIRE_DAYS: "30"
-      CSRF_SECRET: "docker-csrf-secret-key-change-in-production-2024"
+      CSRF_SECRET: ${CSRF_SECRET:-docker-csrf-secret-key-change-in-production-2024}
       BCRYPT_ROUNDS: "12"
       CORS_ORIGINS: "*"
       DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY}"
@@ -121,7 +121,7 @@ services:
       FINNHUB_API_KEY: "${FINNHUB_API_KEY}"
       FINNHUB_ENABLED: "${FINNHUB_ENABLED:-false}"
       # 首次初始化管理员密码（首次启动后可移除）
-      INITIAL_ADMIN_PASSWORD: "admin123"
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-admin123}
     # 🔥 开发模式：uvicorn --reload，修改 Python 文件后自动重启
     command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
     depends_on:

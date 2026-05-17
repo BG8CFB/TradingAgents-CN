@@ -115,7 +115,7 @@
                     <el-icon style="margin-left: 4px; cursor: help; font-size: 14px;"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </div>
-                <div class="metric-value recommendation-value markdown-content" v-html="renderMarkdown(report.recommendation || '暂无')"></div>
+                <div class="metric-value recommendation-value markdown-content" v-html="renderSafeMarkdown(report.recommendation || '暂无')"></div>
                 <el-tag type="info" size="small" style="margin-top: 8px;">仅供参考</el-tag>
               </div>
             </el-col>
@@ -260,7 +260,7 @@
             <span>执行摘要</span>
           </div>
         </template>
-        <div class="summary-content markdown-content" v-html="renderMarkdown(report.summary)"></div>
+        <div class="summary-content markdown-content" v-html="renderSafeMarkdown(report.summary)"></div>
       </el-card>
 
       <!-- 报告模块 -->
@@ -281,7 +281,7 @@
           >
             <div class="module-content">
               <div v-if="typeof report.reports?.[moduleName] === 'string'" class="markdown-content">
-                <div v-html="renderMarkdown(report.reports[moduleName]!)"></div>
+                <div v-html="renderSafeMarkdown(report.reports[moduleName]!)"></div>
               </div>
               <div v-else class="json-content">
                 <pre>{{ JSON.stringify(report.reports?.[moduleName], null, 2) }}</pre>
@@ -335,15 +335,12 @@ import {
   ArrowDown
 } from '@element-plus/icons-vue'
 import { reportsApi } from '@/api/reports'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/markdown'
 
 
 // 路由
 const route = useRoute()
 const router = useRouter()
-
-// 配置 marked 以获得更完整的 Markdown 支持
-marked.setOptions({ breaks: true, gfm: true })
 
 // 报告数据类型
 interface ReportData {
@@ -687,10 +684,10 @@ const getModuleDisplayName = (moduleName: string) => {
   return moduleName.replace(/_/g, ' ')
 }
 
-const renderMarkdown = (content: string) => {
+const renderSafeMarkdown = (content: string): string => {
   if (!content) return ''
   try {
-    return marked.parse(content) as string
+    return renderMarkdown(content)
   } catch (e) {
     return `<pre style="white-space: pre-wrap; font-family: inherit;">${content}</pre>`
   }

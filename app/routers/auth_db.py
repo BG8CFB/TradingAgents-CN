@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.services.auth_service import AuthService
 from app.services.user_service import user_service
+from app.core.config import settings
 from app.core.response import safe_error_message
 from app.models.user import UserCreate, UserUpdate
 from app.services.operation_log_service import log_operation
@@ -389,6 +390,15 @@ async def change_password(
 ):
     """修改密码"""
     try:
+        # 新密码强度验证
+        password = payload.new_password
+        if len(password) < 8:
+            raise HTTPException(status_code=400, detail="密码长度不能少于8位")
+        has_letter = any(c.isalpha() for c in password)
+        has_digit = any(c.isdigit() for c in password)
+        if not (has_letter and has_digit):
+            raise HTTPException(status_code=400, detail="密码必须同时包含字母和数字")
+
         # 使用数据库服务修改密码
         success = await user_service.change_password(
             user["username"], 
@@ -422,6 +432,15 @@ async def reset_password(
         if not user.get("is_admin", False):
             raise HTTPException(status_code=403, detail="权限不足")
 
+        # 密码强度验证
+        password = payload.new_password
+        if len(password) < 8:
+            raise HTTPException(status_code=400, detail="密码长度不能少于8位")
+        has_letter = any(c.isalpha() for c in password)
+        has_digit = any(c.isdigit() for c in password)
+        if not (has_letter and has_digit):
+            raise HTTPException(status_code=400, detail="密码必须同时包含字母和数字")
+
         # 重置密码
         success = await user_service.reset_password(payload.username, payload.new_password)
         
@@ -447,6 +466,12 @@ class RegisterRequest(BaseModel):
 @router.post("/register")
 async def register(payload: RegisterRequest, request: Request):
     """用户公开注册（无需认证）"""
+    # 注册开关检查：非 DEBUG（生产）环境下需要管理员显式开放注册
+    if not settings.DEBUG:
+        import os
+        if os.getenv("REGISTRATION_ENABLED", "").lower() not in ("true", "1", "yes"):
+            raise HTTPException(status_code=403, detail="当前未开放注册，请联系管理员")
+
     start_time = time.time()
     ip_address = request.client.host if request.client else "unknown"
 
@@ -456,8 +481,13 @@ async def register(payload: RegisterRequest, request: Request):
         if not payload.username or not payload.email or not payload.password:
             raise HTTPException(status_code=400, detail="用户名、邮箱和密码不能为空")
 
-        if len(payload.password) < 6:
-            raise HTTPException(status_code=400, detail="密码长度不能少于6位")
+        password = payload.password
+        if len(password) < 8:
+            raise HTTPException(status_code=400, detail="密码长度不能少于8位")
+        has_letter = any(c.isalpha() for c in password)
+        has_digit = any(c.isdigit() for c in password)
+        if not (has_letter and has_digit):
+            raise HTTPException(status_code=400, detail="密码必须同时包含字母和数字")
 
         user_create = UserCreate(
             username=payload.username,
@@ -520,6 +550,15 @@ async def create_user(
         # 检查权限
         if not user.get("is_admin", False):
             raise HTTPException(status_code=403, detail="权限不足")
+
+        # 密码强度验证
+        password = payload.password
+        if len(password) < 8:
+            raise HTTPException(status_code=400, detail="密码长度不能少于8位")
+        has_letter = any(c.isalpha() for c in password)
+        has_digit = any(c.isdigit() for c in password)
+        if not (has_letter and has_digit):
+            raise HTTPException(status_code=400, detail="密码必须同时包含字母和数字")
 
         # 创建用户
         user_create = UserCreate(

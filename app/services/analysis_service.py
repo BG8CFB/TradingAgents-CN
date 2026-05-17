@@ -8,38 +8,36 @@ import atexit
 import uuid
 import json
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Optional, Callable
+from datetime import datetime
+from typing import Dict, Any, List, Optional
 import concurrent.futures
 import os
 
 from app.engine.graph.trading_graph import TradingAgentsGraph
 from app.engine.default_config import DEFAULT_CONFIG
-from app.utils.runtime_paths import get_analysis_results_dir, resolve_path
+from app.utils.runtime_paths import get_analysis_results_dir
 from app.data.data_source_manager import get_data_source_manager
 from app.utils.stock_utils import StockUtils
 from app.utils.dataflow_utils import get_trading_date_range
 
 from app.models.analysis import (
-    AnalysisParameters, AnalysisResult, AnalysisTask, AnalysisBatch,
+    AnalysisParameters, AnalysisTask, AnalysisBatch,
     AnalysisStatus, BatchStatus, SingleAnalysisRequest, BatchAnalysisRequest
 )
 from app.models.user import PyObjectId
 from app.models.notification import NotificationCreate
 from bson import ObjectId
 from app.core.database import get_mongo_db, get_mongo_db_sync, get_redis_client
-from app.core.redis_client import get_redis_service, RedisKeys
 from app.services.queue_service import QueueService
 from app.services.usage_statistics_service import UsageStatisticsService
-from app.services.redis_progress_tracker import RedisProgressTracker, get_progress_by_id
+from app.services.progress.tracker import RedisProgressTracker, get_progress_by_id
 from app.services.config_service import config_service
 from app.services.config_provider import provider as config_provider
 from app.services.memory_state_manager import get_memory_state_manager, TaskStatus
-from app.services.progress_log_handler import register_analysis_tracker, unregister_analysis_tracker
+from app.services.progress.log_handler import register_analysis_tracker, unregister_analysis_tracker
 from app.services.websocket_manager import get_websocket_manager
 from app.core.config import settings
-from app.services.queue import DEFAULT_USER_CONCURRENT_LIMIT, GLOBAL_CONCURRENT_LIMIT, VISIBILITY_TIMEOUT_SECONDS
-from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
+from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_iso
 from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
 
 # 设置日志
@@ -68,7 +66,7 @@ async def get_provider_by_model_name(model_name: str) -> str:
         # 从配置服务获取系统配置
         system_config = await config_service.get_system_config()
         if not system_config or not system_config.llm_configs:
-            logger.warning(f"⚠️ 系统配置为空，使用默认供应商映射")
+            logger.warning("⚠️ 系统配置为空，使用默认供应商映射")
             return _get_default_provider_by_model(model_name)
 
         # 在LLM配置中查找匹配的模型
@@ -122,18 +120,18 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
                     api_key = None
                     if model_api_key and model_api_key.strip() and model_api_key != "your-api-key":
                         api_key = model_api_key
-                        logger.info(f"✅ [同步查询] 使用模型配置的 API Key")
+                        logger.info("✅ [同步查询] 使用模型配置的 API Key")
                     elif provider_doc and provider_doc.get("api_key"):
                         provider_api_key = provider_doc["api_key"]
                         if provider_api_key and provider_api_key.strip() and provider_api_key != "your-api-key":
                             api_key = provider_api_key
-                            logger.info(f"✅ [同步查询] 使用厂家配置的 API Key")
+                            logger.info("✅ [同步查询] 使用厂家配置的 API Key")
 
                     # 如果数据库中没有有效的 API Key，尝试从环境变量获取
                     if not api_key:
                         api_key = _get_env_api_key_for_provider(provider)
                         if api_key:
-                            logger.info(f"✅ [同步查询] 使用环境变量的 API Key")
+                            logger.info("✅ [同步查询] 使用环境变量的 API Key")
                         else:
                             logger.warning(f"⚠️ [同步查询] 未找到 {provider} 的 API Key")
 
@@ -182,7 +180,7 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
             if not api_key:
                 api_key = _get_env_api_key_for_provider(provider)
                 if api_key:
-                    logger.info(f"✅ [同步查询] 使用环境变量的 API Key")
+                    logger.info("✅ [同步查询] 使用环境变量的 API Key")
 
             return {
                 "provider": provider,
@@ -356,7 +354,7 @@ class AnalysisService:
         # 线程池
         self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         atexit.register(self._shutdown_pool)
-        logger.info(f"🔧 [服务初始化] 线程池最大并发数: 3")
+        logger.info("🔧 [服务初始化] 线程池最大并发数: 3")
 
     def _shutdown_pool(self):
         try:
@@ -897,7 +895,7 @@ class AnalysisService:
         task_mcp_manager = None
 
         try:
-            from app.utils.logging_init import init_logging, get_logger
+            from app.utils.logging_init import init_logging
             from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
             from app.engine.tools.mcp.task_manager import get_task_mcp_manager, remove_task_mcp_manager
             init_logging()
@@ -1071,7 +1069,7 @@ class AnalysisService:
             # 🔥 添加时间戳日志，精确定位耗时
             import time
             graph_init_start = time.time()
-            logger.info(f"⏱️ [性能追踪] 开始创建 TradingAgentsGraph...")
+            logger.info("⏱️ [性能追踪] 开始创建 TradingAgentsGraph...")
 
             trading_graph = self._get_trading_graph(config)
 
@@ -1079,7 +1077,7 @@ class AnalysisService:
             logger.info(f"⏱️ [性能追踪] TradingAgentsGraph 创建完成，耗时: {graph_init_elapsed:.2f} 秒 ({graph_init_elapsed/60:.2f} 分钟)")
 
             if graph_init_elapsed > 60:
-                logger.warning(f"⚠️ [性能瓶颈] TradingAgentsGraph 初始化耗时超过 1 分钟！这是主要性能瓶颈！")
+                logger.warning("⚠️ [性能瓶颈] TradingAgentsGraph 初始化耗时超过 1 分钟！这是主要性能瓶颈！")
 
             start_time = now_config_tz()
             analysis_date = format_date_short(now_config_tz())
@@ -1654,7 +1652,7 @@ class AnalysisService:
             if decision:
                 decision_content = f"# {stock_symbol} 最终投资决策\n\n"
                 if isinstance(decision, dict):
-                    decision_content += f"## 投资建议\n\n"
+                    decision_content += "## 投资建议\n\n"
                     decision_content += f"**行动**: {decision.get('action', 'N/A')}\n\n"
                     decision_content += f"**置信度**: {decision.get('confidence', 0):.1%}\n\n"
                     decision_content += f"**风险评分**: {decision.get('risk_score', 0):.1%}\n\n"
@@ -2005,22 +2003,30 @@ class AnalysisService:
         会回退到 MongoDB 进行验证（适用于已完成/失败等过期任务）。
         """
         try:
-            # 所有权验证：从 MongoDB 查询（兼容 Redis 中已过期的任务）
+            # 构造过滤条件：将所有权校验合并到删除操作中，减少数据库往返
+            filter_doc: Dict[str, Any] = {"task_id": task_id}
             if user_id is not None:
-                db = get_mongo_db()
-                task_doc = await db.analysis_tasks.find_one(
+                filter_doc["user_id"] = user_id
+
+            db = get_mongo_db()
+            result = await db.analysis_tasks.delete_one(filter_doc)
+
+            if result.deleted_count > 0:
+                await self.memory_manager.remove_task(task_id)
+                return True
+
+            # 删除失败时，区分"非本人任务"和"任务不存在"
+            if user_id is not None:
+                existing = await db.analysis_tasks.find_one(
                     {"task_id": task_id}, {"user_id": 1}
                 )
-                if task_doc and task_doc.get("user_id") != user_id:
+                if existing and existing.get("user_id") != user_id:
                     logger.warning(f"⚠️ 用户 {user_id} 尝试删除非本人任务: {task_id}")
                     return False
 
-            # 从内存状态管理器中移除
+            # 任务不在 MongoDB 中（可能仅在内存中），仍需清理内存状态
             await self.memory_manager.remove_task(task_id)
-            # 从 MongoDB 中删除任务记录
-            db = get_mongo_db()
-            result = await db.analysis_tasks.delete_one({"task_id": task_id})
-            return result.deleted_count > 0
+            return False
         except Exception as e:
             logger.error(f"❌ delete_task_by_id 失败: {e}")
             return False
@@ -2102,34 +2108,26 @@ class AnalysisService:
 
             # 数据源优先级
             try:
-                from app.core.unified_config import UnifiedConfigManager
-                config = UnifiedConfigManager()
-                data_source_configs = config.get_data_source_configs()
-                enabled_sources = [
-                    ds.type.lower() for ds in data_source_configs
-                    if ds.enabled and ds.type.lower() in ["tushare", "akshare", "baostock"]
-                ]
+                from app.services.data_sources.base import get_enabled_cn_sources
+                enabled_sources = get_enabled_cn_sources()
             except Exception:
-                enabled_sources = []
-            if not enabled_sources:
                 enabled_sources = ["tushare", "akshare", "baostock"]
 
             b = None
             for src in enabled_sources:
-                b = await db.stock_basic_info.find_one({"code": code6, "source": src}, {"_id": 0})
+                b = await db.stock_basic_info.find_one({"symbol": code6, "data_source": src}, {"_id": 0})
                 if b:
                     break
             if not b:
-                b = await db.stock_basic_info.find_one({"code": code6}, {"_id": 0})
+                b = await db.stock_basic_info.find_one({"symbol": code6}, {"_id": 0})
 
             if not b:
                 return None
 
-            q = await db.market_quotes.find_one({"code": code6}, {"_id": 0})
+            q = await db.market_quotes.find_one({"symbol": code6}, {"_id": 0})
 
             return {
                 "symbol": b.get("symbol", code6),
-                "code": code6,
                 "name": b.get("name", ""),
                 "market": b.get("market", market),
                 "industry": b.get("industry", ""),
@@ -2163,7 +2161,6 @@ class AnalysisService:
             filter_expr: Dict[str, Any] = {
                 "$or": [
                     {"name": {"$regex": search_regex, "$options": "i"}},
-                    {"code": {"$regex": search_regex, "$options": "i"}},
                     {"symbol": {"$regex": search_regex, "$options": "i"}},
                 ],
             }
@@ -2171,13 +2168,13 @@ class AnalysisService:
                 filter_expr["market"] = market
 
             cursor = db.stock_basic_info.find(filter_expr, {
-                "name": 1, "code": 1, "symbol": 1, "market": 1, "industry": 1, "_id": 0,
+                "name": 1, "symbol": 1, "market": 1, "industry": 1, "_id": 0,
             }).limit(limit)
 
             results = []
             async for doc in cursor:
                 results.append({
-                    "symbol": doc.get("symbol") or doc.get("code", ""),
+                    "symbol": doc.get("symbol", ""),
                     "name": doc.get("name", ""),
                     "market": doc.get("market", "A股"),
                     "type": "stock",
@@ -2205,8 +2202,8 @@ class AnalysisService:
                 if not symbol:
                     continue
                 code6 = str(symbol).zfill(6)
-                b = await db.stock_basic_info.find_one({"code": code6}, {"_id": 0, "name": 1, "market": 1})
-                q = await db.market_quotes.find_one({"code": code6}, {"_id": 0, "close": 1, "pct_chg": 1, "volume": 1})
+                b = await db.stock_basic_info.find_one({"symbol": code6}, {"_id": 0, "name": 1, "market": 1})
+                q = await db.market_quotes.find_one({"symbol": code6}, {"_id": 0, "close": 1, "pct_chg": 1, "volume": 1})
 
                 results.append({
                     "symbol": symbol,

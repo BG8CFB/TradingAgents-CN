@@ -57,12 +57,12 @@ class StockBasicInfoExtended(BaseModel):
     统一使用 symbol 作为主要股票代码字段
     """
     # === 标准化字段 (主要字段) ===
-    symbol: str = Field(..., description="6位股票代码", pattern=r"^\d{6}$")
+    symbol: str = Field(..., description="股票代码（A股6位数字/港股5位数字/美股字母）", pattern=r"^[A-Z0-9\.]+$")
     full_symbol: str = Field(..., description="完整标准化代码(如 000001.SZ)")
     name: str = Field(..., description="股票名称")
 
     # === 兼容字段 (保持向后兼容) ===
-    code: Optional[str] = Field(None, description="6位股票代码(已废弃,使用symbol)")
+    code: Optional[str] = Field(None, description="股票代码(已废弃,使用symbol)")
 
     # === 基础信息字段 ===
     area: Optional[str] = Field(None, description="所在地区")
@@ -156,12 +156,12 @@ class MarketQuotesExtended(BaseModel):
     统一使用 symbol 作为主要股票代码字段
     """
     # === 标准化字段 (主要字段) ===
-    symbol: str = Field(..., description="6位股票代码", pattern=r"^\d{6}$")
+    symbol: str = Field(..., description="股票代码（A股6位数字/港股5位数字/美股字母）", pattern=r"^[A-Z0-9\.]+$")
     full_symbol: Optional[str] = Field(None, description="完整标准化代码")
     market: Optional[MarketType] = Field(None, description="市场标识")
 
     # === 兼容字段 (保持向后兼容) ===
-    code: Optional[str] = Field(None, description="6位股票代码(已废弃,使用symbol)")
+    code: Optional[str] = Field(None, description="股票代码(已废弃,使用symbol)")
 
     # === 行情字段 ===
     close: Optional[float] = Field(None, description="收盘价")

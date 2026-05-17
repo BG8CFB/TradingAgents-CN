@@ -137,15 +137,19 @@ class LoopDetector:
             return LoopDetectionResult(is_loop=False)
 
         # 计算连续相同次数
+        # 预先将 current_signature 拆分为工具名列表，避免 walrus operator 在 or 短路中的问题
+        current_names = current_signature.split(",") if current_signature else []
         consecutive_count = 0
         for record in reversed(history):
             record_sig = record.tool_name
-            # 如果历史是多工具调用，需要比较组合签名
-            # 简化：比较单工具名或组合名
-            if record_sig == current_signature or (
-                len(current_names := current_signature.split(",")) == 1
-                and record.tool_name == current_names[0]
-            ):
+            # 精确匹配：单工具签名完全相同，或多工具组合签名完全相同
+            # 额外检测：历史记录的单工具名是否在当前组合签名的工具列表中
+            if record_sig == current_signature:
+                consecutive_count += 1
+            elif len(current_names) == 1 and record_sig == current_names[0]:
+                consecutive_count += 1
+            elif len(current_names) > 1 and record_sig in current_names:
+                # 多工具场景：检查连续出现的工具是否属于同一组合
                 consecutive_count += 1
             else:
                 break

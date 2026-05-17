@@ -16,6 +16,7 @@
 """
 
 import os
+import threading
 from typing import Union
 
 # 导入日志模块
@@ -37,14 +38,6 @@ try:
 except ImportError:
     DatabaseCacheManager = None
     DB_CACHE_AVAILABLE = False
-
-# 导入自适应缓存
-try:
-    from .adaptive import AdaptiveCacheSystem
-    ADAPTIVE_CACHE_AVAILABLE = True
-except ImportError:
-    AdaptiveCacheSystem = None
-    ADAPTIVE_CACHE_AVAILABLE = False
 
 # 导入集成缓存
 try:
@@ -73,13 +66,14 @@ except ImportError:
 
 # 全局缓存实例
 _cache_instance = None
+_cache_lock = threading.Lock()
 
 # 默认缓存策略（改为 integrated，优先使用 MongoDB/Redis 缓存）
 DEFAULT_CACHE_STRATEGY = os.getenv("TA_CACHE_STRATEGY", "integrated")
 
 def get_cache() -> Union[StockDataCache, IntegratedCacheManager]:
     """
-    获取缓存实例（统一入口）
+    获取缓存实例（统一入口，线程安全）
 
     根据环境变量 TA_CACHE_STRATEGY 选择缓存策略：
     - "file" (默认): 使用文件缓存
@@ -95,7 +89,14 @@ def get_cache() -> Union[StockDataCache, IntegratedCacheManager]:
     """
     global _cache_instance
 
-    if _cache_instance is None:
+    if _cache_instance is not None:
+        return _cache_instance
+
+    with _cache_lock:
+        # 双重检查锁定
+        if _cache_instance is not None:
+            return _cache_instance
+
         if DEFAULT_CACHE_STRATEGY in ["integrated", "adaptive"]:
             if INTEGRATED_CACHE_AVAILABLE:
                 try:
@@ -126,7 +127,6 @@ __all__ = [
     # 可用性标志
     'FILE_CACHE_AVAILABLE',
     'DB_CACHE_AVAILABLE',
-    'ADAPTIVE_CACHE_AVAILABLE',
     'INTEGRATED_CACHE_AVAILABLE',
 
     # 应用缓存适配器

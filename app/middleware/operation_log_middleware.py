@@ -141,37 +141,14 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
         return _get_client_ip_from_request(request)
 
     async def _get_user_info(self, request: Request) -> Optional[Dict[str, Any]]:
-        """获取用户信息"""
+        """获取用户信息
+
+        完全依赖路由层已验证的用户信息（request.state.user），
+        避免中间件独立二次解析 JWT Token 带来的性能开销。
+        """
         try:
-            # 从请求状态中获取用户信息（由认证中间件设置）
-            if hasattr(request.state, "user"):
-                return request.state.user
-
-            # 尝试从Authorization头解析用户信息
-            auth_header = request.headers.get("authorization")
-            if auth_header and auth_header.startswith("Bearer "):
-                token = auth_header.split(" ", 1)[1]
-
-                # 使用AuthService验证token
-                from app.services.auth_service import AuthService
-                token_data = AuthService.verify_token(token)
-
-                if token_data and getattr(token_data, "sub", None):
-                    from app.services.user_service import user_service
-
-                    user = await user_service.get_user_by_username(token_data.sub)
-                    if not user or not user.is_active:
-                        return None
-
-                    return {
-                        "id": str(user.id),
-                        "username": user.username,
-                        "name": user.username,
-                        "is_admin": user.is_admin,
-                        "roles": ["admin"] if user.is_admin else ["user"],
-                    }
-
-            return None
+            user_info = getattr(request.state, 'user', None)
+            return user_info
         except Exception as e:
             logger.debug(f"获取用户信息失败: {e}")
             return None

@@ -3,7 +3,9 @@ AKShare统一数据提供器
 基于AKShare SDK的统一数据同步方案，提供标准化的数据接口
 """
 import asyncio
+import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional, Union
 import pandas as pd
@@ -11,6 +13,16 @@ import pandas as pd
 from app.engine.config.runtime_settings import get_int
 from app.utils.stock_utils import StockUtils, StockMarket
 from app.utils.time_utils import now_utc, now_config_tz, format_iso
+from app.utils.anti_scraping import (
+    AntiScrapingSession,
+    ThreadSafeRateLimiter,
+    get_random_ua,
+    EASTMONEY_HEADERS,
+    fetch_em_spot_direct,
+    fetch_em_hist_direct,
+    fetch_em_bid_ask_direct,
+    fetch_tencent_spot_batch,
+)
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from ..base_provider import BaseStockDataProvider
 
@@ -38,154 +50,140 @@ class AKShareProvider(BaseStockDataProvider):
         self._initialize_akshare()
     
     def _initialize_akshare(self):
-        """初始化AKShare连接"""
+        """初始化 AKShare 连接，配置反爬虫策略"""
         try:
-            # 🔥 优先 Patch pandas，在导入 akshare 之前
-            # 修复 pandas read_excel 问题
-            # akshare 内部可能调用 pd.read_excel 但未指定 engine，导致 "Excel file format cannot be determined"
-            try:
-                import pandas as pd
-                if not hasattr(pd, '_read_excel_patched'):
-                    original_read_excel = pd.read_excel
-                    
-                    def patched_read_excel(io, **kwargs):
-                        # 如果未指定 engine，尝试自动推断或依次尝试
-                        if 'engine' not in kwargs:
-                            # 优先尝试 openpyxl (xlsx)
-                            try:
-                                return original_read_excel(io, engine='openpyxl', **kwargs)
-                            except:
-                                # 回退到 xlrd (xls)
-                                try:
-                                    return original_read_excel(io, engine='xlrd', **kwargs)
-                                except:
-                                    pass # 继续尝试默认行为
-                        
-                        return original_read_excel(io, **kwargs)
-                        
-                    pd.read_excel = patched_read_excel
-                    pd._read_excel_patched = True
-                    logger.info("🔧 已应用 pandas.read_excel 补丁 (自动尝试 openpyxl/xlrd)")
-            except Exception as e:
-                logger.warning(f"⚠️ 无法应用 pandas.read_excel 补丁: {e}")
+            # Patch pandas read_excel（在导入 akshare 之前）
+            self._patch_pandas_read_excel()
 
             import akshare as ak
             import requests
-            import time
 
-            # 尝试导入 curl_cffi，如果可用则使用它来绕过反爬虫
-            # curl_cffi 可以模拟真实浏览器的 TLS 指纹，有效规避反爬虫检测
-            try:
-                from curl_cffi import requests as curl_requests
-                use_curl_cffi = True
-                logger.info("🔧 检测到 curl_cffi，将使用它来模拟真实浏览器 TLS 指纹")
-                logger.info("   提示: 如未安装，可运行: pip install curl-cffi>=0.6.0")
-            except ImportError:
-                use_curl_cffi = False
-                logger.warning("⚠️ curl_cffi 未安装，将使用标准 requests")
-                logger.warning("   建议: pip install curl-cffi>=0.6.0")
-                logger.warning("   curl_cffi 可以显著提升东方财富接口的成功率（从 ~50% 提升到 ~95%）")
+            # 初始化反爬虫会话（curl_cffi + 现代指纹）
+            self._anti_session = AntiScrapingSession()
+            self._rate_limiter = ThreadSafeRateLimiter(min_interval=0.3, burst=3)
+            self._default_timeout = get_int("TA_AKSHARE_TIMEOUT", "ta_akshare_timeout", 30)
 
-            # 修复AKShare的bug：设置requests的默认headers，并添加请求延迟
-            # AKShare的stock_news_em()函数没有设置必要的headers，导致API返回空响应
+            if self._anti_session.is_curl_available:
+                logger.info(f"反爬虫: curl_cffi 已就绪，指纹 {self._anti_session.impersonate_target}")
+            else:
+                logger.warning("反爬虫: curl_cffi 不可用，回退到标准 requests（建议安装 curl-cffi>=0.6.0）")
+
+            # Patch requests.get：为所有经 AKShare 发出的请求添加反爬虫增强
             if not hasattr(requests, '_akshare_headers_patched'):
                 original_get = requests.get
-                last_request_time = {'time': 0}  # 使用字典以便在闭包中修改
-                
-                # 修复 pandas read_excel 问题 (已移至最前)
-                pass
+                rate_limiter = self._rate_limiter
+                default_timeout = self._default_timeout
+                anti_session = self._anti_session
 
-                # 获取超时配置，默认为 30 秒（原为 10 秒）
-                default_timeout = get_int("TA_AKSHARE_TIMEOUT", "ta_akshare_timeout", 30)
+                # 东方财富 CDN 封锁了 push2 域名，自动替换为可用域名
+                # 注意: push2his (历史K线) 无可用替代域名，不重写
+                _EM_DOMAIN_REWRITE = {
+                    ".push2.eastmoney.com": ".push2delay.eastmoney.com",
+                    "push2.eastmoney.com": "push2delay.eastmoney.com",
+                }
+
+                def _rewrite_em_url(url: str) -> str:
+                    for old, new in _EM_DOMAIN_REWRITE.items():
+                        if old in url:
+                            url = url.replace(old, new)
+                            break
+                    return url
+
+                def _rewrite_headers(kwargs):
+                    hdrs = kwargs.get('headers') or {}
+                    if isinstance(hdrs, dict) and 'Host' in hdrs:
+                        for old, new in _EM_DOMAIN_REWRITE.items():
+                            if old in hdrs['Host']:
+                                hdrs['Host'] = hdrs['Host'].replace(old, new)
+                                break
+                        kwargs['headers'] = hdrs
 
                 def patched_get(url, **kwargs):
-                    """
-                    包装requests.get方法，自动添加必要的headers和请求延迟
-                    修复AKShare stock_news_em()函数缺少headers的问题
-                    增强反爬虫规避能力
-                    """
-                    # 1. 自动添加增强的 Headers（模拟真实浏览器）
+                    url = _rewrite_em_url(url)
+                    _rewrite_headers(kwargs)
+
                     headers = kwargs.get('headers', {}) or {}
-
-                    # 使用最新的 Chrome 浏览器标识
-                    if 'User-Agent' not in headers:
-                        headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-
-                    # 添加更多反爬虫规避的 headers
-                    headers.setdefault('Accept', 'application/json, text/plain, */*')
+                    headers.setdefault('User-Agent', get_random_ua())
+                    headers.setdefault('Accept', '*/*')
                     headers.setdefault('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8')
                     headers.setdefault('Accept-Encoding', 'gzip, deflate, br')
                     headers.setdefault('Connection', 'keep-alive')
+                    headers.setdefault('Sec-Fetch-Dest', 'empty')
+                    headers.setdefault('Sec-Fetch-Mode', 'cors')
+                    headers.setdefault('Sec-Fetch-Site', 'same-site')
+                    headers.setdefault('Sec-Ch-Ua', '"Chromium";v="136", "Google Chrome";v="136", "Not-A.Brand";v="99"')
+                    headers.setdefault('Sec-Ch-Ua-Mobile', '?0')
+                    headers.setdefault('Sec-Ch-Ua-Platform', '"Windows"')
 
                     if 'Referer' not in headers:
-                        # 根据 URL 智能设置 Referer
-                        if 'eastmoney.com' in url or 'em.eastmoney.com' in url:
+                        if 'eastmoney.com' in url:
                             headers['Referer'] = 'https://data.eastmoney.com/'
                         else:
                             headers['Referer'] = 'https://eastmoney.com/'
 
-                    # 添加 Chrome 安全相关 headers
-                    headers.setdefault('Sec-Fetch-Dest', 'empty')
-                    headers.setdefault('Sec-Fetch-Mode', 'cors')
-                    headers.setdefault('Sec-Fetch-Site', 'same-origin')
-
                     kwargs['headers'] = headers
-
-                    # 2. 设置超时时间（如果未指定）
                     if 'timeout' not in kwargs:
                         kwargs['timeout'] = default_timeout
 
-                    # 3. 添加随机请求延迟（避免被识别为机器人）
-                    current_time = time.time()
-                    elapsed = current_time - last_request_time['time']
-                    min_delay = 0.3  # 降低最小延迟到 0.3 秒
-                    if elapsed < min_delay:
-                        # 添加随机延迟（0.3-0.8 秒之间）
-                        import random
-                        actual_delay = min_delay + random.random() * 0.5
-                        time.sleep(actual_delay - elapsed if actual_delay > elapsed else 0)
-                    last_request_time['time'] = time.time()
+                    rate_limiter.acquire()
 
-                    # 4. 优先尝试使用 curl_cffi 发送请求（最有效的反爬虫手段）
-                    if use_curl_cffi:
+                    if anti_session.is_curl_available:
                         try:
-                            # 转换 kwargs 以适配 curl_cffi
                             curl_kwargs = kwargs.copy()
-                            if 'proxies' in curl_kwargs:
-                                # curl_cffi proxies 格式可能不同，简单起见先移除
-                                curl_kwargs.pop('proxies')
-
-                            # 使用 curl_cffi 模拟最新版 Chrome 指纹
-                            resp = curl_requests.get(
-                                url,
-                                impersonate="chrome120",  # 升级到 Chrome 120
-                                **curl_kwargs
-                            )
-                            return resp
+                            curl_kwargs.pop('proxies', None)
+                            return anti_session._curl_session.get(url, **curl_kwargs)
                         except Exception as e:
-                            logger.debug(f"curl_cffi 请求失败，回退到 requests: {e}")
-                            # 回退到 requests
-                            pass
+                            logger.debug(f"curl_cffi 请求失败，回退: {e}")
 
                     return original_get(url, **kwargs)
-                
+
                 requests.get = patched_get
+
+                # 同时 patch requests.Session.get（AKShare request_with_retry 使用 session 方式调用）
+                original_session_get = requests.Session.get
+
+                def patched_session_get(self_session, url, **kwargs):
+                    url = _rewrite_em_url(url)
+                    _rewrite_headers(kwargs)
+                    return original_session_get(self_session, url, **kwargs)
+
+                requests.Session.get = patched_session_get
+
                 requests._akshare_headers_patched = True
-                logger.info("🔧 已应用 requests 补丁 (自动添加 Headers/Timeout/RateLimit/CurlCffi)")
+                logger.info("已应用 requests 全局补丁 (Headers/Timeout/RateLimit/TLS指纹/域名重写push2→push2delay)")
 
             self.ak = ak
             self.connected = True
-
-            # 配置超时和重试
             self._configure_timeout()
-
-            logger.info("✅ AKShare连接成功")
+            logger.info("AKShare 初始化成功")
         except ImportError as e:
-            logger.error(f"❌ AKShare未安装: {e}")
+            logger.error(f"AKShare 未安装: {e}")
             self.connected = False
         except Exception as e:
-            logger.error(f"❌ AKShare初始化失败: {e}")
+            logger.error(f"AKShare 初始化失败: {e}")
             self.connected = False
+
+    @staticmethod
+    def _patch_pandas_read_excel():
+        import pandas as pd
+        if hasattr(pd, '_read_excel_patched'):
+            return
+        original = pd.read_excel
+
+        def patched(io, **kwargs):
+            if 'engine' not in kwargs:
+                try:
+                    return original(io, engine='openpyxl', **kwargs)
+                except Exception:
+                    try:
+                        return original(io, engine='xlrd', **kwargs)
+                    except Exception:
+                        pass
+            return original(io, **kwargs)
+
+        pd.read_excel = patched
+        pd._read_excel_patched = True
+        logger.info("已应用 pandas.read_excel 补丁")
 
     def _get_stock_news_direct(self, symbol: str, limit: int = 10) -> Optional[pd.DataFrame]:
         """
@@ -286,7 +284,7 @@ class AKShareProvider(BaseStockDataProvider):
                     url_https,
                     params=params,
                     timeout=request_timeout,
-                    impersonate="chrome120"
+                    impersonate="chrome136"
                 )
 
                 if response.status_code == 200:
@@ -414,76 +412,67 @@ class AKShareProvider(BaseStockDataProvider):
         """
         获取K线数据（同步版本）
 
-        Args:
-            code: 股票代码（不带后缀，如 "000001"）
-            period: 周期 (daily/weekly/monthly)
-            start_date: 开始日期 (YYYYMMDD)
-            end_date: 结束日期 (YYYYMMDD)
-            adjust: 复权类型 ("": 不复权, "qfq": 前复权, "hfq": 后复权)
-
-        Returns:
-            K线数据列表，格式: [{time, open, high, low, close, volume, amount}, ...]
+        优先使用直接 API 调用，失败时回退到 AKShare。
         """
         if not self.connected:
             return None
 
         try:
-            logger.info(f"📊 获取AKShare K线: {code}, {period}, {start_date}-{end_date}")
+            logger.info(f"📊 获取K线: {code}, {period}, {start_date}-{end_date}")
 
-            # 映射周期参数
-            period_map = {
-                "daily": "daily",
-                "day": "daily",
-                "weekly": "weekly",
-                "month": "monthly"
-            }
-            ak_period = period_map.get(period, "daily")
+            # --- 优先路径：直接调用东方财富 API ---
+            symbol = code.split(".")[0] if "." in code else code
+            ak_period = {"daily": "daily", "day": "daily", "weekly": "weekly", "month": "monthly"}.get(period, "daily")
+            klines = fetch_em_hist_direct(symbol, ak_period, start_date, end_date, adjust)
+            if klines:
+                items = []
+                for line in klines:
+                    parts = line.split(",")
+                    if len(parts) >= 11:
+                        items.append({
+                            "time": parts[0],
+                            "open": float(parts[1]),
+                            "close": float(parts[2]),
+                            "high": float(parts[3]),
+                            "low": float(parts[4]),
+                            "volume": float(parts[5]),
+                            "amount": float(parts[6]),
+                            "amplitude": float(parts[7]) if len(parts) > 7 else 0,
+                            "change_percent": float(parts[8]) if len(parts) > 8 else 0,
+                            "change": float(parts[9]) if len(parts) > 9 else 0,
+                            "turnover": float(parts[10]) if len(parts) > 10 else 0,
+                        })
+                if items:
+                    logger.info(f"直接 API K线获取成功: {code} {len(items)} 条")
+                    return items
 
-            # 调用AKShare API
-            df = self.ak.stock_zh_a_hist(
-                symbol=code,
-                period=ak_period,
-                start_date=start_date,
-                end_date=end_date,
-                adjust=adjust
-            )
-
+            # --- 回退路径：AKShare ---
+            logger.info(f"直接 API K线未命中，回退 AKShare: {code}")
+            df = self.ak.stock_zh_a_hist(symbol=symbol, period=ak_period, start_date=start_date, end_date=end_date, adjust=adjust)
             if df is None or df.empty:
-                logger.warning(f"⚠️ AKShare K线数据为空: {code}")
+                logger.warning(f"K线数据为空: {code}")
                 return None
 
-            # 转换为标准格式
             items = []
+            time_col = next((c for c in ["日期", "date", "trade_date"] if c in df.columns), None)
+            if time_col is None:
+                logger.warning(f"无法识别时间列: {list(df.columns)}")
+                return None
             for _, row in df.iterrows():
-                # AKShare返回的列名映射
-                # 日期列可能是 "日期" 或 "date"
-                time_col = None
-                for col in ["日期", "date", "trade_date"]:
-                    if col in df.columns:
-                        time_col = col
-                        break
-
-                if time_col is None:
-                    logger.warning(f"⚠️ 无法识别时间列，可用列: {list(df.columns)}")
-                    continue
-
-                # 标准化列名
-                item = {
+                items.append({
                     "time": str(row[time_col]),
                     "open": float(row.get("开盘", row.get("open", 0))),
                     "high": float(row.get("最高", row.get("high", 0))),
                     "low": float(row.get("最低", row.get("low", 0))),
                     "close": float(row.get("收盘", row.get("close", 0))),
                     "volume": float(row.get("成交量", row.get("volume", 0))),
-                    "amount": float(row.get("成交额", row.get("amount", 0)))
-                }
-                items.append(item)
-
-            logger.info(f"✅ AKShare K线获取成功: {len(items)}条")
+                    "amount": float(row.get("成交额", row.get("amount", 0))),
+                })
+            logger.info(f"AKShare K线获取成功: {len(items)} 条")
             return items
 
         except Exception as e:
-            logger.error(f"❌ AKShare获取K线失败: {e}")
+            logger.error(f"获取K线失败: {code}: {e}")
             return None
 
     async def get_stock_list(self, market: str = None) -> List[Dict[str, Any]]:
@@ -902,136 +891,159 @@ class AKShareProvider(BaseStockDataProvider):
         if not self.connected:
             return {}
 
-        # 重试逻辑
-        max_retries = 2
-        retry_delay = 1  # 秒
+        # --- 优先路径：直接调用东方财富 API（绕过 AKShare，反爬能力最强） ---
+        try:
+            diff_data = await asyncio.to_thread(fetch_em_spot_direct)
+            if diff_data:
+                quotes_map = {}
+                codes_set = set(codes)
+                for item in diff_data:
+                    raw_code = str(item.get("f12", "")).zfill(6)
+                    if raw_code in codes_set:
+                        quotes_map[raw_code] = {
+                            "code": raw_code,
+                            "symbol": raw_code,
+                            "name": str(item.get("f14", f"股票{raw_code}")),
+                            "price": self._safe_float(item.get("f2", 0)),
+                            "change": self._safe_float(item.get("f4", 0)),
+                            "change_percent": self._safe_float(item.get("f3", 0)),
+                            "volume": self._safe_int(item.get("f5", 0)),
+                            "amount": self._safe_float(item.get("f6", 0)),
+                            "open_price": self._safe_float(item.get("f17", 0)),
+                            "high_price": self._safe_float(item.get("f15", 0)),
+                            "low_price": self._safe_float(item.get("f16", 0)),
+                            "pre_close": self._safe_float(item.get("f18", 0)),
+                            "turnover_rate": self._safe_float(item.get("f8", None)),
+                            "volume_ratio": self._safe_float(item.get("f10", None)),
+                            "pe": self._safe_float(item.get("f9", None)),
+                            "pe_ttm": self._safe_float(item.get("f9", None)),
+                            "pb": self._safe_float(item.get("f23", None)),
+                            "total_mv": self._safe_float(item.get("f20", None)) / 1e8 if item.get("f20") else None,
+                            "circ_mv": self._safe_float(item.get("f21", None)) / 1e8 if item.get("f21") else None,
+                            "full_symbol": self._get_full_symbol(raw_code),
+                            "market_info": self._get_market_info(raw_code),
+                            "data_source": "eastmoney_direct",
+                            "last_sync": datetime.now(timezone.utc),
+                            "sync_status": "success",
+                        }
+                logger.info(f"直接 API 批量行情: {len(quotes_map)}/{len(codes)} 只")
+                return quotes_map
+        except Exception as e:
+            logger.warning(f"东方财富直接 API 批量行情失败: {e}")
 
+        # --- 第二优先路径：腾讯行情 API（快速、稳定、不受 push2 封禁影响） ---
+        try:
+            tencent_data = await asyncio.to_thread(fetch_tencent_spot_batch, codes)
+            if tencent_data:
+                quotes_map = {}
+                for code, item in tencent_data.items():
+                    raw_total = None
+                    raw_circ = None
+                    quotes_map[code] = {
+                        "code": code,
+                        "symbol": code,
+                        "name": item.get("name", f"股票{code}"),
+                        "price": item.get("price", 0) or 0,
+                        "change": item.get("change", 0) or 0,
+                        "change_percent": item.get("change_pct", 0) or 0,
+                        "volume": item.get("volume", 0) or 0,
+                        "amount": item.get("amount", 0) or 0,
+                        "open_price": item.get("open", 0) or 0,
+                        "high_price": item.get("high", 0) or 0,
+                        "low_price": item.get("low", 0) or 0,
+                        "pre_close": item.get("pre_close", 0) or 0,
+                        "turnover_rate": item.get("turnover_rate"),
+                        "volume_ratio": None,
+                        "pe": item.get("pe"),
+                        "pe_ttm": item.get("pe"),
+                        "pb": None,
+                        "total_mv": raw_total / 1e8 if raw_total else None,
+                        "circ_mv": raw_circ / 1e8 if raw_circ else None,
+                        "full_symbol": self._get_full_symbol(code),
+                        "market_info": self._get_market_info(code),
+                        "data_source": "tencent",
+                        "last_sync": datetime.now(timezone.utc),
+                        "sync_status": "success",
+                    }
+                logger.info(f"腾讯行情批量: {len(quotes_map)}/{len(codes)} 只")
+                return quotes_map
+        except Exception as e:
+            logger.warning(f"腾讯行情批量失败: {e}")
+
+        # --- 第三优先路径：AKShare（新浪 → 东方财富 EM） ---
+        max_retries = 2
         for attempt in range(max_retries):
             try:
-                logger.debug(f"📊 批量获取 {len(codes)} 只股票的实时行情... (尝试 {attempt + 1}/{max_retries})")
-
-                # 优先使用新浪财经接口（更稳定，不容易被封）
-                def fetch_spot_data_sina():
-                    import time
-                    time.sleep(0.3)  # 添加延迟避免频率限制
-                    return self.ak.stock_zh_a_spot()
-
                 try:
-                    spot_df = await asyncio.to_thread(fetch_spot_data_sina)
-                    data_source = "sina"
-                    logger.debug("✅ 使用新浪财经接口获取数据")
-                except Exception as e:
-                    logger.warning(f"⚠️ 新浪财经接口失败: {e}，尝试东方财富接口...")
-                    # 回退到东方财富接口
-                    def fetch_spot_data_em():
-                        import time
-                        time.sleep(0.5)
-                        return self.ak.stock_zh_a_spot_em()
-                    spot_df = await asyncio.to_thread(fetch_spot_data_em)
-                    data_source = "eastmoney"
-                    logger.debug("✅ 使用东方财富接口获取数据")
+                    spot_df = await asyncio.to_thread(lambda: self.ak.stock_zh_a_spot())
+                except Exception:
+                    spot_df = await asyncio.to_thread(lambda: self.ak.stock_zh_a_spot_em())
 
                 if spot_df is None or spot_df.empty:
-                    logger.warning("⚠️ 全市场快照为空")
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(retry_delay)
+                        await asyncio.sleep(1)
                         continue
                     return {}
 
-                # 构建代码到行情的映射
                 quotes_map = {}
                 codes_set = set(codes)
-
-                # 构建代码映射表（支持带前缀的代码匹配）
-                # 例如：sh600000 -> 600000, sz000001 -> 000001
                 code_mapping = {}
                 for code in codes:
-                    code_mapping[code] = code  # 原始代码
-                    # 添加可能的前缀变体
+                    code_mapping[code] = code
                     for prefix in ['sh', 'sz', 'bj']:
                         code_mapping[f"{prefix}{code}"] = code
 
                 for _, row in spot_df.iterrows():
                     raw_code = str(row.get("代码", ""))
+                    matched_code = code_mapping.get(raw_code) or (raw_code if raw_code in codes_set else None)
+                    if not matched_code:
+                        continue
 
-                    # 尝试匹配代码（支持带前缀和不带前缀）
-                    matched_code = None
-                    if raw_code in code_mapping:
-                        matched_code = code_mapping[raw_code]
-                    elif raw_code in codes_set:
-                        matched_code = raw_code
-
-                    if matched_code:
-                        quotes_data = {
-                            "name": str(row.get("名称", f"股票{matched_code}")),
-                            "price": self._safe_float(row.get("最新价", 0)),
-                            "change": self._safe_float(row.get("涨跌额", 0)),
-                            "change_percent": self._safe_float(row.get("涨跌幅", 0)),
-                            "volume": self._safe_int(row.get("成交量", 0)),
-                            "amount": self._safe_float(row.get("成交额", 0)),
-                            "open": self._safe_float(row.get("今开", 0)),
-                            "high": self._safe_float(row.get("最高", 0)),
-                            "low": self._safe_float(row.get("最低", 0)),
-                            "pre_close": self._safe_float(row.get("昨收", 0)),
-                            # 🔥 新增：财务指标字段
-                            "turnover_rate": self._safe_float(row.get("换手率", None)),  # 换手率（%）
-                            "volume_ratio": self._safe_float(row.get("量比", None)),  # 量比
-                            "pe": self._safe_float(row.get("市盈率-动态", None)),  # 动态市盈率
-                            "pb": self._safe_float(row.get("市净率", None)),  # 市净率
-                            "total_mv": self._safe_float(row.get("总市值", None)),  # 总市值（元）
-                            "circ_mv": self._safe_float(row.get("流通市值", None)),  # 流通市值（元）
-                        }
-
-                        # 转换为标准化字典（使用匹配后的代码）
-                        quotes_map[matched_code] = {
-                            "code": matched_code,
-                            "symbol": matched_code,
-                            "name": quotes_data.get("name", f"股票{matched_code}"),
-                            "price": float(quotes_data.get("price", 0)),
-                            "change": float(quotes_data.get("change", 0)),
-                            "change_percent": float(quotes_data.get("change_percent", 0)),
-                            "volume": int(quotes_data.get("volume", 0)),
-                            "amount": float(quotes_data.get("amount", 0)),
-                            "open_price": float(quotes_data.get("open", 0)),
-                            "high_price": float(quotes_data.get("high", 0)),
-                            "low_price": float(quotes_data.get("low", 0)),
-                            "pre_close": float(quotes_data.get("pre_close", 0)),
-                            # 🔥 新增：财务指标字段
-                            "turnover_rate": quotes_data.get("turnover_rate"),  # 换手率（%）
-                            "volume_ratio": quotes_data.get("volume_ratio"),  # 量比
-                            "pe": quotes_data.get("pe"),  # 动态市盈率
-                            "pe_ttm": quotes_data.get("pe"),  # TTM市盈率（与动态市盈率相同）
-                            "pb": quotes_data.get("pb"),  # 市净率
-                            "total_mv": quotes_data.get("total_mv") / 1e8 if quotes_data.get("total_mv") else None,  # 总市值（转换为亿元）
-                            "circ_mv": quotes_data.get("circ_mv") / 1e8 if quotes_data.get("circ_mv") else None,  # 流通市值（转换为亿元）
-                            # 扩展字段
-                            "full_symbol": self._get_full_symbol(matched_code),
-                            "market_info": self._get_market_info(matched_code),
-                            "data_source": "akshare",
-                            "last_sync": datetime.now(timezone.utc),
-                            "sync_status": "success"
-                        }
+                    raw_pe = self._safe_float(row.get("市盈率-动态", None))
+                    raw_pb = self._safe_float(row.get("市净率", None))
+                    raw_total = self._safe_float(row.get("总市值", None))
+                    raw_circ = self._safe_float(row.get("流通市值", None))
+                    quotes_map[matched_code] = {
+                        "code": matched_code,
+                        "symbol": matched_code,
+                        "name": str(row.get("名称", f"股票{matched_code}")),
+                        "price": self._safe_float(row.get("最新价", 0)),
+                        "change": self._safe_float(row.get("涨跌额", 0)),
+                        "change_percent": self._safe_float(row.get("涨跌幅", 0)),
+                        "volume": self._safe_int(row.get("成交量", 0)),
+                        "amount": self._safe_float(row.get("成交额", 0)),
+                        "open_price": self._safe_float(row.get("今开", 0)),
+                        "high_price": self._safe_float(row.get("最高", 0)),
+                        "low_price": self._safe_float(row.get("最低", 0)),
+                        "pre_close": self._safe_float(row.get("昨收", 0)),
+                        "turnover_rate": self._safe_float(row.get("换手率", None)),
+                        "volume_ratio": self._safe_float(row.get("量比", None)),
+                        "pe": raw_pe,
+                        "pe_ttm": raw_pe,
+                        "pb": raw_pb,
+                        "total_mv": raw_total / 1e8 if raw_total else None,
+                        "circ_mv": raw_circ / 1e8 if raw_circ else None,
+                        "full_symbol": self._get_full_symbol(matched_code),
+                        "market_info": self._get_market_info(matched_code),
+                        "data_source": "akshare",
+                        "last_sync": datetime.now(timezone.utc),
+                        "sync_status": "success",
+                    }
 
                 found_count = len(quotes_map)
                 missing_count = len(codes) - found_count
-                logger.debug(f"✅ 批量获取完成: 找到 {found_count} 只, 未找到 {missing_count} 只")
-
-                # 记录未找到的股票
+                logger.debug(f"AKShare 批量行情: {found_count}/{len(codes)} 只")
                 if missing_count > 0:
                     missing_codes = codes_set - set(quotes_map.keys())
-                    if missing_count <= 10:
-                        logger.debug(f"⚠️ 未找到行情的股票: {list(missing_codes)}")
-                    else:
-                        logger.debug(f"⚠️ 未找到行情的股票: {list(missing_codes)[:10]}... (共{missing_count}只)")
-
+                    logger.debug(f"未找到行情: {list(missing_codes)[:10]}{'...' if missing_count > 10 else ''}")
                 return quotes_map
 
             except Exception as e:
-                logger.warning(f"⚠️ 批量获取实时行情失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                logger.warning(f"AKShare 批量行情失败 ({attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
+                    await asyncio.sleep(1)
                 else:
-                    logger.error(f"❌ 批量获取实时行情失败，已达最大重试次数: {e}")
+                    logger.error(f"批量获取行情失败: {e}")
                     return {}
 
     def _is_index(self, code: str) -> bool:
@@ -1202,10 +1214,102 @@ class AKShareProvider(BaseStockDataProvider):
                 # 如果实时行情失败，尝试获取日线最新一条
                 return await self._get_index_latest_daily(code)
 
-            # ========== A股处理 (原有逻辑) ==========
-            logger.info(f"📈 使用 stock_bid_ask_em 接口获取 {code} 实时行情...")
+            # ========== A股处理 ==========
+            symbol = code.split(".")[0] if "." in code else code
 
-            # 🔥 使用 stock_bid_ask_em 接口获取单个股票实时行情（带重试机制）
+            # --- 优先路径 1：直接调用东方财富 API ---
+            em_data = await asyncio.to_thread(fetch_em_bid_ask_direct, symbol)
+            if em_data:
+                price_raw = self._safe_float(em_data.get("f43", 0))
+                pre_close_raw = self._safe_float(em_data.get("f60", 0))
+                change = round(price_raw - pre_close_raw, 2) if price_raw and pre_close_raw else 0
+                change_pct = round(change / pre_close_raw * 100, 2) if pre_close_raw else 0
+
+                from app.utils.time_utils import now_config_tz, format_date_short
+                now_cn = now_config_tz()
+
+                raw_total = self._safe_float(em_data.get("f116", None))
+                raw_circ = self._safe_float(em_data.get("f117", None))
+                quotes = {
+                    "code": code,
+                    "symbol": code,
+                    "name": str(em_data.get("f58", f"股票{code}")),
+                    "price": price_raw,
+                    "close": price_raw,
+                    "current_price": price_raw,
+                    "change": change,
+                    "change_percent": change_pct,
+                    "pct_chg": change_pct,
+                    "volume": self._safe_int(em_data.get("f47", 0)),
+                    "amount": self._safe_float(em_data.get("f48", 0)),
+                    "open": self._safe_float(em_data.get("f46", 0)),
+                    "high": self._safe_float(em_data.get("f44", 0)),
+                    "low": self._safe_float(em_data.get("f45", 0)),
+                    "pre_close": pre_close_raw,
+                    "turnover_rate": self._safe_float(em_data.get("f168", None)),
+                    "volume_ratio": self._safe_float(em_data.get("f50", None)),
+                    "pe": self._safe_float(em_data.get("f162", None)),
+                    "pe_ttm": self._safe_float(em_data.get("f162", None)),
+                    "pb": self._safe_float(em_data.get("f167", None)),
+                    "total_mv": raw_total / 1e8 if raw_total else None,
+                    "circ_mv": raw_circ / 1e8 if raw_circ else None,
+                    "trade_date": format_date_short(now_cn),
+                    "updated_at": now_cn.isoformat(),
+                    "full_symbol": self._get_full_symbol(code),
+                    "market_info": self._get_market_info(code),
+                    "data_source": "eastmoney_direct",
+                    "last_sync": datetime.now(timezone.utc),
+                    "sync_status": "success",
+                }
+                logger.info(f"{code} 直接 API 行情: 价={quotes['price']}, 涨跌={change_pct}%")
+                return quotes
+
+            # --- 优先路径 2：腾讯行情 API（不受 push2 封禁影响） ---
+            try:
+                tencent_data = await asyncio.to_thread(fetch_tencent_spot_batch, [symbol])
+                if tencent_data and symbol in tencent_data:
+                    item = tencent_data[symbol]
+                    from app.utils.time_utils import now_config_tz, format_date_short
+                    now_cn = now_config_tz()
+
+                    quotes = {
+                        "code": code,
+                        "symbol": code,
+                        "name": item.get("name", f"股票{code}"),
+                        "price": item.get("price", 0) or 0,
+                        "close": item.get("price", 0) or 0,
+                        "current_price": item.get("price", 0) or 0,
+                        "change": item.get("change", 0) or 0,
+                        "change_percent": item.get("change_pct", 0) or 0,
+                        "pct_chg": item.get("change_pct", 0) or 0,
+                        "volume": item.get("volume", 0) or 0,
+                        "amount": item.get("amount", 0) or 0,
+                        "open": item.get("open", 0) or 0,
+                        "high": item.get("high", 0) or 0,
+                        "low": item.get("low", 0) or 0,
+                        "pre_close": item.get("pre_close", 0) or 0,
+                        "turnover_rate": item.get("turnover_rate"),
+                        "volume_ratio": None,
+                        "pe": item.get("pe"),
+                        "pe_ttm": item.get("pe"),
+                        "pb": None,
+                        "total_mv": None,
+                        "circ_mv": None,
+                        "trade_date": format_date_short(now_cn),
+                        "updated_at": now_cn.isoformat(),
+                        "full_symbol": self._get_full_symbol(code),
+                        "market_info": self._get_market_info(code),
+                        "data_source": "tencent",
+                        "last_sync": now_utc(),
+                        "sync_status": "success",
+                    }
+                    logger.info(f"{code} 腾讯行情: 价={quotes['price']}, 涨跌={quotes['change_percent']}%")
+                    return quotes
+            except Exception as e:
+                logger.debug(f"{code} 腾讯行情失败: {e}")
+
+            # --- 回退路径：AKShare stock_bid_ask_em ---
+
             @retry(
                 stop=stop_after_attempt(3),
                 wait=wait_exponential(multiplier=1, min=1, max=4),
@@ -1213,88 +1317,66 @@ class AKShareProvider(BaseStockDataProvider):
                 reraise=True
             )
             def fetch_bid_ask():
-                return self.ak.stock_bid_ask_em(symbol=code)
+                return self.ak.stock_bid_ask_em(symbol=symbol)
 
             try:
                 bid_ask_df = await asyncio.to_thread(fetch_bid_ask)
-            except ConnectionError as e:
-                logger.error(f"❌ AKShare 连接失败 {code}: {str(e)}")
+            except ConnectionError:
+                logger.error(f"AKShare 连接失败 {code}")
                 return None
-            except TimeoutError as e:
-                logger.warning(f"⏱️ AKShare 请求超时 {code}: {str(e)}")
+            except TimeoutError:
+                logger.warning(f"AKShare 请求超时 {code}")
                 return None
             except Exception as e:
-                logger.error(f"❌ AKShare 未知错误 {code}: {str(e)}", exc_info=True)
+                logger.error(f"AKShare 未知错误 {code}: {e}", exc_info=True)
                 return None
-
-            # 🔥 打印原始返回数据
-            logger.info(f"📊 stock_bid_ask_em 返回数据类型: {type(bid_ask_df)}")
-            if bid_ask_df is not None:
-                logger.info(f"📊 DataFrame shape: {bid_ask_df.shape}")
-                logger.info(f"📊 DataFrame columns: {list(bid_ask_df.columns)}")
-                logger.info(f"📊 DataFrame 完整数据:\n{bid_ask_df.to_string()}")
 
             if bid_ask_df is None or bid_ask_df.empty:
-                logger.warning(f"⚠️ 未找到{code}的行情数据")
+                logger.warning(f"未找到{code}的行情数据")
                 return None
 
-            # 将 DataFrame 转换为字典
             data_dict = dict(zip(bid_ask_df['item'], bid_ask_df['value']))
-            logger.info(f"📊 转换后的字典: {data_dict}")
 
-            # 转换为标准化字典
-            # 🔥 注意：字段名必须与 app/routers/stocks.py 中的查询字段一致
-            # 前端查询使用的是 high/low/open，不是 high_price/low_price/open_price
-
-            # 🔥 获取当前日期（配置时区）
             from app.utils.time_utils import now_config_tz, format_date_short
             now_cn = now_config_tz()
-            trade_date = format_date_short(now_cn)  # 格式：2025-11-05
-
-            # 🔥 成交量单位转换：手 → 股（1手 = 100股）
-            volume_in_lots = int(data_dict.get("总手", 0))  # 单位：手
-            volume_in_shares = volume_in_lots * 100  # 单位：股
+            volume_in_shares = int(data_dict.get("总手", 0)) * 100
 
             quotes = {
                 "code": code,
                 "symbol": code,
-                "name": f"股票{code}",  # stock_bid_ask_em 不返回股票名称
+                "name": f"股票{code}",
                 "price": float(data_dict.get("最新", 0)),
-                "close": float(data_dict.get("最新", 0)),  # 🔥 close 字段（与 price 相同）
-                "current_price": float(data_dict.get("最新", 0)),  # 🔥 current_price 字段（兼容旧数据）
+                "close": float(data_dict.get("最新", 0)),
+                "current_price": float(data_dict.get("最新", 0)),
                 "change": float(data_dict.get("涨跌", 0)),
                 "change_percent": float(data_dict.get("涨幅", 0)),
-                "pct_chg": float(data_dict.get("涨幅", 0)),  # 🔥 pct_chg 字段（兼容旧数据）
-                "volume": volume_in_shares,  # 🔥 单位：股（已转换）
-                "amount": float(data_dict.get("金额", 0)),  # 单位：元
-                "open": float(data_dict.get("今开", 0)),  # 🔥 使用 open 而不是 open_price
-                "high": float(data_dict.get("最高", 0)),  # 🔥 使用 high 而不是 high_price
-                "low": float(data_dict.get("最低", 0)),  # 🔥 使用 low 而不是 low_price
+                "pct_chg": float(data_dict.get("涨幅", 0)),
+                "volume": volume_in_shares,
+                "amount": float(data_dict.get("金额", 0)),
+                "open": float(data_dict.get("今开", 0)),
+                "high": float(data_dict.get("最高", 0)),
+                "low": float(data_dict.get("最低", 0)),
                 "pre_close": float(data_dict.get("昨收", 0)),
-                # 🔥 新增：财务指标字段
-                "turnover_rate": float(data_dict.get("换手", 0)),  # 换手率（%）
-                "volume_ratio": float(data_dict.get("量比", 0)),  # 量比
-                "pe": None,  # stock_bid_ask_em 不返回市盈率
+                "turnover_rate": float(data_dict.get("换手", 0)),
+                "volume_ratio": float(data_dict.get("量比", 0)),
+                "pe": None,
                 "pe_ttm": None,
-                "pb": None,  # stock_bid_ask_em 不返回市净率
-                "total_mv": None,  # stock_bid_ask_em 不返回总市值
-                "circ_mv": None,  # stock_bid_ask_em 不返回流通市值
-                # 🔥 新增：交易日期和更新时间
-                "trade_date": trade_date,  # 交易日期（格式：2025-11-05）
-                "updated_at": now_cn.isoformat(),  # 更新时间（ISO格式，带时区）
-                # 扩展字段
+                "pb": None,
+                "total_mv": None,
+                "circ_mv": None,
+                "trade_date": format_date_short(now_cn),
+                "updated_at": now_cn.isoformat(),
                 "full_symbol": self._get_full_symbol(code),
                 "market_info": self._get_market_info(code),
                 "data_source": "akshare",
                 "last_sync": datetime.now(timezone.utc),
-                "sync_status": "success"
+                "sync_status": "success",
             }
-
-            logger.info(f"✅ {code} 实时行情获取成功: 最新价={quotes['price']}, 涨跌幅={quotes['change_percent']}%, 成交量={quotes['volume']}, 成交额={quotes['amount']}")
+            logger.info(f"{code} AKShare 行情: 价={quotes['price']}, 涨跌={quotes['change_percent']}%")
             return quotes
 
         except Exception as e:
-            logger.error(f"❌ 获取{code}实时行情失败: {e}", exc_info=True)
+            logger.error(f"获取{code}实时行情失败: {e}", exc_info=True)
             return None
     
     async def _get_realtime_quotes_data(self, code: str) -> Dict[str, Any]:

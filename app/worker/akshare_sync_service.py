@@ -4,14 +4,14 @@ AKShare数据同步服务
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from datetime import timedelta
+from typing import Dict, Any, List
 
 from app.core.database import get_mongo_db
 from app.services.historical_data_service import get_historical_data_service
 from app.services.news_data_service import get_news_data_service
 from app.data.providers.china.akshare import get_akshare_provider
-from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, get_current_date
+from app.utils.timezone import now_utc, now_config_tz, format_date_short
 from app.worker.base_sync_service import BaseSyncService
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ class AKShareSyncService(BaseSyncService):
             stats["end_time"] = now_utc()
             stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
             
-            logger.info(f"🎉 股票基础信息同步完成！")
+            logger.info("🎉 股票基础信息同步完成！")
             logger.info(f"📊 总计: {stats['total_processed']}只, "
                        f"成功: {stats['success_count']}, "
                        f"错误: {stats['error_count']}, "
@@ -140,11 +140,14 @@ class AKShareSyncService(BaseSyncService):
         
         for stock_info in batch:
             try:
-                code = stock_info["code"]
-                
+                code = stock_info.get("code")
+                if not code:
+                    batch_stats["skipped_count"] += 1
+                    continue
+
                 # 检查是否需要更新
                 if not force_update:
-                    existing = await self.db.stock_basic_info.find_one({"code": code})
+                    existing = await self.db.stock_basic_info.find_one({"symbol": code})
                     if existing and self._is_data_fresh(existing.get("updated_at"), hours=24):
                         batch_stats["skipped_count"] += 1
                         continue
@@ -162,8 +165,8 @@ class AKShareSyncService(BaseSyncService):
                         basic_data = basic_info
                     
                     # 🔥 确保 source 字段存在
-                    if "source" not in basic_data:
-                        basic_data["source"] = "akshare"
+                    if "data_source" not in basic_data:
+                        basic_data["data_source"] = "akshare"
 
                     # 🔥 确保 symbol 字段存在
                     if "symbol" not in basic_data:
@@ -172,7 +175,7 @@ class AKShareSyncService(BaseSyncService):
                     # 更新到数据库（使用 code + source 联合查询）
                     try:
                         await self.db.stock_basic_info.update_one(
-                            {"code": code, "source": "akshare"},
+                            {"symbol": code, "data_source": "akshare"},
                             {"$set": basic_data},
                             upsert=True
                         )
@@ -239,9 +242,9 @@ class AKShareSyncService(BaseSyncService):
                 # 从数据库获取所有上市状态的股票代码（排除退市股票）
                 basic_info_cursor = self.db.stock_basic_info.find(
                     {"list_status": "L"},  # 只获取上市状态的股票
-                    {"code": 1}
+                    {"symbol": 1}
                 )
-                symbols = [doc["code"] async for doc in basic_info_cursor]
+                symbols = [doc["symbol"] async for doc in basic_info_cursor]
 
             if not symbols:
                 logger.warning("⚠️ 没有找到要同步的股票")
@@ -252,7 +255,7 @@ class AKShareSyncService(BaseSyncService):
 
             # 🔥 优化：如果只同步1只股票，直接调用单个股票接口，不走批量接口
             if len(symbols) == 1:
-                logger.info(f"📈 单个股票同步，直接使用 get_stock_quotes 接口")
+                logger.info("📈 单个股票同步，直接使用 get_stock_quotes 接口")
                 symbol = symbols[0]
                 success = await self._get_and_save_quotes(symbol)
                 if success:
@@ -314,8 +317,6 @@ class AKShareSyncService(BaseSyncService):
                                     # 确保 symbol 和 code 字段存在
                                     if "symbol" not in quotes_data:
                                         quotes_data["symbol"] = symbol
-                                    if "code" not in quotes_data:
-                                        quotes_data["code"] = symbol
 
                                     # 更新到数据库
                                     await self.db.market_quotes.update_one(
@@ -348,7 +349,7 @@ class AKShareSyncService(BaseSyncService):
             stats["end_time"] = now_utc()
             stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
 
-            logger.info(f"🎉 实时行情同步完成！")
+            logger.info("🎉 实时行情同步完成！")
             logger.info(f"📊 总计: {stats['total_processed']}只, "
                        f"成功: {stats['success_count']}, "
                        f"错误: {stats['error_count']}, "
@@ -395,8 +396,6 @@ class AKShareSyncService(BaseSyncService):
                         # 确保 symbol 和 code 字段存在
                         if "symbol" not in quotes_data:
                             quotes_data["symbol"] = symbol
-                        if "code" not in quotes_data:
-                            quotes_data["code"] = symbol
 
                         # 更新到数据库
                         await self.db.market_quotes.update_one(
@@ -480,15 +479,15 @@ class AKShareSyncService(BaseSyncService):
                     quotes_data["symbol"] = symbol
 
                 # 🔥 打印即将保存到数据库的数据
-                logger.info(f"💾 准备保存 {symbol} 行情到数据库:")
-                logger.info(f"   - 最新价(price): {quotes_data.get('price')}")
-                logger.info(f"   - 最高价(high): {quotes_data.get('high')}")
-                logger.info(f"   - 最低价(low): {quotes_data.get('low')}")
-                logger.info(f"   - 开盘价(open): {quotes_data.get('open')}")
-                logger.info(f"   - 昨收价(pre_close): {quotes_data.get('pre_close')}")
-                logger.info(f"   - 成交量(volume): {quotes_data.get('volume')}")
-                logger.info(f"   - 成交额(amount): {quotes_data.get('amount')}")
-                logger.info(f"   - 涨跌幅(change_percent): {quotes_data.get('change_percent')}%")
+                logger.info(f"💾 准备保存 {symbol} 行情到数据库")
+                logger.debug(f"   - 最新价(price): {quotes_data.get('price')}")
+                logger.debug(f"   - 最高价(high): {quotes_data.get('high')}")
+                logger.debug(f"   - 最低价(low): {quotes_data.get('low')}")
+                logger.debug(f"   - 开盘价(open): {quotes_data.get('open')}")
+                logger.debug(f"   - 昨收价(pre_close): {quotes_data.get('pre_close')}")
+                logger.debug(f"   - 成交量(volume): {quotes_data.get('volume')}")
+                logger.debug(f"   - 成交额(amount): {quotes_data.get('amount')}")
+                logger.debug(f"   - 涨跌幅(change_percent): {quotes_data.get('change_percent')}%")
 
                 # 更新到数据库
                 result = await self.db.market_quotes.update_one(
@@ -546,8 +545,8 @@ class AKShareSyncService(BaseSyncService):
 
             # 2. 确定要同步的股票列表
             if symbols is None:
-                basic_info_cursor = self.db.stock_basic_info.find({}, {"code": 1})
-                symbols = [doc["code"] async for doc in basic_info_cursor]
+                basic_info_cursor = self.db.stock_basic_info.find({"status": {"$ne": "D"}}, {"symbol": 1})
+                symbols = [doc["symbol"] async for doc in basic_info_cursor]
 
             if not symbols:
                 logger.warning("⚠️ 没有找到要同步的股票")
@@ -591,7 +590,7 @@ class AKShareSyncService(BaseSyncService):
             stats["end_time"] = now_utc()
             stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
 
-            logger.info(f"🎉 历史数据同步完成！")
+            logger.info("🎉 历史数据同步完成！")
             logger.info(f"📊 总计: {stats['total_processed']}只股票, "
                        f"成功: {stats['success_count']}, "
                        f"记录: {stats['total_records']}条, "
@@ -709,15 +708,21 @@ class AKShareSyncService(BaseSyncService):
             if symbols is None:
                 basic_info_cursor = self.db.stock_basic_info.find(
                     {
-                        "$or": [
-                            {"market_info.market": "CN"},  # 新数据结构
-                            {"category": "stock_cn"},      # 旧数据结构
-                            {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}  # 按市场类型
+                        "$and": [
+                            {
+                                "$or": [
+                                    {"market_info.market": "CN"},  # 新数据结构
+                                    {"category": "stock_cn"},      # 旧数据结构
+                                    {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}  # 按市场类型
+                                ]
+                            },
+                            # 排除退市股票
+                            {"status": {"$ne": "D"}}
                         ]
                     },
-                    {"code": 1}
+                    {"symbol": 1}
                 )
-                symbols = [doc["code"] async for doc in basic_info_cursor]
+                symbols = [doc["symbol"] async for doc in basic_info_cursor]
                 logger.info(f"📋 从 stock_basic_info 获取到 {len(symbols)} 只股票")
 
             if not symbols:
@@ -750,7 +755,7 @@ class AKShareSyncService(BaseSyncService):
             stats["end_time"] = now_utc()
             stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
 
-            logger.info(f"🎉 财务数据同步完成！")
+            logger.info("🎉 财务数据同步完成！")
             logger.info(f"📊 总计: {stats['total_processed']}只股票, "
                        f"成功: {stats['success_count']}, "
                        f"错误: {stats['error_count']}, "
@@ -912,7 +917,7 @@ class AKShareSyncService(BaseSyncService):
             )
 
             if latest_doc:
-                logger.info(f"📌 从 user_favorites 获取最新文档的自选股")
+                logger.info("📌 从 user_favorites 获取最新文档的自选股")
                 for fav in latest_doc.get("favorites", []):
                     code = fav.get("stock_code")
                     if code:
@@ -1073,16 +1078,29 @@ class AKShareSyncService(BaseSyncService):
         return batch_stats
 
 
-# 全局同步服务实例
+# 全局同步服务实例 + 懒初始化 asyncio.Lock
 _akshare_sync_service = None
+_akshare_lock = None
+
+
+def _get_akshare_lock():
+    """懒初始化 asyncio.Lock，避免在模块导入时（可能没有事件循环）创建锁"""
+    global _akshare_lock
+    if _akshare_lock is None:
+        _akshare_lock = asyncio.Lock()
+    return _akshare_lock
+
 
 async def get_akshare_sync_service() -> AKShareSyncService:
     """获取AKShare同步服务实例"""
     global _akshare_sync_service
-    if _akshare_sync_service is None:
-        _akshare_sync_service = AKShareSyncService()
-        await _akshare_sync_service.initialize()
-    return _akshare_sync_service
+    if _akshare_sync_service is not None:
+        return _akshare_sync_service
+    async with _get_akshare_lock():
+        if _akshare_sync_service is None:
+            _akshare_sync_service = AKShareSyncService()
+            await _akshare_sync_service.initialize()
+        return _akshare_sync_service
 
 
 # APScheduler兼容的任务函数

@@ -61,6 +61,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Download, Clock, View, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
+import { sanitizeHtml } from '@/utils/markdown'
 
 const route = useRoute()
 const router = useRouter()
@@ -298,6 +299,8 @@ async function loadArticle(id: string) {
     }
     marked.setOptions({ renderer })
     let html = marked.parse(md) as string
+    // DOMPurify 消毒：防止 XSS
+    html = sanitizeHtml(html)
     // 转换本地文章链接
     html = convertLocalLinks(html)
     // 重写图片资源路径，确保从仓库根目录的 assets/ 正确加载

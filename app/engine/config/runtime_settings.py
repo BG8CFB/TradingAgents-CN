@@ -32,19 +32,6 @@ def set_cached_settings(settings: dict) -> None:
     _logger.info(f"[runtime_settings] 动态配置缓存已更新，共 {len(_cached_settings)} 项")
 
 
-def _get_event_loop_running() -> bool:
-    """检测是否有事件循环正在运行"""
-    try:
-        # get_running_loop 在无事件循环时会抛 RuntimeError（更安静，不触发警告）
-        loop = asyncio.get_running_loop()
-        return loop is not None and loop.is_running()
-    except RuntimeError:
-        return False
-    except Exception:
-        # 其他异常也认为没有事件循环
-        return False
-
-
 def _get_system_settings_sync() -> dict:
     """获取后端动态 system_settings。
     配置在启动时通过 set_cached_settings() 注入缓存，此函数从缓存读取。

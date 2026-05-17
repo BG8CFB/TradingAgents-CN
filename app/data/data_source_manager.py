@@ -6,6 +6,7 @@
 
 import os
 import time
+import threading
 from typing import Dict, List, Optional, Any
 from enum import Enum
 import warnings
@@ -65,6 +66,9 @@ class DataSourceManager:
 
     def __init__(self):
         """初始化数据源管理器"""
+        # 线程安全锁，保护 current_source 的读写
+        self._source_lock = threading.Lock()
+
         # 检查是否启用MongoDB缓存
         self.use_mongodb_cache = self._check_mongodb_enabled()
 
@@ -542,24 +546,28 @@ class DataSourceManager:
             return {}
 
     def get_current_source(self) -> ChinaDataSource:
-        """获取当前数据源"""
-        return self.current_source
+        """获取当前数据源（线程安全）"""
+        with self._source_lock:
+            return self.current_source
 
     def set_current_source(self, source: ChinaDataSource) -> bool:
-        """设置当前数据源"""
-        if source in self.available_sources:
-            self.current_source = source
-            logger.info(f"✅ 数据源已切换到: {source.value}")
-            return True
-        else:
-            logger.error(f"❌ 数据源不可用: {source.value}")
-            return False
+        """设置当前数据源（线程安全）"""
+        with self._source_lock:
+            if source in self.available_sources:
+                self.current_source = source
+                logger.info(f"✅ 数据源已切换到: {source.value}")
+                return True
+            else:
+                logger.error(f"❌ 数据源不可用: {source.value}")
+                return False
 
     def get_data_adapter(self):
         """获取当前数据源的适配器"""
-        if self.current_source == ChinaDataSource.MONGODB:
+        with self._source_lock:
+            current = self.current_source
+        if current == ChinaDataSource.MONGODB:
             return self._get_mongodb_adapter()
-        elif self.current_source == ChinaDataSource.TUSHARE:
+        elif current == ChinaDataSource.TUSHARE:
             return self._get_tushare_adapter()
         elif self.current_source == ChinaDataSource.AKSHARE:
             return self._get_akshare_adapter()
@@ -702,9 +710,22 @@ class DataSourceManager:
         """
         try:
             original_data_count = len(data)
-            logger.info(f"📊 [技术指标] 开始计算技术指标，原始数据: {original_data_count}条")
+            logger.info(f"📊 [技术指标] 开始计算技术指标，原始数据: {original_data_count}条, 列名: {list(data.columns)}")
 
-            # 🔧 计算技术指标（使用完整数据）
+            # 列名标准化：兼容 MongoDB 缓存数据（trade_date→date, pct_chg→pct_change, volume→vol）
+            _col_rename = {}
+            if 'trade_date' in data.columns and 'date' not in data.columns:
+                _col_rename['trade_date'] = 'date'
+            if 'pct_chg' in data.columns and 'pct_change' not in data.columns:
+                _col_rename['pct_chg'] = 'pct_change'
+            if 'volume' in data.columns and 'vol' not in data.columns:
+                _col_rename['volume'] = 'vol'
+            if 'amount' in data.columns and 'turnover' not in data.columns:
+                _col_rename['amount'] = 'turnover'
+            if _col_rename:
+                data = data.rename(columns=_col_rename)
+                logger.debug(f"📊 [技术指标] 列名标准化: {_col_rename}")
+
             # 确保数据按日期排序
             if 'date' in data.columns:
                 data = data.sort_values('date')
@@ -955,6 +976,33 @@ class DataSourceManager:
             logger.error(f"❌ 格式化数据响应失败: {e}", exc_info=True)
             return f"❌ 格式化{symbol}数据失败: {e}"
 
+    def _format_simple_data_response(self, data: pd.DataFrame, symbol: str, stock_name: str,
+                                     start_date: str, end_date: str) -> Optional[str]:
+        """格式化失败时的简化数据报告，确保至少返回有效数据"""
+        try:
+            # 日期列兼容
+            date_col = 'date' if 'date' in data.columns else ('trade_date' if 'trade_date' in data.columns else None)
+            if date_col:
+                data = data.sort_values(date_col)
+            latest = data.iloc[-1]
+            result = f"📊 {stock_name}({symbol}) - 历史数据\n"
+            result += f"数据期间: {start_date} 至 {end_date}\n"
+            result += f"数据条数: {len(data)}条\n\n"
+            result += f"💰 最新收盘价: ¥{latest.get('close', 0):.2f}\n"
+            if date_col:
+                result += f"📅 最新日期: {latest.get(date_col, 'N/A')}\n"
+            result += f"📊 最高价: ¥{data['high'].max():.2f}\n"
+            result += f"📊 最低价: ¥{data['low'].min():.2f}\n"
+            result += f"📊 平均价: ¥{data['close'].mean():.2f}\n"
+            if 'volume' in data.columns or 'vol' in data.columns:
+                vol_col = 'volume' if 'volume' in data.columns else 'vol'
+                result += f"📊 总成交量: {data[vol_col].sum():,.0f}股\n"
+            result += "\n数据来源: MongoDB缓存"
+            return result
+        except Exception as e:
+            logger.error(f"❌ 简化数据报告也失败: {e}")
+            return None
+
     def get_stock_dataframe(self, symbol: str, start_date: str = None, end_date: str = None, period: str = "daily") -> pd.DataFrame:
         """
         获取股票数据的 DataFrame 接口，支持多数据源和自动降级
@@ -1164,20 +1212,26 @@ class DataSourceManager:
                                   'event_type': 'data_fetch_warning'
                               })
 
-                # 数据质量异常时也尝试降级到其他数据源
-                fallback_result_tuple = self._try_fallback_sources(symbol, start_date, end_date)
-                # 解包元组
-                if isinstance(fallback_result_tuple, tuple):
-                    fallback_result, _ = fallback_result_tuple
+                # 数据质量异常时尝试降级到其他数据源
+                # 但如果结果已经来自 _get_mongodb_data 的降级（actual_source 不是 mongodb），
+                # 说明降级已经执行过，避免重复调用
+                if self.current_source == ChinaDataSource.MONGODB and actual_source is not None:
+                    # MongoDB 路径内部已经执行过降级，直接返回
+                    logger.warning(f"⚠️ [数据来源: {actual_source}] MongoDB降级路径已执行，返回结果: {symbol}")
+                    return result
                 else:
-                    fallback_result = fallback_result_tuple
+                    fallback_result_tuple = self._try_fallback_sources(symbol, start_date, end_date)
+                    if isinstance(fallback_result_tuple, tuple):
+                        fallback_result, _ = fallback_result_tuple
+                    else:
+                        fallback_result = fallback_result_tuple
 
-                if fallback_result and "❌" not in fallback_result and "错误" not in fallback_result:
-                    logger.info(f"✅ [数据来源: 备用数据源] 降级成功获取数据: {symbol}")
-                    return fallback_result
-                else:
-                    logger.error(f"❌ [数据来源: 所有数据源失败] 所有数据源都无法获取有效数据: {symbol}")
-                    return result  # 返回原始结果（包含错误信息）
+                    if fallback_result and "❌" not in fallback_result and "错误" not in fallback_result:
+                        logger.info(f"✅ [数据来源: 备用数据源] 降级成功获取数据: {symbol}")
+                        return fallback_result
+                    else:
+                        logger.error(f"❌ [数据来源: 所有数据源失败] 所有数据源都无法获取有效数据: {symbol}")
+                        return result
 
         except Exception as e:
             duration = time.time() - start_time
@@ -1191,7 +1245,9 @@ class DataSourceManager:
                             'error': str(e),
                             'event_type': 'data_fetch_exception'
                         }, exc_info=True)
-            # 尝试降级并只返回数据字符串
+            # 尝试降级（非 MongoDB 路径才需要，MongoDB 路径已在 _get_mongodb_data 内部降级）
+            if self.current_source == ChinaDataSource.MONGODB:
+                return f"❌ MongoDB数据获取异常: {e}"
             fb_res = self._try_fallback_sources(symbol, start_date, end_date)
             if isinstance(fb_res, tuple):
                 return fb_res[0]
@@ -1254,19 +1310,25 @@ class DataSourceManager:
             df = adapter.get_historical_data(symbol, start_date, end_date, period=period)
 
             if df is not None and not df.empty:
-                logger.info(f"✅ [数据来源: MongoDB缓存] 成功获取{period}数据: {symbol} ({len(df)}条记录)")
+                logger.info(f"✅ [数据来源: MongoDB缓存] 成功获取{period}数据: {symbol} ({len(df)}条记录), 列: {list(df.columns)}")
 
-                # 🔧 修复：使用统一的格式化方法，包含技术指标计算
-                # 获取股票名称（从DataFrame中提取或使用默认值）
                 stock_name = f'股票{symbol}'
                 if 'name' in df.columns and not df['name'].empty:
                     stock_name = df['name'].iloc[0]
 
-                # 调用统一的格式化方法（包含技术指标计算）
-                result = self._format_stock_data_response(df, symbol, stock_name, start_date, end_date)
-
-                logger.info(f"✅ [MongoDB] 已计算技术指标: MA5/10/20/60, MACD, RSI, BOLL")
-                return result, "mongodb"
+                try:
+                    result = self._format_stock_data_response(df, symbol, stock_name, start_date, end_date)
+                    logger.info(f"✅ [MongoDB] 已计算技术指标: MA5/10/20/60, MACD, RSI, BOLL")
+                    return result, "mongodb"
+                except Exception as fmt_err:
+                    # 格式化失败时，生成简化版数据报告，而非直接丢弃数据
+                    logger.warning(f"⚠️ [MongoDB] 格式化失败，生成简化报告: {fmt_err}")
+                    result = self._format_simple_data_response(df, symbol, stock_name, start_date, end_date)
+                    if result:
+                        return result, "mongodb"
+                    # 简化报告也失败，才降级到其他数据源
+                    logger.warning(f"⚠️ [MongoDB] 简化报告也失败，降级到其他数据源")
+                    return self._try_fallback_sources(symbol, start_date, end_date, period)
             else:
                 # MongoDB没有数据（adapter内部已记录详细的数据源信息），降级到其他数据源
                 logger.info(f"🔄 [MongoDB] 未找到{period}数据: {symbol}，开始尝试备用数据源")
@@ -1601,9 +1663,27 @@ class DataSourceManager:
         # 首先尝试当前数据源
         try:
             if self.current_source == ChinaDataSource.TUSHARE:
-                from .interface import get_china_stock_info_tushare
-                info_str = get_china_stock_info_tushare(symbol)
-                result = self._parse_stock_info_string(info_str, symbol)
+                # 内联获取 Tushare 股票信息（避免循环导入 interface.py）
+                try:
+                    provider = self._get_tushare_adapter()
+                    if provider:
+                        info = self._run_async(provider.get_stock_basic_info(symbol))
+                        if info and isinstance(info, dict):
+                            result = {
+                                'symbol': symbol,
+                                'name': info.get('name', f'股票{symbol}'),
+                                'area': info.get('area', '未知'),
+                                'industry': info.get('industry', '未知'),
+                                'market': info.get('market', '未知'),
+                                'list_date': info.get('list_date', '未知'),
+                                'source': 'tushare',
+                            }
+                        else:
+                            result = {'name': f'股票{symbol}'}
+                    else:
+                        result = {'name': f'股票{symbol}'}
+                except Exception:
+                    result = {'name': f'股票{symbol}'}
 
                 # 检查是否获取到有效信息
                 if result.get('name') and result['name'] != f'股票{symbol}':
@@ -2317,11 +2397,17 @@ class DataSourceManager:
 
 # 全局数据源管理器实例
 _data_source_manager = None
+_data_source_manager_lock = threading.Lock()
 
 def get_data_source_manager() -> DataSourceManager:
-    """获取全局数据源管理器实例"""
+    """获取全局数据源管理器实例（线程安全）"""
     global _data_source_manager
-    if _data_source_manager is None:
+    if _data_source_manager is not None:
+        return _data_source_manager
+    with _data_source_manager_lock:
+        # 双重检查锁定
+        if _data_source_manager is not None:
+            return _data_source_manager
         _data_source_manager = DataSourceManager()
     return _data_source_manager
 
@@ -2329,7 +2415,7 @@ def get_data_source_manager() -> DataSourceManager:
 def get_china_stock_data_unified(symbol: str, start_date: str, end_date: str) -> str:
     """
     统一的中国股票数据获取接口
-    自动使用配置的数据源，支持备用数据源
+    委托到 reader.py 统一读取层
 
     Args:
         symbol: 股票代码
@@ -2339,37 +2425,14 @@ def get_china_stock_data_unified(symbol: str, start_date: str, end_date: str) ->
     Returns:
         str: 格式化的股票数据
     """
-    from app.utils.logging_init import get_logger
-
-
-    # 添加详细的股票代码追踪日志
-    logger.info(f"🔍 [股票代码追踪] data_source_manager.get_china_stock_data_unified 接收到的股票代码: '{symbol}' (类型: {type(symbol)})")
-    logger.info(f"🔍 [股票代码追踪] 股票代码长度: {len(str(symbol))}")
-    logger.info(f"🔍 [股票代码追踪] 股票代码字符: {list(str(symbol))}")
-
-    manager = get_data_source_manager()
-    logger.info(f"🔍 [股票代码追踪] 调用 manager.get_stock_data，传入参数: symbol='{symbol}', start_date='{start_date}', end_date='{end_date}'")
-    
-    # 直接调用统一的数据获取接口（内部包含优先级降级逻辑）
-    # 优先级：MongoDB -> Tushare/AKShare (根据配置)
-    result = manager.get_stock_data(symbol, start_date, end_date)
-
-    # 分析返回结果的详细信息
-    if result:
-        lines = result.split('\n')
-        data_lines = [line for line in lines if '2025-' in line and symbol in line]
-        logger.info(f"🔍 [股票代码追踪] 返回结果统计: 总行数={len(lines)}, 数据行数={len(data_lines)}, 结果长度={len(result)}字符")
-        logger.info(f"🔍 [股票代码追踪] 返回结果前500字符: {result[:500]}")
-        if len(data_lines) > 0:
-            logger.info(f"🔍 [股票代码追踪] 数据行示例: 第1行='{data_lines[0][:100]}', 最后1行='{data_lines[-1][:100]}'")
-    else:
-        logger.info(f"🔍 [股票代码追踪] 返回结果: None")
-    return result
+    from .reader import get_stock_data
+    return get_stock_data("CN", symbol, start_date, end_date)
 
 
 def get_china_stock_info_unified(symbol: str) -> Dict:
     """
     统一的中国股票信息获取接口
+    委托到 reader.py 统一读取层
 
     Args:
         symbol: 股票代码
@@ -2377,19 +2440,11 @@ def get_china_stock_info_unified(symbol: str) -> Dict:
     Returns:
         Dict: 股票基本信息
     """
-    manager = get_data_source_manager()
-    return manager.get_stock_info(symbol)
+    from .reader import get_stock_info
+    return get_stock_info("CN", symbol)
 
 
-# 全局数据源管理器实例
-_data_source_manager = None
-
-def get_data_source_manager() -> DataSourceManager:
-    """获取全局数据源管理器实例"""
-    global _data_source_manager
-    if _data_source_manager is None:
-        _data_source_manager = DataSourceManager()
-    return _data_source_manager
+# 注意：get_data_source_manager() 已在上方定义，此处不再重复
 
 # ==================== 兼容性接口 ====================
 # 为了兼容 stock_data_service，提供相同的接口
@@ -2419,6 +2474,9 @@ class USDataSourceManager:
 
     def __init__(self):
         """初始化美股数据源管理器"""
+        # 线程安全锁，保护 current_source 的读写
+        self._source_lock = threading.Lock()
+
         # 检查是否启用 MongoDB 缓存
         self.use_mongodb_cache = self._check_mongodb_enabled()
 
@@ -2641,26 +2699,34 @@ class USDataSourceManager:
             return {}
 
     def get_current_source(self) -> USDataSource:
-        """获取当前数据源"""
-        return self.current_source
+        """获取当前数据源（线程安全）"""
+        with self._source_lock:
+            return self.current_source
 
     def set_current_source(self, source: USDataSource) -> bool:
-        """设置当前数据源"""
-        if source in self.available_sources:
-            self.current_source = source
-            logger.info(f"✅ 美股数据源已切换到: {source.value}")
-            return True
-        else:
-            logger.error(f"❌ 美股数据源不可用: {source.value}")
-            return False
+        """设置当前数据源（线程安全）"""
+        with self._source_lock:
+            if source in self.available_sources:
+                self.current_source = source
+                logger.info(f"✅ 美股数据源已切换到: {source.value}")
+                return True
+            else:
+                logger.error(f"❌ 美股数据源不可用: {source.value}")
+                return False
 
 
 # 全局美股数据源管理器实例
 _us_data_source_manager = None
+_us_data_source_manager_lock = threading.Lock()
 
 def get_us_data_source_manager() -> USDataSourceManager:
-    """获取全局美股数据源管理器实例"""
+    """获取全局美股数据源管理器实例（线程安全）"""
     global _us_data_source_manager
-    if _us_data_source_manager is None:
+    if _us_data_source_manager is not None:
+        return _us_data_source_manager
+    with _us_data_source_manager_lock:
+        # 双重检查锁定
+        if _us_data_source_manager is not None:
+            return _us_data_source_manager
         _us_data_source_manager = USDataSourceManager()
     return _us_data_source_manager

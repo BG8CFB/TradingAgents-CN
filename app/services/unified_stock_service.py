@@ -19,6 +19,8 @@ import logging
 from typing import Dict, List, Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.data.schema.collections import get_collection_name
+
 logger = logging.getLogger("webapi")
 
 
@@ -27,31 +29,52 @@ class UnifiedStockService:
 
     def __init__(self, db: AsyncIOMotorDatabase):
         self.db = db
-        
-        # 集合映射
+
+        # 集合映射统一收敛到 schema/collections，避免多处重复维护。
         self.collection_map = {
             "CN": {
-                "basic_info": "stock_basic_info",
-                "quotes": "market_quotes",
-                "daily": "stock_daily_quotes",
-                "financial": "stock_financial_data",
-                "news": "stock_news"
+                "basic_info": get_collection_name("CN", "basic_info"),
+                "quotes": get_collection_name("CN", "market_quotes"),
+                "daily": get_collection_name("CN", "daily_quotes"),
+                "financial": get_collection_name("CN", "financial"),
+                "news": get_collection_name("CN", "news"),
             },
             "HK": {
-                "basic_info": "stock_basic_info_hk",
-                "quotes": "market_quotes_hk",
-                "daily": "stock_daily_quotes_hk",
-                "financial": "stock_financial_data_hk",
-                "news": "stock_news_hk"
+                "basic_info": get_collection_name("HK", "basic_info"),
+                "quotes": get_collection_name("HK", "market_quotes"),
+                "daily": get_collection_name("HK", "daily_quotes"),
+                "financial": get_collection_name("HK", "financial"),
+                "news": get_collection_name("HK", "news"),
             },
             "US": {
-                "basic_info": "stock_basic_info_us",
-                "quotes": "market_quotes_us",
-                "daily": "stock_daily_quotes_us",
-                "financial": "stock_financial_data_us",
-                "news": "stock_news_us"
-            }
+                "basic_info": get_collection_name("US", "basic_info"),
+                "quotes": get_collection_name("US", "market_quotes"),
+                "daily": get_collection_name("US", "daily_quotes"),
+                "financial": get_collection_name("US", "financial"),
+                "news": get_collection_name("US", "news"),
+            },
         }
+
+    @staticmethod
+    def _normalize_doc(doc: Optional[Dict]) -> Optional[Dict]:
+        """为仍消费旧字段的调用方补齐兼容别名。"""
+        if not doc:
+            return doc
+
+        normalized = dict(doc)
+        symbol = normalized.get("symbol") or normalized.get("code")
+        data_source = normalized.get("data_source") or normalized.get("source")
+
+        if symbol and "symbol" not in normalized:
+            normalized["symbol"] = symbol
+        if symbol and "code" not in normalized:
+            normalized["code"] = symbol
+        if data_source and "data_source" not in normalized:
+            normalized["data_source"] = data_source
+        if data_source and "source" not in normalized:
+            normalized["source"] = data_source
+
+        return normalized
 
     async def get_stock_info(
         self, 
@@ -75,7 +98,7 @@ class UnifiedStockService:
         
         if source:
             # 指定数据源
-            query = {"code": code, "source": source}
+            query = {"symbol": code, "data_source": source}
             doc = await collection.find_one(query, {"_id": 0})
             if doc:
                 logger.debug(f"✅ 使用指定数据源: {source}")
@@ -85,19 +108,19 @@ class UnifiedStockService:
             doc = None
             
             for src in source_priority:
-                query = {"code": code, "source": src}
+                query = {"symbol": code, "data_source": src}
                 doc = await collection.find_one(query, {"_id": 0})
                 if doc:
                     logger.debug(f"✅ 使用数据源: {src} (优先级查询)")
                     break
             
-            # 如果没有找到，尝试不指定source查询（兼容旧数据）
+            # 如果没有找到，尝试不指定数据源查询。
             if not doc:
-                doc = await collection.find_one({"code": code}, {"_id": 0})
+                doc = await collection.find_one({"symbol": code}, {"_id": 0})
                 if doc:
-                    logger.debug(f"✅ 使用默认数据源（兼容模式）")
+                    logger.debug("✅ 使用默认数据源")
         
-        return doc
+        return self._normalize_doc(doc)
 
     async def _get_source_priority(self, market: str) -> List[str]:
         """
@@ -154,7 +177,8 @@ class UnifiedStockService:
         """
         collection_name = self.collection_map[market]["quotes"]
         collection = self.db[collection_name]
-        return await collection.find_one({"code": code}, {"_id": 0})
+        doc = await collection.find_one({"symbol": code}, {"_id": 0})
+        return self._normalize_doc(doc)
 
     async def search_stocks(
         self, 
@@ -179,9 +203,10 @@ class UnifiedStockService:
         # 支持代码和名称搜索
         filter_query = {
             "$or": [
-                {"code": {"$regex": query, "$options": "i"}},
+                {"symbol": {"$regex": query, "$options": "i"}},
                 {"name": {"$regex": query, "$options": "i"}},
-                {"name_en": {"$regex": query, "$options": "i"}}
+                {"name_en": {"$regex": query, "$options": "i"}},
+                {"full_symbol": {"$regex": query, "$options": "i"}},
             ]
         }
 
@@ -192,29 +217,32 @@ class UnifiedStockService:
         if not all_results:
             return []
         
-        # 按 code 分组，每个 code 只保留优先级最高的数据源
+        # 按 symbol 分组，每个 symbol 只保留优先级最高的数据源
         source_priority = await self._get_source_priority(market)
         unique_results = {}
         
         for doc in all_results:
-            code = doc.get("code")
-            source = doc.get("source")
+            symbol = doc.get("symbol")
+            source = doc.get("data_source")
             
-            if code not in unique_results:
-                unique_results[code] = doc
+            if not symbol:
+                continue
+
+            if symbol not in unique_results:
+                unique_results[symbol] = doc
             else:
                 # 比较优先级
-                current_source = unique_results[code].get("source")
+                current_source = unique_results[symbol].get("data_source")
                 try:
                     if source in source_priority and current_source in source_priority:
                         if source_priority.index(source) < source_priority.index(current_source):
-                            unique_results[code] = doc
+                            unique_results[symbol] = doc
                 except ValueError:
                     # 如果source不在优先级列表中，保持当前记录
                     pass
         
         # 返回前 limit 条
-        result_list = list(unique_results.values())[:limit]
+        result_list = [self._normalize_doc(doc) for doc in list(unique_results.values())[:limit]]
         logger.info(f"🔍 搜索 {market} 市场: '{query}' -> {len(result_list)} 条结果（已去重）")
         return result_list
 
@@ -242,7 +270,7 @@ class UnifiedStockService:
         collection_name = self.collection_map[market]["daily"]
         collection = self.db[collection_name]
         
-        query = {"code": code}
+        query = {"symbol": code}
         if start_date or end_date:
             query["trade_date"] = {}
             if start_date:
@@ -251,7 +279,8 @@ class UnifiedStockService:
                 query["trade_date"]["$lte"] = end_date
         
         cursor = collection.find(query, {"_id": 0}).sort("trade_date", -1).limit(limit)
-        return await cursor.to_list(length=limit)
+        docs = await cursor.to_list(length=limit)
+        return [self._normalize_doc(doc) for doc in docs]
 
     async def get_cn_quote_with_basic_info(self, code6: str) -> Optional[Dict]:
         """
@@ -265,7 +294,7 @@ class UnifiedStockService:
         """
         # 行情
         quotes_coll = self.db["market_quotes"]
-        q = await quotes_coll.find_one({"code": code6}, {"_id": 0})
+        q = await quotes_coll.find_one({"symbol": code6}, {"_id": 0})
 
         # 基础信息 - 按数据源优先级查询
         enabled_sources = await self._get_source_priority("CN")
@@ -275,11 +304,11 @@ class UnifiedStockService:
         b = None
         basic_info_coll = self.db["stock_basic_info"]
         for src in enabled_sources:
-            b = await basic_info_coll.find_one({"code": code6, "source": src}, {"_id": 0})
+            b = await basic_info_coll.find_one({"symbol": code6, "data_source": src}, {"_id": 0})
             if b:
                 break
         if not b:
-            b = await basic_info_coll.find_one({"code": code6}, {"_id": 0})
+            b = await basic_info_coll.find_one({"symbol": code6}, {"_id": 0})
 
         if not q and not b:
             return None
@@ -317,7 +346,7 @@ class UnifiedStockService:
             amplitude = None
 
         return {
-            "code": code6,
+            "symbol": code6,
             "name": (b or {}).get("name"),
             "market": (b or {}).get("market"),
             "price": close,
@@ -334,6 +363,7 @@ class UnifiedStockService:
             "amplitude_date": amplitude_date,
             "trade_date": (q or {}).get("trade_date"),
             "updated_at": (q or {}).get("updated_at"),
+            "data_source": (q or {}).get("data_source") or (b or {}).get("data_source"),
         }
 
     async def get_cn_fundamentals(
@@ -355,18 +385,18 @@ class UnifiedStockService:
 
         # 1. 获取基础信息
         if source:
-            b = await basic_info_coll.find_one({"code": code6, "source": source}, {"_id": 0})
+            b = await basic_info_coll.find_one({"symbol": code6, "data_source": source}, {"_id": 0})
             if not b:
                 return None
         else:
             source_priority = ["tushare", "multi_source", "akshare", "baostock"]
             b = None
             for src in source_priority:
-                b = await basic_info_coll.find_one({"code": code6, "source": src}, {"_id": 0})
+                b = await basic_info_coll.find_one({"symbol": code6, "data_source": src}, {"_id": 0})
                 if b:
                     break
             if not b:
-                b = await basic_info_coll.find_one({"code": code6}, {"_id": 0})
+                b = await basic_info_coll.find_one({"symbol": code6}, {"_id": 0})
             if not b:
                 return None
 
@@ -380,7 +410,7 @@ class UnifiedStockService:
             financial_coll = self.db["stock_financial_data"]
             for data_source in enabled_sources:
                 financial_data = await financial_coll.find_one(
-                    {"$or": [{"symbol": code6}, {"code": code6}], "data_source": data_source},
+                    {"symbol": code6, "data_source": data_source},
                     {"_id": 0},
                     sort=[("report_period", -1)],
                 )
@@ -407,7 +437,7 @@ class UnifiedStockService:
         total_mv = realtime_market_cap if realtime_market_cap else b.get("total_mv")
 
         data = {
-            "code": code6,
+            "symbol": code6,
             "name": b.get("name"),
             "industry": b.get("industry"),
             "market": b.get("market"),
@@ -429,6 +459,7 @@ class UnifiedStockService:
             "turnover_rate": b.get("turnover_rate"),
             "volume_ratio": b.get("volume_ratio"),
             "updated_at": b.get("updated_at"),
+            "data_source": b.get("data_source"),
         }
 
         # 5. 从财务数据中提取 ROE、负债率、PS
@@ -468,7 +499,8 @@ class UnifiedStockService:
             market_quotes 文档字典，或 None。
         """
         quotes_coll = self.db["market_quotes"]
-        return await quotes_coll.find_one({"code": code}, {"_id": 0})
+        doc = await quotes_coll.find_one({"symbol": code}, {"_id": 0})
+        return self._normalize_doc(doc)
 
     async def get_supported_markets(self) -> List[Dict]:
         """

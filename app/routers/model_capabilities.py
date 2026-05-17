@@ -16,7 +16,6 @@ from app.constants.model_capabilities import (
     get_role_badge,
     get_feature_badge
 )
-from app.core.unified_config import unified_config
 from app.core.response import ok, fail
 from app.services.config_service import config_service
 import logging
@@ -217,8 +216,8 @@ async def batch_init_capabilities(request: BatchInitRequest):
     为数据库中的模型配置自动填充能力参数。
     """
     try:
-        # 获取所有LLM配置
-        llm_configs = unified_config.get_llm_configs()
+        system_config = await config_service.get_system_config()
+        llm_configs = system_config.llm_configs if system_config else []
 
         updated_count = 0
         skipped_count = 0

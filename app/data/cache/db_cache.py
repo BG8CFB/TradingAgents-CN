@@ -8,6 +8,7 @@ import os
 import json
 import pickle
 import hashlib
+from urllib.parse import quote_plus
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from app.engine.config.runtime_settings import get_timezone_name
@@ -80,13 +81,13 @@ class DatabaseCacheManager:
 
         # 构建 MongoDB URL：有用户名密码时使用认证连接，否则无认证
         if mongodb_username and mongodb_password:
-            default_mongo_url = f"mongodb://{mongodb_username}:{mongodb_password}@localhost:{mongodb_port}"
+            default_mongo_url = f"mongodb://{quote_plus(mongodb_username)}:{quote_plus(mongodb_password)}@localhost:{mongodb_port}"
         else:
             default_mongo_url = f"mongodb://localhost:{mongodb_port}"
 
         # 构建 Redis URL：有密码时使用认证连接，否则无认证
         if redis_password:
-            default_redis_url = f"redis://:{redis_password}@localhost:{redis_port}"
+            default_redis_url = f"redis://:{quote_plus(redis_password)}@localhost:{redis_port}"
         else:
             default_redis_url = f"redis://localhost:{redis_port}"
 
@@ -605,23 +606,27 @@ class DatabaseCacheManager:
             logger.info(f"🔒 Redis连接池已关闭")
 
 
-# 全局数据库缓存实例
+# 全局数据库缓存实例（线程安全单例）
+import threading
+
+_db_cache_lock = threading.Lock()
 _db_cache_instance = None
 
 def get_db_cache() -> DatabaseCacheManager:
-    """获取全局数据库缓存实例"""
+    """获取全局数据库缓存实例（线程安全）"""
     global _db_cache_instance
-    if _db_cache_instance is None:
-        _db_cache_instance = DatabaseCacheManager()
-    return _db_cache_instance
+    if _db_cache_instance is not None:
+        return _db_cache_instance
+    with _db_cache_lock:
+        if _db_cache_instance is None:
+            _db_cache_instance = DatabaseCacheManager()
+        return _db_cache_instance
 
 
 # 模块级单例获取函数（别名，支持 kwargs 传参）
-_cache_manager_instance = None
-
 def get_db_cache_manager(**kwargs) -> DatabaseCacheManager:
-    """获取全局缓存管理器单例，支持自定义初始化参数"""
-    global _cache_manager_instance
-    if _cache_manager_instance is None:
-        _cache_manager_instance = DatabaseCacheManager(**kwargs)
-    return _cache_manager_instance
+    """获取全局缓存管理器单例（向后兼容，统一使用 get_db_cache）"""
+    if kwargs:
+        # 仅在传入自定义参数时创建新实例（非单例路径）
+        return DatabaseCacheManager(**kwargs)
+    return get_db_cache()

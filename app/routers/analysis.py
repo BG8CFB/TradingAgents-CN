@@ -12,7 +12,7 @@ import time
 import uuid
 import asyncio
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.services.queue_service import get_queue_service, QueueService
 from app.services.websocket_manager import get_websocket_manager
 from app.models.analysis import (
@@ -20,6 +20,7 @@ from app.models.analysis import (
     AnalysisTaskResponse, AnalysisBatchResponse, AnalysisHistoryQuery
 )
 from app.core.config import settings
+from app.core.response import safe_error_message
 from app.utils.runtime_paths import get_analysis_results_dir, resolve_path
 from app.utils.timezone import now_utc
 
@@ -49,9 +50,7 @@ async def submit_single_analysis(
 ):
     """提交单股分析任务 - 使用 BackgroundTasks 异步执行"""
     try:
-        logger.info(f"🎯 收到单股分析请求")
-        logger.info(f"👤 用户信息: {user}")
-        logger.info(f"📊 请求数据: {request}")
+        logger.info(f"🎯 收到单股分析请求, 用户: {user.get('username', 'unknown')}")
 
         # 延迟导入，避免循环引用
         from app.services.analysis_service import get_analysis_service
@@ -101,7 +100,7 @@ async def submit_single_analysis(
         }
     except Exception as e:
         logger.error(f"❌ 提交单股分析任务失败: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_error_message(e, "提交分析任务失败"))
 
 
 @router.get("/tasks/{task_id}/status", response_model=Dict[str, Any])
@@ -137,7 +136,7 @@ async def get_task_status_new(
         raise
     except Exception as e:
         logger.error(f"❌ 获取任务状态失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务状态失败"))
 
 @router.get("/tasks/{task_id}/result", response_model=Dict[str, Any])
 async def get_task_result(
@@ -523,11 +522,11 @@ async def get_task_result(
         raise
     except Exception as e:
         logger.error(f"❌ [RESULT] 获取任务结果失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取分析结果时发生内部错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取分析结果时发生内部错误"))
 
 @router.get("/tasks/all", response_model=Dict[str, Any])
 async def list_all_tasks(
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
     status: Optional[str] = Query(None, description="任务状态过滤"),
     limit: int = Query(20, ge=1, le=100, description="返回数量限制"),
     offset: int = Query(0, ge=0, description="偏移量")
@@ -556,7 +555,7 @@ async def list_all_tasks(
 
     except Exception as e:
         logger.error(f"❌ 获取任务列表失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务列表失败"))
 
 @router.get("/tasks", response_model=Dict[str, Any])
 async def list_user_tasks(
@@ -590,7 +589,7 @@ async def list_user_tasks(
 
     except Exception as e:
         logger.error(f"❌ 获取任务列表失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务列表失败"))
 
 @router.post("/batch", response_model=Dict[str, Any])
 async def submit_batch_analysis(
@@ -702,7 +701,7 @@ async def submit_batch_analysis(
         }
     except Exception as e:
         logger.error(f"❌ [批量分析] 提交失败: {e}", exc_info=True)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_error_message(e, "批量分析提交失败"))
 
 @router.get("/batches/{batch_id}")
 async def get_batch(batch_id: str, user: dict = Depends(get_current_user), svc: QueueService = Depends(get_queue_service)):
@@ -764,7 +763,7 @@ async def cancel_task(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_error_message(e, "取消任务失败"))
 
 @router.get("/user/queue-status")
 async def get_user_queue_status(
@@ -779,7 +778,7 @@ async def get_user_queue_status(
             "data": status
         }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_error_message(e, "获取队列状态失败"))
 
 @router.get("/user/history")
 async def get_user_analysis_history(
@@ -817,7 +816,7 @@ async def get_user_analysis_history(
         }
     except Exception as e:
         logger.error(f"❌ 获取用户分析历史失败: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_error_message(e, "获取分析历史失败"))
 
 # WebSocket 端点
 @router.websocket("/ws/task/{task_id}")
@@ -924,7 +923,7 @@ async def get_zombie_tasks(
         }
     except Exception as e:
         logger.error(f"❌ 获取僵尸任务失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取僵尸任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取僵尸任务失败"))
 
 
 @router.post("/admin/cleanup-zombie-tasks")
@@ -952,7 +951,7 @@ async def cleanup_zombie_tasks(
         }
     except Exception as e:
         logger.error(f"❌ 清理僵尸任务失败: {e}")
-        raise HTTPException(status_code=500, detail=f"清理僵尸任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "清理僵尸任务失败"))
 
 
 @router.post("/tasks/{task_id}/mark-failed")
@@ -968,14 +967,11 @@ async def mark_task_as_failed(
     try:
         # 验证任务所有权：先查 Redis，未找到则回退 MongoDB
         task = await svc.get_task(task_id)
+        from app.services.analysis_service import get_analysis_service
+        analysis_svc = get_analysis_service()
         if not task or task.get("user") != user["id"]:
-            from app.services.analysis_service import get_analysis_service
-            analysis_svc = get_analysis_service()
             if not await analysis_svc.validate_task_ownership(task_id, user["id"]):
                 raise HTTPException(status_code=404, detail="任务不存在")
-        else:
-            from app.services.analysis_service import get_analysis_service
-            analysis_svc = get_analysis_service()
 
         modified = await analysis_svc.mark_task_failed(task_id, error_message="用户手动标记为失败")
 
@@ -995,7 +991,7 @@ async def mark_task_as_failed(
         raise
     except Exception as e:
         logger.error(f"❌ 标记任务失败: {e}")
-        raise HTTPException(status_code=500, detail=f"标记任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "标记任务失败"))
 
 
 @router.delete("/tasks/{task_id}")
@@ -1026,7 +1022,7 @@ async def delete_task(
         raise
     except Exception as e:
         logger.error(f"❌ 删除任务失败: {e}")
-        raise HTTPException(status_code=500, detail=f"删除任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "删除任务失败"))
 
 
 # ==================== 补充端点（前端需要但原缺失） ====================
@@ -1056,7 +1052,7 @@ async def get_analysis_stats(
         }
     except Exception as e:
         logger.error(f"❌ 获取分析统计失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取分析统计失败"))
 
 
 @router.get("/stock-info", response_model=Dict[str, Any])
@@ -1079,7 +1075,7 @@ async def get_stock_info(
         raise
     except Exception as e:
         logger.error(f"❌ 获取股票信息失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取股票信息失败"))
 
 
 @router.get("/search", response_model=Dict[str, Any])
@@ -1099,7 +1095,7 @@ async def search_stocks(
         return {"success": True, "data": results, "message": f"搜索完成，共 {len(results)} 条"}
     except Exception as e:
         logger.error(f"❌ 搜索股票失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "搜索股票失败"))
 
 
 @router.get("/popular", response_model=Dict[str, Any])
@@ -1118,4 +1114,4 @@ async def get_popular_stocks(
         return {"success": True, "data": results, "message": f"热门股票获取成功，共 {len(results)} 只"}
     except Exception as e:
         logger.error(f"❌ 获取热门股票失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取热门股票失败"))

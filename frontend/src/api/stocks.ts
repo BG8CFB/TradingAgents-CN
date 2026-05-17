@@ -81,11 +81,13 @@ export interface NewsResponse {
 }
 
 export interface StockInfo {
-  code: string
+  symbol: string
+  code?: string  // 兼容字段
   name: string
   name_en?: string
   market: string
-  source: string
+  source?: string
+  data_source?: string
   total_mv?: number
   pe?: number
   pb?: number

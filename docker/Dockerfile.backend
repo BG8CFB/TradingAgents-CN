@@ -61,7 +61,10 @@ RUN mkdir -p /app/runtime /app/config && \
 COPY pyproject.toml README.md ./
 
 # 安装 Node.js（用于基于 Node 的 MCP 服务器）
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+# 使用 NodeSource GPG key 安全安装方式
+RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    (apt-get update || apt-get update) && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
@@ -97,6 +100,10 @@ EXPOSE 8000
 
 # Docker环境标识
 ENV DOCKER_CONTAINER=true
+
+# 创建非 root 用户并以该用户运行
+RUN useradd -r -s /bin/false appuser
+USER appuser
 
 # 启动FastAPI服务
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

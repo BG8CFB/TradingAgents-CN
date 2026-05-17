@@ -24,10 +24,10 @@ class ConditionalLogic:
 
     def should_continue_debate(self, state: AgentState) -> str:
         """Determine if debate should continue."""
-        current_count = state["investment_debate_state"]["count"]
+        debate_state = state.get("investment_debate_state") or {}
+        current_count = debate_state.get("count", 0)
         max_count = 2 * (self.max_debate_rounds + 1)
-        # 优先使用 latest_speaker 结构化字段，回退到 current_response 内容匹配
-        latest_speaker = state["investment_debate_state"].get("latest_speaker", "")
+        latest_speaker = debate_state.get("latest_speaker", "")
 
         # 🔍 详细日志
         logger.info(f"🔍 [投资辩论控制] 当前发言次数: {current_count}, 最大次数: {max_count} (配置轮次: {self.max_debate_rounds})")
@@ -54,9 +54,16 @@ class ConditionalLogic:
 
     def should_continue_risk_analysis(self, state: AgentState) -> str:
         """Determine if risk analysis should continue."""
-        current_count = state["risk_debate_state"]["count"]
-        max_count = 3 * self.max_risk_discuss_rounds
-        latest_speaker = state["risk_debate_state"]["latest_speaker"]
+        risk_state = state.get("risk_debate_state") or {}
+        current_count = risk_state.get("count", 0)
+        max_count = 3 * (self.max_risk_discuss_rounds + 1)
+        latest_speaker = risk_state.get("latest_speaker", "")
+        if not latest_speaker:
+            if current_count >= max_count:
+                logger.info("✅ [风险讨论控制] latest_speaker 为空但已达上限 -> Risk Judge")
+                return "Risk Judge"
+            logger.warning("⚠️ [风险讨论控制] latest_speaker 为空，默认继续 -> Risky Analyst")
+            return "Risky Analyst"
 
         # 🔍 详细日志
         logger.info(f"🔍 [风险讨论控制] 当前发言次数: {current_count}, 最大次数: {max_count} (配置轮次: {self.max_risk_discuss_rounds})")

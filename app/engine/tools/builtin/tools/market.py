@@ -61,13 +61,13 @@ def get_stock_data(
         market_name = ""
 
         if is_china:
-            from app.data.interface import get_china_stock_data_unified
-            data = get_china_stock_data_unified(stock_code, start_date, end_date)
+            from app.data.reader import get_stock_data as _get_stock_data_cn
+            data = _get_stock_data_cn("CN", stock_code, start_date, end_date)
             market_name = "A股"
 
         elif is_hk:
-            from app.data.interface import get_hk_stock_data_unified
-            data = get_hk_stock_data_unified(stock_code, start_date, end_date)
+            from app.data.reader import get_stock_data as _get_stock_data_hk
+            data = _get_stock_data_hk("HK", stock_code, start_date, end_date)
             market_name = "港股"
 
         elif is_us:

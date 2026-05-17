@@ -7,7 +7,6 @@ Phase 4G：将 main.py 中约 300 行 cron 配置代码提取到此处。
 
 import asyncio
 import logging
-from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -35,7 +34,7 @@ def add_resilient_job(sched: AsyncIOScheduler, func, trigger, **kwargs):
     """
     defaults = {
         "max_instances": 1,
-        "misfire_grace_time": 300,
+        "misfire_grace_time": 600,
         "coalesce": True,
         "replace_existing": True,
     }
@@ -47,7 +46,7 @@ def add_resilient_job(sched: AsyncIOScheduler, func, trigger, **kwargs):
 
 def _register_tushare_jobs(sched: AsyncIOScheduler):
     """注册 Tushare 数据同步任务（5 个 job）"""
-    from app.worker.tushare_sync_service import (
+    from app.worker.cn import (
         run_tushare_basic_info_sync,
         run_tushare_quotes_sync,
         run_tushare_historical_sync,
@@ -127,7 +126,7 @@ def _register_tushare_jobs(sched: AsyncIOScheduler):
 
 def _register_akshare_jobs(sched: AsyncIOScheduler):
     """注册 AKShare 数据同步任务（5 个 job）"""
-    from app.worker.akshare_sync_service import (
+    from app.worker.cn import (
         run_akshare_basic_info_sync,
         run_akshare_quotes_sync,
         run_akshare_historical_sync,
@@ -207,7 +206,7 @@ def _register_akshare_jobs(sched: AsyncIOScheduler):
 
 def _register_baostock_jobs(sched: AsyncIOScheduler):
     """注册 BaoStock 数据同步任务（4 个 job，BaoStock 不支持实时行情）"""
-    from app.worker.baostock_sync_service import (
+    from app.worker.cn import (
         run_baostock_basic_info_sync,
         run_baostock_daily_quotes_sync,
         run_baostock_historical_sync,
@@ -273,7 +272,7 @@ def _register_baostock_jobs(sched: AsyncIOScheduler):
 
 async def _make_news_sync_func():
     """创建新闻同步闭包（延迟绑定 AKShare sync service）"""
-    from app.worker.akshare_sync_service import get_akshare_sync_service
+    from app.worker.cn import get_akshare_sync_service
 
     async def run_news_sync():
         """运行新闻同步任务 - 使用AKShare同步自选股新闻"""
@@ -342,10 +341,18 @@ async def register_jobs(
         preferred_sources = ["akshare", "baostock"]
         logger.info("股票基础信息同步优先数据源: AKShare > BaoStock (Tushare已禁用)")
 
-    # 启动后立即执行一次（不阻塞）
-    _sync_task = asyncio.create_task(
-        run_basics_sync_func(force=False, preferred_sources=preferred_sources)
-    )
+    # 启动后立即执行一次（带并发锁保护，防止与定时任务重叠）
+    _startup_sync_lock = asyncio.Lock()
+
+    async def _run_startup_sync():
+        """启动期同步：通过锁保护，避免与定时任务并发执行"""
+        if _startup_sync_lock.locked():
+            logger.info("启动期同步已被锁定（可能正在执行），跳过")
+            return
+        async with _startup_sync_lock:
+            await run_basics_sync_func(force=False, preferred_sources=preferred_sources)
+
+    _sync_task = asyncio.create_task(_run_startup_sync())
     _sync_task.add_done_callback(_handle_basics_sync_task_result)
 
     # 定时 basics sync

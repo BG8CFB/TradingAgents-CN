@@ -11,6 +11,7 @@ Phase 4D 简化说明：
 
 import json
 import os
+import tempfile
 import logging
 from pathlib import Path
 from typing import Optional
@@ -44,7 +45,7 @@ async def bridge_config_to_env() -> bool:
         mongodb_conn_str = os.getenv("MONGODB_CONNECTION_STRING")
         if mongodb_conn_str:
             os.environ["MONGODB_CONNECTION_STRING"] = mongodb_conn_str
-            logger.info(f"  MONGODB_CONNECTION_STRING (length={len(mongodb_conn_str)})")
+            logger.info("  MONGODB_CONNECTION_STRING: 已配置")
             bridged_count += 1
 
         mongodb_db_name = os.getenv("MONGODB_DATABASE_NAME", "tradingagents")
@@ -57,7 +58,7 @@ async def bridge_config_to_env() -> bool:
             from app.models.config import LLMProvider
 
             db = get_mongo_db()
-            providers_data = await db.llm_providers.find().to_list(None)
+            providers_data = await db.llm_providers.find({"is_active": True}).to_list(100)
             providers = [LLMProvider(**d) for d in providers_data]
             logger.info(f"  从数据库读取到 {len(providers)} 个厂家配置")
 
@@ -72,7 +73,7 @@ async def bridge_config_to_env() -> bool:
                     bridged_count += 1
                 elif provider.api_key and is_valid_api_key(provider.api_key):
                     os.environ[env_key] = provider.api_key
-                    logger.debug(f"  {env_key}: 使用数据库值 (length={len(provider.api_key)})")
+                    logger.debug(f"  {env_key}: 使用数据库值")
                     bridged_count += 1
         except Exception as e:
             logger.error(f"从数据库读取厂家配置失败: {e}", exc_info=True)
@@ -190,8 +191,22 @@ async def sync_pricing_config_now() -> bool:
         config_dir = Path(__file__).parent.parent.parent / "config"
         config_dir.mkdir(exist_ok=True)
         pricing_file = config_dir / "pricing.json"
-        with open(pricing_file, "w", encoding="utf-8") as f:
-            json.dump(pricing_configs, f, ensure_ascii=False, indent=2)
+
+        # 原子写入：先写临时文件再重命名，避免中途崩溃导致文件损坏
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(config_dir), prefix=".pricing_", suffix=".json.tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(pricing_configs, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, str(pricing_file))
+        except BaseException:
+            # 清理临时文件
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
         logger.info(f"定价配置已写入 {pricing_file}: {len(pricing_configs)} 个模型")
         return True

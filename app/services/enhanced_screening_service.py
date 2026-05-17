@@ -3,12 +3,12 @@
 结合数据库优化和传统筛选方式，提供高效的股票筛选功能
 """
 
+import asyncio
 import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from datetime import datetime
 
-from app.models.screening import ScreeningCondition, FieldType, BASIC_FIELDS_INFO
+from app.models.screening import ScreeningCondition, BASIC_FIELDS_INFO
 from app.services.database_screening_service import get_database_screening_service
 from app.services.screening_service import ScreeningService, ScreeningParams
 
@@ -93,16 +93,19 @@ class EnhancedScreeningService:
                 try:
                     db = get_mongo_db()
                     coll = db["market_quotes"]
-                    codes = [str(it.get("code")).zfill(6) for it in items if it.get("code")]
+                    codes = [str(it.get("symbol")).zfill(6) for it in items if it.get("symbol")]
                     if codes:
                         cursor = coll.find(
-                            {"code": {"$in": codes}},
-                            projection={"_id": 0, "code": 1, "close": 1, "pct_chg": 1, "amount": 1},
+                            {"symbol": {"$in": codes}},
+                            projection={"_id": 0, "symbol": 1, "close": 1, "pct_chg": 1, "amount": 1},
                         )
                         quotes_list = await cursor.to_list(length=len(codes))
-                        quotes_map = {str(d.get("code")).zfill(6): d for d in quotes_list}
+                        quotes_map = {}
+                        for d in quotes_list:
+                            k = str(d.get("symbol")).zfill(6)
+                            quotes_map[k] = d
                         for it in items:
-                            key = str(it.get("code")).zfill(6)
+                            key = str(it.get("symbol")).zfill(6)
                             q = quotes_map.get(key)
                             if not q:
                                 continue
@@ -114,13 +117,6 @@ class EnhancedScreeningService:
                                 it["amount"] = q.get("amount")
                 except Exception as enrich_err:
                     logger.warning(f"实时行情富集失败（已忽略）: {enrich_err}")
-
-            # 为筛选结果添加实时PE/PB
-            if items:
-                try:
-                    items = await self._enrich_results_with_realtime_metrics(items)
-                except Exception as enrich_err:
-                    logger.warning(f"实时PE/PB富集失败（已忽略）: {enrich_err}")
 
             # 计算耗时
             took_ms = int((time.time() - start_time) * 1000)
@@ -197,8 +193,8 @@ class EnhancedScreeningService:
             order_by=order_by
         )
 
-        # 执行传统筛选
-        result = self.traditional_service.run(traditional_conditions, params)
+        # 执行传统筛选（在线程池中运行，避免同步 I/O 阻塞事件循环）
+        result = await asyncio.to_thread(self.traditional_service.run, traditional_conditions, params)
 
         return result
 
@@ -208,27 +204,6 @@ class EnhancedScreeningService:
     ) -> Dict[str, Any]:
         """Delegate condition conversion to utils."""
         return _convert_to_traditional_util(conditions)
-
-    async def _enrich_results_with_realtime_metrics(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        为筛选结果添加PE/PB（使用静态数据，避免性能问题）
-
-        Args:
-            items: 筛选结果列表
-
-        Returns:
-            List[Dict]: 富集后的结果列表
-        """
-        # 🔥 股票筛选场景：直接使用 stock_basic_info 中的静态 PE/PB
-        # 原因：批量计算动态 PE 会导致严重的性能问题（每个股票都要查询多个集合）
-        # 静态 PE 基于最近一个交易日的收盘价，对于筛选场景已经足够准确
-
-        logger.info(f"📊 [筛选结果富集] 使用静态PE/PB（避免性能问题），共 {len(items)} 只股票")
-
-        # 注意：items 中的 PE/PB 已经来自 stock_basic_info，这里不需要额外处理
-        # 如果未来需要实时 PE，可以在单个股票详情页面单独计算
-
-        return items
 
     async def get_field_info(self, field: str) -> Optional[Dict[str, Any]]:
         """
@@ -339,104 +314,75 @@ class EnhancedScreeningService:
         """
         获取数据库中所有可用的行业列表
 
-        根据系统配置的数据源优先级，从优先级最高的数据源获取行业分类数据。
-        返回按股票数量排序的行业列表。
-
-        Returns:
-            Dict: {"industries": [...], "total": int, "source": str}
+        按数据源优先级逐一尝试：从优先级最高的源聚合行业数据，
+        若该源无有效行业（全空或结果为空），自动回退到下一个源。
+        过滤掉 None / 空字符串 / NaN 等无效行业值。
         """
         try:
-            from app.core.unified_config import UnifiedConfigManager
+            from app.services.data_sources.base import get_enabled_cn_sources_async
 
             db = get_mongo_db()
             collection = db["stock_basic_info"]
 
-            # 获取数据源优先级配置
-            config = UnifiedConfigManager()
-            data_source_configs = await config.get_data_source_configs_async()
-
-            # 提取启用的数据源，按优先级排序
-            enabled_sources = [
-                ds.type.lower() for ds in data_source_configs
-                if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-            ]
-
-            if not enabled_sources:
-                enabled_sources = ['tushare', 'akshare', 'baostock']
-
+            enabled_sources = await get_enabled_cn_sources_async()
             logger.info(f"[get_industries] 数据源优先级: {enabled_sources}")
 
-            # 按优先级查询：优先使用优先级最高的数据源
-            preferred_source = enabled_sources[0] if enabled_sources else 'tushare'
+            # 通用聚合管道：按源查询，过滤无效行业值
+            def _build_pipeline(source: str) -> list:
+                return [
+                    {"$match": {
+                        "source": source,
+                        "industry": {"$nin": [None, "", float("nan")]},
+                    }},
+                    {"$group": {"_id": "$industry", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1}},
+                    {"$project": {"industry": "$_id", "count": 1, "_id": 0}},
+                ]
 
-            # 聚合查询：按行业分组并统计股票数量（只查询指定数据源）
-            pipeline = [
-                {
-                    "$match": {
-                        "source": preferred_source,
-                        "industry": {"$ne": None}
-                    }
-                },
-                {
-                    "$group": {
-                        "_id": "$industry",
-                        "count": {"$sum": 1}
-                    }
-                },
-                {"$sort": {"count": -1}},
-                {
-                    "$project": {
-                        "industry": "$_id",
-                        "count": 1,
-                        "_id": 0
-                    }
-                }
-            ]
+            def _safe_str(raw) -> str:
+                if raw is None:
+                    return ""
+                if isinstance(raw, float):
+                    if raw != raw or raw in (float("inf"), float("-inf")):
+                        return ""
+                return str(raw).strip()
 
-            industries = []
-            async for doc in collection.aggregate(pipeline):
-                # 清洗字段，避免 NaN/Inf 导致 JSON 序列化失败
-                raw_industry = doc.get("industry")
-                safe_industry = ""
+            def _safe_int(raw) -> int:
                 try:
-                    if raw_industry is None:
-                        safe_industry = ""
-                    elif isinstance(raw_industry, float):
-                        if raw_industry != raw_industry or raw_industry in (float("inf"), float("-inf")):
-                            safe_industry = ""
-                        else:
-                            safe_industry = str(raw_industry)
-                    else:
-                        safe_industry = str(raw_industry)
+                    if isinstance(raw, float):
+                        if raw != raw or raw in (float("inf"), float("-inf")):
+                            return 0
+                    return int(raw)
                 except Exception:
-                    safe_industry = ""
+                    return 0
 
-                raw_count = doc.get("count", 0)
-                safe_count = 0
-                try:
-                    if isinstance(raw_count, float):
-                        if raw_count != raw_count or raw_count in (float("inf"), float("-inf")):
-                            safe_count = 0
-                        else:
-                            safe_count = int(raw_count)
-                    else:
-                        safe_count = int(raw_count)
-                except Exception:
-                    safe_count = 0
+            # 按优先级逐一尝试各数据源
+            used_source = None
+            for src in enabled_sources:
+                pipeline = _build_pipeline(src)
+                industries = []
+                async for doc in collection.aggregate(pipeline):
+                    name = _safe_str(doc.get("industry"))
+                    if not name:
+                        continue
+                    industries.append({
+                        "value": name,
+                        "label": name,
+                        "count": _safe_int(doc.get("count", 0)),
+                    })
+                if industries:
+                    used_source = src
+                    logger.info(f"[get_industries] 从数据源 {src} 返回 {len(industries)} 个行业")
+                    return {
+                        "industries": industries,
+                        "total": len(industries),
+                        "source": used_source,
+                    }
+                logger.info(f"[get_industries] 数据源 {src} 无有效行业数据，尝试下一个")
 
-                industries.append({
-                    "value": safe_industry,
-                    "label": safe_industry,
-                    "count": safe_count,
-                })
-
-            logger.info(f"[get_industries] 从数据源 {preferred_source} 返回 {len(industries)} 个行业")
-
-            return {
-                "industries": industries,
-                "total": len(industries),
-                "source": preferred_source
-            }
+            # 所有数据源均无行业数据
+            logger.warning("[get_industries] 所有数据源均无有效行业数据")
+            return {"industries": [], "total": 0, "source": "none"}
 
         except Exception as e:
             logger.error(f"[get_industries] 获取行业列表失败: {e}", exc_info=True)

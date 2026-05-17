@@ -5,7 +5,6 @@
 
 import logging
 from typing import Any, Dict, List, Optional, Tuple
-from datetime import datetime
 
 from app.core.database import get_mongo_db
 # from app.models.screening import ScreeningCondition  # 避免循环导入
@@ -22,8 +21,9 @@ class DatabaseScreeningService:
         # 支持的基础信息字段映射
         self.basic_fields = {
             # 基本信息
-            "code": "code",
-            "name": "name", 
+            "symbol": "symbol",
+            "code": "symbol",
+            "name": "name",
             "industry": "industry",
             "area": "area",
             "market": "market",
@@ -60,12 +60,17 @@ class DatabaseScreeningService:
             "<=": "$lte",
             "==": "$eq",
             "!=": "$ne",
-            "between": "$between",  # 自定义处理
             "in": "$in",
             "not_in": "$nin",
             "contains": "$regex",   # 字符串包含
         }
-    
+
+    async def _resolve_preferred_source(self) -> str:
+        """从配置中解析优先级最高的数据源（统一入口，避免重复查询）"""
+        from app.services.data_sources.base import get_enabled_cn_sources_async
+        enabled_sources = await get_enabled_cn_sources_async()
+        return enabled_sources[0] if enabled_sources else 'tushare'
+
     async def can_handle_conditions(self, conditions: List[Dict[str, Any]]) -> bool:
         """
         检查是否可以完全通过数据库筛选处理这些条件
@@ -117,30 +122,11 @@ class DatabaseScreeningService:
             db = get_mongo_db()
             collection = db[self.collection_name]
 
-            # 🔥 获取数据源优先级配置
+            # 获取数据源优先级配置（统一解析，避免重复查询）
             if not source:
-                from app.core.unified_config import UnifiedConfigManager
-                config = UnifiedConfigManager()
-                data_source_configs = await config.get_data_source_configs_async()
+                source = await self._resolve_preferred_source()
 
-                logger.info(f"🔍 [database_screening] 获取到 {len(data_source_configs)} 个数据源配置")
-                for ds in data_source_configs:
-                    logger.info(f"   - {ds.name}: type={ds.type}, priority={ds.priority}, enabled={ds.enabled}")
-
-                # 提取启用的数据源，按优先级排序
-                enabled_sources = [
-                    ds.type.lower() for ds in data_source_configs
-                    if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-                ]
-
-                logger.info(f"🔍 [database_screening] 启用的数据源（按优先级）: {enabled_sources}")
-
-                if not enabled_sources:
-                    enabled_sources = ['tushare', 'akshare', 'baostock']
-                    logger.warning(f"⚠️ [database_screening] 没有启用的数据源，使用默认: {enabled_sources}")
-
-                source = enabled_sources[0] if enabled_sources else 'tushare'
-                logger.info(f"✅ [database_screening] 最终使用的数据源: {source}")
+            logger.info(f"✅ [database_screening] 使用的数据源: {source}")
 
             # 分离基础信息条件和实时行情条件
             basic_conditions, quote_conditions = self._separate_conditions(conditions)
@@ -177,11 +163,11 @@ class DatabaseScreeningService:
             async for doc in cursor:
                 result = self._format_result(doc)
                 results.append(result)
-                codes.append(doc.get("code"))
+                codes.append(doc.get("symbol") or doc.get("code"))
 
             # 批量查询财务数据（ROE等）
             if codes:
-                await self._enrich_with_financial_data(results, codes)
+                await self._enrich_with_financial_data(results, codes, source=source)
 
             # 如果有实时行情条件，进行二次筛选
             if quote_conditions and results:
@@ -259,42 +245,31 @@ class DatabaseScreeningService:
         
         return sort_conditions
     
-    async def _enrich_with_financial_data(self, results: List[Dict[str, Any]], codes: List[str]) -> None:
+    async def _enrich_with_financial_data(
+        self, results: List[Dict[str, Any]], codes: List[str], source: Optional[str] = None
+    ) -> None:
         """
         批量查询财务数据并填充到结果中
 
         Args:
             results: 筛选结果列表
             codes: 股票代码列表
+            source: 数据源（复用上层已解析的结果，避免重复查询配置）
         """
         try:
             db = get_mongo_db()
             financial_collection = db['stock_financial_data']
 
-            # 🔥 获取数据源优先级配置
-            from app.core.unified_config import UnifiedConfigManager
-            config = UnifiedConfigManager()
-            data_source_configs = await config.get_data_source_configs_async()
-
-            # 提取启用的数据源，按优先级排序
-            enabled_sources = [
-                ds.type.lower() for ds in data_source_configs
-                if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-            ]
-
-            if not enabled_sources:
-                enabled_sources = ['tushare', 'akshare', 'baostock']
-
-            # 优先使用优先级最高的数据源
-            preferred_source = enabled_sources[0] if enabled_sources else 'tushare'
+            if not source:
+                source = await self._resolve_preferred_source()
 
             # 批量查询最新的财务数据
-            # 按 code 分组，取每个 code 的最新一期数据（只查询优先级最高的数据源）
+            # 按 symbol 分组，取每个 symbol 的最新一期数据（只查询指定数据源）
             pipeline = [
-                {"$match": {"code": {"$in": codes}, "data_source": preferred_source}},
-                {"$sort": {"code": 1, "report_period": -1}},
+                {"$match": {"symbol": {"$in": codes}, "data_source": source}},
+                {"$sort": {"symbol": 1, "report_period": -1}},
                 {"$group": {
-                    "_id": "$code",
+                    "_id": "$symbol",
                     "roe": {"$first": "$roe"},
                     "roa": {"$first": "$roa"},
                     "netprofit_margin": {"$first": "$netprofit_margin"},
@@ -314,7 +289,7 @@ class DatabaseScreeningService:
 
             # 填充财务数据到结果中
             for result in results:
-                code = result.get("code")
+                code = result.get("symbol")
                 if code in financial_data_map:
                     financial_data = financial_data_map[code]
                     # 只更新 ROE（如果 stock_basic_info 中没有的话）
@@ -333,7 +308,7 @@ class DatabaseScreeningService:
     def _format_result(self, doc: Dict[str, Any]) -> Dict[str, Any]:
         """格式化查询结果，统一使用后端字段名"""
         # 根据股票代码推断市场类型
-        code = doc.get("code", "")
+        code = doc.get("symbol") or doc.get("code", "")
         market_type = "A股"  # 默认A股
         if code:
             if code.startswith("6"):
@@ -345,7 +320,7 @@ class DatabaseScreeningService:
 
         result = {
             # 基础信息
-            "code": doc.get("code"),
+            "symbol": doc.get("symbol") or doc.get("code"),
             "name": doc.get("name"),
             "industry": doc.get("industry"),
             "area": doc.get("area"),
@@ -389,13 +364,12 @@ class DatabaseScreeningService:
             "macd_hist": None,
 
             # 元数据
-            "source": doc.get("source", "database"),
+            "data_source": doc.get("data_source") or doc.get("source", "database"),
             "updated_at": doc.get("updated_at"),
         }
-        
-        # 移除None值
-        return {k: v for k, v in result.items() if v is not None}
-    
+
+        return result
+
     async def get_field_statistics(self, field: str) -> Dict[str, Any]:
         """
         获取字段的统计信息
@@ -492,10 +466,10 @@ class DatabaseScreeningService:
             quotes_collection = db['market_quotes']
 
             # 批量查询实时行情数据
-            quotes_cursor = quotes_collection.find({"code": {"$in": codes}})
+            quotes_cursor = quotes_collection.find({"symbol": {"$in": codes}})
             quotes_map = {}
             async for quote in quotes_cursor:
-                code = quote.get("code")
+                code = quote.get("symbol")
                 quotes_map[code] = {
                     "close": quote.get("close"),
                     "pct_chg": quote.get("pct_chg"),
@@ -508,7 +482,7 @@ class DatabaseScreeningService:
             # 过滤结果
             filtered_results = []
             for result in results:
-                code = result.get("code")
+                code = result.get("symbol")
                 quote_data = quotes_map.get(code)
 
                 if not quote_data:
@@ -546,6 +520,22 @@ class DatabaseScreeningService:
                             break
                     elif operator == "<=":
                         if not (field_value <= value):
+                            match = False
+                            break
+                    elif operator == "==":
+                        if field_value != value:
+                            match = False
+                            break
+                    elif operator == "!=":
+                        if field_value == value:
+                            match = False
+                            break
+                    elif operator == "in":
+                        if isinstance(value, list) and field_value not in value:
+                            match = False
+                            break
+                    elif operator == "not_in":
+                        if isinstance(value, list) and field_value in value:
                             match = False
                             break
 

@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import json
 import logging
 import re
 from collections import OrderedDict
@@ -15,7 +14,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.database import get_mongo_db, get_mongo_db_sync
-from app.utils.timezone import now_utc, now_config_tz, to_config_tz, format_date_short
+from app.utils.timezone import now_utc, to_config_tz
 
 logger = logging.getLogger("webapi")
 
@@ -59,7 +58,7 @@ def _get_stock_name_sync(stock_code: str) -> str:
         return cached_name
 
     try:
-        from app.core.unified_config import UnifiedConfigManager
+        from app.services.data_sources.base import get_enabled_cn_sources
 
         db = get_mongo_db_sync()
         # 确认返回的是同步 PyMongo 数据库
@@ -68,21 +67,12 @@ def _get_stock_name_sync(stock_code: str) -> str:
 
         code6 = str(stock_code).zfill(6)
 
-        config = UnifiedConfigManager()
-        data_source_configs = config.get_data_source_configs()
-
-        enabled_sources = [
-            ds.type.lower() for ds in data_source_configs
-            if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-        ]
-
-        if not enabled_sources:
-            enabled_sources = ['tushare', 'akshare', 'baostock']
+        enabled_sources = get_enabled_cn_sources()
 
         stock_info = None
         for data_source in enabled_sources:
             result = db.stock_basic_info.find_one(
-                {"$or": [{"symbol": code6}, {"code": code6}], "source": data_source}
+                {"symbol": code6, "data_source": data_source}
             )
             # 检查 result 不是 Motor coroutine
             if result is not None and not hasattr(result, '__await__'):
@@ -92,11 +82,10 @@ def _get_stock_name_sync(stock_code: str) -> str:
 
         if not stock_info:
             result = db.stock_basic_info.find_one(
-                {"$or": [{"symbol": code6}, {"code": code6}]}
+                {"symbol": code6}
             )
             if result is not None and not hasattr(result, '__await__'):
                 stock_info = result
-                logger.warning(f"使用旧数据（无 source 字段）获取股票名称 {code6}")
 
         if stock_info and stock_info.get("name"):
             return _cache_stock_name(stock_code, stock_info["name"])

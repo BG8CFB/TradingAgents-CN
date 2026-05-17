@@ -5,7 +5,7 @@
 工具可用 ⟺ 其 DATA_SOURCE_MAP 中至少一个数据源可用。
 """
 import logging
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +18,9 @@ def get_available_data_sources() -> Set[str]:
         可用数据源名称的集合，如 {"tushare", "akshare"}
     """
     try:
-        from app.data.manager import DataSourceManager
+        from app.data import reader as _data_reader
 
-        manager = DataSourceManager()
-        available_adapters = manager.get_available_adapters()
+        available_adapters = _data_reader.get_available_adapters()
 
         sources = set()
         for adapter in available_adapters:

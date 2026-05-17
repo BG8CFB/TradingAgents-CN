@@ -1,3 +1,6 @@
+import copy
+import re
+
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 import time
 import json
@@ -6,6 +9,9 @@ import os
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
 logger = get_logger("default")
+
+# Stage 2 内部报告 key — 必须在辩手之间和裁决者中互相屏蔽，防止重复注入和同轮泄漏
+_STAGE2_REPORT_KEYS = frozenset({"bull_researcher", "bear_researcher"})
 
 
 def create_bull_researcher(llm, memory):
@@ -57,8 +63,8 @@ def create_bull_researcher(llm, memory):
             """根据股票代码获取公司名称"""
             try:
                 if market_info_dict['is_china']:
-                    from app.data.interface import get_china_stock_info_unified
-                    stock_info = get_china_stock_info_unified(ticker_code)
+                    from app.data.reader import get_stock_info as _get_stock_info_cn
+                    stock_info = _get_stock_info_cn("CN", ticker_code)
                     if stock_info and "股票名称:" in stock_info:
                         name = stock_info.split("股票名称:")[1].split("\n")[0].strip()
                         return name
@@ -119,9 +125,9 @@ def create_bull_researcher(llm, memory):
         
         messages = [SystemMessage(content=system_prompt)]
         
-        # 分批注入 Stage 1 报告
+        # 分批注入 Stage 1 报告（过滤掉 Stage 2 内部报告，防止同轮泄漏）
         for key, content in all_reports.items():
-            if content:
+            if content and key not in _STAGE2_REPORT_KEYS:
                 # 使用映射获取显示名称，如果没有则格式化 key
                 display_name = report_display_names.get(key, key.replace("_report", "").replace("_", " ").title() + "报告")
                 messages.append(HumanMessage(content=f"这是【{display_name}】：\n{content}"))
@@ -219,7 +225,8 @@ def create_bull_researcher(llm, memory):
             import os
             report_dir = os.path.join(settings.runtime_dir, "results")
             os.makedirs(report_dir, exist_ok=True)
-            filename = os.path.join(report_dir, f"看涨分析报告_{company_name}.md")
+            safe_name = re.sub(r'[\\/:*?"<>|]', '_', company_name or 'unknown')
+            filename = os.path.join(report_dir, f"看涨分析报告_{safe_name}.md")
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(f"# {company_name} ({ticker}) 看涨投资分析报告\n\n")
                 f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -249,19 +256,17 @@ def create_bull_researcher(llm, memory):
             history = history + "\n" + argument
             bull_history = bull_history + "\n" + argument
 
-        new_investment_debate_state = {
+        new_investment_debate_state = copy.deepcopy(investment_debate_state)
+        new_investment_debate_state.update({
             "history": history,
             "bull_history": bull_history,
-            "bear_history": investment_debate_state.get("bear_history", ""),
             "current_response": argument,
             "count": investment_debate_state.get("count", 0) + 1,
             "latest_speaker": "Bull Researcher",
-            # 新字段更新
             "rounds": rounds,
             "bull_report_content": bull_report_content,
-            "bear_report_content": investment_debate_state.get("bear_report_content", ""), # 保持不变
-            "current_round_index": (investment_debate_state.get("count", 0) + 1) // 2, # 修复：确保下一轮索引正确更新
-        }
+            "current_round_index": (investment_debate_state.get("count", 0) + 1) // 2,
+        })
 
         return {
             "investment_debate_state": new_investment_debate_state,

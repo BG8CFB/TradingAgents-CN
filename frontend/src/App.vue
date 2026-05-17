@@ -10,9 +10,7 @@
         mode="out-in"
         appear
       >
-        <keep-alive :include="keepAliveComponents">
-          <component :is="Component" :key="route?.fullPath || 'default'" />
-        </keep-alive>
+        <component :is="Component" :key="route?.fullPath || 'default'" />
       </transition>
     </router-view>
 
@@ -25,18 +23,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import NetworkStatus from '@/components/NetworkStatus.vue'
 import { ApiClient } from '@/api/request'
 import { configApi } from '@/api/config'
-
-// 需要缓存的组件
-const keepAliveComponents = computed(() => [
-  'Dashboard',
-  'StockScreening',
-  'AnalysisHistory'
-])
 
 // 配置向导
 const showConfigWizard = ref(false)

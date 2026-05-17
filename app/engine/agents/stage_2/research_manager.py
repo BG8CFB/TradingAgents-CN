@@ -1,3 +1,4 @@
+import copy
 import time
 import json
 import os
@@ -7,6 +8,9 @@ from app.utils.logging_init import get_logger
 logger = get_logger("default")
 
 from langchain_core.messages import HumanMessage, SystemMessage
+
+# Stage 2 内部报告 key — 裁决者中屏蔽，避免与 debate_state 中的报告重复注入
+_STAGE2_REPORT_KEYS = frozenset({"bull_researcher", "bear_researcher"})
 
 def create_research_manager(llm, memory):
     def research_manager_node(state) -> dict:
@@ -55,8 +59,8 @@ def create_research_manager(llm, memory):
             """根据股票代码获取公司名称"""
             try:
                 if market_info_dict['is_china']:
-                    from app.data.interface import get_china_stock_info_unified
-                    stock_info = get_china_stock_info_unified(ticker_code)
+                    from app.data.reader import get_stock_info as _get_stock_info_cn
+                    stock_info = _get_stock_info_cn("CN", ticker_code)
                     if stock_info and "股票名称:" in stock_info:
                         name = stock_info.split("股票名称:")[1].split("\n")[0].strip()
                         return name
@@ -114,9 +118,9 @@ def create_research_manager(llm, memory):
 
         messages = [SystemMessage(content=system_prompt)]
 
-        # 动态注入所有第一阶段报告
+        # 动态注入所有第一阶段报告（过滤掉 Stage 2 内部报告，避免与下方辩论报告重复）
         for key, content in all_reports.items():
-            if content:
+            if content and key not in _STAGE2_REPORT_KEYS:
                 # 使用映射获取显示名称，如果没有则格式化 key
                 display_name = report_display_names.get(key, key.replace("_report", "").replace("_", " ").title() + "报告")
                 messages.append(HumanMessage(content=f"=== 基础资料：{display_name} ===\n{content}"))
@@ -154,19 +158,16 @@ def create_research_manager(llm, memory):
             logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")
 
         # 6. 更新状态
-        new_investment_debate_state = {
+        new_investment_debate_state = copy.deepcopy(investment_debate_state)
+        new_investment_debate_state.update({
             "judge_decision": final_content,
-            "history": investment_debate_state.get("history", ""),
-            "bear_history": investment_debate_state.get("bear_history", ""),
-            "bull_history": investment_debate_state.get("bull_history", ""),
             "current_response": final_content,
             "count": investment_debate_state["count"],
-            # 传递累积报告
             "rounds": investment_debate_state.get("rounds", []),
             "bull_report_content": bull_report,
             "bear_report_content": bear_report,
             "current_round_index": investment_debate_state.get("current_round_index", 0),
-        }
+        })
         
         return {
             "investment_debate_state": new_investment_debate_state,

@@ -190,18 +190,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { analysisApi } from '@/api/analysis'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { marked } from 'marked'
-
-// 简单Markdown渲染，与单股分析保持一致风格
-marked.setOptions({ breaks: true, gfm: true })
-const renderMarkdown = (content: string) => {
-  if (!content) return ''
-  try {
-    return marked.parse(content) as string
-  } catch (e) {
-    return `<pre style="white-space: pre-wrap; font-family: inherit;">${content}</pre>`
-  }
-}
+import { renderMarkdown } from '@/utils/markdown'
 
 import {
   List,

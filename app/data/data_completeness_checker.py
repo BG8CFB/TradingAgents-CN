@@ -194,18 +194,24 @@ class DataCompletenessChecker:
                 # A股：使用 Tushare 查找最新交易日
                 from app.data.providers.china.tushare import TushareProvider
                 import asyncio
-                
+
                 provider = TushareProvider()
                 if provider.is_available():
-                    loop = asyncio.get_event_loop()
-                    if loop.is_closed():
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                    
-                    latest_date = loop.run_until_complete(provider.find_latest_trade_date())
+                    try:
+                        # 检查是否已在异步事件循环中
+                        asyncio.get_running_loop()
+                        # 已在异步上下文中，不能用 run_until_complete，使用新线程
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as pool:
+                            latest_date = pool.submit(
+                                asyncio.run, provider.find_latest_trade_date()
+                            ).result()
+                    except RuntimeError:
+                        # 没有运行中的事件循环，直接创建
+                        latest_date = asyncio.run(provider.find_latest_trade_date())
                     if latest_date:
                         return latest_date
-            
+
             # 备用方案：假设最新交易日是今天或昨天（如果今天是周末则往前推）
             today = now_utc()
             for delta in range(0, 5):  # 最多回溯5天
@@ -213,9 +219,9 @@ class DataCompletenessChecker:
                 # 跳过周末
                 if check_date.weekday() < 5:  # 0-4 是周一到周五
                     return check_date.strftime('%Y-%m-%d')
-            
+
             return None
-            
+
         except Exception as e:
             self.logger.error(f"❌ 获取最新交易日失败: {e}")
             return None

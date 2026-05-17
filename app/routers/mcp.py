@@ -17,6 +17,7 @@ from app.engine.tools.mcp.config_utils import (
     write_mcp_config,
 )
 from app.engine.tools.mcp.health_monitor import ServerStatus
+from app.core.response import safe_error_message
 
 router = APIRouter(prefix="/api/mcp", tags=["MCP"])
 CONFIG_FILE = get_config_path()
@@ -171,7 +172,7 @@ async def toggle_connector(
         }
     except Exception as e:
         logger.error(f"切换服务器 {name} 状态失败: {e}")
-        raise HTTPException(status_code=500, detail=f"Toggle failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "切换服务器状态失败"))
 
 
 @router.delete("/connectors/{name}")

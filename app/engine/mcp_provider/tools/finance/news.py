@@ -4,29 +4,29 @@ News Data Tools Logic
 import asyncio
 import json
 import logging
-from app.data.manager import DataSourceManager
 
 logger = logging.getLogger(__name__)
 
-async def get_finance_news_logic(manager: DataSourceManager, code: str, days: int, limit: int) -> str:
+
+async def get_finance_news_logic(reader_mod, code: str, days: int, limit: int) -> str:
     """
     Logic for get_finance_news tool.
     """
     try:
         items, source = await asyncio.to_thread(
-            manager.get_news_with_fallback,
+            reader_mod.get_news_with_fallback,
             code=code,
             days=days,
             limit=limit,
             include_announcements=True
         )
-        
+
         if not items:
             return json.dumps({
                 "status": "warning",
                 "message": f"No news found for {code} in last {days} days."
             }, ensure_ascii=False)
-            
+
         return json.dumps({
             "code": code,
             "source": source,

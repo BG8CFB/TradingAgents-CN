@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path as FastAPIPath
 from pydantic import BaseModel, Field, validator
 
 from app.routers.auth_db import get_current_user
+from app.core.response import safe_error_message
 
 # 导入动态分析师工厂，用于清除配置缓存
 try:
@@ -205,7 +206,7 @@ async def get_agent_config(
     try:
         modes = _load_modes(config_path)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"读取配置失败: {exc}")
+        raise HTTPException(status_code=500, detail=safe_error_message(exc, "读取配置失败"))
 
     return {
         "success": True,
@@ -264,7 +265,7 @@ async def save_agent_config(
     try:
         _dump_modes(config_path, normalized_modes)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"写入配置失败: {exc}")
+        raise HTTPException(status_code=500, detail=safe_error_message(exc, "写入配置失败"))
 
     # 🔥 关键修复：保存配置后清除 DynamicAnalystFactory 的缓存
     # 这样新添加的智能体配置才能在分析任务中被正确加载

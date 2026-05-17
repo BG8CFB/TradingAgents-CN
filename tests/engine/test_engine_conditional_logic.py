@@ -144,28 +144,28 @@ class TestShouldContinueRiskAnalysis:
 
     def test_reaches_max_count_routes_to_judge(self, default_logic):
         """达到最大次数应路由到 Risk Judge"""
-        # max_risk_discuss_rounds=1, max_count = 3*1 = 3
-        state = _make_risk_state(count=3, latest_speaker="Risky Analyst")
+        # max_risk_discuss_rounds=1, max_count = 3*(1+1) = 6
+        state = _make_risk_state(count=6, latest_speaker="Risky Analyst")
         result = default_logic.should_continue_risk_analysis(state)
         assert result == "Risk Judge"
 
     def test_exceeds_max_count_routes_to_judge(self, default_logic):
         """超过最大次数应路由到 Risk Judge"""
-        state = _make_risk_state(count=4, latest_speaker="Safe Analyst")
+        state = _make_risk_state(count=7, latest_speaker="Safe Analyst")
         result = default_logic.should_continue_risk_analysis(state)
         assert result == "Risk Judge"
 
     def test_multi_round_max_count(self, multi_round_logic):
         """多轮风险讨论的最大次数应正确计算"""
-        # max_risk_discuss_rounds=2, max_count = 3*2 = 6
-        state = _make_risk_state(count=5, latest_speaker="Neutral Analyst")
+        # max_risk_discuss_rounds=2, max_count = 3*(2+1) = 9
+        state = _make_risk_state(count=8, latest_speaker="Neutral Analyst")
         result = multi_round_logic.should_continue_risk_analysis(state)
-        # count=5 < 6, 继续讨论
+        # count=8 < 9, 继续讨论
         assert result == "Risky Analyst"
 
-        state = _make_risk_state(count=6, latest_speaker="Neutral Analyst")
+        state = _make_risk_state(count=9, latest_speaker="Neutral Analyst")
         result = multi_round_logic.should_continue_risk_analysis(state)
-        # count=6 >= 6, 结束讨论
+        # count=9 >= 9, 结束讨论
         assert result == "Risk Judge"
 
     def test_unknown_prefix_routes_to_risky(self, default_logic):
@@ -223,12 +223,12 @@ class TestDebateMaxCountCalculation:
             assert logic.should_continue_debate(state_end) == "Research Manager"
 
     def test_max_count_formula_for_risk(self):
-        """风险讨论最大次数公式: max_count = 3 * max_risk_discuss_rounds"""
+        """风险讨论最大次数公式: max_count = 3 * (max_risk_discuss_rounds + 1)"""
         from app.engine.graph.conditional_logic import ConditionalLogic
 
         for rounds in [1, 2, 3, 5]:
             logic = ConditionalLogic(max_risk_discuss_rounds=rounds)
-            expected_max = 3 * rounds
+            expected_max = 3 * (rounds + 1)
             state_continue = _make_risk_state(count=expected_max - 1, latest_speaker="Risky Analyst")
             state_end = _make_risk_state(count=expected_max, latest_speaker="Risky Analyst")
 

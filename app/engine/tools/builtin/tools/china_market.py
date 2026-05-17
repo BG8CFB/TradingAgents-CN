@@ -102,29 +102,42 @@ def get_china_market_overview(
             import akshare as ak
             import concurrent.futures
 
-            # 使用线程池和超时机制执行 AKShare 调用，防止阻塞
-            def fetch_sector_data():
-                # 直接调用，异常由 future.result() 抛出并在主线程捕获
-                return ak.stock_board_industry_name_em()
-
             sector_df = None
+
+            # 优先使用直接 API
             try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(fetch_sector_data)
-                    sector_df = future.result(timeout=15)  # 15秒超时
-            except concurrent.futures.TimeoutError:
-                logger.warning("AKShare 板块数据获取超时 (15s)")
-                result_sections.append("## 板块表现\n\n⚠️ 数据获取超时，请稍后重试")
+                from app.utils.anti_scraping import fetch_em_board_direct
+                board_data = fetch_em_board_direct()
+                if board_data:
+                    import pandas as pd
+                    sector_df = pd.DataFrame(board_data)
+                    sector_df = sector_df.rename(columns={"f14": "板块名称", "f3": "涨跌幅", "f2": "最新价"})
+                    sector_df = sector_df.sort_values("涨跌幅", ascending=False)
+                    logger.info(f"直接 API 板块数据获取成功: {len(sector_df)} 条")
             except Exception as e:
-                logger.warning(f"AKShare 板块数据获取异常: {e}")
-                result_sections.append(f"## 板块表现\n\n⚠️ 数据源异常: {e}")
+                logger.warning(f"直接 API 板块数据失败，回退 AKShare: {e}")
+
+            # 回退到 AKShare
+            if sector_df is None or sector_df.empty:
+                def fetch_sector_data():
+                    return ak.stock_board_industry_name_em()
+
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(fetch_sector_data)
+                        sector_df = future.result(timeout=15)
+                except concurrent.futures.TimeoutError:
+                    logger.warning("AKShare 板块数据获取超时 (15s)")
+                    result_sections.append("## 板块表现\n\n⚠️ 数据获取超时，请稍后重试")
+                except Exception as e:
+                    logger.warning(f"AKShare 板块数据获取异常: {e}")
+                    result_sections.append(f"## 板块表现\n\n⚠️ 数据源异常: {e}")
 
             if sector_df is not None and not sector_df.empty:
-                # 取涨幅前5和跌幅前5
                 top_sectors = sector_df.head(5)
                 bottom_sectors = sector_df.tail(5)
 
-                sector_info = "## 板块表现 (AKShare)\n\n"
+                sector_info = "## 板块表现\n\n"
                 sector_info += "### 涨幅前5\n"
                 for _, row in top_sectors.iterrows():
                     name = row.get('板块名称', 'N/A')
@@ -139,7 +152,6 @@ def get_china_market_overview(
 
                 result_sections.append(sector_info)
             elif sector_df is None:
-                # 错误信息已在上面添加
                 pass
             else:
                 result_sections.append("## 板块表现\n\n⚠️ 板块数据暂时无法获取 (空数据)")

@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 import logging
 
-from app.routers.auth_db import get_current_user
-from app.core.response import ok
+from app.routers.auth_db import get_current_user, require_admin
+from app.core.response import ok, safe_error_message
 from app.services.news_data_service import get_news_data_service, NewsQueryParams
 from app.worker.news_data_sync_service import get_news_data_sync_service
 from app.utils.timezone import now_utc, format_iso
@@ -127,7 +127,7 @@ async def query_stock_news(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"查询股票新闻失败: {str(e)}"
+            detail=safe_error_message(e, "查询股票新闻失败")
         )
 
 
@@ -177,7 +177,7 @@ async def query_news_advanced(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"高级新闻查询失败: {str(e)}"
+            detail=safe_error_message(e, "高级新闻查询失败")
         )
 
 
@@ -222,7 +222,7 @@ async def get_latest_news(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取最新新闻失败: {str(e)}"
+            detail=safe_error_message(e, "获取最新新闻失败")
         )
 
 
@@ -266,7 +266,7 @@ async def search_news(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"新闻搜索失败: {str(e)}"
+            detail=safe_error_message(e, "新闻搜索失败")
         )
 
 
@@ -323,7 +323,7 @@ async def get_news_statistics(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取新闻统计失败: {str(e)}"
+            detail=safe_error_message(e, "获取新闻统计失败")
         )
 
 
@@ -331,7 +331,7 @@ async def get_news_statistics(
 async def start_news_sync(
     request: NewsSyncRequest,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """
     启动新闻同步任务
@@ -375,7 +375,7 @@ async def start_news_sync(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"启动新闻同步失败: {str(e)}"
+            detail=safe_error_message(e, "启动新闻同步失败")
         )
 
 
@@ -428,7 +428,7 @@ async def sync_single_stock_news(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"同步股票新闻失败: {str(e)}"
+            detail=safe_error_message(e, "同步股票新闻失败")
         )
 
 
@@ -462,7 +462,7 @@ async def cleanup_old_news(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"清理过期新闻失败: {str(e)}"
+            detail=safe_error_message(e, "清理过期新闻失败")
         )
 
 
@@ -483,7 +483,7 @@ async def health_check():
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"健康检查失败: {str(e)}"
+            detail=safe_error_message(e, "健康检查失败")
         )
 
 

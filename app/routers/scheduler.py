@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.routers.auth_db import get_current_user
 from app.services.scheduler_service import get_scheduler_service, SchedulerService
-from app.core.response import ok
+from app.core.response import ok, safe_error_message
 
 router = APIRouter(prefix="/api/scheduler", tags=["Scheduler"])
 
@@ -51,7 +51,7 @@ async def list_jobs(
         jobs = await service.list_jobs()
         return ok(data=jobs, message=f"获取到 {len(jobs)} 个定时任务")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取任务列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务列表失败"))
 
 
 @router.put("/jobs/{job_id}/metadata")
@@ -88,7 +88,7 @@ async def update_job_metadata_route(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"更新任务元数据失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "更新任务元数据失败"))
 
 
 @router.get("/jobs/{job_id}")
@@ -114,7 +114,7 @@ async def get_job_detail(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取任务详情失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务详情失败"))
 
 
 @router.post("/jobs/{job_id}/pause")
@@ -145,7 +145,7 @@ async def pause_job(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"暂停任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "暂停任务失败"))
 
 
 @router.post("/jobs/{job_id}/resume")
@@ -176,7 +176,7 @@ async def resume_job(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"恢复任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "恢复任务失败"))
 
 
 @router.post("/jobs/{job_id}/trigger")
@@ -217,7 +217,7 @@ async def trigger_job(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"触发任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "触发任务失败"))
 
 
 @router.get("/jobs/{job_id}/history")
@@ -253,7 +253,7 @@ async def get_job_history(
             message=f"获取到 {len(history)} 条执行记录"
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取执行历史失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取执行历史失败"))
 
 
 @router.get("/history")
@@ -296,7 +296,7 @@ async def get_all_history(
             message=f"获取到 {len(history)} 条执行记录"
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取执行历史失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取执行历史失败"))
 
 
 @router.get("/stats")
@@ -314,7 +314,7 @@ async def get_scheduler_stats(
         stats = await service.get_stats()
         return ok(data=stats, message="获取统计信息成功")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取统计信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取统计信息失败"))
 
 
 @router.get("/health")
@@ -332,7 +332,7 @@ async def scheduler_health_check(
         health = await service.health_check()
         return ok(data=health, message="调度器运行正常")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"健康检查失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "健康检查失败"))
 
 
 @router.get("/executions")
@@ -374,7 +374,7 @@ async def get_job_executions(
             "offset": offset
         }, message=f"获取到 {len(executions)} 条执行记录")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取执行历史失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取执行历史失败"))
 
 
 @router.get("/jobs/{job_id}/executions")
@@ -416,7 +416,7 @@ async def get_single_job_executions(
             "offset": offset
         }, message=f"获取到 {len(executions)} 条执行记录")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取执行历史失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取执行历史失败"))
 
 
 @router.get("/jobs/{job_id}/execution-stats")
@@ -438,7 +438,7 @@ async def get_job_execution_stats(
         stats = await service.get_job_execution_stats(job_id)
         return ok(data=stats, message="获取统计信息成功")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取统计信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取统计信息失败"))
 
 
 @router.post("/executions/{execution_id}/cancel")
@@ -468,7 +468,7 @@ async def cancel_execution(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"取消任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "取消任务失败"))
 
 
 @router.post("/executions/{execution_id}/mark-failed")
@@ -499,7 +499,7 @@ async def mark_execution_failed(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"标记失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "标记失败"))
 
 
 @router.delete("/executions/{execution_id}")
@@ -526,4 +526,4 @@ async def delete_execution(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"删除执行记录失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "删除执行记录失败"))

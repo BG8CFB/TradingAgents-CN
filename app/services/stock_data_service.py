@@ -3,18 +3,12 @@
 基于现有MongoDB集合，提供标准化的数据访问服务
 """
 import logging
-from datetime import datetime, date
 from typing import Optional, Dict, Any, List
-from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.database import get_mongo_db
 from app.models.stock_models import (
     StockBasicInfoExtended,
-    MarketQuotesExtended,
-    MarketInfo,
-    MarketType,
-    ExchangeType,
-    CurrencyType
+    MarketQuotesExtended
 )
 from app.utils.time_utils import now_utc
 
@@ -48,34 +42,32 @@ class StockDataService:
             db = get_mongo_db()
             symbol6 = str(symbol).zfill(6)
 
-            # 🔥 构建查询条件
-            query = {"$or": [{"symbol": symbol6}, {"code": symbol6}]}
+            # 构建查询条件
+            query = {"symbol": symbol6}
 
             if source:
                 # 指定数据源
-                query["source"] = source
+                query["data_source"] = source
                 doc = await db[self.basic_info_collection].find_one(query, {"_id": 0})
             else:
-                # 🔥 未指定数据源，按优先级查询
+                # 未指定数据源，按优先级查询
                 source_priority = ["tushare", "multi_source", "akshare", "baostock"]
                 doc = None
 
                 for src in source_priority:
                     query_with_source = query.copy()
-                    query_with_source["source"] = src
+                    query_with_source["data_source"] = src
                     doc = await db[self.basic_info_collection].find_one(query_with_source, {"_id": 0})
                     if doc:
                         logger.debug(f"✅ 使用数据源: {src}")
                         break
 
-                # 如果所有数据源都没有，尝试不带 source 条件查询（兼容旧数据）
+                # 如果所有数据源都没有，尝试不带 data_source 条件查询
                 if not doc:
                     doc = await db[self.basic_info_collection].find_one(
-                        {"$or": [{"symbol": symbol6}, {"code": symbol6}]},
+                        {"symbol": symbol6},
                         {"_id": 0}
                     )
-                    if doc:
-                        logger.warning(f"⚠️ 使用旧数据（无 source 字段）: {symbol6}")
 
             if not doc:
                 return None
@@ -101,9 +93,8 @@ class StockDataService:
             db = get_mongo_db()
             symbol6 = str(symbol).zfill(6)
 
-            # 从现有集合查询 (优先使用symbol字段，兼容code字段)
             doc = await db[self.market_quotes_collection].find_one(
-                {"$or": [{"symbol": symbol6}, {"code": symbol6}]},
+                {"symbol": symbol6},
                 {"_id": 0}
             )
 
@@ -143,23 +134,12 @@ class StockDataService:
 
             # 🔥 获取数据源优先级配置
             if not source:
-                from app.core.unified_config import UnifiedConfigManager
-                config = UnifiedConfigManager()
-                data_source_configs = await config.get_data_source_configs_async()
-
-                # 提取启用的数据源，按优先级排序
-                enabled_sources = [
-                    ds.type.lower() for ds in data_source_configs
-                    if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-                ]
-
-                if not enabled_sources:
-                    enabled_sources = ['tushare', 'akshare', 'baostock']
-
+                from app.services.data_sources.base import get_enabled_cn_sources_async
+                enabled_sources = await get_enabled_cn_sources_async()
                 source = enabled_sources[0] if enabled_sources else 'tushare'
 
             # 构建查询条件
-            query = {"source": source}  # 🔥 添加数据源筛选
+            query = {"data_source": source}
             if market:
                 query["market"] = market
             if industry:
@@ -208,21 +188,14 @@ class StockDataService:
             # 添加更新时间
             update_data["updated_at"] = now_utc()
 
-            # 确保symbol字段存在
             if "symbol" not in update_data:
                 update_data["symbol"] = symbol6
 
-            # 🔥 确保 code 字段存在
-            if "code" not in update_data:
-                update_data["code"] = symbol6
+            if "data_source" not in update_data:
+                update_data["data_source"] = source
 
-            # 🔥 确保 source 字段存在
-            if "source" not in update_data:
-                update_data["source"] = source
-
-            # 🔥 执行更新 (使用 code + source 联合查询)
             result = await db[self.basic_info_collection].update_one(
-                {"code": symbol6, "source": source},
+                {"symbol": symbol6, "data_source": source},
                 {"$set": update_data},
                 upsert=True
             )
@@ -253,13 +226,9 @@ class StockDataService:
             # 添加更新时间
             quote_data["updated_at"] = now_utc()
 
-            # 🔥 确保 symbol 和 code 字段都存在（兼容旧索引）
             if "symbol" not in quote_data:
                 quote_data["symbol"] = symbol6
-            if "code" not in quote_data:
-                quote_data["code"] = symbol6  # code 和 symbol 使用相同的值
 
-            # 执行更新 (使用symbol字段作为查询条件)
             result = await db[self.market_quotes_collection].update_one(
                 {"symbol": symbol6},
                 {"$set": quote_data},
@@ -280,33 +249,14 @@ class StockDataService:
         # 保持现有字段不变
         result = doc.copy()
 
-        # 获取股票代码 (优先使用symbol，兼容code)
-        symbol = doc.get("symbol") or doc.get("code", "")
+        symbol = doc.get("symbol", "")
         result["symbol"] = symbol
 
-        # 兼容旧字段
-        if "code" in doc and "symbol" not in doc:
-            result["code"] = doc["code"]
-        
-        # 生成完整代码 (优先使用已有的full_symbol)
+        # 生成完整代码 (优先使用已有的full_symbol，否则用全局统一函数)
         if "full_symbol" not in result or not result["full_symbol"]:
-            if symbol and len(symbol) == 6:
-                # 根据代码判断交易所
-                if symbol.startswith(('60', '68', '90')):
-                    result["full_symbol"] = f"{symbol}.SS"
-                    exchange = "SSE"
-                    exchange_name = "上海证券交易所"
-                elif symbol.startswith(('00', '30', '20')):
-                    result["full_symbol"] = f"{symbol}.SZ"
-                    exchange = "SZSE"
-                    exchange_name = "深圳证券交易所"
-                else:
-                    result["full_symbol"] = f"{symbol}.SZ"  # 默认深交所
-                    exchange = "SZSE"
-                    exchange_name = "深圳证券交易所"
-            else:
-                exchange = "SZSE"
-                exchange_name = "深圳证券交易所"
+            if symbol:
+                from app.data.schema.base import get_full_symbol
+                result["full_symbol"] = get_full_symbol(symbol, "CN")
         else:
             # 从full_symbol解析交易所
             full_symbol = result["full_symbol"]
@@ -359,22 +309,15 @@ class StockDataService:
         """
         # 保持现有字段不变
         result = doc.copy()
-        
-        # 获取股票代码 (优先使用symbol，兼容code)
-        symbol = doc.get("symbol") or doc.get("code", "")
+
+        symbol = doc.get("symbol", "")
         result["symbol"] = symbol
 
-        # 兼容旧字段
-        if "code" in doc and "symbol" not in doc:
-            result["code"] = doc["code"]
-
-        # 生成完整代码和市场标识 (优先使用已有的full_symbol)
+        # 生成完整代码和市场标识 (优先使用已有的full_symbol，否则用全局统一函数)
         if "full_symbol" not in result or not result["full_symbol"]:
-            if symbol and len(symbol) == 6:
-                if symbol.startswith(('60', '68', '90')):
-                    result["full_symbol"] = f"{symbol}.SS"
-                else:
-                    result["full_symbol"] = f"{symbol}.SZ"
+            if symbol:
+                from app.data.schema.base import get_full_symbol
+                result["full_symbol"] = get_full_symbol(symbol, "CN")
 
         if "market" not in result:
             result["market"] = "CN"

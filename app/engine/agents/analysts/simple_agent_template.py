@@ -86,7 +86,7 @@ _INJECT_TOOL_ARGS_MAP: Dict[str, Dict[str, Any]] = {
     "get_money_flow": {"ts_code": "ticker", "query_type": "stock"},
     "get_margin_trade": {"data_type": "margin", "ts_code": "ticker"},
     "get_china_market_overview": {"date": "trade_date"},
-    "get_finance_news": {},
+    "get_finance_news": {"query": "company_name"},
     "get_hot_news_7x24": {},
     "get_current_timestamp": {},
 }
@@ -241,8 +241,8 @@ def create_simple_agent(
             company_name = ticker
             try:
                 if market_info["is_china"]:
-                    from app.data.interface import get_china_stock_info_unified
-                    stock_info = get_china_stock_info_unified(ticker)
+                    from app.data.reader import get_stock_info as _get_stock_info_cn
+                    stock_info = _get_stock_info_cn("CN", ticker)
                     if "股票名称:" in stock_info:
                         company_name = stock_info.split("股票名称:")[1].split("\n")[0].strip()
                 elif market_info["is_hk"]:
@@ -321,11 +321,10 @@ def create_simple_agent(
             final_message = AIMessage(content=final_report) if final_report else None
 
             return {
-                **state,
                 "messages": [final_message] if final_message else [],
                 report_key: final_report,
+                # 只返回当前报告，让 LangGraph reducer 负责合并，避免指数级膨胀
                 "reports": {
-                    **state.get("reports", {}),
                     report_key: final_report,
                 }
             }
@@ -339,11 +338,10 @@ def create_simple_agent(
             error_report = f"❌ 分析失败：{str(e)}"
 
             return {
-                **state,
                 report_key: error_report,
                 "messages": [AIMessage(content=error_report)],
+                # 只返回当前报告，让 LangGraph reducer 负责合并，避免指数级膨胀
                 "reports": {
-                    **state.get("reports", {}),
                     report_key: error_report,
                 }
             }

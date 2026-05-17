@@ -48,44 +48,12 @@ class ValidationResult:
 class StartupValidator:
     """启动配置验证器"""
     
-    # 必需配置项
+    # 必需配置项（仅包含无合理默认值、必须手动配置的项）
     REQUIRED_CONFIGS = [
-        ConfigItem(
-            key="MONGODB_HOST",
-            level=ConfigLevel.REQUIRED,
-            description="MongoDB主机地址",
-            example="localhost"
-        ),
-        ConfigItem(
-            key="MONGODB_PORT",
-            level=ConfigLevel.REQUIRED,
-            description="MongoDB端口",
-            example="27017",
-            validator=lambda v: v.isdigit() and 1 <= int(v) <= 65535
-        ),
-        ConfigItem(
-            key="MONGODB_DATABASE",
-            level=ConfigLevel.REQUIRED,
-            description="MongoDB数据库名称",
-            example="tradingagents"
-        ),
-        ConfigItem(
-            key="REDIS_HOST",
-            level=ConfigLevel.REQUIRED,
-            description="Redis主机地址",
-            example="localhost"
-        ),
-        ConfigItem(
-            key="REDIS_PORT",
-            level=ConfigLevel.REQUIRED,
-            description="Redis端口",
-            example="6379",
-            validator=lambda v: v.isdigit() and 1 <= int(v) <= 65535
-        ),
         ConfigItem(
             key="JWT_SECRET",
             level=ConfigLevel.REQUIRED,
-            description="JWT密钥（用于生成认证令牌）",
+            description="JWT密钥（用于生成认证令牌，必须在 .env 中显式配置）",
             example="your-super-secret-jwt-key-change-in-production",
             validator=lambda v: len(v) >= 16
         ),
@@ -93,6 +61,38 @@ class StartupValidator:
     
     # 推荐配置项
     RECOMMENDED_CONFIGS = [
+        ConfigItem(
+            key="MONGODB_HOST",
+            level=ConfigLevel.RECOMMENDED,
+            description="MongoDB主机地址",
+            example="localhost"
+        ),
+        ConfigItem(
+            key="MONGODB_PORT",
+            level=ConfigLevel.RECOMMENDED,
+            description="MongoDB端口",
+            example="27017",
+            validator=lambda v: v.isdigit() and 1 <= int(v) <= 65535
+        ),
+        ConfigItem(
+            key="MONGODB_DATABASE",
+            level=ConfigLevel.RECOMMENDED,
+            description="MongoDB数据库名称",
+            example="tradingagents"
+        ),
+        ConfigItem(
+            key="REDIS_HOST",
+            level=ConfigLevel.RECOMMENDED,
+            description="Redis主机地址",
+            example="localhost"
+        ),
+        ConfigItem(
+            key="REDIS_PORT",
+            level=ConfigLevel.RECOMMENDED,
+            description="Redis端口",
+            example="6379",
+            validator=lambda v: v.isdigit() and 1 <= int(v) <= 65535
+        ),
         ConfigItem(
             key="DEEPSEEK_API_KEY",
             level=ConfigLevel.RECOMMENDED,
@@ -158,14 +158,16 @@ class StartupValidator:
         return self.result
     
     def _validate_required_configs(self):
-        """验证必需配置"""
+        """验证必需配置（通过 os.getenv 检查，避免被 settings 默认值绕过）"""
         for config in self.REQUIRED_CONFIGS:
-            value = getattr(settings, config.key, None)
+            # 优先检查环境变量是否显式配置，避免 settings 默认值/运行时生成值绕过验证
+            env_value = os.getenv(config.key)
+            settings_value = getattr(settings, config.key, None)
 
-            if not value:
+            if not env_value:
                 self.result.missing_required.append(config)
-                logger.error(f"❌ 缺少必需配置: {config.key}")
-            elif config.validator and not config.validator(str(value)):
+                logger.error(f"❌ 缺少必需配置: {config.key}（未在环境变量/.env 中设置）")
+            elif config.validator and not config.validator(str(env_value)):
                 self.result.invalid_configs.append((config, "配置值格式不正确"))
                 logger.error(f"❌ 配置格式错误: {config.key}")
             else:
@@ -188,26 +190,21 @@ class StartupValidator:
     
     def _check_security_configs(self):
         """检查安全配置"""
-        # 检查JWT密钥是否使用默认值
-        jwt_secret = getattr(settings, "JWT_SECRET", "")
-        if jwt_secret in ["change-me-in-production", "your-super-secret-jwt-key-change-in-production"]:
-            self.result.warnings.append(
-                "⚠️  JWT_SECRET 使用默认值，生产环境请务必修改！"
-            )
-
-        # 检查CSRF密钥是否使用默认值
-        csrf_secret = getattr(settings, "CSRF_SECRET", "")
-        if csrf_secret in ["change-me-csrf-secret", "your-csrf-secret-key-change-in-production"]:
-            self.result.warnings.append(
-                "⚠️  CSRF_SECRET 使用默认值，生产环境请务必修改！"
-            )
+        # 检查密钥是否为运行时随机生成（用户未显式配置）
+        import os
+        for secret_key in ("JWT_SECRET", "CSRF_SECRET"):
+            if not os.getenv(secret_key):
+                self.result.warnings.append(
+                    f"{secret_key} 未在环境变量中配置，使用运行期随机值；"
+                    f"服务重启后相关会话将失效，建议在 .env 中显式设置。"
+                )
 
         # 检查是否在生产环境使用DEBUG模式
         debug = getattr(settings, "DEBUG", True)
         if not debug:
-            logger.info("ℹ️  生产环境模式")
+            logger.info("生产环境模式")
         else:
-            logger.info("ℹ️  开发环境模式（DEBUG=true）")
+            logger.info("开发环境模式（DEBUG=true）")
     
     def _print_validation_result(self):
         """输出验证结果"""

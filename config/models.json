@@ -1,0 +1,239 @@
+[
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-turbo",
+    "api_key": "",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "max_tokens": 6000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-plus-latest",
+    "api_key": "",
+    "base_url": null,
+    "max_tokens": 8000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "openai",
+    "model_name": "gpt-3.5-turbo",
+    "api_key": "",
+    "base_url": null,
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": false
+  },
+  {
+    "provider": "openai",
+    "model_name": "gpt-4",
+    "api_key": "",
+    "base_url": null,
+    "max_tokens": 8000,
+    "temperature": 0.7,
+    "enabled": false
+  },
+  {
+    "provider": "google",
+    "model_name": "gemini-2.5-pro",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 8000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "deepseek",
+    "model_name": "deepseek-chat",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "GLM-4.5",
+    "api_key": "",
+    "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "max_tokens": 200000,
+    "temperature": 0.1,
+    "enabled": true
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "glm-4",
+    "api_key": "",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": false
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "GLM-4.6",
+    "api_key": "",
+    "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "max_tokens": 200000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-plus",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 8000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-flash",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 6000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "google",
+    "model_name": "gemini-2.5-flash",
+    "api_key": "",
+    "base_url": null,
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "qianfan",
+    "model_name": "ernie-3.5-8k",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "qianfan",
+    "model_name": "ernie-4.0-turbo-8k",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen3-max",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 8000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "anthropic/claude-sonnet-4.5",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 8000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "openai/gpt-5",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "google/gemini-2.5-pro",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "google/gemini-2.5-flash",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "openai/gpt-3.5-turbo",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "google/gemini-2.0-flash-001",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "openai",
+    "model_name": "Qwen3.6-27B",
+    "api_key": "TestKey123",
+    "base_url": "http://nas.bg8cfb.cn:11435/v1",
+    "max_tokens": 131072,
+    "temperature": 0.3,
+    "timeout": 600,
+    "enabled": true,
+    "builtin": true,
+    "description": "项目内置免费AI - NAS Qwen3.6-27B"
+  },
+  {
+    "provider": "test",
+    "model_name": "test1",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "siliconflow",
+    "model_name": "Pro/deepseek-ai/DeepSeek-V3.2-Exp",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 8000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "GLM-5",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "glm-5.1",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 4000,
+    "temperature": 0.7,
+    "enabled": true
+  }
+]

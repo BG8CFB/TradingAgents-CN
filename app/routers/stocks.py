@@ -4,14 +4,14 @@
 - 所有端点均需鉴权 (Bearer Token)
 - 路径前缀在 main.py 中挂载为 /api，当前路由自身前缀为 /stocks
 """
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 import logging
 import re
 
 from app.routers.auth_db import get_current_user
 from app.core.database import get_mongo_db
-from app.core.response import ok
+from app.core.response import ok, safe_error_message
 from app.services.unified_stock_service import UnifiedStockService
 from app.utils.time_utils import now_config_tz, format_date_compact, format_date_short
 
@@ -106,7 +106,7 @@ async def get_quote(
             logger.error(f"获取{market}股票{code}行情失败: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"获取行情失败: {str(e)}"
+                detail=safe_error_message(e, "获取行情失败")
             )
 
     # A股：使用统一服务
@@ -157,7 +157,7 @@ async def get_fundamentals(
             logger.error(f"获取{market}股票{code}基础信息失败: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"获取基础信息失败: {str(e)}"
+                detail=safe_error_message(e, "获取基础信息失败")
             )
 
     # A股：使用统一服务
@@ -205,8 +205,7 @@ async def get_kline(
     - 交易时间内（09:30-15:00）：从 market_quotes 获取实时数据
     - 收盘后：检查历史数据是否有当天数据，没有则从 market_quotes 获取
     """
-    from datetime import datetime, timedelta, time as dtime
-    from zoneinfo import ZoneInfo
+    from datetime import timedelta, time as dtime
 
     valid_periods = {"day","week","month","5m","15m","30m","60m"}
     if period not in valid_periods:
@@ -234,7 +233,7 @@ async def get_kline(
             logger.error(f"获取{market}股票{code}K线数据失败: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"获取K线数据失败: {str(e)}"
+                detail=safe_error_message(e, "获取K线数据失败")
             )
 
     # A股：使用现有逻辑
@@ -292,23 +291,22 @@ async def get_kline(
 
     # 2. 如果 MongoDB 没有数据，降级到外部 API（带超时保护）
     if not items:
-        logger.info(f"📡 MongoDB 无数据，降级到外部 API")
+        logger.info("📡 MongoDB 无数据，降级到外部 API")
         try:
             import asyncio
-            from app.data.manager import DataSourceManager
+            from app.data import reader as _data_reader
 
-            mgr = DataSourceManager()
             # 添加 10 秒超时保护
             items, source = await asyncio.wait_for(
-                asyncio.to_thread(mgr.get_kline_with_fallback, code_padded, period, limit, adj_norm),
+                asyncio.to_thread(_data_reader.get_kline_with_fallback, code_padded, period, limit, adj_norm),
                 timeout=10.0
             )
         except asyncio.TimeoutError:
-            logger.error(f"❌ 外部 API 获取 K 线超时（10秒）")
+            logger.error("❌ 外部 API 获取 K 线超时（10秒）")
             raise HTTPException(status_code=504, detail="获取K线数据超时，请稍后重试")
         except Exception as e:
             logger.error(f"❌ 外部 API 获取 K 线失败: {e}")
-            raise HTTPException(status_code=500, detail=f"获取K线数据失败: {str(e)}")
+            raise HTTPException(status_code=500, detail=safe_error_message(e, "获取K线数据失败"))
 
     # 🔥 3. 检查是否需要添加当天实时数据（仅针对日线）
     if period == "day" and items:
@@ -375,7 +373,7 @@ async def get_kline(
             logger.warning(f"⚠️ 获取当天实时数据失败（忽略）: {e}")
 
     data = {
-        "code": code_padded,
+        "symbol": code_padded,
         "period": period,
         "limit": limit,
         "adj": adj if adj else "none",
@@ -403,7 +401,7 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
         # 港股新闻功能尚未实现
         return ok(
             data={
-                "code": normalized_code,
+                "symbol": normalized_code,
                 "items": [],
                 "supported": False,
             },
@@ -412,12 +410,12 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
     else:
         # A股：直接调用同步服务的查询方法（包含智能回退逻辑）
         try:
-            logger.info(f"=" * 80)
+            logger.info("=" * 80)
             logger.info(f"📰 开始获取新闻: code={code}, normalized_code={normalized_code}, days={days}, limit={limit}")
 
             # 直接使用 news_data 路由的查询逻辑
             from app.services.news_data_service import get_news_data_service, NewsQueryParams
-            from datetime import datetime, timedelta
+            from datetime import datetime
             from app.worker.akshare_sync_service import get_akshare_sync_service
 
             service = await get_news_data_service()
@@ -438,7 +436,7 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
             logger.info(f"🔍 查询参数: symbol={params.symbol}, limit={params.limit} (不限制时间范围)")
 
             # 1. 先从数据库查询
-            logger.info(f"📊 步骤1: 从数据库查询新闻...")
+            logger.info("📊 步骤1: 从数据库查询新闻...")
             news_list = await service.query_news(params)
             logger.info(f"📊 数据库查询结果: 返回 {len(news_list)} 条新闻")
 
@@ -449,7 +447,7 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
                 logger.info(f"⚠️ 数据库无新闻数据，调用同步服务获取: {normalized_code}")
                 try:
                     # 🔥 调用同步服务，传入单个股票代码列表
-                    logger.info(f"📡 步骤2: 调用同步服务...")
+                    logger.info("📡 步骤2: 调用同步服务...")
                     await sync_service.sync_news_data(
                         symbols=[normalized_code],
                         max_news_per_stock=limit,
@@ -458,7 +456,7 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
                     )
 
                     # 重新查询
-                    logger.info(f"🔄 步骤3: 重新从数据库查询...")
+                    logger.info("🔄 步骤3: 重新从数据库查询...")
                     news_list = await service.query_news(params)
                     logger.info(f"📊 重新查询结果: 返回 {len(news_list)} 条新闻")
                     data_source = "realtime"
@@ -467,7 +465,7 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
                     logger.error(f"❌ 同步服务异常: {e}", exc_info=True)
 
             # 转换为旧格式（兼容前端）
-            logger.info(f"🔄 步骤4: 转换数据格式...")
+            logger.info("🔄 步骤4: 转换数据格式...")
             items = []
             for news in news_list:
                 # 🔥 将 datetime 对象转换为 ISO 字符串
@@ -488,7 +486,7 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
             logger.info(f"✅ 转换完成: {len(items)} 条新闻")
 
             data = {
-                "code": normalized_code,
+                "symbol": normalized_code,
                 "days": days,
                 "limit": limit,
                 "include_announcements": include_announcements,
@@ -497,13 +495,13 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
             }
 
             logger.info(f"📤 最终返回: source={data_source}, items_count={len(items)}")
-            logger.info(f"=" * 80)
+            logger.info("=" * 80)
             return ok(data)
 
         except Exception as e:
             logger.error(f"❌ 获取新闻失败: {e}", exc_info=True)
             data = {
-                "code": normalized_code,
+                "symbol": normalized_code,
                 "days": days,
                 "limit": limit,
                 "include_announcements": include_announcements,
@@ -541,7 +539,7 @@ async def search_stocks(
         logger.error(f"搜索股票失败: market={market}, q={q}, error={e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"搜索失败: {str(e)}"
+            detail=safe_error_message(e, "搜索失败")
         )
 
 
@@ -567,7 +565,7 @@ async def get_basic_info(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取股票基础信息失败: {str(e)}"
+            detail=safe_error_message(e, "获取股票基础信息失败")
         )
 
 
@@ -584,6 +582,6 @@ async def get_quotes_sync_status(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取同步状态失败: {str(e)}"
+            detail=safe_error_message(e, "获取同步状态失败")
         )
 

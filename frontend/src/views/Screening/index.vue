@@ -57,7 +57,13 @@
                 multiple
                 collapse-tags
                 collapse-tags-tooltip
+                :disabled="industryOptions.length === 0"
               >
+                <template #empty>
+                  <p style="padding: 10px; color: #909399; text-align: center; font-size: 13px;">
+                    暂无行业数据，请先同步基础数据
+                  </p>
+                </template>
                 <el-option
                   v-for="industry in industryOptions"
                   :key="industry.value"
@@ -245,10 +251,10 @@
       >
         <el-table-column type="selection" width="55" />
 
-        <el-table-column prop="code" label="股票代码" width="120">
+        <el-table-column prop="symbol" label="股票代码" width="120">
           <template #default="{ row }">
             <el-link type="primary" @click="viewStockDetail(row)">
-              {{ row.code }}
+              {{ row.symbol || row.code }}
             </el-link>
           </template>
         </el-table-column>
@@ -324,7 +330,7 @@
             </el-button>
             <el-button type="text" size="small" @click="toggleFavorite(row)">
               <el-icon><Star /></el-icon>
-              {{ isFavorited(row.code) ? '取消自选' : '加入自选' }}
+              {{ isFavorited(row.symbol || row.code) ? '取消自选' : '加入自选' }}
             </el-button>
           </template>
         </el-table-column>
@@ -595,7 +601,7 @@ const batchAnalyze = async () => {
     router.push({
       name: 'BatchAnalysis',
       query: {
-        stocks: selectedStocks.value.map(s => s.code).join(','),
+        stocks: selectedStocks.value.map(s => s.symbol || s.code).join(','),
         market: normalizeMarketForAnalysis(filters.market)
       }
     })
@@ -609,7 +615,7 @@ const analyzeSingle = (stock: StockInfo) => {
   router.push({
     name: 'SingleAnalysis',
     query: {
-      stock: stock.code,
+      stock: stock.symbol || stock.code,
       market: normalizeMarketForAnalysis((stock as any).market || filters.market)
     }
   })
@@ -619,7 +625,7 @@ const viewStockDetail = (stock: StockInfo) => {
   // 跳转到股票详情页面
   router.push({
     name: 'StockDetail',
-    params: { code: stock.code }
+    params: { code: stock.symbol || stock.code }
   })
 }
 
@@ -627,7 +633,7 @@ const isFavorited = (code: string) => favoriteSet.value.has(code)
 
 const toggleFavorite = async (stock: StockInfo) => {
   try {
-    const code = stock.code || stock.symbol
+    const code = (stock.symbol || stock.code) as string
     if (favoriteSet.value.has(code)) {
       // 取消自选
       const res = await favoritesApi.remove(code)
@@ -710,19 +716,17 @@ const loadIndustries = async () => {
   try {
     const response = await screeningApi.getIndustries()
     const data = response.data || response
-    industryOptions.value = data.industries || []
-    console.log('行业列表加载成功:', industryOptions.value.length, '个行业')
+    const loaded = (data.industries || []).filter((i: any) => i.value && i.label)
+    industryOptions.value = loaded
+    console.log('行业列表加载成功:', loaded.length, '个行业', loaded.length === 0 ? '(可能需要先同步数据)' : '')
+
+    if (loaded.length === 0) {
+      console.warn('行业列表为空，可能尚未同步基础数据或当前数据源不支持行业分类')
+    }
   } catch (error) {
     console.error('加载行业列表失败:', error)
-    ElMessage.error('加载行业列表失败')
-    // 如果加载失败，使用默认的行业列表
-    industryOptions.value = [
-      { label: '银行', value: '银行' },
-      { label: '证券', value: '证券' },
-      { label: '保险', value: '保险' },
-      { label: '房地产', value: '房地产' },
-      { label: '医药生物', value: '医药生物' }
-    ]
+    ElMessage.warning('加载行业列表失败，请确认已同步基础数据')
+    industryOptions.value = []
   }
 }
 

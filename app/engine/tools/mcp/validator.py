@@ -201,7 +201,7 @@ def validate_server_config(
                         "参数过长（最大 512 字符）"
                     ))
     
-    elif server_type == "http":
+    elif server_type in ("http", "streamable-http"):
         # 验证 HTTP 配置
         url = config.get("url")
         if not url:

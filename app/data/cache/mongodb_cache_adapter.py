@@ -5,8 +5,12 @@ MongoDB 缓存适配器
 """
 
 import pandas as pd
+import time
+import threading
 from typing import Optional, Dict, Any, List, Union
 from datetime import datetime, timedelta, timezone
+
+from app.utils.time_utils import now_utc
 
 # 导入日志模块
 from app.utils.logging_manager import get_logger
@@ -22,6 +26,11 @@ class MongoDBCacheAdapter:
         self.use_app_cache = use_app_cache_enabled(False)
         self.mongodb_client = None
         self.db = None
+
+        # 数据源优先级配置缓存（避免每次查询都读取数据库）
+        self._config_cache = None
+        self._config_cache_time = 0
+        self._config_cache_ttl = 300  # 5分钟
         
         if self.use_app_cache:
             self._init_mongodb_connection()
@@ -56,17 +65,26 @@ class MongoDBCacheAdapter:
             # 🔥 获取数据源优先级
             source_priority = self._get_data_source_priority(symbol)
 
-            # 🔥 按优先级查询
+            # 🔥 按优先级查询（兼容新旧字段名 code/symbol, source/data_source）
             doc = None
             for src in source_priority:
-                doc = collection.find_one({"code": code6, "source": src}, {"_id": 0})
+                query = {
+                    "$or": [
+                        {"code": code6, "source": src},
+                        {"code": code6, "data_source": src},
+                        {"symbol": code6, "source": src},
+                        {"symbol": code6, "data_source": src},
+                    ]
+                }
+                doc = collection.find_one(query, {"_id": 0})
                 if doc:
                     logger.debug(f"✅ 从MongoDB获取基础信息: {symbol}, 数据源: {src}")
                     return doc
 
             # 如果所有数据源都没有，尝试不带 source 条件查询（兼容旧数据）
             if not doc:
-                doc = collection.find_one({"code": code6}, {"_id": 0})
+                query = {"$or": [{"code": code6}, {"symbol": code6}]}
+                doc = collection.find_one(query, {"_id": 0})
                 if doc:
                     logger.debug(f"✅ 从MongoDB获取基础信息（旧数据）: {symbol}")
                     return doc
@@ -88,6 +106,12 @@ class MongoDBCacheAdapter:
         Returns:
             按优先级排序的数据源列表，例如: ["tushare", "akshare", "baostock"]
         """
+        # 检查配置缓存是否有效
+        now = time.time()
+        if self._config_cache is not None and (now - self._config_cache_time) < self._config_cache_ttl:
+            logger.debug(f"📊 [数据源优先级] 使用缓存配置: {self._config_cache}")
+            return self._config_cache
+
         try:
             # 1. 识别市场分类
             from app.utils.stock_utils import StockUtils, StockMarket
@@ -144,6 +168,9 @@ class MongoDBCacheAdapter:
                     result = [ds.get('type', '').lower() for ds in enabled if ds.get('type')]
                     if result:
                         logger.info(f"✅ [数据源优先级] {symbol} ({market_category}): {result}")
+                        # 更新配置缓存
+                        self._config_cache = result
+                        self._config_cache_time = time.time()
                         return result
                     else:
                         logger.warning(f"⚠️ [数据源优先级] 没有可用的数据源配置，使用默认顺序")
@@ -230,12 +257,14 @@ class MongoDBCacheAdapter:
             # 获取数据源优先级
             priority_order = self._get_data_source_priority(symbol)
 
-            # 按优先级查询
+            # 按优先级查询（兼容 code/symbol 字段名）
             for data_source in priority_order:
                 # 构建查询条件
                 query = {
-                    "code": code6,
-                    "data_source": data_source  # 指定数据源
+                    "$or": [
+                        {"code": code6, "data_source": data_source},
+                        {"symbol": code6, "data_source": data_source},
+                    ]
                 }
                 if report_period:
                     query["report_period"] = report_period
@@ -263,13 +292,13 @@ class MongoDBCacheAdapter:
 
         try:
             collection = self.db.stock_news  # 修正集合名称
-            
-            # 构建查询条件
+
+            # 构建查询条件（兼容 code/symbol 字段名）
             query = {}
             if symbol:
                 code6 = str(symbol).zfill(6)
-                query["symbol"] = code6
-            
+                query["$or"] = [{"symbol": code6}, {"code": code6}]
+
             # 时间范围
             if hours_back:
                 start_time = now_utc() - timedelta(hours=hours_back)
@@ -294,16 +323,16 @@ class MongoDBCacheAdapter:
         """获取社媒数据"""
         if not self.use_app_cache or self.db is None:
             return None
-            
+
         try:
             collection = self.db.social_media_messages
-            
-            # 构建查询条件
+
+            # 构建查询条件（兼容 code/symbol 字段名）
             query = {}
             if symbol:
                 code6 = str(symbol).zfill(6)
-                query["symbol"] = code6
-            
+                query["$or"] = [{"symbol": code6}, {"code": code6}]
+
             # 时间范围
             if hours_back:
                 start_time = now_utc() - timedelta(hours=hours_back)
@@ -333,8 +362,9 @@ class MongoDBCacheAdapter:
             code6 = str(symbol).zfill(6)
             collection = self.db.market_quotes
             
-            # 获取最新行情
-            doc = collection.find_one({"code": code6}, {"_id": 0}, sort=[("timestamp", -1)])
+            # 获取最新行情（兼容 code/symbol 字段名）
+            query = {"$or": [{"code": code6}, {"symbol": code6}]}
+            doc = collection.find_one(query, {"_id": 0}, sort=[("timestamp", -1)])
             
             if doc:
                 logger.debug(f"✅ 从MongoDB获取行情数据: {symbol}")
@@ -350,11 +380,17 @@ class MongoDBCacheAdapter:
 
 # 全局实例
 _mongodb_cache_adapter = None
+_mongodb_cache_adapter_lock = threading.Lock()
 
 def get_mongodb_cache_adapter() -> MongoDBCacheAdapter:
-    """获取 MongoDB 缓存适配器实例"""
+    """获取 MongoDB 缓存适配器实例（线程安全）"""
     global _mongodb_cache_adapter
-    if _mongodb_cache_adapter is None:
+    if _mongodb_cache_adapter is not None:
+        return _mongodb_cache_adapter
+    with _mongodb_cache_adapter_lock:
+        # 双重检查锁定
+        if _mongodb_cache_adapter is not None:
+            return _mongodb_cache_adapter
         _mongodb_cache_adapter = MongoDBCacheAdapter()
     return _mongodb_cache_adapter
 

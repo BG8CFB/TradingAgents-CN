@@ -4,6 +4,7 @@
 """
 import asyncio
 import logging
+import threading
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -58,13 +59,6 @@ class NewsDataSyncService:
         if self._news_service is None:
             self._news_service = await get_news_data_service()
         return self._news_service
-    
-    async def _get_tushare_provider(self):
-        """获取Tushare提供者"""
-        if self._tushare_provider is None:
-            self._tushare_provider = get_tushare_provider()
-            await self._tushare_provider.connect()
-        return self._tushare_provider
     
     async def _get_tushare_provider(self):
         """获取Tushare提供者"""
@@ -507,13 +501,18 @@ class NewsDataSyncService:
             return stats
 
 
-# 全局服务实例
+# 全局服务实例（线程安全）
 _sync_service_instance = None
+_sync_service_lock = threading.Lock()
 
 async def get_news_data_sync_service() -> NewsDataSyncService:
-    """获取新闻数据同步服务实例"""
+    """获取新闻数据同步服务实例（线程安全单例）"""
     global _sync_service_instance
-    if _sync_service_instance is None:
-        _sync_service_instance = NewsDataSyncService()
-        logger.info("✅ 新闻数据同步服务初始化成功")
+    if _sync_service_instance is not None:
+        return _sync_service_instance
+    with _sync_service_lock:
+        # double-check
+        if _sync_service_instance is None:
+            _sync_service_instance = NewsDataSyncService()
+            logger.info("✅ 新闻数据同步服务初始化成功")
     return _sync_service_instance

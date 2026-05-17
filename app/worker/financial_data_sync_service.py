@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
@@ -323,14 +324,19 @@ class FinancialDataSyncService:
         return results
 
 
-# 全局服务实例
+# 全局服务实例（线程安全）
 _financial_sync_service = None
+_financial_sync_lock = threading.Lock()
 
 
 async def get_financial_sync_service() -> FinancialDataSyncService:
-    """获取财务数据同步服务实例"""
+    """获取财务数据同步服务实例（线程安全单例）"""
     global _financial_sync_service
-    if _financial_sync_service is None:
-        _financial_sync_service = FinancialDataSyncService()
-        await _financial_sync_service.initialize()
+    if _financial_sync_service is not None:
+        return _financial_sync_service
+    with _financial_sync_lock:
+        # double-check
+        if _financial_sync_service is None:
+            _financial_sync_service = FinancialDataSyncService()
+            await _financial_sync_service.initialize()
     return _financial_sync_service

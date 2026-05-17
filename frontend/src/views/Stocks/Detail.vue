@@ -3,7 +3,7 @@
     <!-- 顶部：代码 / 名称 / 操作 -->
     <div class="header">
       <div class="title">
-        <div class="code">{{ code }}</div>
+        <div class="code">{{ symbol }}</div>
         <div class="name">{{ stockName || '-' }}</div>
         <el-tag size="small">{{ market || '-' }}</el-tag>
       </div>
@@ -161,7 +161,7 @@
                 <el-icon><Reading /></el-icon>
                 分析摘要
               </div>
-              <div class="summary-text markdown-body" v-html="renderMarkdown(lastAnalysis?.summary || '-')"></div>
+              <div class="summary-text markdown-body" v-html="renderSafeMarkdown(lastAnalysis?.summary || '-')"></div>
             </div>
 
             <!-- 详细报告展示 -->
@@ -294,7 +294,7 @@
         >
           <div class="report-content">
             <el-scrollbar height="500px">
-              <div class="markdown-body" v-html="renderMarkdown(content)"></div>
+              <div class="markdown-body" v-html="renderSafeMarkdown(content)"></div>
             </el-scrollbar>
           </div>
         </el-tab-pane>
@@ -356,10 +356,9 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { TrendCharts, Star, Refresh, Link, Document, Clock, Reading, Delete } from '@element-plus/icons-vue'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/markdown'
 import { stocksApi } from '@/api/stocks'
 import { analysisApi } from '@/api/analysis'
-import { ApiClient } from '@/api/request'
 import { stockSyncApi } from '@/api/stockSync'
 import { clearAllCache } from '@/api/cache'
 import { use as echartsUse } from 'echarts/core'
@@ -416,7 +415,7 @@ const code = computed(() => {
   }
   return routeCode
 })
-const symbol = computed(() => code.value.split('.')[0])  // 提取6位代码
+const symbol = computed(() => code.value.replace(/\.\w+$/, ''))  // 去掉后缀（如 .SZ）
 const stockName = ref('')
 const market = ref('')
 const isFav = ref(false)
@@ -573,7 +572,7 @@ async function handleSync() {
   syncLoading.value = true
   try {
     const res = await stockSyncApi.syncSingle({
-      symbol: code.value,
+      symbol: symbol.value,
       sync_realtime: syncForm.syncTypes.includes('realtime'),
       sync_historical: syncForm.syncTypes.includes('historical'),
       sync_financial: syncForm.syncTypes.includes('financial'),
@@ -682,13 +681,13 @@ async function clearCache() {
 
 async function fetchQuote() {
   // 🔥 参数验证：确保股票代码不为空
-  if (!code.value) {
+  if (!symbol.value) {
     console.warn('股票代码为空，跳过获取报价')
     return
   }
 
   try {
-    const res = await stocksApi.getQuote(code.value)
+    const res = await stocksApi.getQuote(symbol.value)
     const d: any = (res as any)?.data || {}
     // 后端为 snake_case，前端状态为 camelCase，这里进行映射
     quote.price = Number(d.price ?? d.close ?? quote.price)
@@ -718,7 +717,7 @@ async function fetchQuote() {
 
 async function fetchFundamentals() {
   try {
-    const res = await stocksApi.getFundamentals(code.value)
+    const res = await stocksApi.getFundamentals(symbol.value)
     const f: any = (res as any)?.data || {}
     // 基本面快照映射（以后台为准）
     if (f.name) stockName.value = f.name
@@ -760,7 +759,7 @@ async function fetchSyncStatus() {
 let timer: any = null
 async function checkFavorite() {
   try {
-    const res: any = await favoritesApi.check(code.value)
+    const res: any = await favoritesApi.check(symbol.value)
     const d: any = (res as any)?.data || {}
     isFav.value = !!d.is_favorite
   } catch (e) {
@@ -810,7 +809,7 @@ watch(period, () => { fetchKline() })
 async function fetchKline() {
   try {
     const param = periodLabelToParam(period.value)
-    const res = await stocksApi.getKline(code.value, param as any, 200, 'none')
+    const res = await stocksApi.getKline(symbol.value, param as any, 200, 'none')
     const d: any = (res as any)?.data || {}
     klineSource.value = d.source
     const items: any[] = Array.isArray(d.items) ? d.items : []
@@ -869,7 +868,7 @@ function cleanTitle(s: any): string {
 
 async function fetchNews() {
   try {
-    const res = await stocksApi.getNews(code.value, 30, 50, true)
+    const res = await stocksApi.getNews(symbol.value, 30, 50, true)
     const d: any = (res as any)?.data || {}
     const itemsRaw: any[] = Array.isArray(d.items) ? d.items : []
     newsItems.value = itemsRaw.map((it: any) => {
@@ -909,7 +908,7 @@ const basics = reactive({
 
 // 操作
 function onAnalyze() {
-  router.push({ name: 'SingleAnalysis', query: { stock: code.value } })
+  router.push({ name: 'SingleAnalysis', query: { stock: symbol.value } })
 }
 async function onToggleFavorite() {
   try {
@@ -924,7 +923,7 @@ async function onToggleFavorite() {
       isFav.value = true
       ElMessage.success('已加入自选')
     } else {
-      await favoritesApi.remove(code.value)
+      await favoritesApi.remove(symbol.value)
       isFav.value = false
       ElMessage.success('已移出自选')
     }
@@ -1168,11 +1167,11 @@ function formatReportName(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
 }
 
-// 渲染Markdown
-function renderMarkdown(content: string): string {
+// 安全渲染 Markdown（通过 @/utils/markdown 的 renderMarkdown 已含 DOMPurify 消毒）
+function renderSafeMarkdown(content: string): string {
   if (!content) return '<p>暂无内容</p>'
   try {
-    return marked(content) as string
+    return renderMarkdown(content)
   } catch (e) {
     console.error('Markdown渲染失败:', e)
     return `<pre>${content}</pre>`

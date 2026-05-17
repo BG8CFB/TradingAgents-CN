@@ -3,8 +3,8 @@ Tushare数据同步服务
 负责将Tushare数据同步到MongoDB标准化集合
 """
 import asyncio
-from datetime import datetime, timedelta, timezone, time as dt_time
-from typing import List, Dict, Any, Optional
+from datetime import timedelta, time as dt_time
+from typing import List, Dict, Any
 import logging
 
 from app.data.providers.china.tushare import TushareProvider
@@ -595,9 +595,9 @@ class TushareSyncService(BaseSyncService):
                             }
                         ]
                     },
-                    {"code": 1}
+                    {"symbol": 1}
                 )
-                symbols = [doc["code"] async for doc in cursor]
+                symbols = [doc["symbol"] async for doc in cursor]
                 logger.info(f"📋 从 stock_basic_info 获取到 {len(symbols)} 只股票（已排除退市股票）")
 
             stats["total_processed"] = len(symbols)
@@ -705,13 +705,23 @@ class TushareSyncService(BaseSyncService):
                     import traceback
                     error_details = traceback.format_exc()
                     stats["error_count"] += 1
-                    stats["errors"].append({
-                        "code": symbol,
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                        "context": f"sync_historical_data_{period}",
-                        "traceback": error_details
-                    })
+                    # 限制错误列表最大长度，超出时只保留摘要
+                    MAX_ERROR_LIST_SIZE = 100
+                    if len(stats["errors"]) < MAX_ERROR_LIST_SIZE:
+                        stats["errors"].append({
+                            "code": symbol,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "context": f"sync_historical_data_{period}",
+                            "traceback": error_details
+                        })
+                    elif len(stats["errors"]) == MAX_ERROR_LIST_SIZE:
+                        stats["errors"].append({
+                            "code": "__truncated__",
+                            "error": f"错误列表已达上限 {MAX_ERROR_LIST_SIZE}，后续错误仅计数不再记录详情",
+                            "error_type": "Warning",
+                            "context": f"sync_historical_data_{period}",
+                        })
                     logger.error(
                         f"❌ {symbol} {period_name}数据同步失败\n"
                         f"   参数: start={symbol_start_date if 'symbol_start_date' in locals() else 'N/A'}, "
@@ -815,9 +825,9 @@ class TushareSyncService(BaseSyncService):
                             {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}  # 按市场类型
                         ]
                     },
-                    {"code": 1}
+                    {"symbol": 1}
                 )
-                symbols = [doc["code"] async for doc in cursor]
+                symbols = [doc["symbol"] async for doc in cursor]
                 logger.info(f"📋 从 stock_basic_info 获取到 {len(symbols)} 只股票")
 
             stats["total_processed"] = len(symbols)
@@ -1202,21 +1212,34 @@ class TushareSyncService(BaseSyncService):
             logger.error(f"❌ 更新任务进度失败: {e}", exc_info=True)
 
 
-# 全局同步服务实例
+# 全局同步服务实例 + 懒初始化 asyncio.Lock
 _tushare_sync_service = None
+_tushare_lock = None
+
+
+def _get_tushare_lock():
+    """懒初始化 asyncio.Lock，避免在模块导入时（可能没有事件循环）创建锁"""
+    global _tushare_lock
+    if _tushare_lock is None:
+        _tushare_lock = asyncio.Lock()
+    return _tushare_lock
+
 
 async def get_tushare_sync_service() -> TushareSyncService:
     """获取Tushare同步服务实例"""
     global _tushare_sync_service
-    if _tushare_sync_service is None:
-        # 前置检查 Token 有效性，避免无效连接反复报错
-        token = getattr(settings, "TUSHARE_TOKEN", "")
-        if not token or token.startswith("your_") or "here" in token.lower():
-            logger.debug("Tushare Token 未配置或为占位符，跳过同步服务初始化")
-            return None
-        _tushare_sync_service = TushareSyncService()
-        await _tushare_sync_service.initialize()
-    return _tushare_sync_service
+    if _tushare_sync_service is not None:
+        return _tushare_sync_service
+    async with _get_tushare_lock():
+        if _tushare_sync_service is None:
+            # 前置检查 Token 有效性，避免无效连接反复报错
+            token = getattr(settings, "TUSHARE_TOKEN", "")
+            if not token or token.startswith("your_") or "here" in token.lower():
+                logger.debug("Tushare Token 未配置或为占位符，跳过同步服务初始化")
+                return None
+            _tushare_sync_service = TushareSyncService()
+            await _tushare_sync_service.initialize()
+        return _tushare_sync_service
 
 
 # APScheduler兼容的任务函数
@@ -1260,7 +1283,7 @@ async def run_tushare_historical_sync(incremental: bool = True):
         service = await get_tushare_sync_service()
         if service is None:
             return {"skipped": True, "reason": "Tushare Token 未配置"}
-        logger.info(f"✅ [APScheduler] Tushare 同步服务已初始化")
+        logger.info("✅ [APScheduler] Tushare 同步服务已初始化")
         result = await service.sync_historical_data(incremental=incremental, job_id="tushare_historical_sync")
         logger.info(f"✅ [APScheduler] Tushare历史数据同步完成: {result}")
         return result

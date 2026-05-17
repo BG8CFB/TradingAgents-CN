@@ -724,15 +724,9 @@ import type { MCPTool } from '@/types/mcp'
 import DeepModelSelector from '@/components/DeepModelSelector.vue'
 import { normalizeAnalystIds } from '@/constants/analysts'
 import { PHASES, estimateTotalTime } from '@/constants/phases'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/markdown'
 import { validateStockCode, getStockCodeFormatHelp } from '@/utils/stockValidator'
 import { normalizeMarketForAnalysis, getMarketByStockCode } from '@/utils/market'
-
-// 配置marked选项
-marked.setOptions({
-  breaks: true,        // 支持换行符转换为<br>
-  gfm: true           // 启用GitHub风格的Markdown
-})
 
 // 市场类型定义
 type MarketType = 'A股' | '美股' | '港股'
@@ -763,7 +757,6 @@ interface AnalysisForm {
 }
 
 // 使用store
-const authStore = useAuthStore()
 const route = useRoute()
 
 const submitting = ref(false)
@@ -1616,16 +1609,18 @@ const formatReportContent = (content: any) => {
   }
 
   try {
-    // 使用marked库将Markdown转换为HTML
-    const htmlContent = marked.parse(stringContent) as string
+    // 使用 renderMarkdown 安全地将 Markdown 转换为经过 DOMPurify 消毒的 HTML
+    const htmlContent = renderMarkdown(stringContent)
 
-    console.log('🎨 [DEBUG] Marked转换完成，HTML长度:', htmlContent.length)
-    console.log('🎨 [DEBUG] HTML前200字符:', htmlContent.substring(0, 200))
+    if (import.meta.env.DEV) {
+      console.log('🎨 [DEBUG] Markdown渲染完成，HTML长度:', htmlContent.length)
+      console.log('🎨 [DEBUG] HTML前200字符:', htmlContent.substring(0, 200))
+    }
 
     return htmlContent
   } catch (error) {
-    console.error('❌ [ERROR] Marked转换失败:', error)
-    // 如果marked转换失败，回退到简单的文本显示
+    console.error('❌ [ERROR] Markdown渲染失败:', error)
+    // 如果渲染失败，回退到简单的文本显示
     return `<pre style="white-space: pre-wrap; font-family: inherit;">${stringContent}</pre>`
   }
 }

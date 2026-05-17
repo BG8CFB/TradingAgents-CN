@@ -6,7 +6,6 @@ import logging
 from typing import List, Optional, Dict, Any
 
 from app.core.database import get_mongo_db
-from app.core.unified_config import unified_config
 from app.models.config import (
     SystemConfig, LLMConfig, DataSourceConfig, DatabaseConfig,
     ModelProvider, DataSourceType, DatabaseType
@@ -59,16 +58,6 @@ class SystemService:
 
         except Exception as e:
             print(f"❌ 从数据库获取配置失败: {e}")
-
-            # 作为最后的回退，尝试从统一配置管理器获取
-            try:
-                unified_system_config = await unified_config.get_unified_system_config()
-                if unified_system_config:
-                    print("🔄 回退到统一配置管理器")
-                    return unified_system_config
-            except Exception as e2:
-                print(f"从统一配置获取也失败: {e2}")
-
             return None
 
     async def _create_default_config(self) -> SystemConfig:
@@ -236,9 +225,6 @@ class SystemService:
             if saved_config:
                 print(f"✅ 配置保存成功，验证LLM配置数量: {len(saved_config.get('llm_configs', []))}")
 
-                # 暂时跳过统一配置同步，避免冲突
-                # unified_config.sync_to_legacy_format(config)
-
                 return True
             else:
                 print("❌ 配置保存验证失败")
@@ -299,15 +285,6 @@ class SystemService:
                 print(f"  ⚠️  更新后不包含 debate_model")
 
             result = await self.save_system_config(config)
-
-            # 同步到文件系统（供 unified_config 使用）
-            if result:
-                try:
-                    from app.core.unified_config import unified_config
-                    unified_config.sync_to_legacy_format(config)
-                    print(f"✅ 系统设置已同步到文件系统")
-                except Exception as e:
-                    print(f"⚠️  同步系统设置到文件系统失败: {e}")
 
             return result
 

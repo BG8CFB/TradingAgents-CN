@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from .auth_db import get_current_user
 from ..services.reports_service import get_reports_service
 from ..utils.timezone import now_config_tz, format_date_short
+from ..core.response import safe_error_message
 import logging
 
 logger = logging.getLogger("webapi")
@@ -74,7 +75,7 @@ async def get_reports_list(
 
     except Exception as e:
         logger.error(f"获取报告列表失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))
 
 @router.get("/{report_id}/detail")
 async def get_report_detail(
@@ -101,7 +102,7 @@ async def get_report_detail(
         raise
     except Exception as e:
         logger.error(f"获取报告详情失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))
 
 @router.get("/{report_id}/content/{module}")
 async def get_report_module_content(
@@ -129,7 +130,7 @@ async def get_report_module_content(
         raise
     except Exception as e:
         logger.error(f"获取报告模块内容失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))
 
 @router.delete("/{report_id}")
 async def delete_report(
@@ -157,7 +158,7 @@ async def delete_report(
         raise
     except Exception as e:
         logger.error(f"删除报告失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))
 
 @router.get("/{report_id}/download")
 async def download_report(
@@ -265,7 +266,7 @@ async def download_report(
                 )
             except Exception as e:
                 logger.error(f"Word 文档生成失败: {e}")
-                raise HTTPException(status_code=500, detail=f"Word 文档生成失败: {str(e)}")
+                raise HTTPException(status_code=500, detail=safe_error_message(e, "Word 文档生成失败"))
 
         elif format == "pdf":
             # PDF 格式下载
@@ -293,7 +294,7 @@ async def download_report(
                 )
             except Exception as e:
                 logger.error(f"PDF 文档生成失败: {e}")
-                raise HTTPException(status_code=500, detail=f"PDF 文档生成失败: {str(e)}")
+                raise HTTPException(status_code=500, detail=safe_error_message(e, "PDF 文档生成失败"))
 
         else:
             raise HTTPException(status_code=400, detail=f"不支持的下载格式: {format}")
@@ -302,4 +303,4 @@ async def download_report(
         raise
     except Exception as e:
         logger.error(f"下载报告失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))

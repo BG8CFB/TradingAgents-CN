@@ -3,18 +3,18 @@
 支持单个股票或批量股票的历史数据和财务数据同步
 """
 
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from app.routers.auth_db import get_current_user
-from app.core.response import ok
+from app.core.response import ok, safe_error_message
 from app.worker.tushare_sync_service import get_tushare_sync_service
 from app.worker.akshare_sync_service import get_akshare_sync_service
 from app.worker.financial_data_sync_service import get_financial_sync_service
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_iso
 
 logger = logging.getLogger("webapi")
@@ -93,7 +93,7 @@ async def sync_single_stock(
                 # 🔥 单个股票实时行情同步：优先使用 AKShare（避免 Tushare 接口限制）
                 actual_data_source = request.data_source
                 if request.data_source == "tushare":
-                    logger.info(f"💡 单个股票实时行情同步，自动切换到 AKShare 数据源（避免 Tushare 接口限制）")
+                    logger.info("💡 单个股票实时行情同步，自动切换到 AKShare 数据源（避免 Tushare 接口限制）")
                     actual_data_source = "akshare"
 
                 if actual_data_source == "tushare":
@@ -111,8 +111,8 @@ async def sync_single_stock(
 
                 # 🔥 如果 AKShare 同步失败，回退到 Tushare 全量同步
                 if actual_data_source == "akshare" and realtime_result.get("success_count", 0) == 0:
-                    logger.warning(f"⚠️ AKShare 同步失败，回退到 Tushare 全量同步")
-                    logger.info(f"💡 Tushare 只支持全量同步，将同步所有股票的实时行情")
+                    logger.warning("⚠️ AKShare 同步失败，回退到 Tushare 全量同步")
+                    logger.info("💡 Tushare 只支持全量同步，将同步所有股票的实时行情")
 
                     tushare_service = await get_tushare_sync_service()
                     if tushare_service:
@@ -123,7 +123,7 @@ async def sync_single_stock(
                         )
                         logger.info(f"✅ Tushare 全量同步完成: 成功 {realtime_result.get('success_count', 0)} 只")
                     else:
-                        logger.error(f"❌ Tushare 服务不可用，无法回退")
+                        logger.error("❌ Tushare 服务不可用，无法回退")
                         realtime_result["fallback_failed"] = True
 
                 success = realtime_result.get("success_count", 0) > 0
@@ -336,7 +336,6 @@ async def sync_single_stock(
 
                             # 构建文档
                             doc = {
-                                "code": code,
                                 "symbol": code,
                                 "name": name,
                                 "area": area,
@@ -344,8 +343,7 @@ async def sync_single_stock(
                                 "market": market,
                                 "list_date": list_date,
                                 "sse": sse,
-                                "sec": "stock_cn",
-                                "source": "tushare",
+                                "data_source": "tushare",
                                 "updated_at": now_iso,
                                 "full_symbol": full_symbol,
                             }
@@ -410,9 +408,8 @@ async def sync_single_stock(
                             basic_data = basic_info
 
                         # 确保必要字段
-                        basic_data["code"] = symbol6
                         basic_data["symbol"] = symbol6
-                        basic_data["source"] = "akshare"
+                        basic_data["data_source"] = "akshare"
                         basic_data["updated_at"] = format_iso(now_utc())
 
                         # 通过 service 层更新到数据库
@@ -463,7 +460,7 @@ async def sync_single_stock(
 
     except Exception as e:
         logger.error(f"❌ 同步单个股票失败: {e}")
-        raise HTTPException(status_code=500, detail=f"同步失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "同步失败"))
 
 
 @router.post("/batch")
@@ -592,8 +589,8 @@ async def sync_batch_stocks(
                                     symbol6 = str(symbol).zfill(6)
 
                                     # 添加必要字段
-                                    basic_info["code"] = symbol6
-                                    basic_info["source"] = "tushare"
+                                    basic_info["symbol"] = symbol6
+                                    basic_info["data_source"] = "tushare"
                                     basic_info["updated_at"] = now_utc()
 
                                     # 通过 service 层更新数据库
@@ -657,7 +654,7 @@ async def sync_batch_stocks(
 
     except Exception as e:
         logger.error(f"❌ 批量同步失败: {e}")
-        raise HTTPException(status_code=500, detail=f"批量同步失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "批量同步失败"))
 
 
 @router.get("/status/{symbol}")
@@ -705,4 +702,4 @@ async def get_sync_status(
 
     except Exception as e:
         logger.error(f"❌ 获取同步状态失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取同步状态失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取同步状态失败"))

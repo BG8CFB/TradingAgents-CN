@@ -1473,39 +1473,6 @@ const getProviderType = (features: string[] = []): string => {
   return 'llm'
 }
 
-const getCapabilityLevelText = (level: number) => {
-  const levelMap: Record<number, string> = {
-    1: '1级-基础',
-    2: '2级-标准',
-    3: '3级-高级',
-    4: '4级-专业',
-    5: '5级-旗舰'
-  }
-  return levelMap[level] || `${level}级`
-}
-
-// 🆕 获取能力等级标签类型
-const getCapabilityLevelType = (level: number): 'primary' | 'success' | 'warning' | 'info' | 'danger' => {
-  const typeMap: Record<number, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
-    1: 'info',
-    2: 'info',
-    3: 'success',
-    4: 'warning',
-    5: 'danger'
-  }
-  return typeMap[level] || 'info' as const
-}
-
-// 🆕 获取角色文本
-const getRoleText = (role: string) => {
-  const roleMap: Record<string, string> = {
-    'analyst': '一阶段分析',
-    'debate': '辩论推理',
-    'both': '全能型'
-  }
-  return roleMap[role] || role
-}
-
 // 🆕 格式化价格显示（去除尾部多余的零）
 const formatPrice = (price: number | undefined | null) => {
   if (price === undefined || price === null) {

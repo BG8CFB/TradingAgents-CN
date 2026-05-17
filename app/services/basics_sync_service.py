@@ -66,17 +66,17 @@ class BasicsSyncService:
             collection = db[DATA_COLLECTION]
             logger.info("📊 检查并创建股票基础信息索引...")
 
-            # 1. 复合唯一索引：股票代码+数据源（用于 upsert）
+            # 1. 复合唯一索引：symbol+data_source（用于 upsert）
             await collection.create_index([
-                ("code", 1),
-                ("source", 1)
-            ], unique=True, name="code_source_unique", background=True)
+                ("symbol", 1),
+                ("data_source", 1)
+            ], unique=True, name="symbol_source_unique", background=True)
 
-            # 2. 股票代码索引（查询所有数据源）
-            await collection.create_index([("code", 1)], name="code_index", background=True)
+            # 2. symbol 索引（查询所有数据源）
+            await collection.create_index([("symbol", 1)], name="symbol_index", background=True)
 
-            # 3. 数据源索引（按数据源筛选）
-            await collection.create_index([("source", 1)], name="source_index", background=True)
+            # 3. data_source 索引（按数据源筛选）
+            await collection.create_index([("data_source", 1)], name="data_source_index", background=True)
 
             # 4. 股票名称索引（按名称搜索）
             await collection.create_index([("name", 1)], name="name_index", background=True)
@@ -274,18 +274,16 @@ class BasicsSyncService:
                 full_symbol = self._generate_full_symbol(code)
 
                 doc = {
-                    "code": code,
-                    "symbol": code,  # 添加 symbol 字段（标准化字段）
+                    "symbol": code,
                     "name": name,
                     "area": area,
                     "industry": industry,
                     "market": market,
                     "list_date": list_date,
                     "sse": sse,
-                    "sec": category,
-                    "source": "tushare",  # 🔥 数据源标识
+                    "data_source": "tushare",
                     "updated_at": now_iso,
-                    "full_symbol": full_symbol,  # 添加完整标准化代码
+                    "full_symbol": full_symbol,
                 }
 
                 # Add market cap fields
@@ -316,7 +314,7 @@ class BasicsSyncService:
 
                 # 🔥 使用 (code, source) 联合查询条件
                 ops.append(
-                    UpdateOne({"code": code, "source": "tushare"}, {"$set": doc}, upsert=True)
+                    UpdateOne({"symbol": code, "data_source": "tushare"}, {"$set": doc}, upsert=True)
                 )
 
             inserted = 0
@@ -376,35 +374,11 @@ class BasicsSyncService:
         return _fetch_latest_roe_map_util()
 
     def _generate_full_symbol(self, code: str) -> str:
-        """
-        根据股票代码生成完整标准化代码
-
-        Args:
-            code: 6位股票代码
-
-        Returns:
-            完整标准化代码（如 000001.SZ），如果代码无效则返回原始代码（确保不为空）
-        """
-        # 确保 code 不为空
+        """根据股票代码生成完整标准化代码 — 委托到全局统一函数"""
+        from app.data.schema.base import get_full_symbol
         if not code:
             return ""
-
-        # 标准化为字符串并去除空格
-        code = str(code).strip()
-
-        # 如果长度不是 6，返回原始代码（避免返回 None）
-        if len(code) != 6:
-            return code
-
-        # 根据代码判断交易所
-        if code.startswith(('60', '68', '90')):
-            return f"{code}.SS"  # 上海证券交易所
-        elif code.startswith(('00', '30', '20')):
-            return f"{code}.SZ"  # 深圳证券交易所
-        elif code.startswith(('8', '4')):
-            return f"{code}.BJ"  # 北京证券交易所
-        else:
-            # 无法识别的代码，返回原始代码（确保不为空）
+        return get_full_symbol(str(code).strip(), "CN")
             return code if code else ""
 
 

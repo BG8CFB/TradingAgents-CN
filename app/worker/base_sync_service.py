@@ -129,7 +129,10 @@ class BaseSyncService(ABC):
         检查数据是否新鲜
 
         Args:
-            updated_at: 更新时间（datetime 或 ISO 字符串）
+            updated_at: 更新时间。期望传入 UTC 时间（datetime 对象或 ISO 格式字符串）。
+                        如果是 aware datetime 或带 'Z' 后缀的 ISO 字符串，会自动去掉时区信息
+                        后与 now_utc() 进行 naive 比较。如果上游存入的是本地时间（如 CST），
+                        则比较结果可能存在时区偏差。
             hours: 新鲜度阈值（小时）
 
         Returns:

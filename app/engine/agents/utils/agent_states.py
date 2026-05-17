@@ -5,7 +5,6 @@ from langchain_openai import ChatOpenAI
 from app.engine.agents import *
 from langgraph.prebuilt import ToolNode
 from langgraph.graph import END, StateGraph, START, MessagesState
-from langgraph.managed import RemainingSteps  # 🔥 新增：用于防止无限循环
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
@@ -59,6 +58,14 @@ class RiskDebateState(TypedDict):
     judge_decision: Annotated[str, "Judge's decision"]
     count: Annotated[int, "Length of the current conversation"]  # Conversation length
 
+    # 多轮辩论结构化状态
+    rounds: Annotated[list[dict[str, str]], "Structured debate rounds content"]
+    current_round_index: Annotated[int, "Current debate round index (0-based)"]
+    max_rounds: Annotated[int, "Max debate rounds (default 3)"]
+    risky_report_content: Annotated[str, "Accumulated Risky Report (Markdown)"]
+    safe_report_content: Annotated[str, "Accumulated Safe Report (Markdown)"]
+    neutral_report_content: Annotated[str, "Accumulated Neutral Report (Markdown)"]
+
 
 def update_reports(existing: dict, new: dict) -> dict:
     """Reducer for merging reports dictionaries"""
@@ -79,11 +86,6 @@ def update_reports(existing: dict, new: dict) -> dict:
 
 
 class AgentState(MessagesState):
-    # 🔥 新增：LangGraph ReAct Agent 要求的 remaining_steps 字段
-    # 使用 NotRequired[RemainingSteps] annotation 自动管理剩余步数，防止无限循环
-    # 参考：LangGraph 默认 AgentState 定义（chat_agent_executor.py:62）
-    remaining_steps: NotRequired[RemainingSteps]
-
     company_of_interest: Annotated[str, "Company that we are interested in trading"]
     trade_date: Annotated[str, "What date we are trading at"]
 

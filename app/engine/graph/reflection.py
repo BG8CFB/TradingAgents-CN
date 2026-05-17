@@ -15,6 +15,8 @@ class Reflector:
         """Initialize the reflector with an LLM."""
         self.llm = llm
         self.reflection_system_prompt = self._get_reflection_prompt()
+        self._cached_situation = ""
+        self._situation_state_id = None
 
     def _get_reflection_prompt(self) -> str:
         """Get the system prompt for reflection."""
@@ -74,55 +76,71 @@ Adhere strictly to these instructions, and ensure your output is detailed, accur
             ),
         ]
 
-        result = self.llm.invoke(messages).content
-        return result
+        try:
+            result = self.llm.invoke(messages).content
+            return result
+        except Exception as e:
+            logger.error(f"反思组件 [{component_type}] 失败: {e}")
+            return ""
 
     def reflect_bull_researcher(self, current_state, returns_losses, bull_memory):
         """Reflect on bull researcher's analysis and update memory."""
-        situation = self._extract_current_situation(current_state)
+        situation = self._get_situation(current_state)
         bull_debate_history = current_state.get("investment_debate_state", {}).get("bull_history", "")
 
         result = self._reflect_on_component(
             "BULL", bull_debate_history, situation, returns_losses
         )
-        bull_memory.add_situations([(situation, result)])
+        if result:
+            bull_memory.add_situations([(situation, result)])
 
     def reflect_bear_researcher(self, current_state, returns_losses, bear_memory):
         """Reflect on bear researcher's analysis and update memory."""
-        situation = self._extract_current_situation(current_state)
+        situation = self._get_situation(current_state)
         bear_debate_history = current_state.get("investment_debate_state", {}).get("bear_history", "")
 
         result = self._reflect_on_component(
             "BEAR", bear_debate_history, situation, returns_losses
         )
-        bear_memory.add_situations([(situation, result)])
+        if result:
+            bear_memory.add_situations([(situation, result)])
 
     def reflect_trader(self, current_state, returns_losses, trader_memory):
         """Reflect on trader's decision and update memory."""
-        situation = self._extract_current_situation(current_state)
+        situation = self._get_situation(current_state)
         trader_decision = current_state.get("trader_investment_plan", "")
 
         result = self._reflect_on_component(
             "TRADER", trader_decision, situation, returns_losses
         )
-        trader_memory.add_situations([(situation, result)])
+        if result:
+            trader_memory.add_situations([(situation, result)])
 
     def reflect_invest_judge(self, current_state, returns_losses, invest_judge_memory):
         """Reflect on investment judge's decision and update memory."""
-        situation = self._extract_current_situation(current_state)
+        situation = self._get_situation(current_state)
         judge_decision = current_state.get("investment_debate_state", {}).get("judge_decision", "")
 
         result = self._reflect_on_component(
             "INVEST JUDGE", judge_decision, situation, returns_losses
         )
-        invest_judge_memory.add_situations([(situation, result)])
+        if result:
+            invest_judge_memory.add_situations([(situation, result)])
 
     def reflect_risk_manager(self, current_state, returns_losses, risk_manager_memory):
         """Reflect on risk manager's decision and update memory."""
-        situation = self._extract_current_situation(current_state)
+        situation = self._get_situation(current_state)
         judge_decision = current_state.get("risk_debate_state", {}).get("judge_decision", "")
 
         result = self._reflect_on_component(
             "RISK JUDGE", judge_decision, situation, returns_losses
         )
-        risk_manager_memory.add_situations([(situation, result)])
+        if result:
+            risk_manager_memory.add_situations([(situation, result)])
+
+    def _get_situation(self, current_state: Dict[str, Any]) -> str:
+        """提取并缓存当前市场状况"""
+        if not hasattr(self, '_cached_situation') or self._situation_state_id != id(current_state):
+            self._cached_situation = self._extract_current_situation(current_state)
+            self._situation_state_id = id(current_state)
+        return self._cached_situation

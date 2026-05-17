@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, time as dtime, timedelta
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
 from collections import deque
 
@@ -8,7 +8,7 @@ from pymongo import UpdateOne
 
 from app.core.config import settings
 from app.core.database import get_mongo_db
-from app.data.manager import DataSourceManager
+from app.data import reader as _data_reader
 from app.utils.time_utils import now_config_tz, format_date_compact
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,10 @@ class QuotesIngestionService:
     - 接口轮换：Tushare → AKShare东方财富 → AKShare新浪财经（避免单一接口被限流）
     - 智能限流：Tushare免费用户每小时最多2次，付费用户自动切换到高频模式（5秒）
     - 休市时间：跳过任务，保持上次收盘数据；必要时执行一次性兜底补数
-    - 字段：code(6位)、close、pct_chg、amount、open、high、low、pre_close、trade_date、updated_at
+    - 字段：symbol(6位)、close、pct_chg、amount、open、high、low、pre_close、trade_date、data_source、updated_at
     """
 
     def __init__(self, collection_name: str = "market_quotes") -> None:
-        from collections import deque
 
         self.collection_name = collection_name
         self.status_collection_name = "quotes_ingestion_status"  # 状态记录集合
@@ -89,7 +88,7 @@ class QuotesIngestionService:
         db = get_mongo_db()
         coll = db[self.collection_name]
         try:
-            await coll.create_index("code", unique=True)
+            await coll.create_index("symbol", unique=True)
             await coll.create_index("updated_at")
         except Exception as e:
             logger.warning(f"创建行情表索引失败（忽略）: {e}")
@@ -373,22 +372,19 @@ class QuotesIngestionService:
         for code, q in quotes_map.items():
             if not code:
                 continue
-            # 使用标准化方法处理股票代码（去掉交易所前缀，如 sz000001 -> 000001）
-            code6 = self._normalize_stock_code(code)
-            if not code6:
+            symbol6 = self._normalize_stock_code(code)
+            if not symbol6:
                 continue
 
-            # 🔥 日志：记录写入的成交量值
             volume = q.get("volume")
-            if code6 in ["300750", "000001", "600000"]:  # 只记录几个示例股票
-                logger.info(f"📊 [写入market_quotes] {code6} - volume={volume}, amount={q.get('amount')}, source={source}")
+            if symbol6 in ["300750", "000001", "600000"]:
+                logger.info(f"📊 [写入market_quotes] {symbol6} - volume={volume}, amount={q.get('amount')}, source={source}")
 
             ops.append(
                 UpdateOne(
-                    {"code": code6},
+                    {"symbol": symbol6},
                     {"$set": {
-                        "code": code6,
-                        "symbol": code6,  # 添加 symbol 字段，与 code 保持一致
+                        "symbol": symbol6,
                         "close": q.get("close"),
                         "pct_chg": q.get("pct_chg"),
                         "amount": q.get("amount"),
@@ -398,6 +394,7 @@ class QuotesIngestionService:
                         "low": q.get("low"),
                         "pre_close": q.get("pre_close"),
                         "trade_date": trade_date,
+                        "data_source": source,
                         "updated_at": updated_at,
                     }},
                     upsert=True,
@@ -430,7 +427,7 @@ class QuotesIngestionService:
             logger.info("📊 market_quotes 集合为空，开始从历史数据导入")
 
             db = get_mongo_db()
-            manager = DataSourceManager()
+            manager = _data_reader
 
             # 获取最新交易日
             try:
@@ -466,17 +463,16 @@ class QuotesIngestionService:
                 code = doc.get("symbol") or doc.get("code")
                 if not code:
                     continue
-                code6 = str(code).zfill(6)
+                symbol6 = str(code).zfill(6)
 
                 # 🔥 获取成交量，优先使用 volume 字段
                 volume_value = doc.get("volume") or doc.get("vol")
                 data_source = doc.get("data_source", "")
 
-                # 🔥 日志：记录原始成交量值
-                if code6 in ["300750", "000001", "600000"]:  # 只记录几个示例股票
-                    logger.info(f"📊 [回填] {code6} - volume={doc.get('volume')}, vol={doc.get('vol')}, data_source={data_source}")
+                if symbol6 in ["300750", "000001", "600000"]:
+                    logger.info(f"📊 [回填] {symbol6} - volume={doc.get('volume')}, vol={doc.get('vol')}, data_source={data_source}")
 
-                quotes_map[code6] = {
+                quotes_map[symbol6] = {
                     "close": doc.get("close"),
                     "pct_chg": doc.get("pct_chg"),
                     "amount": doc.get("amount"),
@@ -501,7 +497,7 @@ class QuotesIngestionService:
     async def backfill_last_close_snapshot(self) -> None:
         """一次性补齐上一笔收盘快照（用于冷启动或数据陈旧）。允许在休市期调用。"""
         try:
-            manager = DataSourceManager()
+            manager = _data_reader
             # 使用近实时快照作为兜底，休市期返回的即为最后收盘数据
             quotes_map, source = manager.get_realtime_quotes_with_fallback()
             if not quotes_map:
@@ -527,7 +523,7 @@ class QuotesIngestionService:
                 return
 
             # 如果集合不为空但数据陈旧，使用实时接口更新
-            manager = DataSourceManager()
+            manager = _data_reader
             latest_td = manager.find_latest_trade_date_with_fallback()
             if await self._collection_stale(latest_td):
                 logger.info("🔁 触发休市期/启动期 backfill 以填充最新收盘数据")
@@ -647,7 +643,7 @@ class QuotesIngestionService:
 
             # 获取交易日
             try:
-                manager = DataSourceManager()
+                manager = _data_reader
                 trade_date = manager.find_latest_trade_date_with_fallback() or format_date_compact(now_config_tz())
             except Exception:
                 trade_date = format_date_compact(now_config_tz())
@@ -711,7 +707,7 @@ class QuotesIngestionService:
             db = get_mongo_db()
             symbol6 = str(symbol).zfill(6)
 
-            doc = await db[self.collection_name].find_one({"code": symbol6})
+            doc = await db[self.collection_name].find_one({"symbol": symbol6})
             return doc
 
         except Exception as e:
@@ -734,7 +730,7 @@ class QuotesIngestionService:
             symbol6 = str(symbol).zfill(6)
 
             result = await db[self.collection_name].update_one(
-                {"code": symbol6},
+                {"symbol": symbol6},
                 {"$set": quote_data},
                 upsert=True
             )
@@ -787,7 +783,6 @@ class QuotesIngestionService:
 
         # 提取需要的字段
         quote_data = {
-            "code": symbol6,
             "symbol": symbol6,
             "close": latest_doc.get("close"),
             "open": latest_doc.get("open"),

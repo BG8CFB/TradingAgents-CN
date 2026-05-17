@@ -4,6 +4,7 @@ Redis客户端配置和连接管理
 
 import json
 import logging
+import threading
 import uuid
 from typing import Optional
 from redis.asyncio import Redis
@@ -164,11 +165,14 @@ class RedisService:
 
 # 全局Redis服务实例
 redis_service: Optional[RedisService] = None
+_redis_service_lock = threading.Lock()
 
 
 def get_redis_service() -> RedisService:
-    """获取Redis服务实例"""
+    """获取Redis服务实例（线程安全单例）"""
     global redis_service
     if redis_service is None:
-        redis_service = RedisService()
+        with _redis_service_lock:
+            if redis_service is None:
+                redis_service = RedisService()
     return redis_service

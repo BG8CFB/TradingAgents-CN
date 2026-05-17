@@ -231,7 +231,9 @@ BASIC_FIELDS_INFO = {
         supported_operators=[OperatorType.GT, OperatorType.LT, OperatorType.GTE, OperatorType.LTE, OperatorType.BETWEEN]
     ),
 
-    # 价格数据字段（现在在视图中，可以直接从数据库查询）
+    # 价格数据字段
+    # 标记为 FUNDAMENTAL 而非 TECHNICAL，是因为数据库视图（stock_basic_info）可直接查询，
+    # 无需走传统K线计算路径。不影响字段语义，仅影响筛选路径选择。
     "close": FieldInfo(
         name="close",
         display_name="收盘价",

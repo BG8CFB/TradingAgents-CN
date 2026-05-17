@@ -274,11 +274,13 @@ export const useAuthStore = defineStore('auth', {
           throw new Error('没有刷新令牌')
         }
 
-        console.log('📝 Refresh token信息:', {
-          length: this.refreshToken.length,
-          prefix: this.refreshToken.substring(0, 10),
-          isValid: this.refreshToken.split('.').length === 3
-        })
+        if (import.meta.env.DEV) {
+          console.log('📝 Refresh token信息:', {
+            length: this.refreshToken.length,
+            prefix: this.refreshToken.substring(0, 10),
+            isValid: this.refreshToken.split('.').length === 3
+          })
+        }
 
         // 验证refresh token格式
         if (this.refreshToken.split('.').length !== 3) {

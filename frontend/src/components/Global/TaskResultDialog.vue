@@ -15,7 +15,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{ modelValue: boolean; result: any }>()
 const emit = defineEmits(['update:modelValue','close','view-report'])
@@ -24,8 +24,5 @@ const visible = computed({
   get: () => props.modelValue,
   set: (v: boolean) => emit('update:modelValue', v)
 })
-
-marked.setOptions({ breaks: true, gfm: true })
-const renderMarkdown = (s: string) => { try { return marked.parse(s||'') as string } catch { return s } }
 </script>
 

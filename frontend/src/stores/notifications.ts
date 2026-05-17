@@ -91,6 +91,9 @@ export const useNotificationStore = defineStore('notifications', () => {
 
       // WebSocket 连接地址
       // 🔥 统一使用当前访问的服务器地址（开发环境通过 Vite 代理，生产环境通过 Nginx 代理）
+      // ⚠️ 安全说明：当前通过 URL query 参数传递 token（后端使用 Query(...) 提取）。
+      //    生产环境务必启用 HTTPS + WSS，避免 token 在网络传输中被截获。
+      //    长期方案应改为通过 Sec-WebSocket-Protocol 子协议传递，需后端同步修改。
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const host = window.location.host
       const wsUrl = `${wsProtocol}//${host}/api/ws/notifications?token=${encodeURIComponent(token)}`

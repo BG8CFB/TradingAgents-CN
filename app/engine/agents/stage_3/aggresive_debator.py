@@ -1,3 +1,5 @@
+import copy
+
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 import time
 
@@ -9,6 +11,9 @@ from app.engine.agents.utils.generic_agent import (
     load_agent_config,
     resolve_company_name,
 )
+
+# Stage 3 内部报告 key — 必须在辩手之间互相屏蔽，防止同轮泄漏
+_STAGE3_REPORT_KEYS = frozenset({"risky_analyst", "safe_analyst", "neutral_analyst"})
 
 
 def create_risky_debator(llm):
@@ -69,9 +74,9 @@ def create_risky_debator(llm):
         messages = [SystemMessage(content=system_prompt)]
 
         # 4. 注入基础报告
-        # 过滤掉自己生成的累积报告，避免死循环
+        # 过滤掉 Stage 3 所有辩手的累积报告，防止同轮输出泄漏
         for key, content in all_reports.items():
-            if content and "risky_report" not in key: 
+            if content and key not in _STAGE3_REPORT_KEYS:
                 display_name = key.replace("_report", "").replace("_", " ").title() + "报告"
                 messages.append(HumanMessage(content=f"=== 参考资料：{display_name} ===\n{content}"))
 
@@ -151,7 +156,7 @@ def create_risky_debator(llm):
 
         # 构造返回状态
         # 必须保留原有状态的所有字段，避免丢失历史数据
-        new_risk_debate_state = risk_debate_state.copy()
+        new_risk_debate_state = copy.deepcopy(risk_debate_state)
         new_risk_debate_state.update({
             "rounds": rounds,
             "risky_report_content": risky_report_content,
@@ -159,7 +164,7 @@ def create_risky_debator(llm):
             "history": risk_debate_state.get("history", "") + f"\n{argument_prefix}\n{content}",
             "current_risky_response": content,
             "count": risk_debate_state.get("count", 0) + 1,
-            "current_round_index": current_round_index + 1,
+            "current_round_index": (risk_debate_state.get("count", 0) + 1) // 3,  # 3个辩手共享同一轮
             "latest_speaker": "Risky Analyst"
         })
 

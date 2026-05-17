@@ -6,8 +6,8 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional
 from datetime import datetime, timedelta
 
-from app.routers.auth_db import get_current_user
-from app.core.response import ok
+from app.routers.auth_db import get_current_user, require_admin
+from app.core.response import ok, safe_error_message
 from app.utils.logging_manager import get_logger
 
 logger = get_logger(__name__)
@@ -49,7 +49,7 @@ async def get_cache_stats(current_user: dict = Depends(get_current_user)):
         logger.error(f"获取缓存统计失败: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"获取缓存统计失败: {str(e)}"
+            detail=safe_error_message(e, "获取缓存统计失败")
         )
 
 
@@ -86,12 +86,12 @@ async def cleanup_old_cache(
         logger.error(f"清理缓存失败: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"清理缓存失败: {str(e)}"
+            detail=safe_error_message(e, "清理缓存失败")
         )
 
 
 @router.delete("/clear")
-async def clear_all_cache(current_user: dict = Depends(get_current_user)):
+async def clear_all_cache(current_user: dict = Depends(require_admin)):
     """
     清空所有缓存
 
@@ -118,7 +118,7 @@ async def clear_all_cache(current_user: dict = Depends(get_current_user)):
         logger.error(f"清空缓存失败: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"清空缓存失败: {str(e)}"
+            detail=safe_error_message(e, "清空缓存失败")
         )
 
 
@@ -167,7 +167,7 @@ async def get_cache_details(
         logger.error(f"获取缓存详情失败: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"获取缓存详情失败: {str(e)}"
+            detail=safe_error_message(e, "获取缓存详情失败")
         )
 
 
@@ -206,6 +206,6 @@ async def get_cache_backend_info(current_user: dict = Depends(get_current_user))
         logger.error(f"获取缓存后端信息失败: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"获取缓存后端信息失败: {str(e)}"
+            detail=safe_error_message(e, "获取缓存后端信息失败")
         )
 

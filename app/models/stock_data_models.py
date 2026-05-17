@@ -71,7 +71,7 @@ class BaseStockModel(BaseModel):
 
 class StockBasicInfo(BaseStockModel):
     """股票基础信息模型"""
-    symbol: str = Field(..., description="标准化股票代码", pattern=r"^\d{6}$")
+    symbol: str = Field(..., description="标准化股票代码", pattern=r"^[A-Z0-9\.]+$")
     exchange_symbol: str = Field(..., description="交易所完整代码")
     name: str = Field(..., description="股票名称")
     name_en: Optional[str] = Field(None, description="英文名称")

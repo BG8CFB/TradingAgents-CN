@@ -12,7 +12,6 @@ from typing import List, Optional, Dict, Any
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
-from app.core.unified_config import unified_config
 from app.models.config import (
     LLMConfig, LLMProvider
 )
@@ -87,23 +86,15 @@ class LLMService:
     async def update_llm_config(self, llm_config: LLMConfig) -> bool:
         """更新大模型配置"""
         try:
-            # 直接保存到统一配置管理器
-            success = unified_config.save_llm_config(llm_config)
-            if not success:
-                return False
-
-            # 同时更新数据库配置
             config = await self._get_system_config()
             if not config:
                 return False
 
-            # 查找并更新对应的LLM配置
             for i, existing_config in enumerate(config.llm_configs):
                 if existing_config.model_name == llm_config.model_name:
                     config.llm_configs[i] = llm_config
                     break
             else:
-                # 如果不存在，添加新配置
                 config.llm_configs.append(llm_config)
 
             return await self._save_system_config(config)

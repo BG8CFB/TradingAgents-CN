@@ -55,17 +55,52 @@ class QuotesService:
             return {c: q for c, q in self._cache.items() if c in codes and q}
 
     def _fetch_spot_akshare(self) -> Dict[str, Dict[str, Optional[float]]]:
-        """通过 AKShare 东方财富全市场快照接口拉取行情，并标准化为字典。
-        预期列（常见）：代码、名称、最新价、涨跌幅、成交额。
-        不同版本可能有差异，做多列名兼容。
-        """
+        """拉取全市场快照行情。优先直接 API，回退到 AKShare。"""
+
+        # --- 优先路径：直接调用东方财富 API（反爬能力最强） ---
         try:
-            import akshare as ak  # 已在项目中使用，不额外安装
+            from app.utils.anti_scraping import fetch_em_spot_direct
+            diff_data = fetch_em_spot_direct()
+            if diff_data:
+                result: Dict[str, Dict[str, Optional[float]]] = {}
+                for item in diff_data:
+                    code = str(item.get("f12", "")).zfill(6)
+                    if not code:
+                        continue
+                    result[code] = {
+                        "close": _safe_float(item.get("f2")),
+                        "pct_chg": _safe_float(item.get("f3")),
+                        "amount": _safe_float(item.get("f6")),
+                    }
+                logger.info(f"直接 API spot 拉取完成: {len(result)} 条")
+                return result
+        except Exception as e:
+            logger.warning(f"直接 API spot 失败，回退: {e}")
+
+        # --- 第二优先路径：腾讯行情 API（不受 push2 封禁影响） ---
+        try:
+            from app.utils.anti_scraping import fetch_tencent_spot_batch
+            tencent_data = fetch_tencent_spot_batch(codes)
+            if tencent_data:
+                result = {}
+                for code, item in tencent_data.items():
+                    result[code] = {
+                        "close": item.get("price"),
+                        "pct_chg": item.get("change_pct"),
+                        "amount": item.get("amount"),
+                    }
+                logger.info(f"腾讯行情 spot: {len(result)} 条")
+                return result
+        except Exception as e:
+            logger.warning(f"腾讯行情 spot 失败: {e}")
+
+        # --- 第三优先路径：AKShare ---
+        try:
+            import akshare as ak
             df = ak.stock_zh_a_spot_em()
             if df is None or getattr(df, "empty", True):
                 logger.warning("AKShare spot 返回空数据")
                 return {}
-            # 兼容常见列名
             code_col = next((c for c in ["代码", "代码code", "symbol", "股票代码"] if c in df.columns), None)
             price_col = next((c for c in ["最新价", "现价", "最新价(元)", "price", "最新"] if c in df.columns), None)
             pct_col = next((c for c in ["涨跌幅", "涨跌幅(%)", "涨幅", "pct_chg"] if c in df.columns), None)
@@ -76,27 +111,23 @@ class QuotesService:
                 return {}
 
             result: Dict[str, Dict[str, Optional[float]]] = {}
-            for _, row in df.iterrows():  # type: ignore
+            for _, row in df.iterrows():
                 code_raw = row.get(code_col)
                 if not code_raw:
                     continue
-                # 标准化股票代码：移除前导0，然后补齐到6位
                 code_str = str(code_raw).strip()
-                # 如果是纯数字，移除前导0后补齐到6位
                 if code_str.isdigit():
-                    code_clean = code_str.lstrip('0') or '0'  # 移除前导0，如果全是0则保留一个0
-                    code = code_clean.zfill(6)  # 补齐到6位
+                    code = code_str.lstrip('0').zfill(6) or '000000'
                 else:
                     code = code_str.zfill(6)
                 close = _safe_float(row.get(price_col))
                 pct = _safe_float(row.get(pct_col)) if pct_col else None
                 amt = _safe_float(row.get(amount_col)) if amount_col else None
-                # 若成交额单位为万元，统一转换为元（部分接口是万元，这里不强转，保持原样由前端展示单位）
                 result[code] = {"close": close, "pct_chg": pct, "amount": amt}
             logger.info(f"AKShare spot 拉取完成: {len(result)} 条")
             return result
         except Exception as e:
-            logger.error(f"获取AKShare实时快照失败: {e}")
+            logger.error(f"获取实时快照失败: {e}")
             return {}
 
 

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.routers.auth_db import get_current_user, require_admin
 from app.worker.financial_data_sync_service import get_financial_sync_service
 from app.services.financial_data_service import get_financial_data_service
-from app.core.response import ok
+from app.core.response import ok, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ async def query_financial_data(
         
     except Exception as e:
         logger.error(f"❌ 查询财务数据失败 {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"查询财务数据失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "查询财务数据失败"))
 
 
 @router.get("/latest/{symbol}", summary="获取最新财务数据")
@@ -120,7 +120,7 @@ async def get_latest_financial_data(
         
     except Exception as e:
         logger.error(f"❌ 获取最新财务数据失败 {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"获取最新财务数据失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取最新财务数据失败"))
 
 
 @router.get("/statistics", summary="获取财务数据统计")
@@ -144,7 +144,7 @@ async def get_financial_statistics(current_user: dict = Depends(get_current_user
         
     except Exception as e:
         logger.error(f"❌ 获取财务数据统计失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取财务数据统计失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取财务数据统计失败"))
 
 
 @router.post("/sync/start", summary="启动财务数据同步")
@@ -181,7 +181,7 @@ async def start_financial_sync(
         
     except Exception as e:
         logger.error(f"❌ 启动财务数据同步失败: {e}")
-        raise HTTPException(status_code=500, detail=f"启动财务数据同步失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "启动财务数据同步失败"))
 
 
 @router.post("/sync/single", summary="同步单只股票财务数据")
@@ -219,7 +219,7 @@ async def sync_single_stock_financial(
         
     except Exception as e:
         logger.error(f"❌ 单股票财务数据同步失败 {request.symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"单股票财务数据同步失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "单股票财务数据同步失败"))
 
 
 @router.get("/sync/statistics", summary="获取同步统计信息")
@@ -240,7 +240,7 @@ async def get_sync_statistics(current_user: dict = Depends(get_current_user)) ->
         
     except Exception as e:
         logger.error(f"❌ 获取同步统计信息失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取同步统计信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取同步统计信息失败"))
 
 
 @router.get("/health", summary="财务数据服务健康检查")

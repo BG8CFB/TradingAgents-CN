@@ -6,11 +6,12 @@ import asyncio
 import json
 import logging
 from typing import Dict, Set
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, HTTPException
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Query, HTTPException
 from datetime import datetime
 
 from app.services.auth_service import AuthService
 from app.services.user_service import user_service
+from app.routers.auth_db import get_current_user
 from app.utils.time_utils import now_utc, format_iso
 
 router = APIRouter(prefix="/api/ws", tags=["WebSocket"])
@@ -211,7 +212,7 @@ async def websocket_notifications_endpoint(
 
 
 @router.get("/stats")
-async def get_websocket_stats():
+async def get_websocket_stats(current_user: dict = Depends(get_current_user)):
     """获取 WebSocket 连接统计"""
     return manager.get_stats()
 

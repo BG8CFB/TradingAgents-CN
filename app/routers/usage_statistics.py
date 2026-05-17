@@ -7,9 +7,10 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.models.config import UsageRecord, UsageStatistics
 from app.services.usage_statistics_service import usage_statistics_service
+from app.core.response import safe_error_message
 
 logger = logging.getLogger("app.routers.usage_statistics")
 
@@ -50,7 +51,7 @@ async def get_usage_records(
         }
     except Exception as e:
         logger.error(f"获取使用记录失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取使用记录失败"))
 
 
 @router.get("/statistics", summary="获取使用统计")
@@ -75,7 +76,7 @@ async def get_usage_statistics(
         }
     except Exception as e:
         logger.error(f"获取使用统计失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取使用统计失败"))
 
 
 @router.get("/cost/by-provider", summary="按供应商统计成本")
@@ -94,7 +95,7 @@ async def get_cost_by_provider(
         }
     except Exception as e:
         logger.error(f"获取成本统计失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取成本统计失败"))
 
 
 @router.get("/cost/by-model", summary="按模型统计成本")
@@ -113,7 +114,7 @@ async def get_cost_by_model(
         }
     except Exception as e:
         logger.error(f"获取成本统计失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取成本统计失败"))
 
 
 @router.get("/cost/daily", summary="每日成本统计")
@@ -132,13 +133,13 @@ async def get_daily_cost(
         }
     except Exception as e:
         logger.error(f"获取每日成本失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取每日成本失败"))
 
 
 @router.delete("/records/old", summary="删除旧记录")
 async def delete_old_records(
     days: int = Query(90, ge=30, le=365, description="保留天数"),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ) -> Dict[str, Any]:
     """删除旧记录"""
     try:
@@ -151,5 +152,5 @@ async def delete_old_records(
         }
     except Exception as e:
         logger.error(f"删除旧记录失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "删除旧记录失败"))
 

@@ -10,7 +10,7 @@ import logging
 from app.routers.auth_db import get_current_user
 from app.models.user import User, FavoriteStock
 from app.services.favorites_service import favorites_service
-from app.core.response import ok
+from app.core.response import ok, safe_error_message
 
 logger = logging.getLogger("webapi")
 
@@ -63,7 +63,7 @@ async def get_favorites(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取自选股失败: {str(e)}"
+            detail=safe_error_message(e, "获取自选股失败")
         )
 
 
@@ -120,7 +120,7 @@ async def add_favorite(
         logger.error(f"❌ 添加自选股异常: {type(e).__name__}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"添加自选股失败: {str(e)}"
+            detail=safe_error_message(e, "添加自选股失败")
         )
 
 
@@ -154,7 +154,7 @@ async def update_favorite(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"更新自选股失败: {str(e)}"
+            detail=safe_error_message(e, "更新自选股失败")
         )
 
 
@@ -180,7 +180,7 @@ async def remove_favorite(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"移除自选股失败: {str(e)}"
+            detail=safe_error_message(e, "移除自选股失败")
         )
 
 
@@ -196,7 +196,7 @@ async def check_favorite(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"检查自选股状态失败: {str(e)}"
+            detail=safe_error_message(e, "检查自选股状态失败")
         )
 
 
@@ -211,7 +211,7 @@ async def get_user_tags(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取标签失败: {str(e)}"
+            detail=safe_error_message(e, "获取标签失败")
         )
 
 
@@ -297,5 +297,5 @@ async def sync_favorites_realtime(
         logger.error(f"❌ 同步自选股实时行情失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"同步失败: {str(e)}"
+            detail=safe_error_message(e, "同步失败")
         )

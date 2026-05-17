@@ -12,15 +12,12 @@ from dateutil.relativedelta import relativedelta
 from langchain_openai import ChatOpenAI
 import app.data.interface as interface
 from app.engine.default_config import DEFAULT_CONFIG
-from langchain_core.messages import HumanMessage
 
 # 导入统一日志系统和工具日志装饰器
 from app.utils.logging_init import get_logger
 from app.utils.tool_logging import log_tool_call, log_analysis_step
 from app.utils.time_utils import now_utc, get_current_date
 
-# 导入日志模块
-from app.utils.logging_manager import get_logger
 logger = get_logger('agents')
 
 
@@ -180,11 +177,11 @@ class Toolkit:
             logger.debug(f"📊 [DEBUG] ===== agent_utils.get_china_stock_data 开始调用 =====")
             logger.debug(f"📊 [DEBUG] 参数: stock_code={stock_code}, start_date={start_date}, end_date={end_date}")
 
-            from app.data.interface import get_china_stock_data_unified
+            from app.data.reader import get_stock_data as _get_stock_data_cn
             logger.debug(f"📊 [DEBUG] 成功导入统一数据源接口")
 
             logger.debug(f"📊 [DEBUG] 正在调用统一数据源接口...")
-            result = get_china_stock_data_unified(stock_code, start_date, end_date)
+            result = _get_stock_data_cn("CN", stock_code, start_date, end_date)
 
             logger.debug(f"📊 [DEBUG] 统一数据源接口调用完成")
             logger.debug(f"📊 [DEBUG] 返回结果类型: {type(result)}")
@@ -566,8 +563,8 @@ class Toolkit:
             logger.debug(f"📊 [DEBUG] 检测到中国A股代码: {ticker}")
             # 使用统一接口获取中国股票名称
             try:
-                from app.data.interface import get_china_stock_info_unified
-                stock_info = get_china_stock_info_unified(ticker)
+                from app.data.reader import get_stock_info as _get_stock_info_cn
+                stock_info = _get_stock_info_cn("CN", ticker)
 
                 # 解析股票名称
                 if "股票名称:" in stock_info:
@@ -620,7 +617,7 @@ class Toolkit:
 
         try:
             # 使用统一数据源接口获取股票数据（默认Tushare，支持备用数据源）
-            from app.data.interface import get_china_stock_data_unified
+            from app.data.reader import get_stock_data as _get_stock_data_cn
             logger.debug(f"📊 [DEBUG] 正在获取 {ticker} 的股票数据...")
 
             # 获取最近30天的数据用于基本面分析
@@ -628,7 +625,7 @@ class Toolkit:
             end_date = datetime.strptime(curr_date, '%Y-%m-%d')
             start_date = end_date - timedelta(days=30)
 
-            stock_data = get_china_stock_data_unified(
+            stock_data = _get_stock_data_cn("CN", 
                 ticker,
                 start_date.strftime('%Y-%m-%d'),
                 end_date.strftime('%Y-%m-%d')
@@ -682,9 +679,9 @@ class Toolkit:
         logger.debug(f"🇭🇰 [DEBUG] get_hk_stock_data_unified 被调用: symbol={symbol}, start_date={start_date}, end_date={end_date}")
 
         try:
-            from app.data.interface import get_hk_stock_data_unified
+            from app.data.reader import get_stock_data as _get_stock_data_hk
 
-            result = get_hk_stock_data_unified(symbol, start_date, end_date)
+            result = _get_stock_data_hk("HK", symbol, start_date, end_date)
 
             logger.debug(f"🇭🇰 [DEBUG] 港股数据获取完成，长度: {len(result) if result else 0}")
 
@@ -806,9 +803,9 @@ class Toolkit:
                     recent_end_date = curr_date
                     recent_start_date = (datetime.strptime(curr_date, '%Y-%m-%d') - timedelta(days=2)).strftime('%Y-%m-%d')
 
-                    from app.data.interface import get_china_stock_data_unified
+                    from app.data.reader import get_stock_data as _get_stock_data_cn
                     logger.info(f"🔍 [股票代码追踪] 调用 get_china_stock_data_unified（仅获取最新价格），传入参数: ticker='{ticker}', start_date='{recent_start_date}', end_date='{recent_end_date}'")
-                    current_price_data = get_china_stock_data_unified(ticker, recent_start_date, recent_end_date)
+                    current_price_data = _get_stock_data_cn("CN", ticker, recent_start_date, recent_end_date)
 
                     # 🔍 调试：打印返回数据的前500字符
                     logger.info(f"🔍 [基本面工具调试] A股价格数据返回长度: {len(current_price_data)}")
@@ -850,8 +847,8 @@ class Toolkit:
 
                 # 主要数据源：AKShare
                 try:
-                    from app.data.interface import get_hk_stock_data_unified
-                    hk_data = get_hk_stock_data_unified(ticker, start_date, end_date)
+                    from app.data.reader import get_stock_data as _get_stock_data_hk
+                    hk_data = _get_stock_data_hk("HK", ticker, start_date, end_date)
 
                     # 🔍 调试：打印返回数据的前500字符
                     logger.info(f"🔍 [基本面工具调试] 港股数据返回长度: {len(hk_data)}")
@@ -871,8 +868,8 @@ class Toolkit:
                 # 备用方案：基础港股信息
                 if not hk_data_success:
                     try:
-                        from app.data.interface import get_hk_stock_info_unified
-                        hk_info = get_hk_stock_info_unified(ticker)
+                        from app.data.reader import get_stock_info as _get_stock_info_hk
+                        hk_info = _get_stock_info_hk("HK", ticker)
 
                         basic_info = f"""## 港股基础信息
 
@@ -1031,8 +1028,8 @@ class Toolkit:
                 logger.info(f"🇨🇳 [统一市场工具] 处理A股市场数据...")
 
                 try:
-                    from app.data.interface import get_china_stock_data_unified
-                    stock_data = get_china_stock_data_unified(ticker, start_date, end_date)
+                    from app.data.reader import get_stock_data as _get_stock_data_cn
+                    stock_data = _get_stock_data_cn("CN", ticker, start_date, end_date)
 
                     # 🔍 调试：打印返回数据的前500字符
                     logger.info(f"🔍 [市场工具调试] A股数据返回长度: {len(stock_data)}")
@@ -1048,8 +1045,8 @@ class Toolkit:
                 logger.info(f"🇭🇰 [统一市场工具] 处理港股市场数据...")
 
                 try:
-                    from app.data.interface import get_hk_stock_data_unified
-                    hk_data = get_hk_stock_data_unified(ticker, start_date, end_date)
+                    from app.data.reader import get_stock_data as _get_stock_data_hk
+                    hk_data = _get_stock_data_hk("HK", ticker, start_date, end_date)
 
                     # 🔍 调试：打印返回数据的前500字符
                     logger.info(f"🔍 [市场工具调试] 港股数据返回长度: {len(hk_data)}")

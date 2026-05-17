@@ -271,19 +271,19 @@ class TestStockBasicInfoExtended:
         assert stock.total_mv is None
 
     def test_symbol_pattern_must_be_6_digits(self):
-        """symbol 必须为 6 位数字"""
+        """symbol 支持 A股(6位数字)、港股(5位数字)、美股(字母)"""
+        # A股 6 位数字 — 有效
+        StockBasicInfoExtended(symbol="000001", full_symbol="000001.SZ", name="test")
+        # 港股 5 位数字 — 有效
+        StockBasicInfoExtended(symbol="00700", full_symbol="00700.HK", name="test")
+        # 美股字母 — 有效
+        StockBasicInfoExtended(symbol="AAPL", full_symbol="AAPL", name="test")
+        # 无效：包含小写
         with pytest.raises(ValidationError):
-            StockBasicInfoExtended(
-                symbol="00001",
-                full_symbol="00001.SZ",
-                name="test",
-            )
+            StockBasicInfoExtended(symbol="aapl", full_symbol="aapl", name="test")
+        # 无效：包含特殊字符
         with pytest.raises(ValidationError):
-            StockBasicInfoExtended(
-                symbol="ABCDEF",
-                full_symbol="ABCDEF.SZ",
-                name="test",
-            )
+            StockBasicInfoExtended(symbol="AA@PL", full_symbol="AA@PL", name="test")
 
     def test_full_stock(self):
         """完整字段"""
@@ -379,11 +379,19 @@ class TestMarketQuotesExtended:
         assert quote.pct_chg is None
 
     def test_symbol_must_be_6_digits(self):
-        """symbol 必须为 6 位数字"""
+        """symbol 支持 A股(6位数字)、港股(5位数字)、美股(字母)"""
+        # A股 6 位数字 — 有效
+        MarketQuotesExtended(symbol="000001")
+        # 港股 5 位数字 — 有效
+        MarketQuotesExtended(symbol="00700")
+        # 美股字母 — 有效
+        MarketQuotesExtended(symbol="AAPL")
+        # 无效：包含小写
         with pytest.raises(ValidationError):
-            MarketQuotesExtended(symbol="00001")
+            MarketQuotesExtended(symbol="aapl")
+        # 无效：包含特殊字符
         with pytest.raises(ValidationError):
-            MarketQuotesExtended(symbol="AAPL")
+            MarketQuotesExtended(symbol="AA@PL")
 
     def test_full_quote(self):
         """完整行情"""

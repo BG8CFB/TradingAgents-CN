@@ -132,12 +132,15 @@ class AnalysisWorker:
         logger.info(f"🔄 Worker {self.worker_id} 工作循环结束")
 
     async def _process_task(self, task_data: Dict[str, Any]):
-        """处理单个任务"""
+        """处理单个任务（带超时控制）"""
         task_id = task_data.get("id")
         stock_code = task_data.get("symbol")
         user_id = task_data.get("user")
 
-        logger.info(f"📊 开始处理任务: {task_id} - {stock_code}")
+        # 单任务超时时间（秒），默认 600 秒（10 分钟）
+        task_timeout = int(getattr(settings, 'TASK_TIMEOUT_SECONDS', 600))
+
+        logger.info(f"📊 开始处理任务: {task_id} - {stock_code} (超时: {task_timeout}s)")
 
         self.current_task = task_id
         success = False
@@ -159,21 +162,35 @@ class AnalysisWorker:
                 parameters=parameters
             )
 
-            # 执行分析
+            # 执行分析（带超时控制）
             from app.models.analysis import SingleAnalysisRequest
             single_request = SingleAnalysisRequest(
                 symbol=stock_code,
                 parameters=parameters
             )
-            result = await get_analysis_service().execute_analysis_background(
-                task_id=task_id,
-                user_id=user_id,
-                request=single_request
-            )
+
+            try:
+                result = await asyncio.wait_for(
+                    get_analysis_service().execute_analysis_background(
+                        task_id=task_id,
+                        user_id=user_id,
+                        request=single_request
+                    ),
+                    timeout=task_timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    f"❌ 任务超时: {task_id} - {stock_code} "
+                    f"(超过 {task_timeout} 秒)"
+                )
+                raise
 
             success = True
             logger.info(f"✅ 任务完成: {task_id} - 耗时: {result.execution_time:.2f}秒")
 
+        except asyncio.TimeoutError:
+            # 超时已在上层记录日志，此处标记为失败即可
+            success = False
         except Exception as e:
             logger.error(f"❌ 任务执行失败: {task_id} - {e}")
             logger.error(traceback.format_exc())

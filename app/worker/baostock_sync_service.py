@@ -5,12 +5,11 @@ BaoStock数据同步服务
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from app.core.config import get_settings
-from app.core.database import get_database
 from app.services.historical_data_service import get_historical_data_service
 from app.data.providers.china.baostock import BaoStockProvider
 from app.utils.timezone import now_config_tz, format_date_short, format_iso
@@ -243,7 +242,7 @@ class BaoStockSyncService(BaseSyncService):
 
             # 🔥 使用 (code, source) 联合查询条件
             await collection.update_one(
-                {"code": basic_info["code"], "source": "baostock"},
+                {"code": basic_info["code"], "data_source": "baostock"},
                 {"$set": basic_info},
                 upsert=True
             )
@@ -272,8 +271,8 @@ class BaoStockSyncService(BaseSyncService):
 
             # 从数据库获取股票列表
             collection = self.db.stock_basic_info
-            cursor = collection.find({"source": "baostock"}, {"code": 1})
-            stock_codes = [doc["code"] async for doc in cursor]
+            cursor = collection.find({"data_source": "baostock"}, {"symbol": 1})
+            stock_codes = [doc["symbol"] async for doc in cursor]
 
             if not stock_codes:
                 logger.warning("⚠️ 数据库中没有BaoStock股票数据")
@@ -372,8 +371,8 @@ class BaoStockSyncService(BaseSyncService):
 
             # 从数据库获取股票列表
             collection = self.db.stock_basic_info
-            cursor = collection.find({"source": "baostock"}, {"code": 1})
-            stock_codes = [doc["code"] async for doc in cursor]
+            cursor = collection.find({"data_source": "baostock"}, {"symbol": 1})
+            stock_codes = [doc["symbol"] async for doc in cursor]
 
             if not stock_codes:
                 logger.warning("⚠️ 数据库中没有BaoStock股票数据")
@@ -517,7 +516,7 @@ class BaoStockSyncService(BaseSyncService):
                 db_ok = False
             
             # 统计数据
-            basic_info_count = await self.db.stock_basic_info.count_documents({"source": "baostock"})
+            basic_info_count = await self.db.stock_basic_info.count_documents({"data_source": "baostock"})
             quotes_count = await self.db.market_quotes.count_documents({"data_source": "baostock"})
             
             return {
@@ -540,46 +539,71 @@ class BaoStockSyncService(BaseSyncService):
             }
 
 
+# 全局同步服务实例 + 懒初始化 asyncio.Lock
+_baostock_sync_service = None
+_baostock_lock = None
+
+
+def _get_baostock_lock():
+    """懒初始化 asyncio.Lock，避免在模块导入时（可能没有事件循环）创建锁"""
+    global _baostock_lock
+    if _baostock_lock is None:
+        _baostock_lock = asyncio.Lock()
+    return _baostock_lock
+
+
+async def get_baostock_sync_service() -> BaoStockSyncService:
+    """获取 BaoStock 同步服务实例（单例模式，带并发锁保护）"""
+    global _baostock_sync_service
+    if _baostock_sync_service is not None:
+        return _baostock_sync_service
+    async with _get_baostock_lock():
+        if _baostock_sync_service is None:
+            _baostock_sync_service = BaoStockSyncService()
+            await _baostock_sync_service.initialize()
+        return _baostock_sync_service
+
+
 # APScheduler兼容的任务函数
 async def run_baostock_basic_info_sync():
     """运行BaoStock基础信息同步任务"""
     try:
-        service = BaoStockSyncService()
-        await service.initialize()  # 🔥 必须先初始化
+        service = await get_baostock_sync_service()
         stats = await service.sync_stock_basic_info()
         logger.info(f"🎯 BaoStock基础信息同步完成: {stats.basic_info_count}条记录, {len(stats.errors)}个错误")
     except Exception as e:
         logger.error(f"❌ BaoStock基础信息同步任务失败: {e}")
+        raise
 
 
 async def run_baostock_daily_quotes_sync():
     """运行BaoStock日K线同步任务（最新交易日）"""
     try:
-        service = BaoStockSyncService()
-        await service.initialize()  # 🔥 必须先初始化
+        service = await get_baostock_sync_service()
         stats = await service.sync_daily_quotes()
         logger.info(f"🎯 BaoStock日K线同步完成: {stats.quotes_count}条记录, {len(stats.errors)}个错误")
     except Exception as e:
         logger.error(f"❌ BaoStock日K线同步任务失败: {e}")
+        raise
 
 
 async def run_baostock_historical_sync():
     """运行BaoStock历史数据同步任务"""
     try:
-        service = BaoStockSyncService()
-        await service.initialize()  # 🔥 必须先初始化
+        service = await get_baostock_sync_service()
         stats = await service.sync_historical_data()
         logger.info(f"🎯 BaoStock历史数据同步完成: {stats.historical_records}条记录, {len(stats.errors)}个错误")
     except Exception as e:
         logger.error(f"❌ BaoStock历史数据同步任务失败: {e}")
+        raise
 
 
 async def run_baostock_status_check():
     """运行BaoStock状态检查任务"""
     try:
-        service = BaoStockSyncService()
-        await service.initialize()  # 🔥 必须先初始化
+        service = await get_baostock_sync_service()
         status = await service.check_service_status()
         logger.info(f"🔍 BaoStock服务状态: {status['status']}")
     except Exception as e:
         logger.error(f"❌ BaoStock状态检查任务失败: {e}")
+        raise

@@ -451,10 +451,17 @@ class MCPToolLoaderFactory:
                     )
                     continue
 
+                # 只传递白名单环境变量 + config.env 中指定的变量
+                safe_env = {k: v for k, v in os.environ.items()
+                            if k in ("PATH", "HOME", "USER", "LANG", "LC_ALL",
+                                     "SYSTEMROOT", "TEMP", "TMP")}
+                if config.env:
+                    safe_env.update(config.env)
+
                 server_params[name] = {
                     "command": resolved_cmd,
                     "args": config.args or [],
-                    "env": {**os.environ, **config.env} if config.env is not None else None,
+                    "env": safe_env if safe_env else None,
                     "transport": "stdio",
                 }
             elif config.is_http():
@@ -488,10 +495,17 @@ class MCPToolLoaderFactory:
                 logger.warning(f"[MCP] 服务器 {name} 命令解析失败: {cmd_error}")
                 return None
 
+            # 只传递白名单环境变量 + config.env 中指定的变量
+            safe_env = {k: v for k, v in os.environ.items()
+                        if k in ("PATH", "HOME", "USER", "LANG", "LC_ALL",
+                                 "SYSTEMROOT", "TEMP", "TMP")}
+            if config.env:
+                safe_env.update(config.env)
+
             server_param = {
                 "command": resolved_cmd,
                 "args": config.args or [],
-                "env": {**os.environ, **config.env} if config.env is not None else None,
+                "env": safe_env if safe_env else None,
                 "transport": "stdio",
             }
         elif config.is_http():
@@ -1005,7 +1019,9 @@ class MCPToolLoaderFactory:
             if tool_name in selected_tool_ids or f"local:{tool_name}" in selected_tool_ids:
                 selected_tools.append(tool)
 
-        return selected_tools if selected_tools else all_tools
+        if not selected_tools:
+            logger.warning(f"[MCP] 工具选择无匹配: selected_tool_ids={selected_tool_ids}, 返回空列表")
+        return selected_tools
 
     def list_available_tools(self) -> List[Dict[str, Any]]:
         """列出所有可用工具的元数据。"""
@@ -1158,7 +1174,24 @@ class MCPToolLoaderFactory:
         if self._cleanup_registered:
             return
 
-        atexit.register(lambda: logger.info("[MCP] atexit 清理"))
+        def _cleanup_mcp_resources():
+            """进程退出时清理 MCP 子进程"""
+            try:
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop = asyncio.new_event_loop()
+                    loader = get_mcp_loader_factory()
+                    if loader:
+                        loop.run_until_complete(loader.close_all())
+                except RuntimeError:
+                    pass
+                logger.info("[MCP] atexit 清理完成")
+            except Exception as e:
+                logger.warning(f"[MCP] atexit 清理失败: {e}")
+
+        atexit.register(_cleanup_mcp_resources)
         self._cleanup_registered = True
         logger.info("[MCP] 已注册 atexit 清理函数")
 

@@ -6,6 +6,12 @@ from typing import Dict, Any, List, Optional
 from app.routers.auth_db import get_current_user
 from uuid import uuid4
 
+try:  # 可选文件锁，避免并发写损坏
+    from filelock import FileLock
+except Exception:  # pragma: no cover - 兼容未安装 filelock
+    FileLock = None  # type: ignore
+from contextlib import nullcontext
+
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 AGENTS_CONFIG_FILE = "agents_config.json"
 
@@ -74,16 +80,20 @@ DEFAULT_AGENTS = [
 def _load_config() -> List[Dict[str, Any]]:
     if not os.path.exists(AGENTS_CONFIG_FILE):
         return []
+    lock_ctx = FileLock(AGENTS_CONFIG_FILE + ".lock") if FileLock is not None else nullcontext()
     try:
-        with open(AGENTS_CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        with lock_ctx:
+            with open(AGENTS_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
     except Exception as e:
         print(f"Error loading agents config: {e}")
         return []
 
 def _save_config(config: List[Dict[str, Any]]):
-    with open(AGENTS_CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    lock_ctx = FileLock(AGENTS_CONFIG_FILE + ".lock") if FileLock is not None else nullcontext()
+    with lock_ctx:
+        with open(AGENTS_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
 
 @router.get("/")
 async def list_agents(user: dict = Depends(get_current_user)) -> Dict[str, Any]:

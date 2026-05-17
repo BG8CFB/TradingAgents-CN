@@ -37,8 +37,8 @@ def _get_client_ip(request: Request) -> str:
     """获取客户端真实 IP，仅在可信代理后读取转发头"""
     client_host = request.client.host if request.client else "unknown"
 
-    # 仅当请求来自可信代理时才读取 X-Forwarded-For / X-Real-IP
-    trusted_proxies = {"127.0.0.1", "::1"}
+    from app.core.config import settings
+    trusted_proxies = {p.strip() for p in settings.TRUSTED_PROXIES.split(",") if p.strip()}
     if client_host in trusted_proxies:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:

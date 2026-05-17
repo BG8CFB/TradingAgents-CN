@@ -123,8 +123,19 @@ class AKShareAdapter(DataSourceAdapter):
             df['ts_code'] = df['symbol'].apply(generate_ts_code)
             df['market'] = df['symbol'].apply(get_market)
             df['area'] = ''
-            df['industry'] = ''
             df['list_date'] = ''
+
+            # 从东方财富行业板块接口获取行业分类映射
+            industry_map = self._fetch_industry_mapping(ak)
+            if industry_map:
+                df['symbol_str'] = df['symbol'].astype(str).str.zfill(6)
+                df['industry'] = df['symbol_str'].map(industry_map).fillna('')
+                df.drop(columns=['symbol_str'], inplace=True)
+                matched = (df['industry'] != '').sum()
+                logger.info(f"AKShare: 行业映射完成, {matched}/{len(df)} 只股票匹配到行业")
+            else:
+                df['industry'] = ''
+                logger.warning("AKShare: 未能获取行业分类数据，industry 字段为空")
 
             logger.info(f"AKShare: Successfully fetched {len(df)} stocks with real names")
             return df
@@ -132,6 +143,74 @@ class AKShareAdapter(DataSourceAdapter):
         except Exception as e:
             logger.error(f"AKShare: Failed to fetch stock list: {e}")
             return None
+
+    def _fetch_industry_mapping(self, ak_module) -> Dict[str, str]:
+        """
+        从东方财富行业板块接口获取 股票代码→行业名称 的映射。
+
+        策略：遍历所有行业板块，批量获取每个板块的成分股，
+        构建 {code6: industry_name} 映射表。
+        """
+        industry_map: Dict[str, str] = {}
+        try:
+            # 获取所有行业板块名称
+            boards_df = ak_module.stock_board_industry_name_em()
+            if boards_df is None or boards_df.empty:
+                logger.warning("AKShare: stock_board_industry_name_em 返回空数据")
+                return industry_map
+
+            # 获取板块名称列（可能是 '板块名称' 或其他）
+            name_col = next(
+                (c for c in ['板块名称', '板块', 'name', 'industry'] if c in boards_df.columns),
+                None
+            )
+            if not name_col:
+                logger.warning(f"AKShare: 行业板块列名未识别: {boards_df.columns.tolist()}")
+                return industry_map
+
+            board_names = boards_df[name_col].dropna().unique().tolist()
+            logger.info(f"AKShare: 获取到 {len(board_names)} 个行业板块，开始批量获取成分股")
+
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _fetch_board(board_name: str) -> List[tuple]:
+                """获取单个行业板块的成分股，返回 [(code6, industry_name), ...]"""
+                try:
+                    cons_df = ak_module.stock_board_industry_cons_em(symbol=board_name)
+                    if cons_df is None or cons_df.empty:
+                        return []
+                    code_col = next(
+                        (c for c in ['代码', 'code', 'symbol', '股票代码'] if c in cons_df.columns),
+                        None
+                    )
+                    if not code_col:
+                        return []
+                    return [
+                        (str(c).zfill(6), board_name)
+                        for c in cons_df[code_col].dropna().unique()
+                        if str(c).strip()
+                    ]
+                except Exception:
+                    return []
+
+            # 并发获取各板块成分股（限制并发数，避免被封）
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(_fetch_board, name): name for name in board_names}
+                for future in as_completed(futures):
+                    try:
+                        results = future.result()
+                        for code, ind_name in results:
+                            if code not in industry_map:
+                                industry_map[code] = ind_name
+                    except Exception:
+                        pass
+
+            logger.info(f"AKShare: 行业映射构建完成，覆盖 {len(industry_map)} 只股票")
+
+        except Exception as e:
+            logger.warning(f"AKShare: 获取行业映射失败: {e}")
+
+        return industry_map
 
     def get_daily_basic(self, trade_date: str) -> Optional[pd.DataFrame]:
         """获取每日基础财务数据（包含 PE、PB、市值等估值指标）"""
@@ -367,7 +446,7 @@ class AKShareAdapter(DataSourceAdapter):
     def _fetch_stock_news_em_custom(self, symbol: str) -> Optional[pd.DataFrame]:
         """
         替代 ak.stock_news_em 的自定义抓取方法
-        抓取东方财富股吧资讯页面: https://guba.eastmoney.com/list,{symbol},1,f.html
+        优先使用 curl_cffi 模拟真实浏览器，再回退标准 requests
         """
         try:
             from parsel import Selector
@@ -377,16 +456,42 @@ class AKShareAdapter(DataSourceAdapter):
 
         url = f"https://guba.eastmoney.com/list,{symbol},1,f.html"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Referer": "https://guba.eastmoney.com/",
+            "Sec-Ch-Ua": '"Chromium";v="136", "Google Chrome";v="136", "Not-A.Brand";v="99"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
         }
-        
+
+        resp_text = None
+
+        # 优先使用 curl_cffi
         try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code != 200:
-                logger.warning(f"Failed to fetch EM news: HTTP {resp.status_code}")
+            from curl_cffi import requests as curl_requests
+            resp = curl_requests.get(url, headers=headers, timeout=15, impersonate="chrome136")
+            if resp.status_code == 200:
+                resp_text = resp.text
+        except Exception as e:
+            logger.debug(f"curl_cffi 股吧请求失败: {e}")
+
+        # 回退标准 requests
+        if resp_text is None:
+            try:
+                resp = requests.get(url, headers=headers, timeout=15)
+                if resp.status_code == 200:
+                    resp_text = resp.text
+            except Exception as e:
+                logger.warning(f"股吧请求失败: {e}")
                 return None
-                
-            sel = Selector(text=resp.text)
+
+        if resp_text is None:
+            return None
+
+        try:
+
+            sel = Selector(text=resp_text)
             items = sel.css(".listitem")
             
             data = []

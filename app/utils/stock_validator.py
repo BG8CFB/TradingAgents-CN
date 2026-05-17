@@ -372,9 +372,9 @@ class StockDataPreparer:
 
             # 3. 获取基本信息
             logger.debug(f"📊 [A股数据] 获取{stock_code}基本信息...")
-            from app.data.interface import get_china_stock_info_unified
+            from app.data.reader import get_stock_info as _get_stock_info_cn
 
-            stock_info = get_china_stock_info_unified(stock_code)
+            stock_info = _get_stock_info_cn("CN", stock_code)
 
             if stock_info and "❌" not in stock_info and "未能获取" not in stock_info:
                 # 解析股票名称
@@ -411,9 +411,9 @@ class StockDataPreparer:
 
             # 4. 获取历史数据（使用扩展后的日期范围）
             logger.debug(f"📊 [A股数据] 获取{stock_code}历史数据 ({extended_start_date_str} 到 {end_date_str})...")
-            from app.data.interface import get_china_stock_data_unified
+            from app.data.reader import get_stock_data as _get_stock_data_cn
 
-            historical_data = get_china_stock_data_unified(stock_code, extended_start_date_str, end_date_str)
+            historical_data = _get_stock_data_cn("CN", stock_code, extended_start_date_str, end_date_str)
 
             if historical_data and "❌" not in historical_data and "获取失败" not in historical_data:
                 # 更宽松的数据有效性检查
@@ -527,8 +527,8 @@ class StockDataPreparer:
 
             # 3. 获取基本信息（同步操作）
             logger.debug(f"📊 [A股数据-异步] 获取{stock_code}基本信息...")
-            from app.data.interface import get_china_stock_info_unified
-            stock_info = get_china_stock_info_unified(stock_code)
+            from app.data.reader import get_stock_info as _get_stock_info_cn
+            stock_info = _get_stock_info_cn("CN", stock_code)
 
             if stock_info and "❌" not in stock_info and "未能获取" not in stock_info:
                 if "股票名称:" in stock_info:
@@ -545,8 +545,8 @@ class StockDataPreparer:
 
             # 4. 获取历史数据（同步操作）
             logger.debug(f"📊 [A股数据-异步] 获取{stock_code}历史数据...")
-            from app.data.interface import get_china_stock_data_unified
-            historical_data = get_china_stock_data_unified(stock_code, extended_start_date_str, end_date_str)
+            from app.data.reader import get_stock_data as _get_stock_data_cn
+            historical_data = _get_stock_data_cn("CN", stock_code, extended_start_date_str, end_date_str)
 
             if historical_data and "❌" not in historical_data and "获取失败" not in historical_data:
                 data_indicators = ["开盘价", "收盘价", "最高价", "最低价", "成交量"]
@@ -957,9 +957,9 @@ class StockDataPreparer:
         try:
             # 1. 获取基本信息
             logger.debug(f"📊 [港股数据] 获取{formatted_code}基本信息...")
-            from app.data.interface import get_hk_stock_info_unified
+            from app.data.reader import get_stock_info as _get_stock_info_hk
 
-            stock_info = get_hk_stock_info_unified(formatted_code)
+            stock_info = _get_stock_info_hk("HK", formatted_code)
 
             if stock_info and "❌" not in stock_info and "未找到" not in stock_info:
                 # 解析股票名称 - 支持多种格式
@@ -1009,9 +1009,9 @@ class StockDataPreparer:
 
             # 2. 获取历史数据
             logger.debug(f"📊 [港股数据] 获取{formatted_code}历史数据 ({start_date_str} 到 {end_date_str})...")
-            from app.data.interface import get_hk_stock_data_unified
+            from app.data.reader import get_stock_data as _get_stock_data_hk
 
-            historical_data = get_hk_stock_data_unified(formatted_code, start_date_str, end_date_str)
+            historical_data = _get_stock_data_hk("HK", formatted_code, start_date_str, end_date_str)
 
             if historical_data and "❌" not in historical_data and "获取失败" not in historical_data:
                 # 更宽松的数据有效性检查

@@ -11,7 +11,6 @@ from app.constants.model_capabilities import (
     ModelRole,
     ModelFeature
 )
-from app.core.unified_config import unified_config
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,6 +18,38 @@ logger = logging.getLogger(__name__)
 
 class ModelCapabilityService:
     """模型能力管理服务"""
+
+    @staticmethod
+    def _get_llm_configs_from_db() -> list:
+        """从 MongoDB 同步读取 LLM 配置列表"""
+        try:
+            from app.core.database import get_mongo_db_sync
+            from app.models.config import LLMConfig
+            db = get_mongo_db_sync()
+            doc = db.system_configs.find_one({"is_active": True}, sort=[("version", -1)])
+            if doc and "llm_configs" in doc:
+                result = []
+                for c in doc["llm_configs"]:
+                    try:
+                        result.append(LLMConfig(**c))
+                    except Exception:
+                        continue
+                return result
+        except Exception as e:
+            logger.warning(f"从 DB 读取 LLM 配置失败: {e}")
+        return []
+
+    @staticmethod
+    def _get_system_setting(key: str, default: str = "") -> str:
+        """从 MongoDB 同步读取单个系统设置"""
+        try:
+            from app.core.database import get_mongo_db_sync
+            db = get_mongo_db_sync()
+            doc = db.system_configs.find_one({"is_active": True}, sort=[("version", -1)])
+            settings = (doc or {}).get("system_settings", {})
+            return settings.get(key, default)
+        except Exception:
+            return default
 
     def _parse_aggregator_model_name(self, model_name: str) -> Tuple[Optional[str], str]:
         """
@@ -80,7 +111,7 @@ class ModelCapabilityService:
             能力等级 (1-5)
         """
         try:
-            llm_configs = unified_config.get_llm_configs()
+            llm_configs = self._get_llm_configs_from_db()
             for config in llm_configs:
                 if config.model_name == model_name:
                     return getattr(config, 'capability_level', 2)
@@ -234,7 +265,7 @@ class ModelCapabilityService:
         """
         # 获取所有启用的模型
         try:
-            llm_configs = unified_config.get_llm_configs()
+            llm_configs = self._get_llm_configs_from_db()
             enabled_models = [c for c in llm_configs if c.enabled]
         except Exception as e:
             logger.error(f"获取模型配置失败: {e}")
@@ -294,8 +325,8 @@ class ModelCapabilityService:
     def _get_default_models(self) -> Tuple[str, str]:
         """获取默认模型对"""
         try:
-            analyst_model = unified_config.get_analyst_model()
-            debate_model = unified_config.get_debate_model()
+            analyst_model = self._get_system_setting("analyst_model", "qwen-turbo")
+            debate_model = self._get_system_setting("debate_model", "qwen-plus")
             logger.info(f"使用系统默认模型: analyst={analyst_model}, debate={debate_model}")
             return analyst_model, debate_model
         except Exception as e:
@@ -305,7 +336,7 @@ class ModelCapabilityService:
     def _recommend_model(self, model_type: str, min_level: int) -> str:
         """推荐满足要求的模型"""
         try:
-            llm_configs = unified_config.get_llm_configs()
+            llm_configs = self._get_llm_configs_from_db()
             for config in llm_configs:
                 if config.enabled and getattr(config, 'capability_level', 2) >= min_level:
                     display_name = config.model_display_name or config.model_name

@@ -387,7 +387,7 @@ class TushareProvider(BaseStockDataProvider):
 
             # 获取最近3天的数据（考虑周末和节假日）
             end_date = format_date_compact(now_config_tz())
-            start_date = (now_utc() - timedelta(days=3)).strftime('%Y%m%d')
+            start_date = (now_config_tz() - timedelta(days=3)).strftime('%Y%m%d')
 
             # 判断市场并调用对应接口
             if '.HK' in ts_code:

@@ -81,7 +81,7 @@ def get_market_quote_dataframe(symbol: str) -> Optional[pd.DataFrame]:
             _logger.debug(f"[app_cache] 查询行情 | coll={QUOTES_COLLECTION} code={code}")
         except Exception:
             pass
-        doc = coll.find_one({"code": code})
+        doc = coll.find_one({"code": code}, sort=[("timestamp", -1)])
         if not doc:
             try:
                 _logger.debug(f"[app_cache] 行情未命中 | coll={QUOTES_COLLECTION} code={code}")

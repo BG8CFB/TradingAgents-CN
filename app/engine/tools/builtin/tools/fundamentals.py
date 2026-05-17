@@ -73,8 +73,8 @@ def get_stock_fundamentals(
                 recent_end_date = current_date
                 recent_start_date = (datetime.strptime(current_date, '%Y-%m-%d') - timedelta(days=2)).strftime('%Y-%m-%d')
 
-                from app.data.interface import get_china_stock_data_unified
-                current_price_data = get_china_stock_data_unified(stock_code, recent_start_date, recent_end_date)
+                from app.data.reader import get_stock_data as _get_stock_data_cn
+                current_price_data = _get_stock_data_cn("CN", stock_code, recent_start_date, recent_end_date)
             except Exception as e:
                 logger.error(f"❌ [MCP基本面工具] A股价格数据获取失败: {e}")
                 current_price_data = ""
@@ -106,8 +106,8 @@ def get_stock_fundamentals(
 
             # 1. 获取基础信息
             try:
-                from app.data.interface import get_hk_stock_info_unified
-                hk_info = get_hk_stock_info_unified(stock_code)
+                from app.data.reader import get_stock_info as _get_stock_info_hk
+                hk_info = _get_stock_info_hk("HK", stock_code)
 
                 basic_info = f'''## 港股基础信息
 **名称**: {hk_info.get('name', 'N/A')}
@@ -254,8 +254,9 @@ def get_company_performance_unified(
                 # 不能使用 AkShare 回退
                 error_msg = f"获取 {market_name}{data_type} 数据需要配置 Tushare"
                 suggestion_msg = (
-                    f"请配置 TUSHARE_TOKEN 环境变量\n"
-                    f"或者仅使用 forecast 类型（A股和港股支持）"
+                    "不要重试此工具。请配置 TUSHARE_TOKEN 环境变量，"
+                    "或仅使用 forecast 类型（A股和港股支持）。"
+                    "建议直接基于已有数据生成分析报告。"
                 )
                 return format_tool_result(error_result(
                     ErrorCodes.DATA_FETCH_ERROR,
@@ -328,7 +329,7 @@ def get_company_performance_unified(
 
         # 5. 两个数据源都失败
         error_msg = f"无法从Tushare和AkShare获取{market_name}业绩数据: {stock_code}, data_type: {data_type}"
-        suggestion_msg = "检查数据源配置或尝试其他数据类型" if market in ["cn", "hk"] else "检查Tushare配置或尝试其他数据类型"
+        suggestion_msg = "不要重试此工具。两个数据源均失败，建议直接基于已有数据生成报告。" if market in ["cn", "hk"] else "不要重试此工具。建议直接基于已有数据生成报告。"
 
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR,

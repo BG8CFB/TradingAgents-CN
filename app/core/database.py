@@ -153,9 +153,10 @@ class DatabaseManager:
             else:
                 health_status["mongodb"]["status"] = "disconnected"
         except Exception as e:
+            logger.error(f"MongoDB health check failed: {e}")
             health_status["mongodb"] = {
                 "status": "unhealthy",
-                "details": {"error": str(e)}
+                "details": {"error": "MongoDB 连接异常，请检查服务状态"}
             }
             self._mongo_healthy = False
 
@@ -171,9 +172,10 @@ class DatabaseManager:
             else:
                 health_status["redis"]["status"] = "disconnected"
         except Exception as e:
+            logger.error(f"Redis health check failed: {e}")
             health_status["redis"] = {
                 "status": "unhealthy",
-                "details": {"error": str(e)}
+                "details": {"error": "Redis 连接异常，请检查服务状态"}
             }
             self._redis_healthy = False
 
@@ -488,14 +490,16 @@ def get_mongo_db_sync() -> Database:
         if _sync_mongo_db is not None:
             return _sync_mongo_db
 
-        # 创建同步 MongoDB 客户端（使用连接池配置）
+        # 创建同步 MongoDB 客户端（使用连接池配置，限制不超过 10 以节省资源）
         if _sync_mongo_client is None:
             _sync_mongo_client = MongoClient(
                 settings.MONGO_URI,
-                maxPoolSize=10,
-                minPoolSize=1,
+                maxPoolSize=min(10, settings.MONGO_MAX_CONNECTIONS),
+                minPoolSize=min(1, settings.MONGO_MIN_CONNECTIONS),
                 maxIdleTimeMS=30000,
-                serverSelectionTimeoutMS=5000
+                serverSelectionTimeoutMS=settings.MONGO_SERVER_SELECTION_TIMEOUT_MS,
+                connectTimeoutMS=settings.MONGO_CONNECT_TIMEOUT_MS,
+                socketTimeoutMS=settings.MONGO_SOCKET_TIMEOUT_MS,
             )
 
         _sync_mongo_db = _sync_mongo_client[settings.MONGO_DB]

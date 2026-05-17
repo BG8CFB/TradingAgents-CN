@@ -5,6 +5,7 @@ import tempfile
 import yaml
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+import copy
 
 from langchain_core.messages import AIMessage, ToolMessage, BaseMessage, SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -41,9 +42,9 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
             except Exception:
                 pass
 
-            from app.data.interface import get_china_stock_info_unified
+            from app.data.reader import get_stock_info as _get_stock_info_cn
 
-            stock_info = get_china_stock_info_unified(ticker)
+            stock_info = _get_stock_info_cn("CN", ticker)
             if stock_info and "股票名称:" in stock_info:
                 return stock_info.split("股票名称:")[1].split("\n")[0].strip()
             return f"股票代码{ticker}"
@@ -251,7 +252,7 @@ class GenericAgent:
                 
                 # 🔄 改用 stream 模式以捕获中间步骤，实现 Graceful Exit
                 # 如果使用 invoke，一旦触发 RecursionError，中间产生的所有 ToolCalls 和思考都会丢失
-                final_state = state.copy()  # 初始化为当前状态
+                final_state = copy.deepcopy(state)  # 深拷贝避免状态污染
                 collected_messages = []     # 收集本轮执行产生的新消息
                 
                 # 使用 stream 模式执行

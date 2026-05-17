@@ -36,7 +36,7 @@ def _runtime_secret(name: str) -> str:
 
 class Settings(BaseSettings):
     # 基础配置
-    DEBUG: bool = Field(default=True)
+    DEBUG: bool = Field(default=False)
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8000)
     ALLOWED_ORIGINS: List[str] = Field(default_factory=lambda: ["*"])
@@ -343,34 +343,30 @@ class Settings(BaseSettings):
 settings = Settings()
 
 # 安全检查：生产环境下必须显式配置密钥；开发环境缺失时给出提示
-_INSECURE_DEFAULTS = {
-    "JWT_SECRET": "change-me-in-production",
-    "CSRF_SECRET": "change-me-csrf-secret",
-}
 _REQUIRED_SECRETS = ("JWT_SECRET", "CSRF_SECRET")
 
 for _key in _REQUIRED_SECRETS:
     if not os.getenv(_key):
         if settings.is_production:
             raise RuntimeError(
-                f"❌ 安全错误: 生产环境缺少 {_key}，请在 .env 或环境变量中显式配置后再启动！"
+                f"安全错误: 生产环境缺少 {_key}，请在 .env 或环境变量中显式配置后再启动！"
             )
         warnings.warn(
-            f"⚠️ 安全提示: 未配置 {_key}，当前使用运行期随机密钥；服务重启后相关会话将失效。",
+            f"安全提示: 未配置 {_key}，当前使用运行期随机密钥；服务重启后相关会话将失效。",
             stacklevel=2,
         )
 
-for _key, _default in _INSECURE_DEFAULTS.items():
-    if os.getenv(_key) == _default:
-        if settings.is_production:
-            raise RuntimeError(
-                f"❌ 安全错误: 生产环境中 {_key} 使用了不安全的默认值，"
-                f"请在 .env 中设置自定义值后再启动！"
-            )
-        warnings.warn(
-            f"⚠️ 安全警告: {_key} 使用了不安全的默认值，请在 .env 中设置自定义值！",
-            UserWarning,
-            stacklevel=2
+# 生产环境安全检查：CORS 和 TrustedHost 不能使用通配符
+if settings.is_production:
+    if "*" in settings.ALLOWED_ORIGINS:
+        raise RuntimeError(
+            "❌ 安全错误: 生产环境 ALLOWED_ORIGINS 不能包含 '*'，"
+            "请在 .env 中显式配置允许的域名！"
+        )
+    if "*" in settings.ALLOWED_HOSTS:
+        raise RuntimeError(
+            "❌ 安全错误: 生产环境 ALLOWED_HOSTS 不能包含 '*'，"
+            "请在 .env 中显式配置允许的主机名！"
         )
 
 # 自动将代理配置设置到环境变量

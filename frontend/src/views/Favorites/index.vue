@@ -514,7 +514,6 @@ import { tagsApi } from '@/api/tags'
 import { stockSyncApi } from '@/api/stockSync'
 import { stocksApi } from '@/api/stocks'
 import { normalizeMarketForAnalysis } from '@/utils/market'
-import { ApiClient } from '@/api/request'
 
 import type { FavoriteItem } from '@/api/favorites'
 import { useAuthStore } from '@/stores/auth'

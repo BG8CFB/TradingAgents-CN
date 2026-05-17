@@ -7,6 +7,7 @@
 
 import os
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 import pandas as pd
@@ -188,7 +189,8 @@ class IntegratedCacheManager:
                 max_age_hours=max_age_hours
             )
     
-    def save_news_data(self, symbol: str, data: Any, data_source: str = "default") -> str:
+    def save_news_data(self, symbol: str, data: Any, start_date: str = None,
+                       end_date: str = None, data_source: str = "default") -> str:
         """保存新闻数据"""
         if self.use_adaptive:
             return self.adaptive_cache.save_data(
@@ -198,7 +200,13 @@ class IntegratedCacheManager:
                 data_type="news_data"
             )
         else:
-            return self.legacy_cache.save_news_data(symbol, data, data_source)
+            return self.legacy_cache.save_news_data(
+                symbol=symbol,
+                news_data=data,
+                start_date=start_date,
+                end_date=end_date,
+                data_source=data_source
+            )
     
     def load_news_data(self, cache_key: str) -> Optional[Any]:
         """加载新闻数据"""
@@ -321,9 +329,22 @@ class IntegratedCacheManager:
             try:
                 redis_client = self._get_redis_client()
                 if max_age_days == 0:
-                    # 清空所有缓存
-                    redis_client.flushdb()
-                    self.logger.info(f"🧹 Redis 缓存已全部清空")
+                    # 使用 SCAN + DEL 替代 flushdb，避免清除非缓存数据
+                    # 缓存键前缀来自 db_cache.py 的 {data_type}:{symbol}:{hash} 格式
+                    cache_prefixes = ["stock:", "news:", "fundamentals:"]
+                    deleted_count = 0
+                    for prefix in cache_prefixes:
+                        cursor = 0
+                        while True:
+                            cursor, keys = redis_client.scan(
+                                cursor, match=f"{prefix}*", count=500
+                            )
+                            if keys:
+                                redis_client.delete(*keys)
+                                deleted_count += len(keys)
+                            if cursor == 0:
+                                break
+                    self.logger.info(f"🧹 Redis 缓存已清除 {deleted_count} 个键")
                 else:
                     # Redis 会自动过期，这里只记录日志
                     self.logger.info(f"🧹 Redis 缓存会自动过期（TTL机制）")
@@ -416,11 +437,17 @@ class IntegratedCacheManager:
 
 # 全局集成缓存管理器实例
 _integrated_cache = None
+_integrated_cache_lock = threading.Lock()
 
 def get_cache() -> IntegratedCacheManager:
-    """获取全局集成缓存管理器实例"""
+    """获取全局集成缓存管理器实例（线程安全）"""
     global _integrated_cache
-    if _integrated_cache is None:
+    if _integrated_cache is not None:
+        return _integrated_cache
+    with _integrated_cache_lock:
+        # 双重检查锁定
+        if _integrated_cache is not None:
+            return _integrated_cache
         _integrated_cache = IntegratedCacheManager()
     return _integrated_cache
 

@@ -5,8 +5,8 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.routers.auth_db import get_current_user
-from app.core.response import ok
+from app.routers.auth_db import get_current_user, require_admin
+from app.core.response import ok, safe_error_message
 from app.core.database import get_redis_client
 from app.services.notifications_service import get_notifications_service
 
@@ -53,7 +53,7 @@ async def mark_all_read(user: dict = Depends(get_current_user)):
 
 
 @router.get("/debug/redis_pool")
-async def debug_redis_pool(user: dict = Depends(get_current_user)):
+async def debug_redis_pool(user: dict = Depends(require_admin)):
     """调试端点：查看 Redis 连接池状态"""
     try:
         r = get_redis_client()
@@ -94,4 +94,4 @@ async def debug_redis_pool(user: dict = Depends(get_current_user)):
         })
     except Exception as e:
         logger.error(f"获取 Redis 连接池信息失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取Redis连接池信息失败"))

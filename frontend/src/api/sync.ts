@@ -168,3 +168,72 @@ export const getSyncHistory = (params?: {
 export const clearSyncCache = (): Promise<ApiResponse<{ cleared: boolean }>> => {
   return ApiClient.delete('/api/multi-source-sync/cache')
 }
+
+// ==================== 港股/美股按需缓存 API ====================
+
+export interface MarketSourceStatus {
+  name: string
+  available: boolean
+}
+
+export interface MarketCacheStats {
+  market: string
+  cache_hours?: number
+  available_sources?: string[]
+}
+
+/**
+ * 获取港股数据源状态
+ */
+export const getHKSourcesStatus = (): Promise<ApiResponse<MarketSourceStatus[]>> => {
+  return ApiClient.get('/api/sync/hk/sources/status')
+}
+
+/**
+ * 获取港股缓存统计
+ */
+export const getHKCacheStats = (): Promise<ApiResponse<MarketCacheStats>> => {
+  return ApiClient.get('/api/sync/hk/cache/stats')
+}
+
+/**
+ * 手动预热港股缓存
+ */
+export const warmHKCache = (symbol: string, force = false): Promise<ApiResponse<any>> => {
+  return ApiClient.post('/api/sync/hk/cache/warm', { symbol, force })
+}
+
+/**
+ * 清理港股缓存
+ */
+export const clearHKCache = (): Promise<ApiResponse<any>> => {
+  return ApiClient.delete('/api/sync/hk/cache')
+}
+
+/**
+ * 获取美股数据源状态
+ */
+export const getUSSourcesStatus = (): Promise<ApiResponse<MarketSourceStatus[]>> => {
+  return ApiClient.get('/api/sync/us/sources/status')
+}
+
+/**
+ * 获取美股缓存统计
+ */
+export const getUSCacheStats = (): Promise<ApiResponse<MarketCacheStats>> => {
+  return ApiClient.get('/api/sync/us/cache/stats')
+}
+
+/**
+ * 手动预热美股缓存
+ */
+export const warmUSCache = (symbol: string, force = false): Promise<ApiResponse<any>> => {
+  return ApiClient.post('/api/sync/us/cache/warm', { symbol, force })
+}
+
+/**
+ * 清理美股缓存
+ */
+export const clearUSCache = (): Promise<ApiResponse<any>> => {
+  return ApiClient.delete('/api/sync/us/cache')
+}

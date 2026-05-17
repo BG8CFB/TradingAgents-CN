@@ -54,23 +54,30 @@ def analyze_conditions(conditions: List[ScreeningCondition]) -> Dict[str, Any]:
 
 
 def convert_conditions_to_traditional_format(conditions: List[ScreeningCondition]) -> Dict[str, Any]:
-    traditional_conditions: Dict[str, Any] = {}
+    """将 ScreeningCondition 列表转为 eval_utils 期望的 DSL 树结构。
 
+    DSL 格式:
+      单条件叶节点: {"field": "pe", "op": ">", "value": 15}
+      多条件组节点: {"op": "group", "logic": "AND", "children": [...]}
+    空条件列表返回 {}，eval_utils 对空节点直接返回 True。
+    """
+    if not conditions:
+        return {}
+
+    children = []
     for condition in conditions:
-        field = condition.field
-        operator = condition.operator
-        value = condition.value
+        children.append({
+            "field": condition.field,
+            "op": condition.operator,  # use_enum_values=True → 已是字符串
+            "value": condition.value,
+        })
 
-        if operator == "between" and isinstance(value, list) and len(value) == 2:
-            traditional_conditions[field] = {"min": value[0], "max": value[1]}
-        elif operator in [">", "<", ">=", "<="]:
-            traditional_conditions[field] = {operator: value}
-        elif operator == "==":
-            traditional_conditions[field] = value
-        elif operator in ["in", "not_in"]:
-            traditional_conditions[field] = {operator: value}
-        else:
-            traditional_conditions[field] = {operator: value}
+    if len(children) == 1:
+        return children[0]
 
-    return traditional_conditions
+    return {
+        "op": "group",
+        "logic": "AND",
+        "children": children,
+    }
 

@@ -12,9 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.core.database import get_mongo_db, get_redis_client
 from app.services.database_service import DatabaseService
+from app.core.response import safe_error_message
 
 router = APIRouter(prefix="/api/database", tags=["Database"])
 logger = logging.getLogger("webapi")
@@ -83,7 +84,7 @@ async def get_database_status(
         logger.error(f"获取数据库状态失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取数据库状态失败: {str(e)}"
+            detail=safe_error_message(e, "获取数据库状态失败")
         )
 
 @router.get("/stats")
@@ -103,7 +104,7 @@ async def get_database_stats(
         logger.error(f"获取数据库统计失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取数据库统计失败: {str(e)}"
+            detail=safe_error_message(e, "获取数据库统计失败")
         )
 
 @router.post("/test")
@@ -123,13 +124,13 @@ async def test_database_connections(
         logger.error(f"测试数据库连接失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"测试数据库连接失败: {str(e)}"
+            detail=safe_error_message(e, "测试数据库连接失败")
         )
 
 @router.post("/backup")
 async def create_backup(
     request: BackupRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """创建数据库备份"""
     try:
@@ -148,7 +149,7 @@ async def create_backup(
         logger.error(f"创建备份失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"创建备份失败: {str(e)}"
+            detail=safe_error_message(e, "创建备份失败")
         )
 
 @router.get("/backups")
@@ -167,7 +168,7 @@ async def list_backups(
         logger.error(f"获取备份列表失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取备份列表失败: {str(e)}"
+            detail=safe_error_message(e, "获取备份列表失败")
         )
 
 @router.post("/import")
@@ -176,7 +177,7 @@ async def import_data(
     collection: str = "imported_data",
     format: str = "json",
     overwrite: bool = False,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """导入数据"""
     try:
@@ -243,13 +244,13 @@ async def import_data(
         logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"导入数据失败: {str(e)}"
+            detail=safe_error_message(e, "导入数据失败")
         )
 
 @router.post("/export")
 async def export_data(
     request: ExportRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """导出数据"""
     try:
@@ -271,13 +272,13 @@ async def export_data(
         logger.error(f"导出数据失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"导出数据失败: {str(e)}"
+            detail=safe_error_message(e, "导出数据失败")
         )
 
 @router.delete("/backups/{backup_id}")
 async def delete_backup(
     backup_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """删除备份"""
     try:
@@ -291,13 +292,13 @@ async def delete_backup(
         logger.error(f"删除备份失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"删除备份失败: {str(e)}"
+            detail=safe_error_message(e, "删除备份失败")
         )
 
 @router.post("/cleanup")
 async def cleanup_old_data(
     days: int = 30,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """清理旧数据"""
     try:
@@ -312,13 +313,13 @@ async def cleanup_old_data(
         logger.error(f"清理数据失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"清理数据失败: {str(e)}"
+            detail=safe_error_message(e, "清理数据失败")
         )
 
 @router.post("/cleanup/analysis")
 async def cleanup_analysis_results(
     days: int = 30,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """清理过期分析结果"""
     try:
@@ -333,13 +334,13 @@ async def cleanup_analysis_results(
         logger.error(f"清理分析结果失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"清理分析结果失败: {str(e)}"
+            detail=safe_error_message(e, "清理分析结果失败")
         )
 
 @router.post("/cleanup/logs")
 async def cleanup_operation_logs(
     days: int = 90,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """清理操作日志"""
     try:
@@ -354,5 +355,5 @@ async def cleanup_operation_logs(
         logger.error(f"清理操作日志失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"清理操作日志失败: {str(e)}"
+            detail=safe_error_message(e, "清理操作日志失败")
         )

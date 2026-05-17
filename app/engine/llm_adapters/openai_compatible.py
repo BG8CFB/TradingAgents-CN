@@ -170,13 +170,26 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
                     )
 
     def _fetch_reasoning(self, messages: List[BaseMessage]) -> str:
-        """用底层 OpenAI SDK 发起原生调用获取 reasoning 字段"""
+        """用底层 OpenAI SDK 发起原生调用获取 reasoning 字段
+
+        注意：此方法会发起一次额外的 API 调用。仅在 content 为空时触发。
+        使用 getattr 安全获取模型属性，避免属性不存在时崩溃。
+        """
         try:
             from openai import OpenAI
 
             api_key = self.openai_api_key
             if hasattr(api_key, "get_secret_value"):
                 api_key = api_key.get_secret_value()
+
+            # 安全获取模型名称，失败时直接返回空字符串
+            model_name = getattr(self, 'model_name', None)
+            if not model_name:
+                # 尝试从 _model_name_alias 私有属性获取
+                model_name = getattr(self, '_model_name_alias', None)
+            if not model_name:
+                logger.debug("无法获取模型名称，跳过 reasoning 回填")
+                return ""
 
             client = OpenAI(
                 api_key=api_key,
@@ -193,10 +206,10 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
                 openai_messages.append({"role": role, "content": str(m.content)})
 
             resp = client.chat.completions.create(
-                model=self.model_name,
+                model=model_name,
                 messages=openai_messages,
-                max_tokens=self.max_tokens or 200,
-                temperature=self.temperature,
+                max_tokens=getattr(self, 'max_tokens', 200) or 200,
+                temperature=getattr(self, 'temperature', 0.7),
             )
             msg = resp.choices[0].message
             reasoning = getattr(msg, "reasoning", None) or ""

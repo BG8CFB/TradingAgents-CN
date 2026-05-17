@@ -326,7 +326,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, computed } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   Files, TrendCharts, Check, Close, Timer, Loading,

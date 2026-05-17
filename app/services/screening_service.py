@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
-from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
+from app.utils.timezone import now_utc
 
 import pandas as pd
-import numpy as np
 
 # 统一指标库
 from app.engine.tools.analysis.indicators import IndicatorSpec, compute_many
@@ -77,10 +76,11 @@ class ScreeningService:
     # --- 公共入口 ---
     def run(self, conditions: Dict[str, Any], params: ScreeningParams) -> Dict[str, Any]:
         symbols = self._get_universe()
-        # 为控制时长，先限制样本规模（后续用批量/缓存优化）
-        symbols = symbols[:120]
 
-        end_date = now_utc()
+        if params.date:
+            end_date = datetime.strptime(params.date, "%Y-%m-%d")
+        else:
+            end_date = now_utc()
         start_date = end_date - timedelta(days=220)
         end_s = end_date.strftime("%Y-%m-%d")
         start_s = start_date.strftime("%Y-%m-%d")
@@ -95,6 +95,9 @@ class ScreeningService:
         need_base = any(f in BASE_FIELDS for f in all_needed) or need_tech
         need_fund = any(f in FUND_FIELDS for f in all_needed)
 
+        # 在循环外获取数据源管理器（避免每只股票重复创建）
+        manager = get_data_source_manager() if need_base else None
+
         for code in symbols:
             try:
                 dfc = None
@@ -102,7 +105,6 @@ class ScreeningService:
 
                 # 如需要基础行情/技术指标才取K线
                 if need_base:
-                    manager = get_data_source_manager()
                     df = manager.get_stock_dataframe(code, start_s, end_s)
                     if df is None or df.empty:
                         continue
@@ -148,7 +150,7 @@ class ScreeningService:
                         passes = self._evaluate_fund_conditions(snap, conditions)
 
                 if passes:
-                    item = {"code": code}
+                    item = {"symbol": code}
                     if last is not None:
                         item.update({
                             "close": self._safe_float(last.get("close")),
@@ -164,7 +166,8 @@ class ScreeningService:
                             "macd_hist": self._safe_float(last.get("macd_hist")) if need_tech else None,
                         })
                     results.append(item)
-            except Exception:
+            except Exception as exc:
+                logger.debug("筛选股票 %s 时出错: %s", code, exc)
                 continue
 
         total = len(results)
@@ -224,10 +227,10 @@ class ScreeningService:
                         {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}
                     ]
                 },
-                {"code": 1, "_id": 0}
+                {"symbol": 1, "_id": 0}
             )
 
-            codes = [doc.get("code") for doc in cursor if doc.get("code")]
+            codes = [doc.get("symbol") for doc in cursor if doc.get("symbol")]
 
             if codes:
                 logger.info(f"📊 从 MongoDB 获取到 {len(codes)} 只A股股票")

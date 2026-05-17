@@ -79,7 +79,7 @@ class CircuitBreaker:
         self.failure_count = 0
         self.success_count = 0
         self.last_state_change = time.time()
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None  # 懒初始化，避免在非 asyncio 上下文中创建
 
     async def _can_attempt(self) -> bool:
         """检查是否允许尝试调用"""
@@ -103,14 +103,20 @@ class CircuitBreaker:
 
         return False
 
+    def _ensure_lock(self) -> asyncio.Lock:
+        """懒初始化 asyncio.Lock，确保在事件循环内创建"""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
     async def acquire(self) -> bool:
         """尝试获取调用许可"""
-        async with self._lock:
+        async with self._ensure_lock():
             return await self._can_attempt()
 
     async def record_success(self):
         """记录成功调用"""
-        async with self._lock:
+        async with self._ensure_lock():
             now = time.time()
 
             if self.state == CircuitState.HALF_OPEN:
@@ -126,7 +132,7 @@ class CircuitBreaker:
 
     async def record_failure(self):
         """记录失败调用"""
-        async with self._lock:
+        async with self._ensure_lock():
             now = time.time()
 
             self.failure_count += 1
@@ -245,7 +251,9 @@ class TaskLevelMCPManager:
         self._failed_tools: Set[str] = set()
         self._retry_mechanism = RetryMechanism(RetryConfig())
         self._circuit_config = CircuitBreakerConfig()
-        self._lock = asyncio.Lock()
+        # 使用 threading.Lock 保护 _failed_tools 的写入（在 execute_tool 中使用），
+        # 避免在非 asyncio 上下文中创建 asyncio.Lock
+        self._lock = threading.Lock()
 
         # 默认服务器并发限制
         self._default_server_concurrency = 5
@@ -283,16 +291,16 @@ class TaskLevelMCPManager:
         return self._server_semaphores[server_name]
 
     async def is_tool_available(self, tool_name: str, server_name: Optional[str] = None) -> bool:
-        """检查工具是否可用"""
+        """检查工具是否可用（只读检查，不产生状态副作用）"""
         tool_key = self._get_tool_key(tool_name, server_name)
 
         # 检查是否在失败集合中
         if tool_key in self._failed_tools:
             return False
 
-        # 检查断路器状态
+        # 只读检查：不调用 acquire，避免状态副作用
         circuit_breaker = self._get_circuit_breaker(tool_key)
-        return await circuit_breaker.acquire()
+        return circuit_breaker.state != CircuitState.OPEN
 
     async def execute_tool(
         self,
@@ -313,7 +321,7 @@ class TaskLevelMCPManager:
         """
         tool_key = self._get_tool_key(tool_name, server_name)
 
-        # 检查工具是否可用
+        # 检查工具是否可用（只读检查）
         if not await self.is_tool_available(tool_name, server_name):
             logger.warning(f"工具 {tool_name} 在当前任务中已禁用")
             return {
@@ -324,6 +332,15 @@ class TaskLevelMCPManager:
 
         circuit_breaker = self._get_circuit_breaker(tool_key)
         tool_state = self._get_tool_state(tool_key)
+
+        # 在执行前获取断路器许可（写入状态变更，如 OPEN → HALF_OPEN）
+        if not await circuit_breaker.acquire():
+            logger.warning(f"工具 {tool_name} 断路器拒绝调用")
+            return {
+                "status": "disabled",
+                "message": f"工具 {tool_name} 断路器拒绝调用",
+                "tool_name": tool_name
+            }
 
         # 获取服务器级并发锁
         semaphore = None
@@ -356,7 +373,7 @@ class TaskLevelMCPManager:
 
             # 检查是否需要禁用工具
             if tool_state.failure_count >= self._circuit_config.failure_threshold:
-                async with self._lock:
+                with self._lock:
                     self._failed_tools.add(tool_key)
                 logger.error(f"工具 {tool_name} 连续失败 {tool_state.failure_count} 次，已在当前任务中禁用")
 
@@ -487,8 +504,16 @@ class TaskLevelMCPManager:
 
 # 全局任务管理器注册表
 _task_managers: Dict[str, TaskLevelMCPManager] = {}
-_managers_lock = asyncio.Lock()
+_managers_lock: Optional[asyncio.Lock] = None  # 懒初始化
 _managers_thread_lock = threading.Lock()
+
+
+def _get_managers_async_lock() -> asyncio.Lock:
+    """懒初始化全局 asyncio.Lock"""
+    global _managers_lock
+    if _managers_lock is None:
+        _managers_lock = asyncio.Lock()
+    return _managers_lock
 
 
 def get_task_mcp_manager(task_id: str) -> TaskLevelMCPManager:
@@ -501,7 +526,7 @@ def get_task_mcp_manager(task_id: str) -> TaskLevelMCPManager:
 
 async def remove_task_mcp_manager(task_id: str):
     """移除任务级 MCP 管理器"""
-    async with _managers_lock:
+    async with _get_managers_async_lock():
         if task_id in _task_managers:
             del _task_managers[task_id]
             logger.info(f"移除任务级 MCP 管理器: {task_id}")
@@ -509,6 +534,6 @@ async def remove_task_mcp_manager(task_id: str):
 
 async def cleanup_all_managers():
     """清理所有管理器"""
-    async with _managers_lock:
+    async with _get_managers_async_lock():
         _task_managers.clear()
         logger.info("清理所有任务级 MCP 管理器")

@@ -92,11 +92,11 @@ const getMarketLabel = (market: string) => {
 }
 
 const formatStockCode = (stock: StockInfo) => {
+  const code = stock.symbol || stock.code || ''
   if (stock.market === 'HK') {
-    // 港股代码格式化为5位（如：00700）
-    return stock.code.padStart(5, '0')
+    return code.padStart(5, '0')
   }
-  return stock.code
+  return code
 }
 
 const handleMarketChange = () => {

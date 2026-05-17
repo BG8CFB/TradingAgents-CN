@@ -19,6 +19,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 import logging
+import re
 import time
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -29,6 +30,8 @@ from app.core.config import settings
 from app.utils.timezone import now_utc
 from app.core.database import init_db, close_db
 from app.core.logging_config import setup_logging
+from app.core.response import safe_error_message
+import jwt as _jwt
 from app.routers import auth_db as auth, analysis, screening, sse, health, favorites, config, reports, database, operation_logs, tags, news_data, usage_statistics, model_capabilities, cache, logs
 from app.routers import mcp, tools
 from app.routers import agent_configs
@@ -39,15 +42,15 @@ from app.routers import notifications as notifications_router
 from app.routers import websocket_notifications as websocket_notifications_router
 from app.routers import scheduler as scheduler_router
 from app.services.basics_sync_service import get_basics_sync_service
-from app.services.multi_source_basics_sync_service import MultiSourceBasicsSyncService
+from app.services.multi_source_basics_sync_service import get_multi_source_sync_service
 from app.services.scheduler_service import set_scheduler_instance
 # Phase 4G: 数据源 sync service 导入已移至 app/worker/scheduler_setup.py
 from app.middleware.operation_log_middleware import OperationLogMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.services.quotes_ingestion_service import QuotesIngestionService
 
-# 模块级变量：供 APScheduler 调度的基础信息同步服务实例
-_basics_sync_service: MultiSourceBasicsSyncService | None = None
+# 模块级变量：供 APScheduler 调度的基础信息同步服务实例（与 API 共用同一单例）
+_basics_sync_service = None
 
 
 async def _run_basics_sync(force: bool = False, preferred_sources: list | None = None):
@@ -72,6 +75,14 @@ def get_version() -> str:
     except Exception:
         pass
     return "1.0.0"  # 默认版本号
+
+
+def _sanitize_url(url: str) -> str:
+    """隐藏 URL 中的用户名密码部分，防止敏感信息泄露到日志。
+
+    例如: http://user:pass@proxy:8080 -> http://***@proxy:8080
+    """
+    return re.sub(r'://([^@:]+):([^@]+)@', r'://***@', url)
 
 
 async def _print_config_summary(logger):
@@ -151,9 +162,9 @@ async def _print_config_summary(logger):
         if settings.HTTP_PROXY or settings.HTTPS_PROXY:
             logger.info("Proxy Configuration:")
             if settings.HTTP_PROXY:
-                logger.info(f"  HTTP_PROXY: {settings.HTTP_PROXY}")
+                logger.info(f"  HTTP_PROXY: {_sanitize_url(settings.HTTP_PROXY)}")
             if settings.HTTPS_PROXY:
-                logger.info(f"  HTTPS_PROXY: {settings.HTTPS_PROXY}")
+                logger.info(f"  HTTPS_PROXY: {_sanitize_url(settings.HTTPS_PROXY)}")
             if settings.NO_PROXY:
                 # 只显示前3个域名
                 no_proxy_list = settings.NO_PROXY.split(',')
@@ -298,9 +309,9 @@ async def lifespan(app: FastAPI):
     try:
         scheduler = AsyncIOScheduler(timezone=settings.TIMEZONE)
 
-        # 初始化多数据源同步服务
+        # 初始化多数据源同步服务（与 API 路由共用同一单例）
         global _basics_sync_service
-        _basics_sync_service = MultiSourceBasicsSyncService()
+        _basics_sync_service = get_multi_source_sync_service()
 
         # Phase 4G: 所有定时任务注册已提取到 app/worker/scheduler_setup.py
         from app.worker.scheduler_setup import register_jobs
@@ -436,14 +447,14 @@ async def log_requests(request: Request, call_next):
 
     # 使用webapi logger记录请求
     logger = logging.getLogger("webapi")
-    logger.info(f"🔄 {request.method} {request.url.path} - 开始处理")
+    logger.info(f"[REQ] {request.method} {request.url.path}")
 
     response = await call_next(request)
     process_time = time.time() - start_time
 
     # 记录请求完成
-    status_emoji = "✅" if response.status_code < 400 else "❌"
-    logger.info(f"{status_emoji} {request.method} {request.url.path} - 状态: {response.status_code} - 耗时: {process_time:.3f}s")
+    status_tag = "OK" if response.status_code < 400 else "ERR"
+    logger.info(f"[{status_tag}] {request.method} {request.url.path} - {response.status_code} - {process_time:.3f}s")
 
     return response
 
@@ -465,7 +476,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             content={
                 "error": {
                     "code": "VALIDATION_ERROR",
-                    "message": str(exc),
+                    "message": safe_error_message(exc, "请求参数无效"),
                     "request_id": request_id
                 }
             }
@@ -504,6 +515,55 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
                 "message": "Internal server error occurred",
+                "request_id": request_id
+            }
+        }
+    )
+
+
+@app.exception_handler(_jwt.ExpiredSignatureError)
+async def jwt_expired_handler(request: Request, exc: _jwt.ExpiredSignatureError):
+    """JWT Token 过期处理"""
+    request_id = getattr(request.state, "request_id", None)
+    return JSONResponse(
+        status_code=401,
+        content={
+            "error": {
+                "code": "TOKEN_EXPIRED",
+                "message": "登录已过期，请重新登录",
+                "request_id": request_id
+            }
+        }
+    )
+
+
+@app.exception_handler(_jwt.InvalidTokenError)
+async def jwt_invalid_handler(request: Request, exc: _jwt.InvalidTokenError):
+    """JWT Token 无效处理"""
+    request_id = getattr(request.state, "request_id", None)
+    return JSONResponse(
+        status_code=401,
+        content={
+            "error": {
+                "code": "TOKEN_INVALID",
+                "message": "认证信息无效",
+                "request_id": request_id
+            }
+        }
+    )
+
+
+@app.exception_handler(RuntimeError)
+async def runtime_error_handler(request: Request, exc: RuntimeError):
+    """运行时错误处理"""
+    request_id = getattr(request.state, "request_id", None)
+    logging.error(f"Runtime error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "RUNTIME_ERROR",
+                "message": safe_error_message(exc, "服务暂时不可用"),
                 "request_id": request_id
             }
         }
@@ -559,6 +619,10 @@ app.include_router(scheduler_router.router)
 app.include_router(sse.router)
 app.include_router(multi_source_sync.router)
 app.include_router(news_data.router)
+
+# 按市场拆分的同步路由（港股/美股按需缓存 + A股同步）
+from app.routers import sync as sync_router
+app.include_router(sync_router.router)
 
 
 @app.get("/")

@@ -2,8 +2,56 @@
 Base classes and shared typing for data source adapters
 """
 from abc import ABC, abstractmethod
-from typing import Optional, Dict
+from typing import List, Optional, Dict
+import logging
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# 默认 A 股数据源回退列表
+_DEFAULT_CN_SOURCES = ["tushare", "akshare", "baostock"]
+
+
+def get_enabled_cn_sources() -> List[str]:
+    """从 MongoDB 读取启用的 A 股数据源优先级列表（同步版本）"""
+    try:
+        from app.core.database import get_mongo_db_sync
+        db = get_mongo_db_sync()
+        groupings = list(db.datasource_groupings.find(
+            {"market_category_id": "a_shares", "enabled": True},
+        ).sort("priority", -1))
+        if groupings:
+            sources = [
+                g["data_source_name"].lower()
+                for g in groupings
+                if g.get("data_source_name")
+            ]
+            if sources:
+                return sources
+    except Exception as e:
+        logger.debug(f"读取数据源优先级失败，使用默认值: {e}")
+    return list(_DEFAULT_CN_SOURCES)
+
+
+async def get_enabled_cn_sources_async() -> List[str]:
+    """从 MongoDB 读取启用的 A 股数据源优先级列表（异步版本）"""
+    try:
+        from app.core.database import get_mongo_db
+        db = get_mongo_db()
+        groupings = await db.datasource_groupings.find(
+            {"market_category_id": "a_shares", "enabled": True},
+        ).sort("priority", -1).to_list(length=None)
+        if groupings:
+            sources = [
+                g["data_source_name"].lower()
+                for g in groupings
+                if g.get("data_source_name")
+            ]
+            if sources:
+                return sources
+    except Exception as e:
+        logger.debug(f"读取数据源优先级失败，使用默认值: {e}")
+    return list(_DEFAULT_CN_SOURCES)
 
 
 class DataSourceAdapter(ABC):

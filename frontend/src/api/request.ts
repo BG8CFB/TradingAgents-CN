@@ -24,6 +24,8 @@ export interface RequestConfig extends AxiosRequestConfig {
   loadingText?: string
   retryCount?: number  // 重试次数
   retryDelay?: number  // 重试延迟（毫秒）
+  /** 内部标志：已通过 token 刷新重试过，防止 401 无限循环 */
+  __tokenRefreshed?: boolean
 }
 
 // 消息去重：记录最近显示的错误消息
@@ -104,17 +106,21 @@ const createAxiosInstance = (): AxiosInstance => {
         if (token) {
           config.headers = config.headers || {}
           config.headers.Authorization = `Bearer ${token}`
-          console.log('🔐 已设置Authorization头:', {
-            hasToken: true,
-            tokenLength: token.length
-          })
+          if (import.meta.env.DEV) {
+            console.log('🔐 已设置Authorization头:', {
+              hasToken: true,
+              tokenLength: token.length
+            })
+          }
         } else {
-          console.log('⚠️ 未设置Authorization头:', {
-            skipAuth: config.skipAuth,
-            hasToken: !!authStore.token,
-            localStored: !!localStorage.getItem('auth-token'),
-            url: config.url
-          })
+          if (import.meta.env.DEV) {
+            console.log('⚠️ 未设置Authorization头:', {
+              skipAuth: config.skipAuth,
+              hasToken: !!authStore.token,
+              localStored: !!localStorage.getItem('auth-token'),
+              url: config.url
+            })
+          }
         }
       }
 
@@ -231,13 +237,20 @@ const createAxiosInstance = (): AxiosInstance => {
 
             // 未授权，尝试刷新token
             if (!config?.skipAuth && authStore.refreshToken) {
+              // 防止无限重试：如果已经刷新过 token 仍然 401，直接登出
+              if (config?.__tokenRefreshed) {
+                console.warn('⚠️ Token 已刷新仍 401，直接登出以防止无限循环')
+                handle401Error(authStore, '登录已过期，请重新登录')
+                break
+              }
               try {
                 console.log('🔄 401错误，尝试刷新token...')
                 const success = await authStore.refreshAccessToken()
                 if (success) {
                   console.log('✅ Token刷新成功，重试原请求')
-                  // 重新发送原请求
-                  return instance.request(config)
+                  // 重新发送原请求，并标记已刷新过 token
+                  const newConfig = { ...config, __tokenRefreshed: true }
+                  return instance.request(newConfig)
                 } else {
                   console.log('❌ Token刷新失败')
                 }

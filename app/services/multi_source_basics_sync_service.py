@@ -11,8 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
+from app.utils.timezone import now_utc, format_iso
 from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
@@ -63,19 +62,47 @@ class MultiSourceBasicsSyncService:
         self._lock = asyncio.Lock()
         self._running = False
         self._last_status: Optional[Dict[str, Any]] = None
+        self._stale_cleaned = False
 
     async def get_status(self) -> Dict[str, Any]:
         """获取同步状态"""
+        # 首次调用时清理陈旧的 running 状态（容器重启后残留）
+        if not self._stale_cleaned:
+            self._stale_cleaned = True
+            await self._cleanup_stale_running_status()
+
         if self._last_status:
             return self._last_status
 
         db = get_mongo_db()
         doc = await db[STATUS_COLLECTION].find_one({"job": JOB_KEY})
         if doc:
-            # 移除MongoDB的_id字段以避免序列化问题
             doc.pop("_id", None)
             return doc
         return {"job": JOB_KEY, "status": "never_run"}
+
+    async def _cleanup_stale_running_status(self) -> None:
+        """清理容器重启后残留的陈旧 running 状态"""
+        try:
+            if self._running:
+                return
+            db = get_mongo_db()
+            stale = await db[STATUS_COLLECTION].find_one(
+                {"job": JOB_KEY, "status": "running"}
+            )
+            if stale:
+                logger.warning("检测到陈旧的 running 状态，自动标记为 failed（容器可能重启过）")
+                await db[STATUS_COLLECTION].update_one(
+                    {"job": JOB_KEY, "status": "running"},
+                    {"$set": {
+                        "status": "failed",
+                        "message": "同步被中断（服务重启），请重新运行同步",
+                        "finished_at": format_iso(now_utc()),
+                    }},
+                )
+                self._last_status = None
+        except Exception as e:
+            logger.warning(f"清理陈旧状态失败: {e}")
 
     async def _persist_status(self, db: AsyncIOMotorDatabase, stats: Dict[str, Any]) -> None:
         """持久化同步状态"""
@@ -163,9 +190,8 @@ class MultiSourceBasicsSyncService:
 
         try:
             # Step 1: 获取数据源管理器
-            from app.data.manager import DataSourceManager
-            manager = DataSourceManager()
-            available_adapters = manager.get_available_adapters()
+            from app.data import reader as _data_reader
+            available_adapters = _data_reader.get_available_adapters()
 
             if not available_adapters:
                 raise RuntimeError("No available data sources found")
@@ -176,10 +202,14 @@ class MultiSourceBasicsSyncService:
             if preferred_sources:
                 logger.info(f"Using preferred data sources: {preferred_sources}")
 
-            # Step 2: 尝试从数据源获取股票列表
-            stock_df, source_used = await asyncio.to_thread(
-                manager.get_stock_list_with_fallback, preferred_sources
-            )
+            # Step 2: 尝试从数据源获取股票列表（带超时保护）
+            try:
+                stock_df, source_used = await asyncio.wait_for(
+                    asyncio.to_thread(_data_reader.get_stock_list_with_fallback, preferred_sources),
+                    timeout=120,
+                )
+            except asyncio.TimeoutError:
+                raise RuntimeError("获取股票列表超时（120秒），请检查数据源网络连通性")
             if stock_df is None or getattr(stock_df, "empty", True):
                 raise RuntimeError("All data sources failed to provide stock list")
 
@@ -187,17 +217,27 @@ class MultiSourceBasicsSyncService:
             logger.info(f"Successfully fetched {len(stock_df)} stocks from {source_used}")
 
             # Step 3: 获取最新交易日期和财务数据
-            latest_trade_date = await asyncio.to_thread(
-                manager.find_latest_trade_date_with_fallback, preferred_sources
-            )
+            try:
+                latest_trade_date = await asyncio.wait_for(
+                    asyncio.to_thread(_data_reader.find_latest_trade_date_with_fallback, preferred_sources),
+                    timeout=60,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("获取最新交易日期超时（60秒），继续同步但不包含每日基础数据")
+                latest_trade_date = None
             stats.last_trade_date = latest_trade_date
 
             daily_data_map = {}
             daily_source = ""
             if latest_trade_date:
-                daily_df, daily_source = await asyncio.to_thread(
-                    manager.get_daily_basic_with_fallback, latest_trade_date, preferred_sources
-                )
+                try:
+                    daily_df, daily_source = await asyncio.wait_for(
+                        asyncio.to_thread(_data_reader.get_daily_basic_with_fallback, latest_trade_date, preferred_sources),
+                        timeout=120,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("获取每日基础数据超时（120秒），跳过财务指标")
+                    daily_df = None
                 if daily_df is not None and not daily_df.empty:
                     for _, row in daily_df.iterrows():
                         ts_code = row.get("ts_code")
@@ -208,8 +248,11 @@ class MultiSourceBasicsSyncService:
             # Step 5: 处理和更新数据（分批处理）
             ops = []
             inserted = updated = errors = 0
-            batch_size = 500  # 🔥 每批处理 500 只股票，避免超时
+            batch_size = 500
             total_stocks = len(stock_df)
+            # 设置总量，前端才能计算进度百分比
+            stats.total = total_stocks
+            await self._persist_status(db, stats.__dict__.copy())
 
             logger.info(f"🚀 开始处理 {total_stocks} 只股票，数据源: {source_used}")
 
@@ -264,25 +307,22 @@ class MultiSourceBasicsSyncService:
 
                     # 构建文档
                     doc = {
-                        "code": code,
-                        "symbol": code,  # 添加 symbol 字段（标准化字段）
+                        "symbol": code,
                         "name": name,
                         "area": area,
                         "industry": industry,
                         "market": market,
                         "list_date": list_date,
                         "sse": sse,
-                        "full_symbol": full_symbol,  # 添加 full_symbol 字段
-                        "category": category,
-                        "source": data_source,  # 🔥 使用实际数据源
+                        "full_symbol": full_symbol,
+                        "data_source": data_source,
                         "updated_at": now_utc(),
                     }
 
                     # 添加财务指标
                     self._add_financial_metrics(doc, daily_metrics)
 
-                    # 🔥 使用 (code, source) 联合查询条件
-                    ops.append(UpdateOne({"code": code, "source": data_source}, {"$set": doc}, upsert=True))
+                    ops.append(UpdateOne({"symbol": code, "data_source": data_source}, {"$set": doc}, upsert=True))
 
                 except Exception as e:
                     logger.error(f"Error processing stock {row.get('ts_code', 'unknown')}: {e}")
@@ -304,10 +344,15 @@ class MultiSourceBasicsSyncService:
                             errors += len(ops)
                             logger.warning(f"⚠️ 批量写入失败，标记 {len(ops)} 条记录为错误")
 
-                        ops = []  # 清空操作列表
+                        ops = []
+
+                        # 每批次完成后持久化进度，让前端能实时看到百分比
+                        stats.inserted = inserted
+                        stats.updated = updated
+                        stats.errors = errors
+                        await self._persist_status(db, stats.__dict__.copy())
 
             # Step 7: 更新统计信息
-            stats.total = total_stocks  # 🔥 使用总股票数
             stats.inserted = inserted
             stats.updated = updated
             stats.errors = errors
@@ -345,36 +390,11 @@ class MultiSourceBasicsSyncService:
         return _add_financial_metrics_util(doc, daily_metrics)
 
     def _generate_full_symbol(self, code: str) -> str:
-        """
-        根据股票代码生成完整标准化代码
-
-        Args:
-            code: 6位股票代码
-
-        Returns:
-            完整标准化代码，如果无法识别则返回原始代码（确保不为空）
-        """
-        # 确保 code 不为空
+        """根据股票代码生成完整标准化代码 — 委托到全局统一函数"""
+        from app.data.schema.base import get_full_symbol
         if not code:
             return ""
-
-        # 标准化为字符串并去除空格
-        code = str(code).strip()
-
-        # 如果长度不是 6，返回原始代码
-        if len(code) != 6:
-            return code
-
-        # 根据代码前缀判断交易所
-        if code.startswith(('60', '68', '90')):  # 上海证券交易所
-            return f"{code}.SS"
-        elif code.startswith(('00', '30', '20')):  # 深圳证券交易所
-            return f"{code}.SZ"
-        elif code.startswith(('8', '4')):  # 北京证券交易所
-            return f"{code}.BJ"
-        else:
-            # 无法识别的代码，返回原始代码（确保不为空）
-            return code if code else ""
+        return get_full_symbol(str(code).strip(), "CN")
 
 
 # 全局服务实例

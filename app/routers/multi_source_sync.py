@@ -9,8 +9,9 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 from app.services.multi_source_basics_sync_service import get_multi_source_sync_service
-from app.data.manager import DataSourceManager
+from app.data import reader as _data_reader
 from app.routers.auth_db import get_current_user
+from app.core.response import safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +43,8 @@ class DataSourceStatus(BaseModel):
 async def get_data_sources_status():
     """获取所有数据源的状态"""
     try:
-        manager = DataSourceManager()
-        available_adapters = manager.get_available_adapters()
-        all_adapters = manager.adapters
+        available_adapters = _data_reader.get_available_adapters()
+        all_adapters = _data_reader.get_all_adapters()
 
         status_list = []
         for adapter in all_adapters:
@@ -83,15 +83,14 @@ async def get_data_sources_status():
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get data sources status: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取数据源状态失败"))
 
 
 @router.get("/sources/current")
 async def get_current_data_source():
     """获取当前正在使用的数据源（优先级最高且可用的）"""
     try:
-        manager = DataSourceManager()
-        available_adapters = manager.get_available_adapters()
+        available_adapters = _data_reader.get_available_adapters()
 
         if not available_adapters:
             return SyncResponse(
@@ -132,7 +131,7 @@ async def get_current_data_source():
             data=result
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get current data source: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取当前数据源失败"))
 
 
 @router.get("/status")
@@ -149,7 +148,7 @@ async def get_sync_status():
         )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get sync status: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取同步状态失败"))
 
 
 @router.post("/stock_basics/run")
@@ -188,7 +187,7 @@ async def run_stock_basics_sync(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to run synchronization: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "运行同步失败"))
 
 
 async def _test_single_adapter(adapter) -> dict:
@@ -289,8 +288,7 @@ async def test_data_sources(request: TestSourceRequest = TestSourceRequest()):
     - 快速返回结果
     """
     try:
-        manager = DataSourceManager()
-        all_adapters = manager.adapters
+        all_adapters = _data_reader.get_all_adapters()
 
         # 从请求体中获取数据源名称
         source_name = request.source_name
@@ -344,15 +342,14 @@ async def test_data_sources(request: TestSourceRequest = TestSourceRequest()):
         raise
     except Exception as e:
         logger.error(f"❌ 测试数据源时出错: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to test data sources: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "测试数据源失败"))
 
 
 @router.get("/recommendations")
 async def get_sync_recommendations():
     """获取数据源使用建议"""
     try:
-        manager = DataSourceManager()
-        available_adapters = manager.get_available_adapters()
+        available_adapters = _data_reader.get_available_adapters()
         
         recommendations = {
             "primary_source": None,
@@ -397,7 +394,7 @@ async def get_sync_recommendations():
         )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate recommendations: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "生成数据源建议失败"))
 
 
 @router.get("/history")
@@ -443,7 +440,7 @@ async def get_sync_history(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get sync history: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取同步历史失败"))
 
 
 @router.delete("/cache")
@@ -472,8 +469,7 @@ async def clear_sync_cache(user: dict = Depends(get_current_user)):
 
         # 2. 清空数据源缓存（如果有的话）
         try:
-            manager = DataSourceManager()
-            # 这里可以添加数据源特定的缓存清理逻辑
+            _data_reader.get_available_adapters()
             # 目前数据源适配器没有持久化缓存，所以跳过
         except Exception as e:
             logger.warning(f"Failed to clear data source cache: {e}")
@@ -485,4 +481,4 @@ async def clear_sync_cache(user: dict = Depends(get_current_user)):
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "清空缓存失败"))

@@ -1,0 +1,9 @@
+[
+  {
+    "provider": "zhipu",
+    "model_name": "glm-5.1",
+    "input_price_per_1k": 0.0,
+    "output_price_per_1k": 0.0,
+    "currency": "CNY"
+  }
+]

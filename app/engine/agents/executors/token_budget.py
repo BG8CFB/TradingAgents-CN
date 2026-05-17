@@ -220,8 +220,6 @@ class TokenBudget:
         # 回退：至少保留最后 1 条，压缩前面所有内容
         return max(0, len(messages) - 1)
 
-        return max(0, i + 1)
-
     def _generate_summary(self, old_msgs: List[BaseMessage]) -> str:
         """从旧消息中提取关键信息生成摘要"""
         tool_summaries: List[str] = []

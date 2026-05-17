@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.routers.auth_db import get_current_user
-from app.core.response import ok
+from app.core.response import ok, safe_error_message
 
 from app.services.enhanced_screening_service import get_enhanced_screening_service
 from app.models.screening import (
@@ -54,7 +54,7 @@ async def get_screening_fields(user: dict = Depends(get_current_user)):
     try:
         # 字段分类
         categories = {
-            "basic": ["code", "name", "industry", "area", "market"],
+            "basic": ["symbol", "name", "industry", "area", "market"],
             "market_value": ["total_mv", "circ_mv"],
             "financial": ["pe", "pb", "pe_ttm", "pb_mrq", "roe"],
             "trading": ["turnover_rate", "volume_ratio"],
@@ -69,7 +69,7 @@ async def get_screening_fields(user: dict = Depends(get_current_user)):
 
     except Exception as e:
         logger.error(f"[get_screening_fields] 获取字段配置失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取字段配置失败"))
 
 
 def _convert_legacy_conditions_to_new_format(legacy_conditions: Dict[str, Any]) -> List[ScreeningCondition]:
@@ -130,7 +130,8 @@ def _convert_legacy_conditions_to_new_format(legacy_conditions: Dict[str, Any]) 
                     # 映射操作符
                     mapped_op = operator_mapping.get(op, op)
 
-                    # 处理市值单位转换（前端传入的是万元，数据库存储的是亿元）
+                    # 市值单位转换：前端协议约定传入万元，后端数据库存储亿元
+                    # 若前端协议变更，此处需同步调整
                     if mapped_field == "total_mv" and isinstance(value, list):
                         # 将万元转换为亿元
                         converted_value = [v / 10000 for v in value if isinstance(v, (int, float))]
@@ -188,7 +189,7 @@ async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_
 
     except Exception as e:
         logger.error(f"[screening] 处理失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "筛选处理失败"))
 
 
 # 新的优化筛选接口
@@ -230,7 +231,7 @@ async def enhanced_screening(req: NewScreeningRequest, user: dict = Depends(get_
 
     except Exception as e:
         logger.error(f"[enhanced_screening] 筛选失败: {e}")
-        raise HTTPException(status_code=500, detail=f"增强筛选失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "增强筛选失败"))
 
 
 
@@ -248,7 +249,7 @@ async def get_field_info(field_name: str, user: dict = Depends(get_current_user)
         raise
     except Exception as e:
         logger.error(f"[screening] 获取字段信息失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取字段信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取字段信息失败"))
 
 
 # 验证筛选条件
@@ -261,7 +262,7 @@ async def validate_conditions(conditions: List[ScreeningCondition], user: dict =
         return ok(validation_result)
     except Exception as e:
         logger.error(f"[screening] 验证条件失败: {e}")
-        raise HTTPException(status_code=500, detail=f"验证条件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "验证条件失败"))
 
 
 @router.get("/industries")
@@ -279,4 +280,4 @@ async def get_industries(user: dict = Depends(get_current_user)):
 
     except Exception as e:
         logger.error(f"[get_industries] 获取行业列表失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取行业列表失败"))

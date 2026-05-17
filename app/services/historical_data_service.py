@@ -12,6 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.database import get_mongo_db
 from app.utils.timezone import now_config_tz, now_utc, format_iso
+from app.data.schema.base import get_full_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -255,94 +256,66 @@ class HistoricalDataService:
         period: str = "daily",
         date_index = None
     ) -> Dict[str, Any]:
-        """标准化单条记录"""
+        """标准化单条记录 — 使用 Schema 系统生成文档（含双写兼容）"""
         now = now_utc()
 
-        # 获取日期 - 优先从列中获取，如果索引是日期类型才使用索引
-        trade_date = None
-
-        # 先尝试从列中获取日期
+        # 获取日期
         date_from_column = row.get('date') or row.get('trade_date')
-
-        # 如果列中有日期，优先使用列中的日期
         if date_from_column is not None:
             trade_date = self._format_date(date_from_column)
-        # 如果列中没有日期，且索引是日期类型，才使用索引
         elif date_index is not None and isinstance(date_index, (date, datetime, pd.Timestamp)):
             trade_date = self._format_date(date_index)
-        # 否则使用当前日期
         else:
             trade_date = self._format_date(None)
 
-        # 基础字段映射
-        doc = {
-            "symbol": symbol,
-            "code": symbol,  # 添加 code 字段，与 symbol 保持一致（向后兼容）
-            "full_symbol": self._get_full_symbol(symbol, market),
-            "market": market,
-            "trade_date": trade_date,
-            "period": period,
-            "data_source": data_source,
-            "created_at": now,
-            "updated_at": now,
-            "version": 1
-        }
-        
-        # OHLCV数据（单位转换已在 DataFrame 层面完成）
-        amount_value = self._safe_float(row.get('amount') or row.get('turnover'))
-        volume_value = self._safe_float(row.get('volume') or row.get('vol'))
+        # 使用 Schema 构建标准文档
+        from app.data.schema.stock_daily_quotes import StockDailyQuoteSchema
 
-        doc.update({
-            "open": self._safe_float(row.get('open')),
-            "high": self._safe_float(row.get('high')),
-            "low": self._safe_float(row.get('low')),
-            "close": self._safe_float(row.get('close')),
-            "pre_close": self._safe_float(row.get('pre_close') or row.get('preclose')),
-            "volume": volume_value,
-            "amount": amount_value
-        })
-        
-        # 计算涨跌数据
-        if doc["close"] and doc["pre_close"]:
-            doc["change"] = round(doc["close"] - doc["pre_close"], 4)
-            doc["pct_chg"] = round((doc["change"] / doc["pre_close"]) * 100, 4)
-        else:
-            doc["change"] = self._safe_float(row.get('change'))
-            doc["pct_chg"] = self._safe_float(row.get('pct_chg') or row.get('change_percent'))
-        
-        # 可选字段
-        optional_fields = {
-            "turnover_rate": row.get('turnover_rate') or row.get('turn'),
-            "volume_ratio": row.get('volume_ratio'),
-            "pe": row.get('pe'),
-            "pb": row.get('pb'),
-            "ps": row.get('ps'),
-            "adjustflag": row.get('adjustflag') or row.get('adj_factor'),
-            "tradestatus": row.get('tradestatus'),
-            "isST": row.get('isST')
-        }
-        
-        for key, value in optional_fields.items():
-            if value is not None:
-                doc[key] = self._safe_float(value)
-        
+        close = self._safe_float(row.get('close'))
+        pre_close = self._safe_float(row.get('pre_close') or row.get('preclose'))
+        change = self._safe_float(row.get('change'))
+        pct_chg = self._safe_float(row.get('pct_chg') or row.get('change_percent'))
+        if change is None and close is not None and pre_close is not None:
+            change = round(close - pre_close, 4)
+        if pct_chg is None and close is not None and pre_close is not None and pre_close != 0:
+            pct_chg = round((close - pre_close) / pre_close * 100, 4)
+
+        schema = StockDailyQuoteSchema(
+            symbol=symbol,
+            full_symbol=get_full_symbol(symbol, market),
+            trade_date=trade_date,
+            period=period,
+            open=self._safe_float(row.get('open')),
+            high=self._safe_float(row.get('high')),
+            low=self._safe_float(row.get('low')),
+            close=close,
+            pre_close=pre_close,
+            volume=self._safe_float(row.get('volume') or row.get('vol')),
+            amount=self._safe_float(row.get('amount') or row.get('turnover')),
+            change=change,
+            pct_chg=pct_chg,
+            turnover_rate=self._safe_float(row.get('turnover_rate') or row.get('turn')),
+            data_source=data_source,
+            created_at=now.isoformat(),
+            updated_at=now.isoformat(),
+        )
+        doc = schema.to_db_doc()
+
+        # 保留旧字段（过渡期兼容）
+        doc["market"] = market
+        doc["version"] = 1
+
+        # 可选字段（Schema 中未定义但旧代码会写的）
+        for key in ("volume_ratio", "pe", "pb", "ps"):
+            val = row.get(key)
+            if val is not None:
+                doc[key] = self._safe_float(val)
+
         return doc
     
     def _get_full_symbol(self, symbol: str, market: str) -> str:
-        """生成完整股票代码"""
-        if market == "CN":
-            if symbol.startswith('6'):
-                return f"{symbol}.SH"
-            elif symbol.startswith(('0', '3')):
-                return f"{symbol}.SZ"
-            else:
-                return f"{symbol}.SZ"  # 默认深圳
-        elif market == "HK":
-            return f"{symbol}.HK"
-        elif market == "US":
-            return symbol
-        else:
-            return symbol
+        """生成完整股票代码 — 委托到全局统一函数"""
+        return get_full_symbol(symbol, market)
     
     def _format_date(self, date_value) -> str:
         """格式化日期"""

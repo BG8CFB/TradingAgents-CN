@@ -8,6 +8,7 @@ import os
 import json
 import pickle
 import pandas as pd
+import threading
 from datetime import datetime, timedelta
 from app.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from pathlib import Path
@@ -180,8 +181,8 @@ class StockDataCache:
         for key, value in sorted(kwargs.items()):
             params_str += f"_{key}_{value}"
         
-        # 使用MD5生成短的唯一标识
-        cache_key = hashlib.md5(params_str.encode()).hexdigest()[:12]
+        # 使用MD5生成短的唯一标识（16字符，降低碰撞概率）
+        cache_key = hashlib.md5(params_str.encode()).hexdigest()[:16]
         return f"{symbol}_{data_type}_{cache_key}"
     
     def _get_cache_path(self, data_type: str, cache_key: str, file_format: str = "json", symbol: str = None) -> Path:
@@ -676,10 +677,16 @@ class StockDataCache:
 
 # 全局缓存实例
 _cache_instance = None
+_cache_lock = threading.Lock()
 
 def get_cache() -> StockDataCache:
-    """获取全局缓存实例"""
+    """获取全局缓存实例（线程安全）"""
     global _cache_instance
-    if _cache_instance is None:
+    if _cache_instance is not None:
+        return _cache_instance
+    with _cache_lock:
+        # 双重检查锁定
+        if _cache_instance is not None:
+            return _cache_instance
         _cache_instance = StockDataCache()
     return _cache_instance

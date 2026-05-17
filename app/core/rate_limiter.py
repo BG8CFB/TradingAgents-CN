@@ -3,6 +3,7 @@
 用于控制API调用频率，避免超过数据源的限流限制
 """
 import asyncio
+import threading
 import time
 import logging
 from collections import deque
@@ -31,7 +32,7 @@ class RateLimiter:
         self.time_window = time_window
         self.name = name
         self.calls = deque()  # 存储调用时间戳
-        self.lock = asyncio.Lock()  # 确保线程安全
+        self.lock = asyncio.Lock()  # 确保协程安全
         
         # 统计信息
         self.total_calls = 0
@@ -189,29 +190,36 @@ class BaoStockRateLimiter(RateLimiter):
 _tushare_limiter: Optional[TushareRateLimiter] = None
 _akshare_limiter: Optional[AKShareRateLimiter] = None
 _baostock_limiter: Optional[BaoStockRateLimiter] = None
+_rate_limiter_lock = threading.Lock()
 
 
 def get_tushare_rate_limiter(tier: str = "standard", safety_margin: float = 0.8) -> TushareRateLimiter:
-    """获取Tushare速率限制器（单例）"""
+    """获取Tushare速率限制器（线程安全单例）"""
     global _tushare_limiter
     if _tushare_limiter is None:
-        _tushare_limiter = TushareRateLimiter(tier=tier, safety_margin=safety_margin)
+        with _rate_limiter_lock:
+            if _tushare_limiter is None:
+                _tushare_limiter = TushareRateLimiter(tier=tier, safety_margin=safety_margin)
     return _tushare_limiter
 
 
 def get_akshare_rate_limiter() -> AKShareRateLimiter:
-    """获取AKShare速率限制器（单例）"""
+    """获取AKShare速率限制器（线程安全单例）"""
     global _akshare_limiter
     if _akshare_limiter is None:
-        _akshare_limiter = AKShareRateLimiter()
+        with _rate_limiter_lock:
+            if _akshare_limiter is None:
+                _akshare_limiter = AKShareRateLimiter()
     return _akshare_limiter
 
 
 def get_baostock_rate_limiter() -> BaoStockRateLimiter:
-    """获取BaoStock速率限制器（单例）"""
+    """获取BaoStock速率限制器（线程安全单例）"""
     global _baostock_limiter
     if _baostock_limiter is None:
-        _baostock_limiter = BaoStockRateLimiter()
+        with _rate_limiter_lock:
+            if _baostock_limiter is None:
+                _baostock_limiter = BaoStockRateLimiter()
     return _baostock_limiter
 
 

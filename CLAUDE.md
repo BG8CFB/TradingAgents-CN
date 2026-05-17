@@ -161,11 +161,24 @@ Unified data access with automatic fallback:
 
 - **Interface**: `interface.py` - Public API for all data access (A-share, HK, US)
 - **Data Source Manager**: `data_source_manager.py` - Multi-source management with auto-degradation
-- **Providers**:
+- **Schema Layer**: `app/data/schema/` - Standardized field definitions for all collections
+  - `base.py` - `BaseSchema`, `MarketType`, `get_full_symbol()`
+  - `collections.py` - Collection name mapping by market
+  - Per-entity schemas: `stock_basic_info.py`, `stock_daily_quotes.py`, `market_quotes.py`, `stock_financial_data.py`, `stock_news.py`
+- **Sources Layer**: `app/data/sources/` - Provider + Adapter pattern by market
+  - `base/` - `BaseProvider`, `BaseAdapter`
+  - `cn/tushare/`, `cn/akshare/`, `cn/baostock/` - A-share data sources
+  - `hk/akshare_hk/`, `hk/yfinance_hk/` - HK stock data sources
+  - `us/yfinance_us/`, `us/finnhub_us/` - US stock data sources
+- **Providers** (legacy, still actively used):
   - China: Tushare, AKShare, Baostock (in `providers/china/`)
   - US: Yahoo Finance, Finnhub (in `providers/us/`)
   - HK: HK stock providers (in `providers/hk/`)
 - **Cache**: Multi-level caching (file, MongoDB, Redis) controlled by `TA_CACHE_STRATEGY`
+
+**Field Standard**: All new code uses `symbol` (not `code`) and `data_source` (not `source`). The dual-write compatibility mode has been disabled — MongoDB migration is complete.
+
+**Per-Market Collections**: A-share uses base collection names; HK/US use `_hk`/`_us` suffixes (e.g., `stock_basic_info_hk`).
 
 **Usage**:
 
@@ -183,11 +196,15 @@ FastAPI application structure:
 - `routers/` - API route handlers (auth, analysis, config, MCP, tools, etc.)
   - Convention: every router must declare `prefix="/api/<domain>"` and use English Title-Case `tags=[]`
   - Sub-directory `config/` holds config-domain routers (data sources, LLM, markets, system)
+  - Sub-directory `sync/` holds per-market sync routers (`cn_sync.py`, `hk_sync.py`, `us_sync.py`)
   - Direct MongoDB calls (`find_one`, `aggregate`, etc.) are forbidden in routers — use the service layer instead
 - `services/` - Business logic (analysis, screening, sync services, quotes ingestion)
 - `models/` - Database models (MongoDB with Motor)
 - `core/` - Core configuration, database, logging, config bridge
 - `worker/` - Background task workers (data sync, scheduled jobs)
+  - `cn/` - A-share scheduled sync (wraps tushare/akshare/baostock_sync_service)
+  - `hk/` - HK on-demand cache service (`hk_cache_service.py`)
+  - `us/` - US on-demand cache service (`us_cache_service.py`)
 - `middleware/` - Request/response middleware
 
 ### LLM Integration (`app/engine/llm_adapters/`)

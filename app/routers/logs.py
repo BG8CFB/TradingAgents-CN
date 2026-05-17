@@ -9,11 +9,29 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app.routers.auth_db import get_current_user
+from app.core.response import safe_error_message
+from app.routers.auth_db import get_current_user, require_admin
 from app.services.log_export_service import get_log_export_service
 
 router = APIRouter(prefix="/api/logs", tags=["Logs"])
 logger = logging.getLogger("webapi")
+
+
+def _validate_log_filename(filename: str) -> str:
+    """校验日志文件名安全性，防止路径遍历攻击。
+
+    - 禁止空文件名
+    - 禁止包含路径分隔符 (/、\\)
+    - 禁止包含 ..（目录回溯）
+    - 禁止不以 .log 结尾的文件名
+    """
+    if not filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    if '/' in filename or '\\' in filename or '..' in filename:
+        raise HTTPException(status_code=400, detail="无效的文件名")
+    if not filename.endswith('.log') and '.log.' not in filename:
+        raise HTTPException(status_code=400, detail="只能操作日志文件")
+    return filename
 
 
 # 请求模型
@@ -74,15 +92,15 @@ async def list_log_files(
     """
     try:
         logger.info(f"📋 用户 {current_user['username']} 查询日志文件列表")
-        
+
         service = get_log_export_service()
         files = service.list_log_files()
-        
+
         return files
-        
+
     except Exception as e:
         logger.error(f"❌ 获取日志文件列表失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取日志文件列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取日志文件列表失败"))
 
 
 @router.post("/read", response_model=LogContentResponse)
@@ -101,7 +119,10 @@ async def read_log_file(
     """
     try:
         logger.info(f"📖 用户 {current_user['username']} 读取日志文件: {request.filename}")
-        
+
+        # 安全校验：防止路径遍历
+        _validate_log_filename(request.filename)
+
         service = get_log_export_service()
         content = service.read_log_file(
             filename=request.filename,
@@ -111,14 +132,16 @@ async def read_log_file(
             start_time=request.start_time,
             end_time=request.end_time
         )
-        
+
         return content
-        
+
+    except HTTPException:
+        raise
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="日志文件不存在")
     except Exception as e:
         logger.error(f"❌ 读取日志文件失败: {e}")
-        raise HTTPException(status_code=500, detail=f"读取日志文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "读取日志文件失败"))
 
 
 @router.post("/export")
@@ -140,7 +163,12 @@ async def export_logs(
     """
     try:
         logger.info(f"📤 用户 {current_user['username']} 导出日志文件")
-        
+
+        # 安全校验：逐个校验请求中的文件名
+        if request.filenames:
+            for fn in request.filenames:
+                _validate_log_filename(fn)
+
         service = get_log_export_service()
         export_path = service.export_logs(
             filenames=request.filenames,
@@ -149,24 +177,26 @@ async def export_logs(
             end_time=request.end_time,
             format=request.format
         )
-        
+
         # 返回文件下载
         import os
         filename = os.path.basename(export_path)
         media_type = "application/zip" if request.format == "zip" else "text/plain"
-        
+
         return FileResponse(
             path=export_path,
             filename=filename,
             media_type=media_type,
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
-        
+
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"❌ 导出日志文件失败: {e}")
-        raise HTTPException(status_code=500, detail=f"导出日志文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "导出日志文件失败"))
 
 
 @router.get("/statistics", response_model=LogStatisticsResponse)
@@ -204,13 +234,13 @@ async def get_log_statistics(
 
     except Exception as e:
         logger.error(f"❌ 获取日志统计失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取日志统计失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取日志统计失败"))
 
 
 @router.delete("/files/{filename}")
 async def delete_log_file(
     filename: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """
     删除日志文件
@@ -219,27 +249,32 @@ async def delete_log_file(
     """
     try:
         logger.warning(f"🗑️ 用户 {current_user['username']} 删除日志文件: {filename}")
-        
+
+        # 安全校验：防止路径遍历
+        _validate_log_filename(filename)
+
         service = get_log_export_service()
         file_path = service.log_dir / filename
-        
+
+        # 二次安全检查：解析后的路径必须仍在日志目录内
+        resolved = file_path.resolve()
+        log_dir_resolved = service.log_dir.resolve()
+        if not resolved.is_relative_to(log_dir_resolved):
+            raise HTTPException(status_code=400, detail="文件路径不合法")
+
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="日志文件不存在")
-        
-        # 安全检查：只允许删除 .log 文件
-        if not filename.endswith('.log') and not '.log.' in filename:
-            raise HTTPException(status_code=400, detail="只能删除日志文件")
-        
+
         file_path.unlink()
-        
+
         return {
             "success": True,
             "message": f"日志文件已删除: {filename}"
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"❌ 删除日志文件失败: {e}")
-        raise HTTPException(status_code=500, detail=f"删除日志文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "删除日志文件失败"))
 

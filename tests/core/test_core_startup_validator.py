@@ -91,17 +91,18 @@ class TestStartupValidator:
         assert result.success is True
 
     def test_validate_detects_missing_required(self):
-        """缺少必需配置时验证失败"""
-        from app.core.config import settings
+        """缺少必需配置时验证失败（JWT_SECRET 通过 os.getenv 检查）"""
+        import os
 
         validator = StartupValidator()
-        original_host = settings.MONGODB_HOST
-        settings.MONGODB_HOST = ""
+        original = os.environ.get("JWT_SECRET")
+        os.environ.pop("JWT_SECRET", None)
         try:
             validator._validate_required_configs()
             assert len(validator.result.missing_required) > 0
         finally:
-            settings.MONGODB_HOST = original_host
+            if original is not None:
+                os.environ["JWT_SECRET"] = original
 
     def test_validate_recommended_configs(self):
         """缺少推荐配置时加入 missing_recommended"""
@@ -135,52 +136,56 @@ class TestStartupValidator:
                 os.environ.pop("TUSHARE_TOKEN", None)
 
     def test_validate_detects_invalid_jwt_secret_too_short(self):
-        from app.core.config import settings
+        """JWT_SECRET 格式不正确时被检测到（通过 os.getenv 检查）"""
+        import os
 
         validator = StartupValidator()
-        original_jwt = settings.JWT_SECRET
-        settings.JWT_SECRET = "short"
+        original = os.environ.get("JWT_SECRET")
+        os.environ["JWT_SECRET"] = "short"
         try:
             validator._validate_required_configs()
             invalid_keys = [c.key for c, _ in validator.result.invalid_configs]
             assert "JWT_SECRET" in invalid_keys
         finally:
-            settings.JWT_SECRET = original_jwt
+            if original is not None:
+                os.environ["JWT_SECRET"] = original
+            else:
+                os.environ.pop("JWT_SECRET", None)
 
-    def test_validate_detects_insecure_jwt_default(self):
-        from app.core.config import settings
+    def test_validate_detects_unconfigured_jwt_secret(self):
+        """检查 JWT_SECRET 未在环境变量中配置时产生警告"""
+        import os
 
         validator = StartupValidator()
-        original_jwt = settings.JWT_SECRET
-        original_csrf = settings.CSRF_SECRET
-        settings.JWT_SECRET = "change-me-in-production"
-        settings.CSRF_SECRET = "change-me-csrf-secret"
+        original = os.environ.get("JWT_SECRET")
+        os.environ.pop("JWT_SECRET", None)
         try:
             validator._check_security_configs()
-            assert len(validator.result.warnings) >= 2
+            warning_text = " ".join(validator.result.warnings)
+            assert "JWT_SECRET" in warning_text
         finally:
-            settings.JWT_SECRET = original_jwt
-            settings.CSRF_SECRET = original_csrf
+            if original is not None:
+                os.environ["JWT_SECRET"] = original
 
-    def test_validate_detects_insecure_csrf_default(self):
-        from app.core.config import settings
+    def test_validate_detects_unconfigured_csrf_secret(self):
+        """检查 CSRF_SECRET 未在环境变量中配置时产生警告"""
+        import os
 
         validator = StartupValidator()
-        original_jwt = settings.JWT_SECRET
-        original_csrf = settings.CSRF_SECRET
-        settings.JWT_SECRET = "valid-long-secret-key-here"
-        settings.CSRF_SECRET = "change-me-csrf-secret"
+        original = os.environ.get("CSRF_SECRET")
+        os.environ.pop("CSRF_SECRET", None)
         try:
             validator._check_security_configs()
             warning_text = " ".join(validator.result.warnings)
             assert "CSRF_SECRET" in warning_text
         finally:
-            settings.JWT_SECRET = original_jwt
-            settings.CSRF_SECRET = original_csrf
+            if original is not None:
+                os.environ["CSRF_TOKEN"] = original
 
     def test_validate_port_range_validator(self):
+        """验证端口范围校验器（REDIS_PORT 已移至 RECOMMENDED_CONFIGS）"""
         redis_port_config = None
-        for c in StartupValidator.REQUIRED_CONFIGS:
+        for c in StartupValidator.RECOMMENDED_CONFIGS:
             if c.key == "REDIS_PORT":
                 redis_port_config = c
                 break

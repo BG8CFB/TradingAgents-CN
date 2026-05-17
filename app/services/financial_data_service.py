@@ -4,10 +4,9 @@
 统一管理三数据源的财务数据存储和查询
 """
 import logging
-from datetime import datetime, timezone
-from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
+from datetime import datetime
+from app.utils.timezone import now_utc, format_iso
 from typing import Dict, Any, List, Optional
-import pandas as pd
 from pymongo import ReplaceOne
 
 from app.core.database import get_mongo_db
@@ -333,7 +332,6 @@ class FinancialDataService:
         """标准化Tushare财务数据"""
         # Tushare数据已经在provider中进行了标准化，直接使用
         base_data = {
-            "code": symbol,  # 添加 code 字段以兼容唯一索引
             "symbol": symbol,
             "full_symbol": self._get_full_symbol(symbol, market),
             "market": market,
@@ -370,7 +368,6 @@ class FinancialDataService:
         """标准化AKShare财务数据"""
         # AKShare数据需要从多个数据集中提取关键指标
         base_data = {
-            "code": symbol,  # 添加 code 字段以兼容唯一索引
             "symbol": symbol,
             "full_symbol": self._get_full_symbol(symbol, market),
             "market": market,
@@ -397,7 +394,6 @@ class FinancialDataService:
     ) -> Dict[str, Any]:
         """标准化BaoStock财务数据"""
         base_data = {
-            "code": symbol,  # 添加 code 字段以兼容唯一索引
             "symbol": symbol,
             "full_symbol": self._get_full_symbol(symbol, market),
             "market": market,
@@ -414,13 +410,9 @@ class FinancialDataService:
         return base_data
     
     def _get_full_symbol(self, symbol: str, market: str) -> str:
-        """获取完整股票代码"""
-        if market == "CN":
-            if symbol.startswith("6"):
-                return f"{symbol}.SH"
-            else:
-                return f"{symbol}.SZ"
-        return symbol
+        """获取完整股票代码 — 委托到全局统一函数"""
+        from app.data.schema.base import get_full_symbol
+        return get_full_symbol(symbol, market or "CN")
     
     def _extract_latest_period(self, financial_data: Dict[str, Any]) -> str:
         """从AKShare数据中提取最新报告期"""

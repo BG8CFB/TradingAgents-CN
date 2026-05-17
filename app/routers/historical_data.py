@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from app.routers.auth_db import get_current_user, require_admin
 from app.services.historical_data_service import get_historical_data_service
 from app.utils.timezone import now_utc, format_iso
+from app.core.response import safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ async def get_historical_data(
         
     except Exception as e:
         logger.error(f"查询历史数据失败 {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"查询失败: {e}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "查询失败"))
 
 
 @router.post("/query", response_model=HistoricalDataResponse)
@@ -128,7 +129,7 @@ async def query_historical_data(request: HistoricalDataQuery, current_user: dict
         
     except Exception as e:
         logger.error(f"查询历史数据失败 {request.symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"查询失败: {e}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "查询失败"))
 
 
 @router.get("/latest-date/{symbol}")
@@ -154,7 +155,7 @@ async def get_latest_date(
         
     except Exception as e:
         logger.error(f"获取最新日期失败 {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"查询失败: {e}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "查询失败"))
 
 
 @router.get("/statistics")
@@ -172,7 +173,7 @@ async def get_data_statistics(current_user: dict = Depends(get_current_user)):
         
     except Exception as e:
         logger.error(f"获取统计信息失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取统计信息失败: {e}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取统计信息失败"))
 
 
 @router.get("/compare/{symbol}")
@@ -218,7 +219,7 @@ async def compare_data_sources(
         
     except Exception as e:
         logger.error(f"数据对比失败 {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"数据对比失败: {e}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "数据对比失败"))
 
 
 @router.get("/health")

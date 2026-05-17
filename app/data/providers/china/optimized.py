@@ -843,7 +843,7 @@ class OptimizedChinaDataProvider:
 
         # 如果无法获取真实数据，抛出异常
         error_msg = f"无法获取股票 {symbol} 的财务数据。已尝试所有数据源（MongoDB、AKShare、Tushare）均失败。"
-        logger.error(f"❌ {error_msg}")
+        logger.warning(f"⚠️ {error_msg}")
         raise ValueError(error_msg)
 
     def _get_real_financial_metrics(self, symbol: str, price_value: float) -> dict:

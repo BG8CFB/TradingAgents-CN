@@ -259,7 +259,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, nextTick, onBeforeUnmount } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Coin,
@@ -408,7 +408,6 @@ const loadStatistics = async () => {
 // 加载使用记录（对接后端）
 const loadRecords = async () => {
   try {
-    const days = timeRangeDays[timeRange.value] || 30
     const res: any = await getUsageRecords({
       provider: providerFilter.value || undefined,
       limit: pageSize.value

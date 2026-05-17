@@ -56,8 +56,8 @@
 
           <el-form-item>
             <div class="login-tip">
-              <el-text type="info" size="small">
-                开源版使用默认账号：admin / admin123
+              <el-text v-if="isDev" type="info" size="small">
+                开发环境默认账号：admin / admin123
               </el-text>
             </div>
           </el-form-item>
@@ -82,6 +82,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const isDev = import.meta.env.DEV
 
 const loginFormRef = ref()
 const loginLoading = ref(false)

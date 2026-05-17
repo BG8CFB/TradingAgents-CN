@@ -107,17 +107,17 @@ async def validate_config():
             from app.core.config import settings
             from app.models.config import LLMProvider
 
-            # 创建同步 MongoDB 客户端
+            # 创建同步 MongoDB 客户端，使用 try/finally 确保连接关闭
             client = MongoClient(settings.MONGO_URI)
-            db = client[settings.MONGO_DB]
-            providers_collection = db.llm_providers
+            try:
+                db = client[settings.MONGO_DB]
+                providers_collection = db.llm_providers
 
-            # 查询所有厂家配置（原始数据）
-            providers_data = list(providers_collection.find())
-            llm_providers = [LLMProvider(**data) for data in providers_data]
-
-            # 关闭同步客户端
-            client.close()
+                # 查询所有厂家配置（原始数据）
+                providers_data = list(providers_collection.find())
+                llm_providers = [LLMProvider(**data) for data in providers_data]
+            finally:
+                client.close()
 
             logger.info(f"🔍 获取到 {len(llm_providers)} 个大模型厂家")
 

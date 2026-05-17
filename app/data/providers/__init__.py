@@ -2,7 +2,10 @@
 统一数据源提供器包
 按市场分类组织数据提供器
 """
-from .base_provider import BaseStockDataProvider
+try:
+    from .base_provider import BaseStockDataProvider
+except ImportError:
+    BaseStockDataProvider = None
 
 # 导入中国市场提供器（新路径）
 try:
