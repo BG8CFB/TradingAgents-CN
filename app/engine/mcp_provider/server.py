@@ -21,7 +21,7 @@ from app.engine.mcp_provider.tools.finance.news import get_finance_news_logic
 
 # 尝试复用已有的验证函数
 try:
-    from app.engine.tools.mcp.validators import (
+    from app.engine.tools.common.param_validators import (
         validate_stock_code as _validate_stock_code,
         validate_limit as _validate_limit,
         validate_period as _validate_period,

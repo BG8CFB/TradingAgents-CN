@@ -7,8 +7,9 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
-from app.engine.tools.builtin.standard import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
-from app.engine.tools.builtin.helpers import get_manager, format_result
+from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.format import format_result
+from app.data import reader
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +273,7 @@ def get_finance_news(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        data = get_manager().get_finance_news(query=query)
+        data = reader.get_finance_news(query=query)
         return format_tool_result(success_result(format_result(data, f"News: {query}")))
     except Exception as e:
         logger.error(f"get_finance_news failed: {e}")
@@ -295,7 +296,7 @@ def get_hot_news_7x24(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        data = get_manager().get_hot_news_7x24(limit=limit)
+        data = reader.get_hot_news_7x24(limit=limit)
         return format_tool_result(success_result(format_result(data, "Hot News 7x24")))
     except Exception as e:
         logger.error(f"get_hot_news_7x24 failed: {e}")

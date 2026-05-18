@@ -60,6 +60,14 @@ class DataSourceAdapter(ABC):
     def __init__(self):
         self._priority: Optional[int] = None  # 动态优先级，从数据库加载
 
+    def __eq__(self, other):
+        if not isinstance(other, DataSourceAdapter):
+            return NotImplemented
+        return self.name == other.name
+
+    def __hash__(self):
+        return hash(self.name)
+
     @property
     @abstractmethod
     def name(self) -> str:

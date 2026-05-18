@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from app.routers.auth_db import get_current_user
-from app.core.response import ok
+from app.core.response import ok, fail
 
 logger = logging.getLogger("webapi")
 
@@ -69,7 +69,7 @@ async def sync_cn_basic(
         return ok(message="A股基础信息同步已触发")
     except Exception as e:
         logger.error(f"A股基础信息同步失败: {e}")
-        return ok(message=str(e), success=False)
+        return fail(message=str(e))
 
 
 @router.post("/single")
@@ -103,4 +103,4 @@ async def sync_cn_single(
         return ok(message=f"股票 {symbol} 同步已触发")
     except Exception as e:
         logger.error(f"单股同步失败: {e}")
-        return ok(message=str(e), success=False)
+        return fail(message=str(e))

@@ -26,9 +26,9 @@ class YFinanceHKProvider(BaseProvider):
 
     def is_available(self) -> bool:
         try:
-            from app.data.providers.hk.hk_stock import get_hk_stock_data, get_hk_stock_info
-            return True
-        except ImportError:
+            import importlib.util
+            return importlib.util.find_spec("app.data.providers.hk.hk_stock") is not None
+        except (ImportError, ValueError):
             return False
 
     async def get_stock_basic_info(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -38,5 +38,11 @@ class YFinanceHKProvider(BaseProvider):
     async def get_daily_quotes(
         self, symbol: str, start_date: str, end_date: str
     ) -> Optional[pd.DataFrame]:
-        from app.data.providers.hk.hk_stock import get_hk_stock_data
-        return get_hk_stock_data(symbol, start_date, end_date)
+        """获取港股日线行情数据，直接返回 DataFrame（绕过 format_stock_data）"""
+        try:
+            from app.data.providers.hk.hk_stock import get_hk_stock_provider
+            provider = get_hk_stock_provider()
+            return provider.get_stock_data(symbol, start_date, end_date)
+        except Exception as e:
+            logger.error(f"❌ [YFinance-HK] 获取行情失败: {symbol} - {e}")
+            return None

@@ -4,8 +4,11 @@
 直接调用 finnhub-python 库获取美股数据。
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
+
+import pandas as pd
 
 from app.data.sources.base.provider import BaseProvider
 
@@ -39,6 +42,22 @@ class FinnhubUSProvider(BaseProvider):
             return bool(settings.FINNHUB_API_KEY)
         except (ImportError, Exception):
             return False
+
+    async def get_stock_list(self, exchange: str = "US") -> Optional[pd.DataFrame]:
+        """获取美股股票列表（需 Finnhub API Key）"""
+        try:
+            def _fetch():
+                client = _get_finnhub_client()
+                symbols = client.stock_symbols(exchange=exchange)
+                return pd.DataFrame(symbols) if symbols else None
+
+            df = await asyncio.to_thread(_fetch)
+            if df is not None:
+                logger.info(f"Finnhub-US: 获取到 {len(df)} 只美股")
+            return df
+        except Exception as e:
+            logger.error(f"Finnhub-US: 获取股票列表失败: {e}")
+            return None
 
     async def get_stock_basic_info(self, symbol: str) -> Optional[Dict[str, Any]]:
         client = _get_finnhub_client()
@@ -109,3 +128,39 @@ class FinnhubUSProvider(BaseProvider):
                 "volume": int(candles["v"][i]),
             })
         return kline_data
+
+    async def get_daily_quotes(
+        self, symbol: str, start_date: str, end_date: str
+    ):
+        """通过 get_kline 获取日线行情，返回 DataFrame"""
+        from datetime import datetime
+
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            limit_days = (end_dt - start_dt).days + 1
+        except (ValueError, TypeError):
+            limit_days = 30
+
+        raw_list = await self.get_kline(symbol, period="day", limit=limit_days)
+        if not raw_list:
+            return None
+
+        import pandas as pd
+        df = pd.DataFrame(raw_list)
+
+        # 添加 symbol 列（adapter 需要从 row 中读取）
+        df["symbol"] = symbol.upper()
+
+        # 日期过滤
+        df = df[(df["trade_date"] >= start_date) & (df["trade_date"] <= end_date)]
+
+        if df.empty:
+            return None
+
+        # 添加 pre_close / change / pct_change
+        df["pre_close"] = df["close"].shift(1)
+        df["change"] = df["close"] - df["pre_close"]
+        df["pct_change"] = (df["change"] / df["pre_close"] * 100).round(2)
+
+        return df

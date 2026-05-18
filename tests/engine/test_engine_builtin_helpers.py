@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.engine.tools.builtin.helpers import format_result
+from app.engine.tools.common.format import format_result
 
 
 class TestFormatResultNone:

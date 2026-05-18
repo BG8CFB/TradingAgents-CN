@@ -8,8 +8,9 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
-from app.engine.tools.builtin.standard import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
-from app.engine.tools.builtin.helpers import get_manager, format_result
+from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.format import format_result
+from app.data import reader
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +53,13 @@ def get_china_market_overview(
             ('399006.SZ', 'sz399006', '创业板指')
         ]
 
-        # 1. 尝试使用 get_manager().get_index_data (支持 DB -> Tushare -> AKShare)
+        # 尝试通过数据层获取指数数据（支持 DB -> Tushare -> AKShare）
         try:
             for ts_code, ak_code, name in indices_to_fetch:
                 # 优先尝试 Tushare 格式代码
                 try:
                     # 使用 DataSourceManager 的逻辑
-                    index_result = get_manager().get_index_data(code=ts_code, start_date=date, end_date=date)
+                    index_result = reader.get_index_data(code=ts_code, start_date=date, end_date=date)
 
                     # 简单解析返回的 Markdown 表格获取收盘价
                     if index_result and "|" in index_result:
@@ -202,7 +203,7 @@ def get_dragon_tiger_inst(
         if tushare_token and tushare_token.strip():
             try:
                 logger.info(f"📊 尝试使用Tushare获取龙虎榜数据: 日期{trade_date}")
-                data = get_manager().get_dragon_tiger_inst(trade_date=trade_date, ts_code=ts_code)
+                data = reader.get_dragon_tiger_inst(trade_date=trade_date, ts_code=ts_code)
                 if data and not data.empty:
                     logger.info(f"✅ Tushare成功获取龙虎榜数据: {len(data)}条记录")
                     return format_tool_result(success_result(format_result(data, f"Dragon Tiger: {trade_date}")))
@@ -312,7 +313,7 @@ def get_block_trade(
         if tushare_token and tushare_token.strip():
             try:
                 logger.info(f"📊 尝试使用Tushare获取大宗交易数据")
-                data = get_manager().get_block_trade(start_date=start_date, end_date=end_date, code=code)
+                data = reader.get_block_trade(start_date=start_date, end_date=end_date, code=code)
                 if data and not data.empty:
                     logger.info(f"✅ Tushare成功获取大宗交易数据: {len(data)}条记录")
                     return format_tool_result(success_result(format_result(data, f"Block Trade: {code or 'All'}")))

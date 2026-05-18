@@ -361,7 +361,14 @@ async def create_database_indexes(db):
         # stock_basic_info 的索引
         try:
             basic_info = db["stock_basic_info"]
-            await basic_info.create_index([("code", 1), ("source", 1)], unique=True)
+            # 清理旧版索引（字段名 code/source 已废弃，统一使用 symbol/data_source）
+            for idx_name in ["code_1_source_1", "code_1"]:
+                try:
+                    await basic_info.drop_index(idx_name)
+                    logger.info(f"已删除旧索引 {idx_name}")
+                except Exception:
+                    pass
+            await basic_info.create_index([("symbol", 1), ("data_source", 1)], unique=True)
             await basic_info.create_index([("industry", 1)])
             await basic_info.create_index([("total_mv", -1)])
             await basic_info.create_index([("pe", 1)])
@@ -373,7 +380,13 @@ async def create_database_indexes(db):
         # market_quotes 的索引
         try:
             market_quotes = db["market_quotes"]
-            await market_quotes.create_index([("code", 1)], unique=True)
+            # 清理旧版索引（字段名 code 已废弃，统一使用 symbol）
+            try:
+                await market_quotes.drop_index("code_1")
+                logger.info("已删除旧索引 code_1")
+            except Exception:
+                pass
+            await market_quotes.create_index([("symbol", 1)], unique=True)
             await market_quotes.create_index([("pct_chg", -1)])
             await market_quotes.create_index([("amount", -1)])
             await market_quotes.create_index([("updated_at", -1)])

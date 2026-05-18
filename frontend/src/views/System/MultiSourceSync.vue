@@ -66,70 +66,20 @@
         <div class="page-content">
           <el-row :gutter="24">
             <el-col :lg="12" :md="24" :sm="24">
-              <el-card shadow="never">
-                <template #header>
-                  <span>港股数据源状态</span>
-                </template>
-                <div v-if="hkLoading" class="loading-placeholder">
-                  <el-skeleton :rows="2" animated />
-                </div>
-                <div v-else-if="hkSources.length">
-                  <div
-                    v-for="src in hkSources"
-                    :key="src.name"
-                    class="source-item"
-                  >
-                    <el-tag :type="src.available ? 'success' : 'danger'" size="small">
-                      {{ src.name }}
-                    </el-tag>
-                    <span class="source-status">
-                      {{ src.available ? '可用' : '不可用' }}
-                    </span>
-                  </div>
-                </div>
-                <el-empty v-else description="暂无数据源信息" :image-size="60" />
-              </el-card>
+              <div class="content-section">
+                <MarketCacheStatus market="HK" />
+              </div>
+              <div class="content-section">
+                <MarketCacheRecommendations market="HK" />
+              </div>
             </el-col>
-
             <el-col :lg="12" :md="24" :sm="24">
-              <el-card shadow="never">
-                <template #header>
-                  <span>缓存管理</span>
-                </template>
-                <div v-if="hkCacheStats" class="cache-info">
-                  <p>市场：{{ hkCacheStats.market }}</p>
-                  <p v-if="hkCacheStats.cache_hours">缓存时长：{{ hkCacheStats.cache_hours }} 小时</p>
-                  <p v-if="hkCacheStats.available_sources?.length">
-                    可用数据源：{{ hkCacheStats.available_sources.join(', ') }}
-                  </p>
-                </div>
-
-                <div class="cache-actions">
-                  <el-input
-                    v-model="hkWarmSymbol"
-                    placeholder="输入港股代码，如 00700"
-                    style="margin-bottom: 12px"
-                    clearable
-                  >
-                    <template #append>
-                      <el-button
-                        :loading="hkWarming"
-                        @click="handleWarmHK"
-                      >
-                        刷新缓存
-                      </el-button>
-                    </template>
-                  </el-input>
-                  <el-button
-                    type="danger"
-                    plain
-                    size="small"
-                    @click="handleClearHKCache"
-                  >
-                    清理缓存
-                  </el-button>
-                </div>
-              </el-card>
+              <div class="content-section">
+                <MarketCacheManager market="HK" />
+              </div>
+              <div class="content-section">
+                <MarketCacheHistory market="HK" />
+              </div>
             </el-col>
           </el-row>
         </div>
@@ -140,70 +90,20 @@
         <div class="page-content">
           <el-row :gutter="24">
             <el-col :lg="12" :md="24" :sm="24">
-              <el-card shadow="never">
-                <template #header>
-                  <span>美股数据源状态</span>
-                </template>
-                <div v-if="usLoading" class="loading-placeholder">
-                  <el-skeleton :rows="2" animated />
-                </div>
-                <div v-else-if="usSources.length">
-                  <div
-                    v-for="src in usSources"
-                    :key="src.name"
-                    class="source-item"
-                  >
-                    <el-tag :type="src.available ? 'success' : 'danger'" size="small">
-                      {{ src.name }}
-                    </el-tag>
-                    <span class="source-status">
-                      {{ src.available ? '可用' : '不可用' }}
-                    </span>
-                  </div>
-                </div>
-                <el-empty v-else description="暂无数据源信息" :image-size="60" />
-              </el-card>
+              <div class="content-section">
+                <MarketCacheStatus market="US" />
+              </div>
+              <div class="content-section">
+                <MarketCacheRecommendations market="US" />
+              </div>
             </el-col>
-
             <el-col :lg="12" :md="24" :sm="24">
-              <el-card shadow="never">
-                <template #header>
-                  <span>缓存管理</span>
-                </template>
-                <div v-if="usCacheStats" class="cache-info">
-                  <p>市场：{{ usCacheStats.market }}</p>
-                  <p v-if="usCacheStats.cache_hours">缓存时长：{{ usCacheStats.cache_hours }} 小时</p>
-                  <p v-if="usCacheStats.available_sources?.length">
-                    可用数据源：{{ usCacheStats.available_sources.join(', ') }}
-                  </p>
-                </div>
-
-                <div class="cache-actions">
-                  <el-input
-                    v-model="usWarmSymbol"
-                    placeholder="输入美股代码，如 AAPL"
-                    style="margin-bottom: 12px"
-                    clearable
-                  >
-                    <template #append>
-                      <el-button
-                        :loading="usWarming"
-                        @click="handleWarmUS"
-                      >
-                        刷新缓存
-                      </el-button>
-                    </template>
-                  </el-input>
-                  <el-button
-                    type="danger"
-                    plain
-                    size="small"
-                    @click="handleClearUSCache"
-                  >
-                    清理缓存
-                  </el-button>
-                </div>
-              </el-card>
+              <div class="content-section">
+                <MarketCacheManager market="US" />
+              </div>
+              <div class="content-section">
+                <MarketCacheHistory market="US" />
+              </div>
             </el-col>
           </el-row>
         </div>
@@ -273,7 +173,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Connection,
@@ -282,145 +182,23 @@ import {
 } from '@element-plus/icons-vue'
 import {
   testDataSources,
-  getHKSourcesStatus,
-  getHKCacheStats,
-  warmHKCache,
-  clearHKCache,
-  getUSSourcesStatus,
-  getUSCacheStats,
-  warmUSCache,
-  clearUSCache,
   type DataSourceTestResult,
-  type MarketSourceStatus,
-  type MarketCacheStats,
 } from '@/api/sync'
 import DataSourceStatus from '@/components/Sync/DataSourceStatus.vue'
 import SyncControl from '@/components/Sync/SyncControl.vue'
 import SyncRecommendations from '@/components/Sync/SyncRecommendations.vue'
 import SyncHistory from '@/components/Sync/SyncHistory.vue'
+import MarketCacheStatus from '@/components/Sync/MarketCacheStatus.vue'
+import MarketCacheManager from '@/components/Sync/MarketCacheManager.vue'
+import MarketCacheRecommendations from '@/components/Sync/MarketCacheRecommendations.vue'
+import MarketCacheHistory from '@/components/Sync/MarketCacheHistory.vue'
 
-// A股
 const testing = ref(false)
 const testDialogVisible = ref(false)
 const testResults = ref<DataSourceTestResult[] | null>(null)
 const dataSourceStatusRef = ref()
 const activeTab = ref('cn')
 
-// 港股
-const hkLoading = ref(false)
-const hkSources = ref<MarketSourceStatus[]>([])
-const hkCacheStats = ref<MarketCacheStats | null>(null)
-const hkWarmSymbol = ref('')
-const hkWarming = ref(false)
-
-// 美股
-const usLoading = ref(false)
-const usSources = ref<MarketSourceStatus[]>([])
-const usCacheStats = ref<MarketCacheStats | null>(null)
-const usWarmSymbol = ref('')
-const usWarming = ref(false)
-
-// Tab 切换时加载数据
-watch(activeTab, (tab) => {
-  if (tab === 'hk') loadHKData()
-  if (tab === 'us') loadUSData()
-})
-
-const loadHKData = async () => {
-  hkLoading.value = true
-  try {
-    const [srcRes, statsRes] = await Promise.all([
-      getHKSourcesStatus(),
-      getHKCacheStats(),
-    ])
-    hkSources.value = srcRes.data || []
-    hkCacheStats.value = statsRes.data || null
-  } catch (e: any) {
-    console.error('加载港股数据失败:', e)
-  } finally {
-    hkLoading.value = false
-  }
-}
-
-const loadUSData = async () => {
-  usLoading.value = true
-  try {
-    const [srcRes, statsRes] = await Promise.all([
-      getUSSourcesStatus(),
-      getUSCacheStats(),
-    ])
-    usSources.value = srcRes.data || []
-    usCacheStats.value = statsRes.data || null
-  } catch (e: any) {
-    console.error('加载美股数据失败:', e)
-  } finally {
-    usLoading.value = false
-  }
-}
-
-const handleWarmHK = async () => {
-  if (!hkWarmSymbol.value.trim()) {
-    ElMessage.warning('请输入港股代码')
-    return
-  }
-  hkWarming.value = true
-  try {
-    const res = await warmHKCache(hkWarmSymbol.value.trim())
-    if (res.success) {
-      ElMessage.success(res.message || '缓存刷新成功')
-      await loadHKData()
-    } else {
-      ElMessage.error(res.message || '缓存刷新失败')
-    }
-  } catch (e: any) {
-    ElMessage.error(`缓存刷新失败: ${e.message}`)
-  } finally {
-    hkWarming.value = false
-  }
-}
-
-const handleWarmUS = async () => {
-  if (!usWarmSymbol.value.trim()) {
-    ElMessage.warning('请输入美股代码')
-    return
-  }
-  usWarming.value = true
-  try {
-    const res = await warmUSCache(usWarmSymbol.value.trim())
-    if (res.success) {
-      ElMessage.success(res.message || '缓存刷新成功')
-      await loadUSData()
-    } else {
-      ElMessage.error(res.message || '缓存刷新失败')
-    }
-  } catch (e: any) {
-    ElMessage.error(`缓存刷新失败: ${e.message}`)
-  } finally {
-    usWarming.value = false
-  }
-}
-
-const handleClearHKCache = async () => {
-  try {
-    const res = await clearHKCache()
-    ElMessage.success(res.message || '缓存清理完成')
-    await loadHKData()
-  } catch (e: any) {
-    ElMessage.error(`清理失败: ${e.message}`)
-  }
-}
-
-const handleClearUSCache = async () => {
-  try {
-    const res = await clearUSCache()
-    ElMessage.success(res.message || '缓存清理完成')
-    await loadUSData()
-  } catch (e: any) {
-    ElMessage.error(`清理失败: ${e.message}`)
-  }
-}
-
-// A股测试
 const runFullTest = async () => {
   try {
     testing.value = true
@@ -536,37 +314,6 @@ const handleSyncCompleted = (status: string) => {
     }
   }
 
-  .source-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--el-border-color-lighter);
-
-    &:last-child {
-      border-bottom: none;
-    }
-
-    .source-status {
-      font-size: 13px;
-      color: var(--el-text-color-secondary);
-    }
-  }
-
-  .cache-info {
-    margin-bottom: 16px;
-
-    p {
-      margin: 4px 0;
-      font-size: 14px;
-      color: var(--el-text-color-regular);
-    }
-  }
-
-  .cache-actions {
-    margin-top: 12px;
-  }
-
   .test-results-dialog {
     .test-summary {
       margin-bottom: 24px;
@@ -592,15 +339,6 @@ const handleSyncCompleted = (status: string) => {
           .priority-info {
             font-size: 14px;
             color: var(--el-text-color-secondary);
-          }
-        }
-
-        .result-tests {
-          .test-item {
-            padding: 12px;
-            border: 1px solid var(--el-border-color-lighter);
-            border-radius: 6px;
-            height: 100%;
           }
         }
       }

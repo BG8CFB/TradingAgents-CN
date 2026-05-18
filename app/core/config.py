@@ -278,6 +278,30 @@ class Settings(BaseSettings):
     BAOSTOCK_INIT_BATCH_SIZE: int = Field(default=50, ge=10, le=500, description="初始化批处理大小")
     BAOSTOCK_INIT_AUTO_START: bool = Field(default=False, description="应用启动时自动检查并初始化数据")
 
+    # ==================== 港股全量同步配置 ====================
+    # 默认关闭，用户通过 .env 手动启用
+    HK_UNIFIED_ENABLED: bool = Field(default=False, description="启用港股统一数据同步")
+    HK_BASIC_INFO_SYNC_ENABLED: bool = Field(default=False, description="启用港股基础信息同步")
+    HK_BASIC_INFO_SYNC_CRON: str = Field(default="0 3 * * *", description="港股基础信息同步CRON")
+    HK_DAILY_QUOTES_SYNC_ENABLED: bool = Field(default=False, description="启用港股日线行情同步")
+    HK_DAILY_QUOTES_SYNC_CRON: str = Field(default="0 17 * * 1-5", description="港股日线行情同步CRON")
+    HK_STATUS_CHECK_ENABLED: bool = Field(default=False, description="启用港股状态检查")
+    HK_STATUS_CHECK_CRON: str = Field(default="0 * * * *", description="港股状态检查CRON")
+    HK_SYNC_BATCH_SIZE: int = Field(default=50, ge=10, le=200, description="港股同步批处理大小")
+    HK_SYNC_RATE_LIMIT_DELAY: float = Field(default=0.5, ge=0.1, le=10.0, description="港股同步API间隔(秒)")
+
+    # ==================== 美股全量同步配置 ====================
+    # 默认关闭，用户通过 .env 手动启用
+    US_UNIFIED_ENABLED: bool = Field(default=False, description="启用美股统一数据同步")
+    US_BASIC_INFO_SYNC_ENABLED: bool = Field(default=False, description="启用美股基础信息同步")
+    US_BASIC_INFO_SYNC_CRON: str = Field(default="0 4 * * *", description="美股基础信息同步CRON")
+    US_DAILY_QUOTES_SYNC_ENABLED: bool = Field(default=False, description="启用美股日线行情同步")
+    US_DAILY_QUOTES_SYNC_CRON: str = Field(default="0 5 * * 2-6", description="美股日线行情同步CRON")
+    US_STATUS_CHECK_ENABLED: bool = Field(default=False, description="启用美股状态检查")
+    US_STATUS_CHECK_CRON: str = Field(default="30 * * * *", description="美股状态检查CRON")
+    US_SYNC_BATCH_SIZE: int = Field(default=50, ge=10, le=200, description="美股同步批处理大小")
+    US_SYNC_RATE_LIMIT_DELAY: float = Field(default=1.0, ge=0.1, le=10.0, description="美股同步API间隔(秒)")
+
     # 数据目录配置
     TRADINGAGENTS_DATA_DIR: str = Field(default="data")
 

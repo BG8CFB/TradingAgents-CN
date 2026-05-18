@@ -8,8 +8,9 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
-from app.engine.tools.builtin.standard import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
-from app.engine.tools.builtin.helpers import get_manager, format_result
+from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.format import format_result
+from app.data import reader
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +272,7 @@ def get_company_performance_unified(
         # 3. 🔥 优先使用Tushare获取业绩数据
         try:
             logger.info(f"📊 尝试使用Tushare获取{market_name}业绩数据: {stock_code}, data_type: {data_type}")
-            data = get_manager().get_company_performance(
+            data = reader.get_company_performance(
                 ts_code=stock_code,
                 data_type=data_type,
                 start_date=start_date,

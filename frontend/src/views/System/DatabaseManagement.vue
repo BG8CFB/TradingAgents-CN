@@ -346,8 +346,8 @@ const dbStats = computed(() => ({
 const loadDatabaseStatus = async () => {
   try {
     loading.value = true
-    const status = await databaseApi.getStatus()
-    databaseStatus.value = status as any
+    const response = await databaseApi.getStatus()
+    databaseStatus.value = (response as any)?.data || response as any
     console.log('📊 数据库状态加载成功:', status)
   } catch (error) {
     console.error('❌ 加载数据库状态失败:', error)
@@ -359,9 +359,9 @@ const loadDatabaseStatus = async () => {
 
 const loadDatabaseStats = async () => {
   try {
-    const stats = await databaseApi.getStats()
-    databaseStats.value = stats as any
-    console.log('📈 数据库统计加载成功:', stats)
+    const statsRes = await databaseApi.getStats()
+    databaseStats.value = (statsRes as any)?.data || statsRes as any
+    console.log('📈 数据库统计加载成功:', statsRes)
   } catch (error) {
     console.error('❌ 加载数据库统计失败:', error)
     ElMessage.error('加载数据库统计失败')

@@ -17,7 +17,7 @@ services:
   # MongoDB数据库
   mongodb:
     # 升级到 7.0 以匹配现代技术栈 (Python 3.10+, Debian 12)
-    image: docker.1ms.run/mongo:7.0
+    image: docker.m.daocloud.io/library/mongo:7.0
     container_name: tradingagents-mongodb
     restart: unless-stopped
     volumes:
@@ -40,7 +40,7 @@ services:
 
   # Redis 缓存
   redis:
-    image: docker.1ms.run/redis:7-alpine
+    image: docker.m.daocloud.io/library/redis:7-alpine
     container_name: tradingagents-redis
     restart: unless-stopped
     volumes:
@@ -180,7 +180,7 @@ services:
   # Nginx 反向代理
   # ports可以改为8080:80,或者其它的端口映射，前面一个是外部的端口，后面一个是容器内的端口
   nginx:
-    image: docker.1ms.run/nginx:alpine
+    image: docker.m.daocloud.io/library/nginx:alpine
     container_name: tradingagents-nginx
     restart: unless-stopped
     ports:

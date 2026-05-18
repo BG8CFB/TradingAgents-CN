@@ -39,16 +39,17 @@ class FinnhubUSAdapter(BaseAdapter):
 
     def adapt_daily_quote(self, row: Any) -> StockDailyQuoteSchema:
         get = row.get if hasattr(row, "get") else lambda k: getattr(row, k, None)
-        symbol = str(get("symbol", "")).upper()
-        close = self._safe_float(get("current_price") or get("c"))
-        pre_close = self._safe_float(get("previous_close") or get("pc"))
+        symbol = str(get("symbol", "") or get("ticker", "")).upper()
+        close = self._safe_float(get("close") or get("current_price") or get("c"))
+        pre_close = self._safe_float(get("pre_close") or get("previous_close") or get("pc"))
         change = self._safe_float(get("change") or get("d"))
-        pct_chg = self._safe_float(get("change_percent") or get("dp"))
+        pct_chg = self._safe_float(get("pct_change") or get("change_percent") or get("dp"))
+        trade_date = str(get("trade_date", "") or get("date", ""))
 
         return StockDailyQuoteSchema(
             symbol=symbol,
             full_symbol=symbol,
-            trade_date="",
+            trade_date=trade_date,
             period="daily",
             open=self._safe_float(get("open") or get("o")),
             high=self._safe_float(get("high") or get("h")),

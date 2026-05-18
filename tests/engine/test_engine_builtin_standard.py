@@ -3,7 +3,7 @@
 import json
 import pytest
 
-from app.engine.tools.builtin.standard import (
+from app.engine.tools.common.tool_result import (
     ToolResult,
     success_result,
     no_data_result,

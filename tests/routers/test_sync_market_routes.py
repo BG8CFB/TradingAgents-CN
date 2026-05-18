@@ -63,6 +63,10 @@ class _FakeHKCacheService:
         self.calls.append(("refresh_cache", symbol))
         return {"symbol": symbol, "name": "Tencent", "refreshed": True}
 
+    async def warm_stock_with_quotes(self, stock_code: str, force: bool = False):
+        self.calls.append(("warm_stock_with_quotes", stock_code, force))
+        return {"info_success": True, "quotes_count": 30, "source": "akshare"}
+
     async def get_cache_stats(self):
         return {"market": "HK", "cached_symbols": 2}
 
@@ -201,10 +205,10 @@ async def test_hk_warm_route_respects_force_flag(monkeypatch, hk_client):
 
     assert normal_resp.status_code == 200
     assert force_resp.status_code == 200
-    assert ("get_stock_info", "00700") in fake_service.calls
-    assert ("refresh_cache", "00700") in fake_service.calls
-    assert "预热" in normal_resp.json()["message"]
-    assert "刷新" in force_resp.json()["message"]
+    assert ("warm_stock_with_quotes", "00700", False) in fake_service.calls
+    assert ("warm_stock_with_quotes", "00700", True) in fake_service.calls
+    assert normal_resp.json()["success"] is True
+    assert force_resp.json()["success"] is True
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@
 
 # 使用 Debian Bookworm (稳定版) 而不是 Trixie (测试版)
 # 使用 1ms.run 镜像源加速下载
-FROM docker.1ms.run/python:3.10-slim-bookworm
+FROM docker.m.daocloud.io/library/python:3.10-slim-bookworm
 
 # 获取构建架构信息
 ARG TARGETARCH
@@ -61,12 +61,17 @@ RUN mkdir -p /app/runtime /app/config && \
 COPY pyproject.toml README.md ./
 
 # 安装 Node.js（用于基于 Node 的 MCP 服务器）
-# 使用 NodeSource GPG key 安全安装方式
-RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
-    (apt-get update || apt-get update) && \
-    apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
+# 使用 npmmirror 镜像加速下载，自动获取 Node.js 20 LTS 最新版
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) NODE_ARCH="x64" ;; \
+        arm64) NODE_ARCH="arm64" ;; \
+    esac; \
+    FILE_NAME=$(curl -fsSL "https://registry.npmmirror.com/-/binary/node/latest-v20.x/SHASUMS256.txt" \
+        | grep "linux-${NODE_ARCH}\.tar\.xz$" | awk '{print $2}'); \
+    curl -fsSL "https://registry.npmmirror.com/-/binary/node/latest-v20.x/${FILE_NAME}" \
+    | tar -xJ -C /usr/local --strip-components=1; \
+    npm config set registry https://registry.npmmirror.com
 
 # 安装Python依赖
 # 优化说明：

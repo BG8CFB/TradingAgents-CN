@@ -61,8 +61,8 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
 
 def build_stage3_report_path(task_id: Optional[str], ticker: str, report_slug: str) -> str:
     """为 Stage 3 报告生成隔离路径，避免并发任务相互覆盖。"""
-    safe_task_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", task_id or ticker or "unknown")
-    safe_ticker = re.sub(r"[^A-Za-z0-9_.-]+", "_", ticker or "unknown")
+    safe_task_id = re.sub(r"[^A-Za-z0-9_-]+", "_", re.sub(r"\.\.", "_", task_id or ticker or "unknown"))
+    safe_ticker = re.sub(r"[^A-Za-z0-9_-]+", "_", re.sub(r"\.\.", "_", ticker or "unknown"))
     report_dir = os.path.join(tempfile.gettempdir(), "tradingagents_stage3_reports")
     os.makedirs(report_dir, exist_ok=True)
     return os.path.join(report_dir, f"{safe_task_id}_{safe_ticker}_{report_slug}.md")

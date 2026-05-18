@@ -13,7 +13,7 @@
 
 services:
   mongodb:
-    image: docker.1ms.run/mongo:7.0
+    image: docker.m.daocloud.io/library/mongo:7.0
     container_name: tradingagents-mongodb
     restart: unless-stopped
     volumes:
@@ -35,7 +35,7 @@ services:
       start_period: 10s
 
   redis:
-    image: docker.1ms.run/redis:7-alpine
+    image: docker.m.daocloud.io/library/redis:7-alpine
     container_name: tradingagents-redis
     restart: unless-stopped
     volumes:
@@ -139,7 +139,7 @@ services:
       start_period: 40s
 
   frontend:
-    image: docker.1ms.run/node:22-alpine
+    image: docker.m.daocloud.io/library/node:22-alpine
     container_name: tradingagents-frontend
     restart: unless-stopped
     working_dir: /app/frontend
@@ -155,8 +155,8 @@ services:
       # Docker 内 Vite 代理目标（覆盖 localhost，使用 Docker 服务名）
       API_PROXY_TARGET: "http://backend:8000"
       CHOKIDAR_USEPOLLING: "true"
-    # 🔥 开发模式：Vite dev server + HMR
-    command: ["sh", "-c", "npm install && npx vite --host 0.0.0.0 --port 3000"]
+    # 🔥 开发模式：Vite dev server + HMR（使用 npmmirror 国内源加速）
+    command: ["sh", "-c", "npm config set registry https://registry.npmmirror.com && npm install && npx vite --host 0.0.0.0 --port 3000"]
     depends_on:
       - backend
     networks:

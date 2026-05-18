@@ -6,8 +6,9 @@ from typing import Optional
 from datetime import timedelta
 
 from app.utils.time_utils import now_utc, get_current_date_compact
-from app.engine.tools.builtin.standard import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
-from app.engine.tools.builtin.helpers import get_manager, format_result
+from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.format import format_result
+from app.data import reader
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ def get_money_flow(
             if not start_date:
                 start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
-        data = get_manager().get_money_flow(
+        data = reader.get_money_flow(
             start_date=start_date,
             end_date=end_date,
             query_type=query_type,
@@ -89,7 +90,7 @@ def get_margin_trade(
         # 🔥 优先使用Tushare获取融资融券数据
         try:
             logger.info(f"📊 尝试使用Tushare获取融资融券数据: {data_type}")
-            data = get_manager().get_margin_trade(
+            data = reader.get_margin_trade(
                 data_type=data_type,
                 start_date=start_date,
                 end_date=end_date,

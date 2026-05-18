@@ -379,7 +379,6 @@ class BasicsSyncService:
         if not code:
             return ""
         return get_full_symbol(str(code).strip(), "CN")
-            return code if code else ""
 
 
 # Singleton accessor

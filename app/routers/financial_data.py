@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.routers.auth_db import get_current_user, require_admin
 from app.worker.financial_data_sync_service import get_financial_sync_service
 from app.services.financial_data_service import get_financial_data_service
-from app.core.response import ok, safe_error_message
+from app.core.response import ok, fail, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ async def get_latest_financial_data(
                 message="获取最新财务数据成功"
             )
         else:
-            return ok(success=False, data=None,
+            return fail(data=None,
                 message="未找到财务数据"
             )
         
@@ -269,7 +269,7 @@ async def health_check() -> dict:
         
     except Exception as e:
         logger.error(f"❌ 财务数据服务健康检查失败: {e}")
-        return ok(success=False, data={
+        return fail(data={
                 "service_status": "unhealthy",
                 "error": str(e)
             },

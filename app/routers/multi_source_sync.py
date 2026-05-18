@@ -45,10 +45,11 @@ async def get_data_sources_status(current_user: dict = Depends(get_current_user)
     try:
         available_adapters = _data_reader.get_available_adapters()
         all_adapters = _data_reader.get_all_adapters()
+        available_names = {a.name for a in available_adapters}
 
         status_list = []
         for adapter in all_adapters:
-            is_available = adapter in available_adapters
+            is_available = adapter.name in available_names
 
             # 根据数据源类型提供描述
             descriptions = {

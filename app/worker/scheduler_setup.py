@@ -407,8 +407,11 @@ async def register_jobs(
     run_news_sync = await _make_news_sync_func()
     _register_news_job(scheduler, run_news_sync)
 
-    # ── 港股/美股：按需获取+缓存模式，无定时任务 ──────────────────────
-    logger.info("港股/美股数据采用按需获取+缓存模式")
+    # ── 港股/美股全量同步（默认暂停，用户通过 .env 启用）────────────────
+    logger.info("配置港股统一数据同步任务...")
+    _register_hk_jobs(scheduler)
+    logger.info("配置美股统一数据同步任务...")
+    _register_us_jobs(scheduler)
 
 
 def _handle_basics_sync_task_result(task: asyncio.Task) -> None:
@@ -420,3 +423,107 @@ def _handle_basics_sync_task_result(task: asyncio.Task) -> None:
         task.result()
     except Exception as exc:
         logger.error(f"启动期基础信息同步任务失败: {exc}", exc_info=True)
+
+
+def _register_hk_jobs(sched: AsyncIOScheduler):
+    """注册港股全量同步任务（3 个 job，默认暂停）"""
+    from app.worker.hk import (
+        run_hk_basic_info_sync,
+        run_hk_daily_quotes_sync,
+        run_hk_status_check,
+    )
+
+    tz = settings.TIMEZONE
+
+    # 基础信息同步
+    add_resilient_job(
+        sched, run_hk_basic_info_sync,
+        CronTrigger.from_crontab(settings.HK_BASIC_INFO_SYNC_CRON, timezone=tz),
+        id="hk_basic_info_sync",
+        name="港股基础信息同步",
+        kwargs={"force_update": False},
+    )
+    if not (settings.HK_UNIFIED_ENABLED and settings.HK_BASIC_INFO_SYNC_ENABLED):
+        sched.pause_job("hk_basic_info_sync")
+        logger.info(f"港股基础信息同步已添加但暂停: {settings.HK_BASIC_INFO_SYNC_CRON}")
+    else:
+        logger.info(f"港股基础信息同步已配置: {settings.HK_BASIC_INFO_SYNC_CRON}")
+
+    # 日线行情同步
+    add_resilient_job(
+        sched, run_hk_daily_quotes_sync,
+        CronTrigger.from_crontab(settings.HK_DAILY_QUOTES_SYNC_CRON, timezone=tz),
+        id="hk_daily_quotes_sync",
+        name="港股日线行情同步",
+        kwargs={"incremental": True},
+    )
+    if not (settings.HK_UNIFIED_ENABLED and settings.HK_DAILY_QUOTES_SYNC_ENABLED):
+        sched.pause_job("hk_daily_quotes_sync")
+        logger.info(f"港股日线行情同步已添加但暂停: {settings.HK_DAILY_QUOTES_SYNC_CRON}")
+    else:
+        logger.info(f"港股日线行情同步已配置: {settings.HK_DAILY_QUOTES_SYNC_CRON}")
+
+    # 状态检查
+    add_resilient_job(
+        sched, run_hk_status_check,
+        CronTrigger.from_crontab(settings.HK_STATUS_CHECK_CRON, timezone=tz),
+        id="hk_status_check",
+        name="港股数据源状态检查",
+    )
+    if not (settings.HK_UNIFIED_ENABLED and settings.HK_STATUS_CHECK_ENABLED):
+        sched.pause_job("hk_status_check")
+        logger.info(f"港股状态检查已添加但暂停: {settings.HK_STATUS_CHECK_CRON}")
+    else:
+        logger.info(f"港股状态检查已配置: {settings.HK_STATUS_CHECK_CRON}")
+
+
+def _register_us_jobs(sched: AsyncIOScheduler):
+    """注册美股全量同步任务（3 个 job，默认暂停）"""
+    from app.worker.us import (
+        run_us_basic_info_sync,
+        run_us_daily_quotes_sync,
+        run_us_status_check,
+    )
+
+    tz = settings.TIMEZONE
+
+    # 基础信息同步
+    add_resilient_job(
+        sched, run_us_basic_info_sync,
+        CronTrigger.from_crontab(settings.US_BASIC_INFO_SYNC_CRON, timezone=tz),
+        id="us_basic_info_sync",
+        name="美股基础信息同步",
+        kwargs={"force_update": False},
+    )
+    if not (settings.US_UNIFIED_ENABLED and settings.US_BASIC_INFO_SYNC_ENABLED):
+        sched.pause_job("us_basic_info_sync")
+        logger.info(f"美股基础信息同步已添加但暂停: {settings.US_BASIC_INFO_SYNC_CRON}")
+    else:
+        logger.info(f"美股基础信息同步已配置: {settings.US_BASIC_INFO_SYNC_CRON}")
+
+    # 日线行情同步
+    add_resilient_job(
+        sched, run_us_daily_quotes_sync,
+        CronTrigger.from_crontab(settings.US_DAILY_QUOTES_SYNC_CRON, timezone=tz),
+        id="us_daily_quotes_sync",
+        name="美股日线行情同步",
+        kwargs={"incremental": True},
+    )
+    if not (settings.US_UNIFIED_ENABLED and settings.US_DAILY_QUOTES_SYNC_ENABLED):
+        sched.pause_job("us_daily_quotes_sync")
+        logger.info(f"美股日线行情同步已添加但暂停: {settings.US_DAILY_QUOTES_SYNC_CRON}")
+    else:
+        logger.info(f"美股日线行情同步已配置: {settings.US_DAILY_QUOTES_SYNC_CRON}")
+
+    # 状态检查
+    add_resilient_job(
+        sched, run_us_status_check,
+        CronTrigger.from_crontab(settings.US_STATUS_CHECK_CRON, timezone=tz),
+        id="us_status_check",
+        name="美股数据源状态检查",
+    )
+    if not (settings.US_UNIFIED_ENABLED and settings.US_STATUS_CHECK_ENABLED):
+        sched.pause_job("us_status_check")
+        logger.info(f"美股状态检查已添加但暂停: {settings.US_STATUS_CHECK_CRON}")
+    else:
+        logger.info(f"美股状态检查已配置: {settings.US_STATUS_CHECK_CRON}")

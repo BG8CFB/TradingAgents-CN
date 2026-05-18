@@ -44,7 +44,7 @@ def resolve_embedding(provider: str, config: dict) -> EmbeddingConfig:
     if backend_url == "http://localhost:11434/v1":
         from openai import OpenAI
         return EmbeddingConfig(
-            client=OpenAI(base_url=backend_url),
+            client=OpenAI(api_key="not-needed", base_url=backend_url),
             embedding_model="nomic-embed-text",
             provider=provider_lower,
         )

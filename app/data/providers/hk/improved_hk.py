@@ -538,7 +538,7 @@ def get_hk_stock_data_akshare(symbol: str, start_date: str = None, end_date: str
         df['pct_change'] = (df['change'] / df['pre_close'] * 100).round(2)
 
         # 🔥 使用统一的技术指标计算函数
-        from app.engine.tools.analysis.indicators import add_all_indicators
+        from app.utils.indicators import add_all_indicators
         df = add_all_indicators(df, close_col='close', high_col='high', low_col='low')
 
         # 🔥 获取财务指标并计算 PE、PB
