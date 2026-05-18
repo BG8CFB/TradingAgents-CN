@@ -841,6 +841,16 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
     user_id = token_data.sub
     logger.info(f"🔌 [WS] 认证成功: user={user_id}, task_id={task_id}")
 
+    try:
+        analysis_service = get_analysis_service()
+        task = await analysis_service.get_task_with_status_fallback(task_id)
+        if task and str(task.get("user_id", "")) != str(user_id):
+            logger.warning(f"🔌 [WS] 连接拒绝：用户 {user_id} 无权访问任务 {task_id}")
+            await websocket.close(code=4003, reason="Forbidden")
+            return
+    except Exception as e:
+        logger.warning(f"🔌 [WS] 任务权限检查失败: {e}")
+
     websocket_manager = get_websocket_manager()
 
     try:

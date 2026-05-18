@@ -49,42 +49,6 @@ class TestProcessSignalInvalidInput:
         assert result["action"] == "持有"
 
 
-class TestSmartPriceEstimation:
-    """价格智能估算纯逻辑"""
-
-    def test_buy_with_current_price_and_percentage(self):
-        sp = _create_sp()
-        text = "当前价格：10.00，上涨 5.0%"
-        result = sp._smart_price_estimation(text, "买入", True)
-        assert result == round(10.0 * 1.05, 2)
-
-    def test_sell_with_current_price_and_percentage(self):
-        sp = _create_sp()
-        text = "现价：20.00，涨幅 10%"
-        result = sp._smart_price_estimation(text, "卖出", True)
-        assert result == round(20.0 * 0.90, 2)
-
-    def test_buy_with_price_only_china(self):
-        sp = _create_sp()
-        result = sp._smart_price_estimation("股价：10.00", "买入", True)
-        assert result == round(10.0 * 1.15, 2)
-
-    def test_sell_with_price_only_non_china(self):
-        sp = _create_sp()
-        result = sp._smart_price_estimation("价格：100.00", "卖出", False)
-        assert result == round(100.0 * 0.92, 2)
-
-    def test_hold_returns_current_price(self):
-        sp = _create_sp()
-        result = sp._smart_price_estimation("当前价格：50.00", "持有", True)
-        assert result == 50.0
-
-    def test_no_price_info_returns_none(self):
-        sp = _create_sp()
-        result = sp._smart_price_estimation("无价格信息", "买入", True)
-        assert result is None
-
-
 class TestExtractSimpleDecision:
     """简单决策提取纯逻辑"""
 

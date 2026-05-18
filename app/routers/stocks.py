@@ -416,7 +416,7 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
             # 直接使用 news_data 路由的查询逻辑
             from app.services.news_data_service import get_news_data_service, NewsQueryParams
             from datetime import datetime
-            from app.worker.akshare_sync_service import get_akshare_sync_service
+            from app.worker.cn.akshare_sync import get_akshare_sync_service
 
             service = await get_news_data_service()
             sync_service = await get_akshare_sync_service()

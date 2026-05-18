@@ -123,7 +123,7 @@ def calculate_realtime_pe_pb(
         pe_tushare = basic_info.get("pe")
         pb_tushare = basic_info.get("pb")
         total_mv_yi = basic_info.get("total_mv")  # 总市值（亿元）
-        total_share = basic_info.get("total_share")  # 总股本（万股）
+        total_share = basic_info.get("total_shares") or basic_info.get("total_share")  # 总股本（万股）
         basic_info_updated_at = basic_info.get("updated_at")  # 更新时间
 
         logger.info(f"   ✓ Tushare PE_TTM: {pe_ttm_tushare}倍")

@@ -86,20 +86,13 @@ class Propagator:
                 slug = agent.get('slug', '')
                 if not slug:
                     continue
-                    
-                # 生成 internal_key（与 generic_agent.py 保持一致）
+
                 internal_key = slug.replace("-analyst", "").replace("-", "_")
                 report_key = f"{internal_key}_report"
-                tool_count_key = f"{internal_key}_tool_call_count"
-                
-                # 如果字段不存在，则初始化
+
                 if report_key not in state:
                     state[report_key] = ""
                     logger.debug(f"🔧 动态初始化报告字段: {report_key}")
-                    
-                if tool_count_key not in state:
-                    state[tool_count_key] = 0
-                    logger.debug(f"🔧 动态初始化计数器字段: {tool_count_key}")
                     
         except Exception as e:
             logger.warning(f"⚠️ 动态初始化智能体字段失败: {e}")

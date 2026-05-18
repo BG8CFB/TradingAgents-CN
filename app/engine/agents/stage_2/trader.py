@@ -95,7 +95,7 @@ def create_trader(llm, memory):
 """
 
         # 加载基础Prompt
-        from app.engine.agents.utils.generic_agent import load_agent_config
+        from app.engine.agents.utils.agent_config import load_agent_config
         base_prompt = load_agent_config("trader")
         if not base_prompt:
              error_msg = "❌ 未找到 trader 智能体配置，请检查 phase2_agents_config.yaml 文件。"

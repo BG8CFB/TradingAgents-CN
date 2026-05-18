@@ -80,8 +80,8 @@ async def sync_cn_single(
 ):
     """同步单只 A 股数据"""
     try:
-        from app.worker.tushare_sync_service import get_tushare_sync_service
-        from app.worker.akshare_sync_service import get_akshare_sync_service
+        from app.worker.cn.tushare_sync import get_tushare_sync_service
+        from app.worker.cn.akshare_sync import get_akshare_sync_service
         from app.worker.financial_data_sync_service import get_financial_sync_service
 
         symbol = request.symbol.strip().zfill(6)

@@ -91,38 +91,16 @@ class AgentState(MessagesState):
 
     sender: Annotated[str, "Agent that sent this message"]
 
-    # research step - 核心分析师报告（保留兼容性）
+    # research step - 核心分析师报告（summary_agent 直接读取）
     market_report: Annotated[str, "Report from the Market Analyst"]
     sentiment_report: Annotated[str, "Report from the Social Media Analyst"]
     news_report: Annotated[
         str, "Report from the News Researcher of current world affairs"
     ]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]
-    china_market_report: Annotated[str, "Report from the China Market Analyst"]
-    short_term_capital_report: Annotated[str, "Report from the Short Term Capital Analyst"]
-    
-    # 🔧 动态分析师报告字段（与 generic_agent.py 生成的 key 保持一致）
-    financial_news_report: Annotated[str, "Report from the Financial News Analyst"]
-    social_media_report: Annotated[str, "Report from the Social Media Analyst (dynamic)"]
 
-    # 🔥 动态报告字段 - 支持前端添加的新智能体
-    # LangGraph 会自动合并节点返回的字典到 State 中
-    # 只要节点返回的 key 以 _report 结尾，就会被存储
-    # 注意：这里不需要预定义所有字段，因为 MessagesState 继承自 TypedDict
-    # 但为了类型安全，我们保留核心字段的定义
+    # 动态报告字段 - 所有分析师报告通过此 reducer 合并
     reports: Annotated[dict, update_reports]
-
-    # 🔧 死循环修复: 工具调用计数器
-    market_tool_call_count: Annotated[int, "Market analyst tool call counter"]
-    news_tool_call_count: Annotated[int, "News analyst tool call counter"]
-    sentiment_tool_call_count: Annotated[int, "Social media analyst tool call counter"]
-    fundamentals_tool_call_count: Annotated[int, "Fundamentals analyst tool call counter"]
-    china_market_tool_call_count: Annotated[int, "China market analyst tool call counter"]
-    short_term_capital_tool_call_count: Annotated[int, "Short term capital analyst tool call counter"]
-    
-    # 🔧 动态分析师工具调用计数器
-    financial_news_tool_call_count: Annotated[int, "Financial news analyst tool call counter"]
-    social_media_tool_call_count: Annotated[int, "Social media analyst tool call counter"]
 
     # researcher team discussion step
     investment_debate_state: Annotated[
@@ -138,10 +116,10 @@ class AgentState(MessagesState):
     ]
     final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
 
-    # 🔧 结构化总结字段 (用于前端展示)
+    # 结构化总结字段 (用于前端展示)
     structured_summary: Annotated[dict, "Structured summary for frontend display"]
-    
-    # 🔧 阶段配置标志 (用于图路由)
+
+    # 阶段配置标志 (用于图路由)
     phase2_enabled: Annotated[bool, "Is phase 2 (Debate) enabled"]
     phase3_enabled: Annotated[bool, "Is phase 3 (Risk) enabled"]
     phase4_enabled: Annotated[bool, "Is phase 4 (Trader) enabled — Trader always executes"]

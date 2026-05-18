@@ -16,7 +16,7 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException, Path as FastAPIPath
 from pydantic import BaseModel, Field, validator
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.core.response import safe_error_message
 
 # 导入动态分析师工厂，用于清除配置缓存
@@ -224,7 +224,7 @@ async def get_agent_config(
 async def save_agent_config(
     payload: AgentConfigPayload,
     phase: int = FastAPIPath(..., ge=1, le=4, description="阶段编号：1-4"),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
 ):
     """
     保存/覆盖指定阶段的配置。

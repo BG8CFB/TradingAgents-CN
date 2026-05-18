@@ -192,7 +192,10 @@ class TestRateLimitMiddleware:
 
         # 保存并设置全局标志，模拟 Redis 已确认不可用的状态
         original_redis_available = rate_limit_mod._redis_available
+        original_last_check = getattr(rate_limit_mod, '_redis_last_check', 0)
         rate_limit_mod._redis_available = False
+        import time
+        rate_limit_mod._redis_last_check = time.time()
         try:
             from app.middleware.rate_limit import RateLimitMiddleware
 
@@ -204,6 +207,7 @@ class TestRateLimitMiddleware:
             await middleware.check_rate_limit("user1", "/api/test")
         finally:
             rate_limit_mod._redis_available = original_redis_available
+            rate_limit_mod._redis_last_check = original_last_check
 
 
 class TestGetClientIP:

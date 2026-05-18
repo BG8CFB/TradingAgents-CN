@@ -182,7 +182,7 @@ async def login(payload: LoginRequest, request: Request):
 
         # 生成 token
         token = AuthService.create_access_token(sub=user.username)
-        refresh_token = AuthService.create_access_token(sub=user.username, expires_delta=60*60*24*7)  # 7天有效期
+        refresh_token = AuthService.create_access_token(sub=user.username, expires_delta=60*60*24*7, token_type="refresh")
 
         # 记录登录成功日志
         await log_operation(
@@ -250,6 +250,10 @@ async def refresh_token(payload: RefreshTokenRequest):
             logger.warning("❌ Refresh token验证失败")
             raise HTTPException(status_code=401, detail="Invalid refresh token")
 
+        if getattr(token_data, 'type', 'access') != 'refresh':
+            logger.warning("❌ 非 refresh token 类型，拒绝刷新")
+            raise HTTPException(status_code=401, detail="Not a refresh token")
+
         # 验证用户是否仍然存在且激活
         user = await user_service.get_user_by_username(token_data.sub)
         if not user or not user.is_active:
@@ -260,7 +264,7 @@ async def refresh_token(payload: RefreshTokenRequest):
 
         # 生成新的tokens
         new_token = AuthService.create_access_token(sub=token_data.sub)
-        new_refresh_token = AuthService.create_access_token(sub=token_data.sub, expires_delta=60*60*24*7)
+        new_refresh_token = AuthService.create_access_token(sub=token_data.sub, expires_delta=60*60*24*7, token_type="refresh")
 
         logger.debug(f"🎉 新token生成成功")
 
@@ -502,7 +506,7 @@ async def register(payload: RegisterRequest, request: Request):
 
         # 自动生成 token，注册后直接登录
         token = AuthService.create_access_token(sub=new_user.username)
-        refresh_token = AuthService.create_access_token(sub=new_user.username, expires_delta=60*60*24*7)
+        refresh_token = AuthService.create_access_token(sub=new_user.username, expires_delta=60*60*24*7, token_type="refresh")
 
         await log_operation(
             user_id=str(new_user.id),

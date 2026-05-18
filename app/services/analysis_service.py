@@ -356,14 +356,7 @@ class AnalysisService:
         atexit.register(self._shutdown_pool)
         logger.info("🔧 [服务初始化] 线程池最大并发数: 3")
 
-    def _shutdown_pool(self):
-        try:
-            if self._thread_pool:
-                self._thread_pool.shutdown(wait=False)
-        except Exception:
-            pass
-
-        # 队列和统计服务 (从原AnalysisService合并)
+        # 队列和统计服务
         try:
             redis_client = get_redis_client()
             self.queue_service = QueueService(redis_client)
@@ -378,6 +371,13 @@ class AnalysisService:
             logger.warning("⚠️ WebSocket 管理器不可用")
 
         logger.info(f"🔧 [服务初始化] AnalysisService 实例ID: {id(self)}")
+
+    def _shutdown_pool(self):
+        try:
+            if self._thread_pool:
+                self._thread_pool.shutdown(wait=False)
+        except Exception:
+            pass
 
     # -------------------------------------------------------------------------
     # Private Methods

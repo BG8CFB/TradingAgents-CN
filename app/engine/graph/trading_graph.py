@@ -8,18 +8,11 @@ from datetime import date
 from typing import Dict, Any, Tuple, List, Optional
 import time
 
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_google_genai import ChatGoogleGenerativeAI
 from app.engine.llm_adapters import create_llm
-
-from langgraph.prebuilt import ToolNode
 
 from app.engine.agents import *
 from app.engine.default_config import DEFAULT_CONFIG
 from app.engine.agents.utils.memory import FinancialSituationMemory
-
-from langchain_core.tools import StructuredTool, BaseTool
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
@@ -37,6 +30,74 @@ from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
+
+
+def _classify_node(node_name: str) -> str:
+    """将节点名称分类为类别标识"""
+    if 'Risky' in node_name or 'Safe' in node_name or 'Neutral' in node_name or 'Risk Judge' in node_name:
+        return "risk"
+    if 'Analyst' in node_name:
+        return "analyst"
+    if node_name.startswith('tools_'):
+        return "tool"
+    if node_name.startswith('Msg Clear'):
+        return "msg_clear"
+    if 'Researcher' in node_name or 'Research Manager' in node_name:
+        return "research"
+    if 'Trader' in node_name:
+        return "trader"
+    return "other"
+
+
+def _merge_state_update(target: Dict[str, Any], update: Dict[str, Any]) -> None:
+    """安全合并节点增量到最终状态，确保 reports 和 messages 不会被后续节点覆盖。"""
+    if target is None or not update:
+        return
+
+    if "reports" in update and isinstance(update.get("reports"), dict):
+        existing_reports = target.get("reports") or {}
+        target["reports"] = {**existing_reports, **update["reports"]}
+
+    if "messages" in update and isinstance(update.get("messages"), list):
+        existing_messages = target.get("messages") or []
+        existing_ids = set()
+        existing_content_sigs = set()
+        for msg in existing_messages:
+            msg_id = getattr(msg, 'id', None)
+            if msg_id:
+                existing_ids.add(msg_id)
+            content_sig = (getattr(msg, 'type', ''), str(getattr(msg, 'content', ''))[:200])
+            existing_content_sigs.add(content_sig)
+
+        new_messages = []
+        for msg in update["messages"]:
+            msg_id = getattr(msg, 'id', None)
+            content_sig = (getattr(msg, 'type', ''), str(getattr(msg, 'content', ''))[:200])
+            if msg_id and msg_id in existing_ids:
+                continue
+            if not msg_id and content_sig in existing_content_sigs:
+                continue
+            new_messages.append(msg)
+        target["messages"] = existing_messages + new_messages
+
+    if "error" in update and update["error"]:
+        existing_errors = target.get("error") or []
+        if isinstance(existing_errors, str):
+            existing_errors = [existing_errors]
+        elif not isinstance(existing_errors, list):
+            existing_errors = [str(existing_errors)]
+        if isinstance(update["error"], str):
+            update_errors = [update["error"]]
+        elif isinstance(update["error"], list):
+            update_errors = update["error"]
+        else:
+            update_errors = [str(update["error"])]
+        target["error"] = existing_errors + update_errors
+
+    for k, v in update.items():
+        if k in ("reports", "messages", "error"):
+            continue
+        target[k] = v
 
 
 class TradingAgentsGraph:
@@ -199,82 +260,6 @@ class TradingAgentsGraph:
         if setup_elapsed > 30:
             logger.warning(f"⚠️ [性能瓶颈] setup_graph 耗时 {setup_elapsed:.2f} 秒！")
 
-    def _create_tool_nodes(self) -> Dict[str, ToolNode]:
-        """Create tool nodes for different data sources.
-
-        🔥 [已废弃] 子图模式下，每个分析师子图内部通过 create_react_agent
-        自动处理工具调用循环（agent ↔ tools），不再需要外部 ToolNode。
-
-        注意：ToolNode 包含所有可能的工具，但 LLM 只会调用它绑定的工具。
-        ToolNode 的作用是执行 LLM 生成的 tool_calls，而不是限制 LLM 可以调用哪些工具。
-        """
-        # 获取 MCP 工具（按需加载）
-        mcp_tools = []
-        if self.config.get("enable_mcp", False):
-            loader = self.config.get("mcp_tool_loader")
-            if callable(loader):
-                try:
-                    mcp_tools = list(loader())
-                    # RunnableBinding tools are standard in LangChain MCP adapters
-                    # No fixing needed for LangGraph if using updated versions
-                    logger.info(f"🔧 [TradingGraph] 向所有工具节点注入 {len(mcp_tools)} 个 MCP 工具")
-                except Exception as exc:  # pragma: no cover - 运行时保护
-                    logger.error(f"[TradingGraph] MCP 工具加载失败: {exc}")
-            else:
-                logger.warning("[TradingGraph] 已开启 MCP，但未提供有效 loader，跳过加载")
-
-        return {
-            "market": ToolNode(
-                [
-                    # 统一工具（推荐）
-                    self.toolkit.get_stock_market_data_unified,
-                    # 在线工具（备用）
-                    self.toolkit.get_YFin_data_online,
-                    self.toolkit.get_stockstats_indicators_report_online,
-                    # 离线工具（备用）
-                    self.toolkit.get_YFin_data,
-                    self.toolkit.get_stockstats_indicators_report,
-                ] + mcp_tools
-            ),
-            "social": ToolNode(
-                [
-                    # 统一工具（推荐）
-                    self.toolkit.get_stock_sentiment_unified,
-                    # 在线工具（备用）
-                    self.toolkit.get_stock_news_openai,
-                    # 离线工具（备用）
-                    self.toolkit.get_reddit_stock_info,
-                ] + mcp_tools
-            ),
-            "news": ToolNode(
-                [
-                    # 统一工具（推荐）
-                    self.toolkit.get_stock_news_unified,
-                    # 在线工具（备用）
-                    self.toolkit.get_global_news_openai,
-                    self.toolkit.get_google_news,
-                    # 离线工具（备用）
-                    self.toolkit.get_finnhub_news,
-                    self.toolkit.get_reddit_news,
-                ] + mcp_tools
-            ),
-            "fundamentals": ToolNode(
-                [
-                    # 统一工具（推荐）
-                    self.toolkit.get_stock_fundamentals_unified,
-                    # 离线工具（备用）
-                    self.toolkit.get_finnhub_company_insider_sentiment,
-                    self.toolkit.get_finnhub_company_insider_transactions,
-                    self.toolkit.get_simfin_balance_sheet,
-                    self.toolkit.get_simfin_cashflow,
-                    self.toolkit.get_simfin_income_stmt,
-                    # 中国市场工具（备用）
-                    self.toolkit.get_china_stock_data,
-                    self.toolkit.get_china_fundamentals,
-                ] + mcp_tools
-            ),
-        }
-
     def propagate(self, company_name, trade_date, progress_callback=None, task_id=None):
         """Run the trading agents graph for a company on a specific date.
 
@@ -329,68 +314,6 @@ class TradingAgentsGraph:
         # 根据是否有进度回调选择不同的stream_mode
         args = self.propagator.get_graph_args(use_progress_callback=bool(progress_callback))
 
-        def _merge_state_update(target: Dict[str, Any], update: Dict[str, Any]) -> None:
-            """
-            Safely merge节点增量到最终状态，确保 reports 和 messages 字段不会被后续节点覆盖。
-
-            在 stream_mode='updates' 下，chunk 只包含增量字段，直接 dict.update
-            会导致 reports 和 messages 被最后一个节点覆盖，动态智能体的报告丢失。
-            """
-            if target is None or not update:
-                return
-
-            # 合并 reports 字典
-            if "reports" in update and isinstance(update.get("reports"), dict):
-                existing_reports = target.get("reports") or {}
-                target["reports"] = {**existing_reports, **update["reports"]}
-
-            # 🔧 修复：合并 messages 列表（追加而非覆盖）
-            if "messages" in update and isinstance(update.get("messages"), list):
-                existing_messages = target.get("messages") or []
-                # 去重：使用 LangChain BaseMessage 的 id 属性作为主标识，
-                # 回退到 content + type 组合作为辅助标识，避免依赖不可靠的 id()
-                existing_ids = set()
-                existing_content_sigs = set()
-                for msg in existing_messages:
-                    msg_id = getattr(msg, 'id', None)
-                    if msg_id:
-                        existing_ids.add(msg_id)
-                    # 使用 type + content 前缀作为辅助签名
-                    content_sig = (getattr(msg, 'type', ''), str(getattr(msg, 'content', ''))[:200])
-                    existing_content_sigs.add(content_sig)
-
-                new_messages = []
-                for msg in update["messages"]:
-                    msg_id = getattr(msg, 'id', None)
-                    content_sig = (getattr(msg, 'type', ''), str(getattr(msg, 'content', ''))[:200])
-                    if msg_id and msg_id in existing_ids:
-                        continue
-                    if not msg_id and content_sig in existing_content_sigs:
-                        continue
-                    new_messages.append(msg)
-                target["messages"] = existing_messages + new_messages
-
-            # 🔧 修复：合并 error 字段（支持 str 和 list 类型）
-            if "error" in update and update["error"]:
-                existing_errors = target.get("error") or []
-                if isinstance(existing_errors, str):
-                    existing_errors = [existing_errors]
-                elif not isinstance(existing_errors, list):
-                    existing_errors = [str(existing_errors)]
-                if isinstance(update["error"], str):
-                    update_errors = [update["error"]]
-                elif isinstance(update["error"], list):
-                    update_errors = update["error"]
-                else:
-                    update_errors = [str(update["error"])]
-                target["error"] = existing_errors + update_errors
-
-            # 处理其它字段（保持增量覆盖语义）
-            for k, v in update.items():
-                if k in ("reports", "messages", "error"):
-                    continue
-                target[k] = v
-
         if not progress_callback:
             logger.info("⏱️ 使用 stream 模式执行分析（无进度回调）")
 
@@ -398,42 +321,51 @@ class TradingAgentsGraph:
         final_state = None
         is_updates_mode = args.get("stream_mode") == "updates"
 
-        for chunk in self.graph.stream(init_agent_state, **args):
-            # ---- 节点计时 ----
-            for node_name in chunk.keys():
-                if not node_name.startswith('__'):
-                    if current_node_name and current_node_start:
-                        elapsed = time.time() - current_node_start
-                        node_timings[current_node_name] = elapsed
-                        logger.info(f"⏱️ [{current_node_name}] 耗时: {elapsed:.2f}秒")
-                        if progress_callback:
-                            logger.info(f"🔍 [TIMING] 节点切换: {current_node_name} → {node_name}")
-
-                    current_node_name = node_name
-                    current_node_start = time.time()
-                    if progress_callback:
-                        logger.info(f"🔍 [TIMING] 开始计时: {node_name}")
-                    break
-
-            # ---- 进度回调 ----
-            if progress_callback:
-                self._send_progress_update(chunk, progress_callback)
-
-            # ---- 状态累积 ----
-            if is_updates_mode or progress_callback:
-                # updates 模式：chunk = {node_name: state_update}
-                if final_state is None:
-                    final_state = copy.deepcopy(init_agent_state)
-                for node_name, node_update in chunk.items():
+        try:
+            for chunk in self.graph.stream(init_agent_state, **args):
+                # ---- 节点计时 ----
+                for node_name in chunk.keys():
                     if not node_name.startswith('__'):
-                        _merge_state_update(final_state, node_update)
-            else:
-                # values 模式：chunk = 完整状态
-                if self.debug:
-                    if len(chunk.get("messages", [])) > 0:
-                        chunk["messages"][-1].pretty_print()
-                trace.append(chunk)
-                final_state = chunk
+                        if current_node_name and current_node_start:
+                            elapsed = time.time() - current_node_start
+                            node_timings[current_node_name] = elapsed
+                            logger.info(f"⏱️ [{current_node_name}] 耗时: {elapsed:.2f}秒")
+                            if progress_callback:
+                                logger.info(f"🔍 [TIMING] 节点切换: {current_node_name} → {node_name}")
+
+                        current_node_name = node_name
+                        current_node_start = time.time()
+                        if progress_callback:
+                            logger.info(f"🔍 [TIMING] 开始计时: {node_name}")
+                        break
+
+                # ---- 进度回调 ----
+                if progress_callback:
+                    self._send_progress_update(chunk, progress_callback)
+
+                # ---- 状态累积 ----
+                if is_updates_mode or progress_callback:
+                    # updates 模式：chunk = {node_name: state_update}
+                    if final_state is None:
+                        final_state = copy.deepcopy(init_agent_state)
+                    for node_name, node_update in chunk.items():
+                        if not node_name.startswith('__'):
+                            _merge_state_update(final_state, node_update)
+                else:
+                    # values 模式：chunk = 完整状态
+                    if self.debug:
+                        if len(chunk.get("messages", [])) > 0:
+                            chunk["messages"][-1].pretty_print()
+                    trace.append(chunk)
+                    final_state = chunk
+        except Exception as e:
+            logger.error(f"❌ 分析流程执行异常: {e}")
+            raise
+        finally:
+            if progress_callback:
+                effective_task_id = task_id or id(progress_callback)
+                ProgressManager.clear_callback(effective_task_id)
+                logger.debug(f"🔧 [进度管理器] 已清除进度回调, task_id={effective_task_id}")
 
         # values 模式 + trace：使用最后一个完整状态
         if trace and not is_updates_mode and not progress_callback:
@@ -504,8 +436,6 @@ class TradingAgentsGraph:
         if final_signal:
             decision = self.process_signal(final_signal, company_name)
         else:
-            # 后续阶段未开启时的兜底结构，避免前端/服务端 KeyError
-            # 🔥 修复：使用与 process_signal 一致的字段名
             decision = {
                 "action": "观望",
                 "target_price": None,
@@ -513,15 +443,9 @@ class TradingAgentsGraph:
                 "risk_score": 0,
                 "risk_level": "未知",
                 "reasoning": "未开启深度决策阶段，未生成最终决策",
-                "reason": "未开启深度决策阶段，未生成最终决策",  # 保留兼容性
+                "reason": "未开启深度决策阶段，未生成最终决策",
             }
         decision["model_info"] = model_info
-
-        # 清理进度回调
-        if progress_callback:
-            effective_task_id = task_id or id(progress_callback)
-            ProgressManager.clear_callback(effective_task_id)
-            logger.debug(f"🔧 [进度管理器] 已清除进度回调, task_id={effective_task_id}")
 
         # Return decision and processed signal
         return final_state, decision
@@ -595,7 +519,6 @@ class TradingAgentsGraph:
         Returns:
             性能数据字典
         """
-        # 节点分类（注意：风险管理节点要先于分析师节点判断，因为它们也包含'Analyst'）
         analyst_nodes = {}
         tool_nodes = {}
         msg_clear_nodes = {}
@@ -605,27 +528,13 @@ class TradingAgentsGraph:
         other_nodes = {}
 
         for node_name, elapsed in node_timings.items():
-            # 优先匹配风险管理团队（因为它们也包含'Analyst'）
-            if 'Risky' in node_name or 'Safe' in node_name or 'Neutral' in node_name or 'Risk Judge' in node_name:
-                risk_nodes[node_name] = elapsed
-            # 然后匹配分析师团队
-            elif 'Analyst' in node_name:
-                analyst_nodes[node_name] = elapsed
-            # 工具节点
-            elif node_name.startswith('tools_'):
-                tool_nodes[node_name] = elapsed
-            # 消息清理节点
-            elif node_name.startswith('Msg Clear'):
-                msg_clear_nodes[node_name] = elapsed
-            # 研究团队
-            elif 'Researcher' in node_name or 'Research Manager' in node_name:
-                research_nodes[node_name] = elapsed
-            # 交易团队
-            elif 'Trader' in node_name:
-                trader_nodes[node_name] = elapsed
-            # 其他节点
-            else:
-                other_nodes[node_name] = elapsed
+            cat = _classify_node(node_name)
+            target = {
+                "analyst": analyst_nodes, "tool": tool_nodes,
+                "msg_clear": msg_clear_nodes, "research": research_nodes,
+                "trader": trader_nodes, "risk": risk_nodes, "other": other_nodes,
+            }.get(cat, other_nodes)
+            target[node_name] = elapsed
 
         # 计算统计数据
         slowest_node = max(node_timings.items(), key=lambda x: x[1]) if node_timings else (None, 0)
@@ -691,53 +600,15 @@ class TradingAgentsGraph:
         }
 
     def _print_timing_summary(self, node_timings: Dict[str, float], total_elapsed: float):
-        """打印详细的时间统计报告
-
-        Args:
-            node_timings: 每个节点的执行时间字典
-            total_elapsed: 总执行时间
-        """
-        logger.info("🔍 [_print_timing_summary] 方法被调用")
-        logger.info("🔍 [_print_timing_summary] node_timings 数量: " + str(len(node_timings)))
-        logger.info("🔍 [_print_timing_summary] total_elapsed: " + str(total_elapsed))
-
+        """打印详细的时间统计报告"""
         logger.info("=" * 80)
         logger.info("⏱️  分析性能统计报告")
         logger.info("=" * 80)
 
-        # 节点分类（注意：风险管理节点要先于分析师节点判断，因为它们也包含'Analyst'）
-        analyst_nodes = []
-        tool_nodes = []
-        msg_clear_nodes = []
-        research_nodes = []
-        trader_nodes = []
-        risk_nodes = []
-        other_nodes = []
-
+        categories = {"analyst": [], "tool": [], "msg_clear": [], "research": [], "trader": [], "risk": [], "other": []}
         for node_name, elapsed in node_timings.items():
-            # 优先匹配风险管理团队（因为它们也包含'Analyst'）
-            if 'Risky' in node_name or 'Safe' in node_name or 'Neutral' in node_name or 'Risk Judge' in node_name:
-                risk_nodes.append((node_name, elapsed))
-            # 然后匹配分析师团队
-            elif 'Analyst' in node_name:
-                analyst_nodes.append((node_name, elapsed))
-            # 工具节点
-            elif node_name.startswith('tools_'):
-                tool_nodes.append((node_name, elapsed))
-            # 消息清理节点
-            elif node_name.startswith('Msg Clear'):
-                msg_clear_nodes.append((node_name, elapsed))
-            # 研究团队
-            elif 'Researcher' in node_name or 'Research Manager' in node_name:
-                research_nodes.append((node_name, elapsed))
-            # 交易团队
-            elif 'Trader' in node_name:
-                trader_nodes.append((node_name, elapsed))
-            # 其他节点
-            else:
-                other_nodes.append((node_name, elapsed))
+            categories.setdefault(_classify_node(node_name), categories["other"]).append((node_name, elapsed))
 
-        # 打印分类统计
         def print_category(title: str, nodes: List[Tuple[str, float]]):
             if not nodes:
                 return
@@ -749,13 +620,13 @@ class TradingAgentsGraph:
                 logger.info(f"  • {node_name:40s} {elapsed:8.2f}秒  ({percentage:5.1f}%)")
             logger.info(f"  {'小计':40s} {total_category_time:8.2f}秒  ({total_category_time/total_elapsed*100:5.1f}%)")
 
-        print_category("分析师团队", analyst_nodes)
-        print_category("工具调用", tool_nodes)
-        print_category("消息清理", msg_clear_nodes)
-        print_category("研究团队", research_nodes)
-        print_category("交易团队", trader_nodes)
-        print_category("风险管理团队", risk_nodes)
-        print_category("其他节点", other_nodes)
+        print_category("分析师团队", categories["analyst"])
+        print_category("工具调用", categories["tool"])
+        print_category("消息清理", categories["msg_clear"])
+        print_category("研究团队", categories["research"])
+        print_category("交易团队", categories["trader"])
+        print_category("风险管理团队", categories["risk"])
+        print_category("其他节点", categories["other"])
 
         # 打印总体统计
         logger.info("\n" + "=" * 80)
@@ -833,23 +704,25 @@ class TradingAgentsGraph:
         risk_state = self.curr_state.get("risk_debate_state") or {}
 
         # 仅在对应阶段参与时才写入记忆，避免缺失字段报错
-        if inv_state:
+        if inv_state and self.bull_memory:
             self.reflector.reflect_bull_researcher(
                 self.curr_state, returns_losses, self.bull_memory
             )
+        if inv_state and self.bear_memory:
             self.reflector.reflect_bear_researcher(
                 self.curr_state, returns_losses, self.bear_memory
             )
+        if inv_state and self.invest_judge_memory:
             self.reflector.reflect_invest_judge(
                 self.curr_state, returns_losses, self.invest_judge_memory
             )
 
-        if self.curr_state.get("trader_investment_plan"):
+        if self.curr_state.get("trader_investment_plan") and self.trader_memory:
             self.reflector.reflect_trader(
                 self.curr_state, returns_losses, self.trader_memory
             )
 
-        if risk_state:
+        if risk_state and self.risk_manager_memory:
             self.reflector.reflect_risk_manager(
                 self.curr_state, returns_losses, self.risk_manager_memory
             )

@@ -363,8 +363,7 @@ class RedisProgressTracker:
                     logger.warning(f"Progress update callback failed: {e}")
 
             return self.progress_data
-            logger.debug(f"[RedisProgress] updated: {self.task_id} - {self.progress_data.get('progress_percentage', 0)}%")
-            return self.progress_data
+
         except Exception as e:
             logger.error(f"[RedisProgress] update failed: {self.task_id} - {e}")
             return self.progress_data

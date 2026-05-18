@@ -6,7 +6,7 @@ from app.utils.logging_init import get_logger
 logger = get_logger("default")
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from app.engine.agents.utils.generic_agent import (
+from app.engine.agents.utils.agent_config import (
     build_stage3_report_path,
     load_agent_config,
     resolve_company_name,
@@ -16,7 +16,7 @@ def create_risk_manager(llm, memory):
     def risk_manager_node(state) -> dict:
         logger.debug(f"👔 [DEBUG] ===== 首席风控官 (Risk Manager) 节点开始 =====")
         
-        risk_debate_state = state["risk_debate_state"]
+        risk_debate_state = state.get("risk_debate_state", {})
         
         # 1. 获取所有基础报告
         all_reports = {}
@@ -124,7 +124,7 @@ def create_risk_manager(llm, memory):
         new_risk_debate_state.update({
             "judge_decision": final_content,
             "current_response": final_content,
-            "count": risk_debate_state["count"],
+            "count": risk_debate_state.get("count", 0),
             "risky_report_content": risky_report,
             "safe_report_content": safe_report,
             "neutral_report_content": neutral_report,

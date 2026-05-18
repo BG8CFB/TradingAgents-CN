@@ -13,7 +13,7 @@ from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.models.user import User
 from app.models.config import (
     MarketCategory,
@@ -50,7 +50,7 @@ async def get_market_categories(
 @router.post("/market-categories", response_model=dict)
 async def add_market_category(
     request: MarketCategoryRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """添加市场分类"""
     try:
@@ -61,8 +61,8 @@ async def add_market_category(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="add_market_category",
                     details={"id": str(getattr(category, 'id', ''))},
@@ -89,7 +89,7 @@ async def add_market_category(
 async def update_market_category(
     category_id: str,
     request: Dict[str, Any],
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """更新市场分类"""
     try:
@@ -99,8 +99,8 @@ async def update_market_category(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="update_market_category",
                     details={"category_id": category_id, "changed_keys": list(request.keys())},
@@ -126,7 +126,7 @@ async def update_market_category(
 @router.delete("/market-categories/{category_id}", response_model=dict)
 async def delete_market_category(
     category_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """删除市场分类"""
     try:
@@ -136,8 +136,8 @@ async def delete_market_category(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="delete_market_category",
                     details={"category_id": category_id},
@@ -164,7 +164,7 @@ async def delete_market_category(
 
 @router.get("/models", response_model=List[Dict[str, Any]])
 async def get_available_models(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """获取可用的模型列表"""
     try:
@@ -188,7 +188,7 @@ class ModelCatalogRequest(BaseModel):
 
 @router.get("/model-catalog", response_model=List[Dict[str, Any]])
 async def get_model_catalog(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """获取所有模型目录"""
     try:
@@ -204,7 +204,7 @@ async def get_model_catalog(
 @router.get("/model-catalog/{provider}", response_model=Dict[str, Any])
 async def get_provider_model_catalog(
     provider: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """获取指定厂家的模型目录"""
     try:
@@ -227,7 +227,7 @@ async def get_provider_model_catalog(
 @router.post("/model-catalog", response_model=dict)
 async def save_model_catalog(
     request: ModelCatalogRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """保存或更新模型目录"""
     try:
@@ -277,7 +277,7 @@ async def save_model_catalog(
 @router.delete("/model-catalog/{provider}", response_model=dict)
 async def delete_model_catalog(
     provider: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """删除模型目录"""
     try:
@@ -309,7 +309,7 @@ async def delete_model_catalog(
 
 @router.post("/model-catalog/init", response_model=dict)
 async def init_model_catalog(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """初始化默认模型目录"""
     try:

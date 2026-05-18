@@ -18,7 +18,7 @@ def create_bear_researcher(llm, memory):
     def bear_node(state) -> dict:
         logger.debug(f"🐻 [DEBUG] ===== 看跌研究员节点开始 =====")
         
-        investment_debate_state = state["investment_debate_state"]
+        investment_debate_state = state.get("investment_debate_state", {})
         
         # 初始化多轮状态
         rounds = investment_debate_state.get("rounds", [])
@@ -59,52 +59,15 @@ def create_bear_researcher(llm, memory):
         is_china = market_info['is_china']
 
         # 获取公司名称
-        def _get_company_name(ticker_code: str, market_info_dict: dict) -> str:
-            """根据股票代码获取公司名称"""
-            try:
-                if market_info_dict['is_china']:
-                    from app.data.reader import get_stock_info as _get_stock_info_cn
-                    stock_info = _get_stock_info_cn("CN", ticker_code)
-                    if stock_info and "股票名称:" in stock_info:
-                        name = stock_info.split("股票名称:")[1].split("\n")[0].strip()
-                        return name
-                    else:
-                        # 降级方案
-                        try:
-                            from app.data.data_source_manager import get_china_stock_info_unified as get_info_dict
-                            info_dict = get_info_dict(ticker_code)
-                            if info_dict and info_dict.get('name'):
-                                name = info_dict['name']
-                                return name
-                        except Exception:
-                            pass
-                elif market_info_dict['is_hk']:
-                    try:
-                        from app.data.providers.hk.improved_hk import get_hk_company_name_improved
-                        name = get_hk_company_name_improved(ticker_code)
-                        return name
-                    except Exception:
-                        clean_ticker = ticker_code.replace('.HK', '').replace('.hk', '')
-                        return f"港股{clean_ticker}"
-                elif market_info_dict['is_us']:
-                    us_stock_names = {
-                        'AAPL': '苹果公司', 'TSLA': '特斯拉', 'NVDA': '英伟达',
-                        'MSFT': '微软', 'GOOGL': '谷歌', 'AMZN': '亚马逊',
-                        'META': 'Meta', 'NFLX': '奈飞'
-                    }
-                    return us_stock_names.get(ticker_code.upper(), f"美股{ticker_code}")
-            except Exception as e:
-                logger.error(f"❌ [空头研究员] 获取公司名称失败: {e}")
-            return f"股票代码{ticker_code}"
-
-        company_name = _get_company_name(ticker, market_info)
+        from app.engine.agents.utils.agent_config import resolve_company_name
+        company_name = resolve_company_name(ticker, market_info)
         currency = market_info['currency_name']
         currency_symbol = market_info['currency_symbol']
 
         logger.info(f"🐻 [空头研究员] 当前轮次: {current_round_index}/{max_rounds}, 股票: {company_name}")
 
         # --- 1. 构建基础 Context (分批发送报告) ---
-        from app.engine.agents.utils.generic_agent import load_agent_config
+        from app.engine.agents.utils.agent_config import load_agent_config
         base_prompt = load_agent_config("bear-researcher")
         
         if not base_prompt:
@@ -243,8 +206,8 @@ def create_bear_researcher(llm, memory):
         # 修复：移除内容截断，确保前端展示和历史记录完整
         argument = f"{argument_prefix}\n{content}"
         
-        history = state["investment_debate_state"].get("history", "")
-        bear_history = state["investment_debate_state"].get("bear_history", "")
+        history = investment_debate_state.get("history", "")
+        bear_history = investment_debate_state.get("bear_history", "")
 
         # 防重检查：如果历史记录中已包含当前轮次前缀，则不再重复添加
         if argument_prefix in bear_history:

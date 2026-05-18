@@ -33,14 +33,6 @@ def format_tool_result(tool_result: Any) -> str:
         return str(tool_result)
 
 
-# 常见美股名称降级缓存（仅在 yfinance 不可用时使用）
-_FALLBACK_US_NAMES = {
-    "AAPL": "苹果公司", "TSLA": "特斯拉", "NVDA": "英伟达",
-    "MSFT": "微软", "GOOGL": "谷歌", "AMZN": "亚马逊",
-    "META": "Meta Platforms", "NFLX": "奈飞",
-}
-
-
 def _get_us_company_name(ticker: str) -> str:
     """动态获取美股公司名称，降级使用缓存"""
     try:
@@ -53,7 +45,8 @@ def _get_us_company_name(ticker: str) -> str:
                 return name
     except Exception:
         pass
-    return _FALLBACK_US_NAMES.get(ticker.upper(), f"美股{ticker}")
+    from app.utils.stock_utils import StockUtils
+    return StockUtils.US_STOCK_NAMES.get(ticker.upper(), f"美股{ticker}")
 
 
 # === 自动数据注入：工具参数映射 ===
@@ -220,11 +213,10 @@ def create_simple_agent(
         logger.info(f"🤖 [{name}] 开始分析")
 
         # === 进度追踪 ===
-        from app.engine.agents.analysts.dynamic_analyst import ProgressManager
-        from app.engine.agents.analysts.simple_agent_factory import SimpleAgentFactory
+        from app.engine.agents.analysts.dynamic_analyst import ProgressManager, DynamicAnalystFactory
 
-        icon = SimpleAgentFactory._get_analyst_icon(
-            slug, name, agent_config=SimpleAgentFactory.get_agent_config(slug)
+        icon = DynamicAnalystFactory._get_analyst_icon(
+            slug, name, agent_config=DynamicAnalystFactory.get_agent_config(slug)
         )
         display_name = f"{icon} {name}"
         task_id = state.get("task_id")

@@ -6,7 +6,8 @@
 """
 
 from typing import Dict, List, Optional, Any, Union
-from datetime import datetime, date
+import re
+from datetime import datetime, date, timezone
 from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator, ConfigDict, field_serializer
 from enum import Enum
@@ -53,8 +54,8 @@ class SentimentType(str, Enum):
 
 class BaseStockModel(BaseModel):
     """股票数据基础模型"""
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     data_source: str = Field(..., description="数据来源")
     version: int = Field(default=1, description="数据版本")
 
@@ -94,8 +95,8 @@ class StockBasicInfo(BaseStockModel):
     @field_validator('symbol')
     @classmethod
     def validate_symbol(cls, v):
-        if not v.isdigit() or len(v) != 6:
-            raise ValueError('股票代码必须是6位数字')
+        if not re.match(r'^[A-Z0-9\.]+$', v):
+            raise ValueError('股票代码格式无效')
         return v
 
 

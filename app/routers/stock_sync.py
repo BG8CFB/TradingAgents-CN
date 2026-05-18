@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 
 from app.routers.auth_db import get_current_user
 from app.core.response import ok, safe_error_message
-from app.worker.tushare_sync_service import get_tushare_sync_service
-from app.worker.akshare_sync_service import get_akshare_sync_service
+from app.worker.cn.tushare_sync import get_tushare_sync_service
+from app.worker.cn.akshare_sync import get_akshare_sync_service
 from app.worker.financial_data_sync_service import get_financial_sync_service
 import logging
 import asyncio

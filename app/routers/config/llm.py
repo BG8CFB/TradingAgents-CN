@@ -14,7 +14,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.models.user import User
 from app.models.config import (
     LLMConfigRequest,
@@ -122,7 +122,7 @@ async def get_llm_providers(
 @router.post("/llm/providers", response_model=dict)
 async def add_llm_provider(
     request: LLMProviderRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """添加大模型厂家"""
     try:
@@ -138,8 +138,8 @@ async def add_llm_provider(
         # 审计日志（忽略异常）
         try:
             await log_operation(
-                user_id=str(getattr(current_user, "id", "")),
-                username=getattr(current_user, "username", "unknown"),
+                user_id=str(current_user.get("id", "")),
+                username=current_user.get("username", "unknown"),
                 action_type=ActionType.CONFIG_MANAGEMENT,
                 action="add_llm_provider",
                 details={"provider_id": str(provider_id), "name": request.name},
@@ -163,7 +163,7 @@ async def add_llm_provider(
 async def update_llm_provider(
     provider_id: str,
     request: LLMProviderRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """更新大模型厂家"""
     try:
@@ -195,8 +195,8 @@ async def update_llm_provider(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="update_llm_provider",
                     details={"provider_id": provider_id, "changed_keys": list(request.model_dump().keys())},
@@ -226,7 +226,7 @@ async def update_llm_provider(
 @router.delete("/llm/providers/{provider_id}", response_model=dict)
 async def delete_llm_provider(
     provider_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """删除大模型厂家"""
     try:
@@ -236,8 +236,8 @@ async def delete_llm_provider(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="delete_llm_provider",
                     details={"provider_id": provider_id},
@@ -268,7 +268,7 @@ async def delete_llm_provider(
 async def toggle_llm_provider(
     provider_id: str,
     request: dict,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """切换大模型厂家状态"""
     try:
@@ -279,8 +279,8 @@ async def toggle_llm_provider(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="toggle_llm_provider",
                     details={"provider_id": provider_id, "is_active": bool(is_active)},
@@ -310,7 +310,7 @@ async def toggle_llm_provider(
 @router.post("/llm/providers/{provider_id}/fetch-models", response_model=dict)
 async def fetch_provider_models(
     provider_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """从厂家 API 获取模型列表"""
     try:
@@ -328,7 +328,7 @@ async def fetch_provider_models(
 
 @router.post("/llm/providers/migrate-env", response_model=dict)
 async def migrate_env_to_providers(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """将环境变量配置迁移到厂家管理"""
     try:
@@ -336,8 +336,8 @@ async def migrate_env_to_providers(
         # 审计日志（忽略异常）
         try:
             await log_operation(
-                user_id=str(getattr(current_user, "id", "")),
-                username=getattr(current_user, "username", "unknown"),
+                user_id=str(current_user.get("id", "")),
+                username=current_user.get("username", "unknown"),
                 action_type=ActionType.CONFIG_MANAGEMENT,
                 action="migrate_env_to_providers",
                 details={
@@ -366,7 +366,7 @@ async def migrate_env_to_providers(
 
 @router.post("/llm/providers/init-aggregators", response_model=dict)
 async def init_aggregator_providers(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """初始化聚合渠道厂家配置（302.AI、OpenRouter等）"""
     try:
@@ -375,8 +375,8 @@ async def init_aggregator_providers(
         # 审计日志（忽略异常）
         try:
             await log_operation(
-                user_id=str(getattr(current_user, "id", "")),
-                username=getattr(current_user, "username", "unknown"),
+                user_id=str(current_user.get("id", "")),
+                username=current_user.get("username", "unknown"),
                 action_type=ActionType.CONFIG_MANAGEMENT,
                 action="init_aggregator_providers",
                 details={
@@ -406,7 +406,7 @@ async def init_aggregator_providers(
 @router.post("/llm/providers/{provider_id}/test", response_model=dict)
 async def test_provider_api(
     provider_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """测试厂家API密钥"""
     try:
@@ -426,7 +426,7 @@ async def test_provider_api(
 
 @router.get("/llm", response_model=List[LLMConfig])
 async def get_llm_configs(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """获取所有大模型配置"""
     try:
@@ -469,7 +469,7 @@ async def get_llm_configs(
 @router.post("/llm", response_model=dict)
 async def add_llm_config(
     request: LLMConfigRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """添加或更新大模型配置"""
     try:
@@ -578,8 +578,8 @@ async def add_llm_config(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="update_llm_config",
                     details={"provider": llm_config.provider, "model_name": llm_config.model_name},
@@ -610,7 +610,7 @@ async def add_llm_config(
 async def delete_llm_config(
     provider: str,
     model_name: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """删除大模型配置"""
     try:
@@ -631,8 +631,8 @@ async def delete_llm_config(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="delete_llm_config",
                     details={"provider": provider, "model_name": model_name},
@@ -660,7 +660,7 @@ async def delete_llm_config(
 @router.post("/llm/set-default")
 async def set_default_llm(
     request: SetDefaultRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """设置默认大模型"""
     try:
@@ -669,8 +669,8 @@ async def set_default_llm(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="set_default_llm",
                     details={"name": request.name},

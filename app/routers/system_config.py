@@ -4,7 +4,7 @@ import re
 import logging
 
 from app.core.config import settings
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/system", tags=["System"])
 logger = logging.getLogger("webapi")
@@ -61,7 +61,7 @@ async def get_config_summary(current_user: dict = Depends(get_current_user)) -> 
 
 
 @router.get("/config/validate", tags=["system"], summary="验证配置完整性")
-async def validate_config():
+async def validate_config(current_user: dict = Depends(get_current_user)):
     """
     验证系统配置的完整性和有效性。
     返回验证结果，包括缺少的配置项和无效的配置。
@@ -103,21 +103,12 @@ async def validate_config():
 
             # 🔥 修改：直接从数据库读取原始数据，避免使用 get_llm_providers() 返回的已修改数据
             # get_llm_providers() 会将环境变量的 Key 赋值给 provider.api_key，导致无法区分来源
-            from pymongo import MongoClient
             from app.core.config import settings
             from app.models.config import LLMProvider
 
-            # 创建同步 MongoDB 客户端，使用 try/finally 确保连接关闭
-            client = MongoClient(settings.MONGO_URI)
-            try:
-                db = client[settings.MONGO_DB]
-                providers_collection = db.llm_providers
-
-                # 查询所有厂家配置（原始数据）
-                providers_data = list(providers_collection.find())
-                llm_providers = [LLMProvider(**data) for data in providers_data]
-            finally:
-                client.close()
+            # 使用已有异步 service 而非创建同步 MongoClient 阻塞事件循环
+            config = await config_service.get_system_config()
+            llm_providers = config.llm_providers if config else []
 
             logger.info(f"🔍 获取到 {len(llm_providers)} 个大模型厂家")
 

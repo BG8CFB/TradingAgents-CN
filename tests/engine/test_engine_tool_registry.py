@@ -216,12 +216,12 @@ class TestToolRegistryGetTools:
         result = registry.get_tools_by_names(None)
         assert len(result) == 1
 
-    def test_get_tools_by_names_no_match_returns_all(self, registry):
-        """get_tools_by_names 无匹配时回退返回所有工具"""
+    def test_get_tools_by_names_no_match_returns_empty(self, registry):
+        """get_tools_by_names 无匹配时返回空列表（不静默回退到全量工具）"""
         registry._builtin_tools = [_make_real_tool("tool_a"), _make_real_tool("tool_b")]
 
         result = registry.get_tools_by_names(["nonexistent"])
-        assert len(result) == 2
+        assert len(result) == 0
 
     def test_get_builtin_tools(self, registry):
         """get_builtin_tools 应返回内置工具列表"""

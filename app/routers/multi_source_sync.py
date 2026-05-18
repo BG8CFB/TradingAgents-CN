@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.services.multi_source_basics_sync_service import get_multi_source_sync_service
 from app.data import reader as _data_reader
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.core.response import safe_error_message
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class DataSourceStatus(BaseModel):
 
 
 @router.get("/sources/status")
-async def get_data_sources_status():
+async def get_data_sources_status(current_user: dict = Depends(get_current_user)):
     """获取所有数据源的状态"""
     try:
         available_adapters = _data_reader.get_available_adapters()
@@ -87,7 +87,7 @@ async def get_data_sources_status():
 
 
 @router.get("/sources/current")
-async def get_current_data_source():
+async def get_current_data_source(current_user: dict = Depends(get_current_user)):
     """获取当前正在使用的数据源（优先级最高且可用的）"""
     try:
         available_adapters = _data_reader.get_available_adapters()
@@ -135,7 +135,7 @@ async def get_current_data_source():
 
 
 @router.get("/status")
-async def get_sync_status():
+async def get_sync_status(current_user: dict = Depends(get_current_user)):
     """获取多数据源同步状态"""
     try:
         service = get_multi_source_sync_service()
@@ -154,7 +154,8 @@ async def get_sync_status():
 @router.post("/stock_basics/run")
 async def run_stock_basics_sync(
     force: bool = Query(False, description="是否强制运行同步"),
-    preferred_sources: Optional[str] = Query(None, description="优先使用的数据源，用逗号分隔")
+    preferred_sources: Optional[str] = Query(None, description="优先使用的数据源，用逗号分隔"),
+    current_user: dict = Depends(require_admin)
 ):
     """运行多数据源股票基础信息同步"""
     try:
@@ -275,7 +276,10 @@ class TestSourceRequest(BaseModel):
 
 
 @router.post("/test-sources")
-async def test_data_sources(request: TestSourceRequest = TestSourceRequest()):
+async def test_data_sources(
+    request: TestSourceRequest = TestSourceRequest(),
+    current_user: dict = Depends(get_current_user)
+):
     """
     测试数据源的连通性
 
@@ -401,7 +405,8 @@ async def get_sync_recommendations():
 async def get_sync_history(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(10, ge=1, le=50, description="每页大小"),
-    status: Optional[str] = Query(None, description="状态筛选")
+    status: Optional[str] = Query(None, description="状态筛选"),
+    current_user: dict = Depends(get_current_user)
 ):
     """获取同步历史记录"""
     try:

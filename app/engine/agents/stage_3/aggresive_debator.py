@@ -6,7 +6,7 @@ import time
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
 logger = get_logger("default")
-from app.engine.agents.utils.generic_agent import (
+from app.engine.agents.utils.agent_config import (
     build_stage3_report_path,
     load_agent_config,
     resolve_company_name,
@@ -20,7 +20,7 @@ def create_risky_debator(llm):
     def risky_node(state) -> dict:
         logger.debug(f"🔥 [DEBUG] ===== 激进风险分析师节点开始 =====")
         
-        risk_debate_state = state["risk_debate_state"]
+        risk_debate_state = state.get("risk_debate_state", {})
         
         # 初始化多轮状态
         rounds = risk_debate_state.get("rounds", [])

@@ -135,7 +135,7 @@ class DatabaseScreeningService:
             query = await self._build_query(basic_conditions)
 
             # 添加数据源筛选
-            query["source"] = source
+            query["data_source"] = source
 
             logger.info(f"📋 数据库查询条件: {query}")
             logger.info(f"📊 实时行情条件: {quote_conditions}")

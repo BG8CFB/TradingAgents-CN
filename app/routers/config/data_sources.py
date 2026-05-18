@@ -13,7 +13,7 @@ from typing import List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.models.user import User
 from app.models.config import (
     DataSourceConfigRequest,
@@ -109,7 +109,7 @@ async def get_data_source_configs(
 @router.post("/datasource", response_model=dict)
 async def add_data_source_config(
     request: DataSourceConfigRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """添加数据源配置"""
     try:
@@ -164,8 +164,8 @@ async def add_data_source_config(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="add_data_source_config",
                     details={"name": ds_config.name, "market_categories": market_categories},
@@ -192,7 +192,7 @@ async def add_data_source_config(
 async def update_data_source_config(
     name: str,
     request: DataSourceConfigRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """更新数据源配置"""
     try:
@@ -275,8 +275,8 @@ async def update_data_source_config(
                     # 审计日志（忽略异常）
                     try:
                         await log_operation(
-                            user_id=str(getattr(current_user, "id", "")),
-                            username=getattr(current_user, "username", "unknown"),
+                            user_id=str(current_user.get("id", "")),
+                            username=current_user.get("username", "unknown"),
                             action_type=ActionType.CONFIG_MANAGEMENT,
                             action="update_data_source_config",
                             details={"name": name, "market_categories": list(new_categories)},
@@ -307,7 +307,7 @@ async def update_data_source_config(
 @router.delete("/datasource/{name}", response_model=dict)
 async def delete_data_source_config(
     name: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """删除数据源配置"""
     try:
@@ -329,8 +329,8 @@ async def delete_data_source_config(
                     # 审计日志（忽略异常）
                     try:
                         await log_operation(
-                            user_id=str(getattr(current_user, "id", "")),
-                            username=getattr(current_user, "username", "unknown"),
+                            user_id=str(current_user.get("id", "")),
+                            username=current_user.get("username", "unknown"),
                             action_type=ActionType.CONFIG_MANAGEMENT,
                             action="delete_data_source_config",
                             details={"name": name},
@@ -361,7 +361,7 @@ async def delete_data_source_config(
 @router.post("/datasource/set-default")
 async def set_default_data_source(
     request: SetDefaultRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """设置默认数据源"""
     try:
@@ -370,8 +370,8 @@ async def set_default_data_source(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="set_default_datasource",
                     details={"name": request.name},
@@ -398,7 +398,7 @@ async def set_default_data_source(
 
 @router.get("/datasource-groupings", response_model=List[DataSourceGrouping])
 async def get_datasource_groupings(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """获取所有数据源分组关系"""
     try:
@@ -414,7 +414,7 @@ async def get_datasource_groupings(
 @router.post("/datasource-groupings", response_model=dict)
 async def add_datasource_to_category(
     request: DataSourceGroupingRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """将数据源添加到分类"""
     try:
@@ -425,8 +425,8 @@ async def add_datasource_to_category(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="add_datasource_to_category",
                     details={"data_source_name": request.data_source_name, "category_id": request.category_id},
@@ -453,7 +453,7 @@ async def add_datasource_to_category(
 async def remove_datasource_from_category(
     data_source_name: str,
     category_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """从分类中移除数据源"""
     try:
@@ -463,8 +463,8 @@ async def remove_datasource_from_category(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="remove_datasource_from_category",
                     details={"data_source_name": data_source_name, "category_id": category_id},
@@ -492,7 +492,7 @@ async def update_datasource_grouping(
     data_source_name: str,
     category_id: str,
     request: Dict[str, Any],
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """更新数据源分组关系"""
     try:
@@ -502,8 +502,8 @@ async def update_datasource_grouping(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="update_datasource_grouping",
                     details={"data_source_name": data_source_name, "category_id": category_id, "changed_keys": list(request.keys())},
@@ -530,7 +530,7 @@ async def update_datasource_grouping(
 async def update_category_datasource_order(
     category_id: str,
     request: DataSourceOrderRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """更新分类中数据源的排序"""
     try:
@@ -540,8 +540,8 @@ async def update_category_datasource_order(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="update_category_datasource_order",
                     details={"category_id": category_id, "data_sources": request.data_sources},

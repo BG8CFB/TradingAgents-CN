@@ -32,6 +32,7 @@ ehthumbs.db
 .pytest_cache/
 .hypothesis/
 htmlcov/
+.ruff_cache/
 
 # ==================== AI 工具临时目录 ====================
 .ai_temp/
@@ -71,12 +72,11 @@ frontend/tsconfig.tsbuildinfo
 frontend/package-lock.json
 
 # ==================== 数据缓存 / 运行时产物 ====================
-# 项目根目录的 data/ 和 runtime/ 是运行时生成的，不提交
 /data/
 /runtime/
 /cache/
 
-# app/data 下的缓存目录（含运行时 JSON 数据）
+# app/data 下的缓存目录
 app/data/cache/data_cache/
 app/data/data/
 
@@ -86,13 +86,6 @@ eval_data/
 results/
 logs/
 temp/
-finnhub_data/
-stock_cache/
-china_stocks/
-us_stocks/
-enhanced_analysis_reports/
-data_backup_*/
-backups/
 
 # 运行时 JSON 数据文件
 *_stock_data_*.txt
@@ -119,60 +112,34 @@ hk_stock_cache.json
 *.xls
 
 # ==================== 配置文件（运行时生成） ====================
+# config/ 根目录下的 JSON 由运行时动态生成或包含用户密钥，不提交
 config/*.json
-!config/*.json.example
-!config/models.json
 !config/pricing.json
 !config/agents/
 !config/skills/
 !config/defaults/
 
-# ==================== 废弃 / 不提交的文档和脚本 ====================
-backend
-vendors/
-backend.log
-plan/
-docs/contribution/
-docs/v1.0.0-preview/
-docs/OPTIMIZATION_PLAN.md
-docs/OPTIMIZATION_EN.md
-docs/README_OPTIMIZATION.md
+# app/config/ 已废弃，无代码引用
+app/config/*.json
 
-# 临时测试脚本
-test_mongodb_connection.py
-test_mongodb_fix.py
-verify_database_fix.py
-setup_mongodb_user.py
-test_*_conversion.py
-test_*_reports.py
-test_*_function.py
-test_export_simple.py
-test_wkhtmltopdf.py
-COMMIT_SUMMARY.md
+# ==================== 废弃 / 不提交的文档和脚本 ====================
+# 根目录下的临时测试脚本（限定根目录，不影响 tests/）
+/test_*_conversion.py
+/test_*_reports.py
+/test_*_function.py
+/test_mongodb_connection.py
+/test_mongodb_fix.py
+/verify_database_fix.py
+/setup_mongodb_user.py
+/test_export_simple.py
+/test_wkhtmltopdf.py
+/COMMIT_SUMMARY.md
+
+# 一次性导出/备份文件
+scripts/database_export_config_*.json
 
 # 废弃部署脚本
-scripts/deployment/assemble_portable_release.ps1
-scripts/deployment/assemble_portable_release_fixed.ps1
-scripts/deployment/build_portable_release.ps1
-scripts/deployment/package_with_7zip.ps1
-scripts/deployment/quick_sync_and_build.ps1
-scripts/deployment/stage_local_vendors.ps1
-scripts/windows-installer/
-scripts/test_time_serialization.py
-scripts/create_mongodb_admin.py
-
-# 本地服务脚本
-start_local_services.bat
-stop_local_services.bat
-nginx/local.nginx.conf
+scripts/deployment/
 
 # Git worktrees
 .worktrees/
-
-# Streamlit
-.streamlit/
-
-# 预览版文档
-*_PREVIEW_README.md
-RELEASE_NOTES_PREVIEW.md
-DEEPSEEK_PREVIEW_README.md

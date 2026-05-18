@@ -307,6 +307,18 @@ def _warm_via_orchestrator(market: str, source_name: str, symbol: str,
 
         loop = _get_or_create_event_loop()
 
+        if loop is None:
+            # 事件循环正在运行中，创建新循环执行
+            new_loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(new_loop)
+                new_loop.run_until_complete(orchestrator.warm_stock_info(symbol))
+                if start_date and end_date:
+                    new_loop.run_until_complete(orchestrator.warm_daily_quotes(symbol, start_date, end_date))
+            finally:
+                new_loop.close()
+            return True
+
         # 预热基础信息
         loop.run_until_complete(orchestrator.warm_stock_info(symbol))
 
@@ -328,6 +340,9 @@ def _get_or_create_event_loop():
         if loop.is_closed():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+        if loop.is_running():
+            import concurrent.futures
+            return None  # 返回 None 表示调用方需要使用线程池
         return loop
     except RuntimeError:
         loop = asyncio.new_event_loop()
@@ -351,7 +366,22 @@ def _warm_from_source(market: str, source_name: str, symbol: str,
         # 预热基础信息
         if hasattr(provider, "get_stock_list") or hasattr(provider, "get_stock_basic_info"):
             try:
+                import asyncio as _asyncio
                 raw_info = provider.get_stock_basic_info(symbol)
+                if _asyncio.iscoroutine(raw_info):
+                    try:
+                        loop = _get_or_create_event_loop()
+                        if loop is None:
+                            new_loop = _asyncio.new_event_loop()
+                            try:
+                                _asyncio.set_event_loop(new_loop)
+                                raw_info = new_loop.run_until_complete(raw_info)
+                            finally:
+                                new_loop.close()
+                        else:
+                            raw_info = loop.run_until_complete(raw_info)
+                    except Exception:
+                        raw_info = None
                 if raw_info is not None:
                     schema = adapter.adapt_basic_info(raw_info)
                     if schema:
@@ -366,7 +396,22 @@ def _warm_from_source(market: str, source_name: str, symbol: str,
         # 预热行情数据
         if start_date and end_date and hasattr(provider, "get_daily_quotes"):
             try:
+                import asyncio as _asyncio
                 raw_df = provider.get_daily_quotes(symbol, start_date, end_date)
+                if _asyncio.iscoroutine(raw_df):
+                    try:
+                        loop = _get_or_create_event_loop()
+                        if loop is None:
+                            new_loop = _asyncio.new_event_loop()
+                            try:
+                                _asyncio.set_event_loop(new_loop)
+                                raw_df = new_loop.run_until_complete(raw_df)
+                            finally:
+                                new_loop.close()
+                        else:
+                            raw_df = loop.run_until_complete(raw_df)
+                    except Exception:
+                        raw_df = None
                 if raw_df is not None and not raw_df.empty:
                     schemas = adapter.adapt_daily_quote_batch(raw_df)
                     for schema in schemas:

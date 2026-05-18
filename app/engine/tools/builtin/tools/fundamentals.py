@@ -125,16 +125,17 @@ def get_stock_fundamentals(
             # 美股
             logger.info(f"🇺🇸 [MCP基本面工具] 处理美股数据...")
             try:
-                # 尝试使用 Finnhub 获取基本面
+                # 使用 yfinance 获取基本面
                 try:
-                    from app.data.interface import get_us_stock_info
-                    us_info = get_us_stock_info(stock_code)
+                    from app.data.providers.us.yfinance import YFinanceUtils
+                    us_info = YFinanceUtils.get_stock_info(stock_code)
                     if us_info:
                         result_data.append(f"## 美股基本面信息\n{us_info}")
                     else:
                         result_data.append(f"## 美股基本面信息\n暂无详细数据")
-                except ImportError:
-                     result_data.append(f"## 美股基本面信息\n⚠️ 接口不可用")
+                except (ImportError, Exception) as info_err:
+                    logger.warning(f"美股基本面信息获取失败: {info_err}")
+                    result_data.append(f"## 美股基本面信息\n⚠️ 获取失败: {info_err}")
             except Exception as e:
                 logger.error(f"❌ [MCP基本面工具] 美股数据获取失败: {e}")
                 result_data.append(f"## 美股基本面信息\n⚠️ 获取失败: {e}")

@@ -160,7 +160,10 @@ class LogExportService:
             日志内容和统计信息
         """
         file_path = self.log_dir / filename
-        
+
+        if not file_path.resolve().is_relative_to(self.log_dir.resolve()):
+            raise ValueError(f"非法文件路径: {filename}")
+
         if not file_path.exists():
             raise FileNotFoundError(f"日志文件不存在: {filename}")
         

@@ -90,7 +90,26 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
         user_info = await self._get_user_info(request)
 
         # 处理请求
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            duration_ms = int((time.time() - start_time) * 1000)
+            if user_info:
+                try:
+                    await log_operation(
+                        user_id=str(user_info.get("id", "")),
+                        username=user_info.get("username", "unknown"),
+                        action_type=ActionType.API_ACCESS,
+                        action=f"{method} {path}",
+                        details={"error": str(exc)},
+                        success=False,
+                        duration_ms=duration_ms,
+                        ip_address=ip_address,
+                        user_agent=user_agent
+                    )
+                except Exception:
+                    pass
+            raise
 
         # 计算耗时
         duration_ms = int((time.time() - start_time) * 1000)

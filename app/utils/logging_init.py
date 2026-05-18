@@ -84,6 +84,7 @@ def get_session_logger(session_id: str, module_name: str = 'session') -> 'loggin
             kwargs.setdefault('extra', {})['session_id'] = self.session_id
             return self.logger.critical(msg, *args, **kwargs)
     
+    logger = get_logger(logger_name)
     return SessionAdapter(logger, session_id)
 
 

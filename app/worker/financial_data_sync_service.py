@@ -337,6 +337,10 @@ async def get_financial_sync_service() -> FinancialDataSyncService:
     with _financial_sync_lock:
         # double-check
         if _financial_sync_service is None:
-            _financial_sync_service = FinancialDataSyncService()
-            await _financial_sync_service.initialize()
+            try:
+                _financial_sync_service = FinancialDataSyncService()
+                await _financial_sync_service.initialize()
+            except Exception:
+                _financial_sync_service = None
+                raise
     return _financial_sync_service

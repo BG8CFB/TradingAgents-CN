@@ -12,24 +12,30 @@ from app.utils.time_utils import get_current_date
 
 logger = logging.getLogger(__name__)
 
-# 标记 Redis 是否可用，避免每次请求都重复报错
+# 标记 Redis 是否可用，附带重试时间戳
 _redis_available: Optional[bool] = None
+_redis_last_check: float = 0
+_REDIS_RETRY_INTERVAL = 60  # 60秒后重试连接
 
 
 def _get_redis_service_safe():
-    """安全获取 Redis 服务，Redis 不可用时返回 None"""
-    global _redis_available
+    """安全获取 Redis 服务，Redis 不可用时返回 None（60秒后自动重试）"""
+    global _redis_available, _redis_last_check
+    import time
     if _redis_available is False:
-        return None
+        if (time.time() - _redis_last_check) < _REDIS_RETRY_INTERVAL:
+            return None
+        # 超过重试间隔，允许再次尝试
     try:
         from app.core.redis_client import get_redis_service
         service = get_redis_service()
         _redis_available = True
         return service
     except Exception:
-        if _redis_available is None:
+        if _redis_available is None or _redis_available:
             logger.warning("⚠️ Redis 不可用，速率限制功能已禁用")
         _redis_available = False
+        _redis_last_check = time.time()
         return None
 
 

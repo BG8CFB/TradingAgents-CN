@@ -87,7 +87,7 @@ async def query_stock_news(
         if not news_list:
             logger.info(f"📰 数据库无新闻数据，实时获取: {symbol}")
             try:
-                from app.worker.akshare_sync_service import get_akshare_sync_service
+                from app.worker.cn.akshare_sync import get_akshare_sync_service
                 sync_service = await get_akshare_sync_service()
 
                 # 实时获取新闻
@@ -435,7 +435,7 @@ async def sync_single_stock_news(
 @router.delete("/cleanup", response_model=dict)
 async def cleanup_old_news(
     days_to_keep: int = Query(90, description="保留天数"),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """
     清理过期新闻

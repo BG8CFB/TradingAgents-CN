@@ -22,7 +22,18 @@ class StockMarket(Enum):
 
 class StockUtils:
     """股票工具类"""
-    
+
+    US_STOCK_NAMES = {
+        "AAPL": "苹果公司",
+        "TSLA": "特斯拉",
+        "NVDA": "英伟达",
+        "MSFT": "微软",
+        "GOOGL": "谷歌",
+        "AMZN": "亚马逊",
+        "META": "Meta",
+        "NFLX": "奈飞",
+    }
+
     @staticmethod
     def identify_stock_market(ticker: str) -> StockMarket:
         """

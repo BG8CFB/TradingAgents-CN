@@ -253,10 +253,10 @@ async def sync_favorites_realtime(
 
         # 根据数据源选择同步服务
         if request.data_source == "tushare":
-            from app.worker.tushare_sync_service import get_tushare_sync_service
+            from app.worker.cn.tushare_sync import get_tushare_sync_service
             service = await get_tushare_sync_service()
         elif request.data_source == "akshare":
-            from app.worker.akshare_sync_service import get_akshare_sync_service
+            from app.worker.cn.akshare_sync import get_akshare_sync_service
             service = await get_akshare_sync_service()
         else:
             raise HTTPException(

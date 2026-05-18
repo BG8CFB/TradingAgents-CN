@@ -27,9 +27,9 @@ class MongoDBCacheAdapter:
         self.mongodb_client = None
         self.db = None
 
-        # 数据源优先级配置缓存（避免每次查询都读取数据库）
-        self._config_cache = None
-        self._config_cache_time = 0
+        # 数据源优先级配置缓存（按市场区分，避免每次查询都读取数据库）
+        self._config_cache: dict = {}
+        self._config_cache_time: float = 0
         self._config_cache_ttl = 300  # 5分钟
         
         if self.use_app_cache:
@@ -106,23 +106,22 @@ class MongoDBCacheAdapter:
         Returns:
             按优先级排序的数据源列表，例如: ["tushare", "akshare", "baostock"]
         """
-        # 检查配置缓存是否有效
+        # 检查配置缓存是否有效（按市场区分）
         now = time.time()
-        if self._config_cache is not None and (now - self._config_cache_time) < self._config_cache_ttl:
-            logger.debug(f"📊 [数据源优先级] 使用缓存配置: {self._config_cache}")
-            return self._config_cache
+        from app.utils.stock_utils import StockUtils, StockMarket
+        market = StockUtils.identify_stock_market(symbol)
+        market_mapping = {
+            StockMarket.CHINA_A: 'a_shares',
+            StockMarket.US: 'us_stocks',
+            StockMarket.HONG_KONG: 'hk_stocks',
+        }
+        market_category = market_mapping.get(market)
+        if market_category in self._config_cache and (now - self._config_cache_time) < self._config_cache_ttl:
+            logger.debug(f"📊 [数据源优先级] 使用缓存配置: {self._config_cache[market_category]}")
+            return self._config_cache[market_category]
 
         try:
-            # 1. 识别市场分类
-            from app.utils.stock_utils import StockUtils, StockMarket
-            market = StockUtils.identify_stock_market(symbol)
-
-            market_mapping = {
-                StockMarket.CHINA_A: 'a_shares',
-                StockMarket.US: 'us_stocks',
-                StockMarket.HONG_KONG: 'hk_stocks',
-            }
-            market_category = market_mapping.get(market)
+            # 1. 识别市场分类（已在外部完成）
             logger.info(f"📊 [数据源优先级] 股票代码: {symbol}, 市场分类: {market_category}")
 
             # 2. 从数据库读取配置
@@ -169,7 +168,7 @@ class MongoDBCacheAdapter:
                     if result:
                         logger.info(f"✅ [数据源优先级] {symbol} ({market_category}): {result}")
                         # 更新配置缓存
-                        self._config_cache = result
+                        self._config_cache[market_category] = result
                         self._config_cache_time = time.time()
                         return result
                     else:

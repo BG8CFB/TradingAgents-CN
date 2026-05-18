@@ -81,27 +81,8 @@ except ImportError:
     OPTIMIZED_US_AVAILABLE = OptimizedUSDataProvider is not None
     FINNHUB_AVAILABLE = get_data_in_range is not None
 
-# 其他提供器（预留）
-try:
-    from .yahoo_provider import YahooProvider
-except ImportError:
-    YahooProvider = None
-
-try:
-    from .finnhub_provider import FinnhubProvider
-except ImportError:
-    FinnhubProvider = None
-
-# TDXProvider 已移除
-# try:
-#     from .tdx_provider import TDXProvider
-# except ImportError:
-#     TDXProvider = None
 
 __all__ = [
-    # 基类
-    'BaseStockDataProvider',
-
     # 中国市场
     'TushareProvider',
     'AKShareProvider',
@@ -123,8 +104,4 @@ __all__ = [
     'OPTIMIZED_US_AVAILABLE',
     'FINNHUB_AVAILABLE',
 
-    # 其他（预留）
-    'YahooProvider',
-    'FinnhubProvider',
-    # 'TDXProvider'  # 已移除
 ]

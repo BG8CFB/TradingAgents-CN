@@ -175,7 +175,7 @@ class ToolRegistry:
             if getattr(tool, "name", None) in name_set
         ]
 
-        return filtered if filtered else self.get_all_tools()
+        return filtered
 
     def get_builtin_tools(self) -> List:
         """获取所有内置工具（不过滤）"""

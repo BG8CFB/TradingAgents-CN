@@ -2446,18 +2446,6 @@ def get_china_stock_info_unified(symbol: str) -> Dict:
 
 # 注意：get_data_source_manager() 已在上方定义，此处不再重复
 
-# ==================== 兼容性接口 ====================
-# 为了兼容 stock_data_service，提供相同的接口
-
-def get_stock_data_service() -> DataSourceManager:
-    """
-    获取股票数据服务实例（兼容 stock_data_service 接口）
-
-    ⚠️ 此函数为兼容性接口，实际返回 DataSourceManager 实例
-    推荐直接使用 get_data_source_manager()
-    """
-    return get_data_source_manager()
-
 
 # ==================== 美股数据源管理器 ====================
 

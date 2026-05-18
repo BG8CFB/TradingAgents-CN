@@ -102,7 +102,7 @@ class AntiScrapingSession:
             # 找到可用的最新指纹版本
             available = [x for x in dir(curl_requests.Session) if not x.startswith("_")]
             for target in CURL_IMPERSONATE_TARGETS:
-                if target in available or True:  # curl_cffi 用字符串匹配
+                if target in available:  # curl_cffi 用字符串匹配
                     try:
                         session = curl_requests.Session(impersonate=target)
                         self._curl_session = session

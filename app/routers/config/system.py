@@ -118,7 +118,7 @@ async def reload_config(current_user: dict = Depends(get_current_user)):
 
         if success:
             await log_operation(
-                user_id=str(current_user.get("user_id", "")),
+                user_id=str(current_user.get("id", "")),
                 username=current_user.get("username", "unknown"),
                 action_type=ActionType.CONFIG_MANAGEMENT,
                 action="重载配置",
@@ -243,8 +243,8 @@ async def update_system_settings(
             # 审计日志（忽略日志异常，不影响主流程）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="update_system_settings",
                     details={"changed_keys": list(settings.keys())},
@@ -269,8 +269,8 @@ async def update_system_settings(
         # 审计失败记录（忽略日志异常）
         try:
             await log_operation(
-                user_id=str(getattr(current_user, "id", "")),
-                username=getattr(current_user, "username", "unknown"),
+                user_id=str(current_user.get("id", "")),
+                username=current_user.get("username", "unknown"),
                 action_type=ActionType.CONFIG_MANAGEMENT,
                 action="update_system_settings",
                 details={"changed_keys": list(settings.keys())},
@@ -297,8 +297,8 @@ async def export_config(
         # 审计日志（忽略异常）
         try:
             await log_operation(
-                user_id=str(getattr(current_user, "id", "")),
-                username=getattr(current_user, "username", "unknown"),
+                user_id=str(current_user.get("id", "")),
+                username=current_user.get("username", "unknown"),
                 action_type=ActionType.DATA_EXPORT,
                 action="export_config",
                 details={"size": len(str(config_data))},
@@ -330,8 +330,8 @@ async def import_config(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.DATA_IMPORT,
                     action="import_config",
                     details={"keys": list(config_data.keys())[:10]},
@@ -365,8 +365,8 @@ async def migrate_legacy_config(
             # 审计日志（忽略异常）
             try:
                 await log_operation(
-                    user_id=str(getattr(current_user, "id", "")),
-                    username=getattr(current_user, "username", "unknown"),
+                    user_id=str(current_user.get("id", "")),
+                    username=current_user.get("username", "unknown"),
                     action_type=ActionType.CONFIG_MANAGEMENT,
                     action="migrate_legacy_config",
                     details={},

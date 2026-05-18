@@ -113,6 +113,8 @@ class DatabaseManager:
             try:
                 self.mongo_client.close()
                 self._mongo_healthy = False
+                self.mongo_client = None
+                self.mongo_db = None
                 logger.info("✅ MongoDB连接已关闭")
             except Exception as e:
                 logger.error(f"❌ 关闭MongoDB连接时出错: {e}")
@@ -122,6 +124,7 @@ class DatabaseManager:
             try:
                 await self.redis_client.close()
                 self._redis_healthy = False
+                self.redis_client = None
                 logger.info("✅ Redis连接已关闭")
             except Exception as e:
                 logger.error(f"❌ 关闭Redis连接时出错: {e}")
@@ -130,6 +133,7 @@ class DatabaseManager:
         if self.redis_pool:
             try:
                 await self.redis_pool.disconnect()
+                self.redis_pool = None
                 logger.info("✅ Redis连接池已关闭")
             except Exception as e:
                 logger.error(f"❌ 关闭Redis连接池时出错: {e}")

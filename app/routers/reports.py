@@ -92,6 +92,10 @@ async def get_report_detail(
         if not report:
             raise HTTPException(status_code=404, detail="报告不存在")
 
+        report_user_id = str(report.get("user_id", ""))
+        if report_user_id and str(user.get("id", "")) != report_user_id:
+            raise HTTPException(status_code=403, detail="无权访问该报告")
+
         return {
             "success": True,
             "data": report,
@@ -115,6 +119,14 @@ async def get_report_module_content(
         logger.info(f"获取报告模块内容: {report_id}/{module}")
 
         service = get_reports_service()
+        report = await service.get_report(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="报告不存在")
+
+        report_user_id = str(report.get("user_id", ""))
+        if report_user_id and str(user.get("id", "")) != report_user_id:
+            raise HTTPException(status_code=403, detail="无权访问该报告")
+
         module_data = await service.get_report_module_content(report_id, module)
 
         if module_data is None:
@@ -182,6 +194,10 @@ async def download_report(
 
         if not doc:
             raise HTTPException(status_code=404, detail="报告不存在")
+
+        report_user_id = str(doc.get("user_id", ""))
+        if report_user_id and str(user.get("id", "")) != report_user_id:
+            raise HTTPException(status_code=403, detail="无权访问该报告")
 
         stock_symbol = doc.get("stock_symbol", "unknown")
         analysis_date = doc.get("analysis_date", format_date_short(now_config_tz()))

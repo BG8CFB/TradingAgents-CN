@@ -769,10 +769,10 @@ class StockDataPreparer:
 
                     # 根据数据源获取对应的同步服务
                     if data_source == "tushare":
-                        from app.worker.tushare_sync_service import get_tushare_sync_service
+                        from app.worker.cn.tushare_sync import get_tushare_sync_service
                         service = await get_tushare_sync_service()
                     elif data_source == "akshare":
-                        from app.worker.akshare_sync_service import get_akshare_sync_service
+                        from app.worker.cn.akshare_sync import get_akshare_sync_service
                         service = await get_akshare_sync_service()
                     else:
                         logger.warning(f"⚠️ [数据同步] 不支持的数据源: {data_source}")
@@ -822,7 +822,7 @@ class StockDataPreparer:
                         # 对于单个股票，AKShare更适合获取实时行情
                         if data_source == "tushare":
                             # Tushare的实时行情接口有限制，改用AKShare
-                            from app.worker.akshare_sync_service import get_akshare_sync_service
+                            from app.worker.cn.akshare_sync import get_akshare_sync_service
                             realtime_service = await get_akshare_sync_service()
                         else:
                             realtime_service = service

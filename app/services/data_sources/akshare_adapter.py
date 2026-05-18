@@ -441,7 +441,7 @@ class AKShareAdapter(DataSourceAdapter):
             return f"SZ{code}"
         elif market.upper() == 'BJ':
             return f"BJ{code}"
-        return result
+        return f"{market.upper()}{code}"
 
     def _fetch_stock_news_em_custom(self, symbol: str) -> Optional[pd.DataFrame]:
         """

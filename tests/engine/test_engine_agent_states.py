@@ -171,22 +171,10 @@ class TestAgentState:
         hints = get_type_hints(AgentState)
         core_reports = [
             "market_report", "sentiment_report", "news_report",
-            "fundamentals_report", "china_market_report",
-            "short_term_capital_report",
+            "fundamentals_report",
         ]
         for key in core_reports:
             assert key in hints, f"缺少核心报告字段: {key}"
-
-    def test_has_dynamic_report_fields(self):
-        """应包含动态分析师报告字段"""
-        from app.engine.agents.utils.agent_states import AgentState
-
-        hints = get_type_hints(AgentState)
-        dynamic_reports = [
-            "financial_news_report", "social_media_report",
-        ]
-        for key in dynamic_reports:
-            assert key in hints, f"缺少动态报告字段: {key}"
 
     def test_has_reports_dict_field(self):
         """应包含 reports 字典字段"""
@@ -194,18 +182,6 @@ class TestAgentState:
 
         hints = get_type_hints(AgentState)
         assert "reports" in hints
-
-    def test_has_tool_call_count_fields(self):
-        """应包含工具调用计数器字段"""
-        from app.engine.agents.utils.agent_states import AgentState
-
-        hints = get_type_hints(AgentState)
-        tool_counts = [
-            "market_tool_call_count", "news_tool_call_count",
-            "sentiment_tool_call_count", "fundamentals_tool_call_count",
-        ]
-        for key in tool_counts:
-            assert key in hints, f"缺少工具计数字段: {key}"
 
     def test_has_debate_state_fields(self):
         """应包含辩论状态字段"""
