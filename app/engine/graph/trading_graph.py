@@ -287,6 +287,35 @@ class TradingAgentsGraph:
         self.ticker = company_name
         logger.debug(f"🔍 [GRAPH DEBUG] 设置self.ticker: '{self.ticker}'")
 
+        # 分析前刷新核心数据域（非阻塞，刷新失败不中断分析）
+        try:
+            import asyncio
+            from app.services.cn_data_refresh_service import get_refresh_service
+
+            symbol = company_name
+            refresh_svc = get_refresh_service()
+            refresh_coro = refresh_svc.refresh(
+                symbol, domains=["daily_quotes", "daily_indicators"], timeout=30,
+            )
+            try:
+                loop = asyncio.get_running_loop()
+                # 已有运行中的事件循环 → 创建后台 Task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    refresh_result = loop.run_in_executor(
+                        pool, lambda: asyncio.run(refresh_svc.refresh(symbol, domains=["daily_quotes", "daily_indicators"], timeout=30))
+                    )
+                logger.info("📊 [数据刷新] %s 后台刷新已提交", symbol)
+            except RuntimeError:
+                # 无事件循环 → 直接运行
+                refresh_result = asyncio.run(refresh_coro)
+                logger.info(
+                    "📊 [数据刷新] %s 刷新结果: %s (%dms)",
+                    symbol, refresh_result.status, refresh_result.duration_ms,
+                )
+        except Exception as refresh_err:
+            logger.warning(f"⚠️ [数据刷新] 刷新失败，使用现有数据: {refresh_err}")
+
         # Initialize state
         logger.debug(f"🔍 [GRAPH DEBUG] 创建初始状态，传递参数: company_name='{company_name}', trade_date='{trade_date}'")
         init_agent_state = self.propagator.create_initial_state(

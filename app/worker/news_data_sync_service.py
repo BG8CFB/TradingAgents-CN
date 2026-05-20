@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
 from app.services.news_data_service import get_news_data_service
-from app.data.providers.china.tushare import get_tushare_provider
-from app.data.providers.china.akshare import get_akshare_provider
+from app.data.sources.cn.tushare.api.connection import get_tushare_api
+from app.data.sources.cn.akshare.api.anti_scraping import get_anti_scraping_session
 from app.data.news.realtime_news import RealtimeNewsAggregator
 from app.utils.timezone import now_utc
 
@@ -63,7 +63,7 @@ class NewsDataSyncService:
     async def _get_tushare_provider(self):
         """获取Tushare提供者"""
         if self._tushare_provider is None:
-            from app.data.providers.china.tushare import get_tushare_provider
+            from app.data.sources.cn.tushare.api.connection import get_tushare_api
             self._tushare_provider = get_tushare_provider()
             await self._tushare_provider.connect()
         return self._tushare_provider

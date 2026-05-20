@@ -1,6 +1,7 @@
 """
-基于MongoDB的股票筛选服务
-利用本地数据库中的股票基础信息进行高效筛选
+基于MongoDB的股票筛选服务（内部实现，请勿直接调用）
+
+对外接口请使用 app.services.enhanced_screening_service.EnhancedScreeningService
 """
 
 import logging

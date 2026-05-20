@@ -1733,7 +1733,7 @@ def get_stock_data_by_market(symbol: str, start_date: str = None, end_date: str 
                 provider = OptimizedUSDataProvider()
                 return provider.get_stock_data(symbol, start_date, end_date)
             except ImportError:
-                from app.data.providers.us.optimized import get_us_stock_data_cached
+                from app.data.sources.us.yfinance_us.provider import YFinanceUSProvider
                 return get_us_stock_data_cached(symbol, start_date, end_date)
 
     except Exception as e:

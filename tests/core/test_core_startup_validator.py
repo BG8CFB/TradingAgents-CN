@@ -106,34 +106,25 @@ class TestStartupValidator:
 
     def test_validate_recommended_configs(self):
         """缺少推荐配置时加入 missing_recommended"""
-        import os
+        from unittest.mock import patch, MagicMock
+        from app.core.config import settings as real_settings
 
         validator = StartupValidator()
 
-        # 使用环境变量控制（settings 从 env 读取）
-        original_deepseek = os.environ.get("DEEPSEEK_API_KEY", "")
-        original_dashscope = os.environ.get("DASHSCOPE_API_KEY", "")
-        original_tushare = os.environ.get("TUSHARE_TOKEN", "")
+        # mock settings：三个 API Key 返回空值，其余字段透传到真实 settings
+        class MockSettings:
+            def __getattr__(self, name):
+                if name == "DEEPSEEK_API_KEY":
+                    return None
+                if name == "DASHSCOPE_API_KEY":
+                    return None
+                if name == "TUSHARE_TOKEN":
+                    return ""
+                return getattr(real_settings, name)
 
-        os.environ["DEEPSEEK_API_KEY"] = ""
-        os.environ["DASHSCOPE_API_KEY"] = ""
-        os.environ["TUSHARE_TOKEN"] = ""
-        try:
+        with patch("app.core.startup_validator.settings", MockSettings()):
             validator._validate_recommended_configs()
             assert len(validator.result.missing_recommended) >= 3
-        finally:
-            if original_deepseek:
-                os.environ["DEEPSEEK_API_KEY"] = original_deepseek
-            else:
-                os.environ.pop("DEEPSEEK_API_KEY", None)
-            if original_dashscope:
-                os.environ["DASHSCOPE_API_KEY"] = original_dashscope
-            else:
-                os.environ.pop("DASHSCOPE_API_KEY", None)
-            if original_tushare:
-                os.environ["TUSHARE_TOKEN"] = original_tushare
-            else:
-                os.environ.pop("TUSHARE_TOKEN", None)
 
     def test_validate_detects_invalid_jwt_secret_too_short(self):
         """JWT_SECRET 格式不正确时被检测到（通过 os.getenv 检查）"""

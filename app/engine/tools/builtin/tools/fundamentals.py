@@ -128,7 +128,7 @@ def get_stock_fundamentals(
             try:
                 # 使用 yfinance 获取基本面
                 try:
-                    from app.data.providers.us.yfinance import YFinanceUtils
+                    from app.data.sources.us.yfinance_us.provider import YFinanceUSProvider
                     us_info = YFinanceUtils.get_stock_info(stock_code)
                     if us_info:
                         result_data.append(f"## 美股基本面信息\n{us_info}")

@@ -251,44 +251,31 @@ async def sync_favorites_realtime(
 
         logger.info(f"🎯 需要同步的股票: {len(symbols)} 只 - {symbols}")
 
-        # 根据数据源选择同步服务
-        if request.data_source == "tushare":
-            from app.worker.cn.tushare_sync import get_tushare_sync_service
-            service = await get_tushare_sync_service()
-        elif request.data_source == "akshare":
-            from app.worker.cn.akshare_sync import get_akshare_sync_service
-            service = await get_akshare_sync_service()
+        # 通过编排器同步实时行情（自动选择数据源）
+        from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
+        orchestrator = get_cn_sync_orchestrator()
+
+        logger.info("🔄 调用编排器同步实时行情...")
+        sync_result = await orchestrator.sync_realtime()
+
+        if sync_result.success:
+            success_count = sync_result.records_synced
+            failed_count = 0
+            data_source = sync_result.source
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"不支持的数据源: {request.data_source}"
-            )
+            success_count = 0
+            failed_count = len(symbols)
+            data_source = sync_result.source or "unknown"
 
-        if not service:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"{request.data_source} 服务不可用"
-            )
-
-        # 同步实时行情
-        logger.info(f"🔄 调用 {request.data_source} 同步服务...")
-        sync_result = await service.sync_realtime_quotes(
-            symbols=symbols,
-            force=True  # 强制执行，跳过交易时间检查
-        )
-
-        success_count = sync_result.get("success_count", 0)
-        failed_count = sync_result.get("failed_count", 0)
-
-        logger.info(f"✅ 自选股实时行情同步完成: 成功 {success_count}/{len(symbols)} 只")
+        logger.info(f"✅ 自选股实时行情同步完成: 同步 {success_count} 条记录")
 
         return ok({
             "total": len(symbols),
             "success_count": success_count,
             "failed_count": failed_count,
             "symbols": symbols,
-            "data_source": request.data_source,
-            "message": f"同步完成: 成功 {success_count} 只，失败 {failed_count} 只"
+            "data_source": data_source,
+            "message": f"同步完成: {success_count} 条记录，来源 {data_source}"
         })
 
     except HTTPException:

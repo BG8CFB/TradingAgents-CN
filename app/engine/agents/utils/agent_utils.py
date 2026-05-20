@@ -171,7 +171,7 @@ class Toolkit:
         """
         try:
             # 使用Tushare获取主要指数数据
-            from app.data.providers.china.tushare import get_tushare_adapter
+            from app.data.sources.cn.tushare import get_tushare_adapter
 
             adapter = get_tushare_adapter()
 
@@ -942,7 +942,7 @@ class Toolkit:
                     logger.debug(f"🇨🇳🇭🇰 [统一新闻工具] 尝试获取东方财富新闻: {clean_ticker}")
 
                     # 通过 AKShare Provider 获取新闻
-                    from app.data.providers.china.akshare import AKShareProvider
+                    from app.data.sources.cn.akshare.provider import AKShareSourceProvider as AKShareProvider
 
                     provider = AKShareProvider()
 

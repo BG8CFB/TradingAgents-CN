@@ -2,6 +2,7 @@
 数据同步服务基类
 抽取 Tushare/AKShare/BaoStock 三个同步服务的公共逻辑
 """
+import asyncio
 import logging
 from abc import ABC
 from datetime import datetime, timedelta
@@ -202,3 +203,250 @@ class BaseSyncService(ABC):
         if start_time:
             stats["duration"] = (stats["end_time"] - start_time).total_seconds()
         return stats
+
+
+# ============================================================================
+# 境外市场按需缓存服务基类（HK / US 共用）
+# ============================================================================
+
+import threading
+from typing import Any, Dict, List, Optional, Set
+
+from app.core.database import get_mongo_db
+from app.data.config import get_enabled_sources
+from app.data.schema.collections import get_collection_name
+
+_DEFAULT_CACHE_HOURS = 24
+_DEFAULT_QUOTES_DAYS = 30
+
+
+class ForeignMarketCacheService:
+    """
+    境外市场按需缓存服务基类（HK / US 共用）
+
+    子类仅需设置:
+        - market: "HK" | "US"
+        - orchestrator_map: 数据源名称 -> (orch_module, orch_class, adapter_module, adapter_factory)
+        - normalize_code(code): 代码标准化方法
+        - _log_label: 日志前缀
+    """
+
+    market: str = ""
+    orchestrator_map: Dict[str, tuple] = {}
+    _log_label: str = ""
+
+    def __init__(self):
+        self._basic_info_collection = get_collection_name(self.market, "basic_info")
+        self._daily_quotes_collection = get_collection_name(self.market, "daily_quotes")
+        self._batch_task: Optional[Dict[str, Any]] = None
+        self._batch_lock = threading.Lock()
+
+    def normalize_code(self, code: str) -> str:
+        raise NotImplementedError
+
+    def _get_db(self):
+        return get_mongo_db()
+
+    async def _count_cached_symbols(self) -> int:
+        collection = self._get_db()[self._basic_info_collection]
+        symbols: Set[str] = set()
+        for field in ("symbol", "code"):
+            try:
+                values = await collection.distinct(field)
+            except Exception:
+                values = []
+            symbols.update(str(value).strip() for value in values if value)
+        return len(symbols)
+
+    def _get_orchestrators(self) -> List:
+        sources = get_enabled_sources(self.market)
+        result = []
+        for src in sources:
+            if src in self.orchestrator_map:
+                result.append(self.orchestrator_map[src])
+        return result
+
+    def _get_orchestrator_instance(self, orch_info):
+        orch_module, orch_class, adapter_module, adapter_factory = orch_info
+        import importlib
+        mod = importlib.import_module(adapter_module)
+        adapter = getattr(mod, adapter_factory)()
+        orch_mod = importlib.import_module(orch_module)
+        return getattr(orch_mod, orch_class)(adapter)
+
+    async def get_stock_info(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        normalized_code = self.normalize_code(stock_code)
+        cached = await self._get_cached_info(normalized_code)
+        if cached:
+            return cached
+        for orch_info in self._get_orchestrators():
+            try:
+                orch = self._get_orchestrator_instance(orch_info)
+                success = await orch.warm_stock_info(normalized_code)
+                if success:
+                    cached = await self._get_cached_info(normalized_code)
+                    if cached:
+                        return cached
+            except Exception as e:
+                logger.warning(f"⚠️ [{self._log_label}] {stock_code} 预热失败: {e}")
+                continue
+        logger.warning(f"⚠️ [{self._log_label}] {stock_code} 所有数据源均失败")
+        return None
+
+    async def refresh_cache(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        normalized_code = self.normalize_code(stock_code)
+        for orch_info in self._get_orchestrators():
+            try:
+                orch = self._get_orchestrator_instance(orch_info)
+                await orch.warm_stock_info(normalized_code)
+            except Exception as e:
+                logger.warning(f"⚠️ [{self._log_label}] 刷新 {stock_code} 失败: {e}")
+        return await self._get_cached_info(normalized_code)
+
+    async def warm_stock_with_quotes(self, stock_code: str, force: bool = False) -> Dict[str, Any]:
+        normalized_code = self.normalize_code(stock_code)
+        now = now_config_tz()
+        start_date = (now - timedelta(days=_DEFAULT_QUOTES_DAYS)).strftime("%Y-%m-%d")
+        end_date = now.strftime("%Y-%m-%d")
+
+        info_ok = False
+        quotes_count = 0
+        used_source = None
+
+        for orch_info in self._get_orchestrators():
+            try:
+                orch = self._get_orchestrator_instance(orch_info)
+                info_ok = await orch.warm_stock_info(normalized_code)
+                if info_ok:
+                    try:
+                        quotes_count = await orch.warm_daily_quotes(normalized_code, start_date, end_date)
+                    except Exception as e:
+                        logger.warning(f"⚠️ [{self._log_label}] {stock_code} 行情预热失败（基础信息已缓存）: {e}")
+                        quotes_count = 0
+                    used_source = orch_info[0].split('.')[-2].replace(f'_{self.market.lower()}', '').upper()
+                    break
+            except Exception as e:
+                logger.warning(f"⚠️ [{self._log_label}] 预热 {stock_code} 失败: {e}")
+                continue
+
+        return {
+            "symbol": normalized_code,
+            "info_success": info_ok,
+            "quotes_count": quotes_count,
+            "source": used_source,
+        }
+
+    async def warm_batch(self, symbols: List[str], force: bool = False) -> str:
+        import uuid
+        task_id = str(uuid.uuid4())[:8]
+
+        with self._batch_lock:
+            self._batch_task = {
+                "task_id": task_id,
+                "status": "running",
+                "total": len(symbols),
+                "completed": 0,
+                "failed": 0,
+                "results": [],
+            }
+
+        async def _run():
+            for symbol in symbols:
+                try:
+                    result = await self.warm_stock_with_quotes(symbol, force)
+                    with self._batch_lock:
+                        if self._batch_task and self._batch_task["task_id"] == task_id:
+                            self._batch_task["completed"] += 1
+                            self._batch_task["results"].append({
+                                "symbol": symbol,
+                                "success": result["info_success"],
+                                "message": f"基础信息: {'成功' if result['info_success'] else '失败'}, 行情: {result['quotes_count']}条",
+                            })
+                except Exception as e:
+                    with self._batch_lock:
+                        if self._batch_task and self._batch_task["task_id"] == task_id:
+                            self._batch_task["failed"] += 1
+                            self._batch_task["completed"] += 1
+                            self._batch_task["results"].append({
+                                "symbol": symbol,
+                                "success": False,
+                                "message": str(e),
+                            })
+
+            with self._batch_lock:
+                if self._batch_task and self._batch_task["task_id"] == task_id:
+                    self._batch_task["status"] = "completed"
+
+        asyncio.ensure_future(_run())
+        return task_id
+
+    def get_batch_status(self) -> Optional[Dict[str, Any]]:
+        with self._batch_lock:
+            if self._batch_task is None:
+                return {"status": "idle", "total": 0, "completed": 0, "failed": 0, "results": []}
+            return dict(self._batch_task)
+
+    async def list_cached_stocks(self, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+        collection = self._get_db()[self._basic_info_collection]
+        skip = (page - 1) * page_size
+
+        total = await collection.count_documents({})
+        cursor = collection.find(
+            {},
+            {"symbol": 1, "name": 1, "data_source": 1, "updated_at": 1, "_id": 0},
+        ).sort("updated_at", -1).skip(skip).limit(page_size)
+        records = await cursor.to_list(length=page_size)
+
+        return {
+            "records": records,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "has_more": skip + page_size < total,
+        }
+
+    async def get_cache_stats(self) -> Dict[str, Any]:
+        db = self._get_db()
+        collection = db[self._basic_info_collection]
+        expire_before = now_config_tz() - timedelta(hours=_DEFAULT_CACHE_HOURS)
+
+        total_documents = await collection.count_documents({})
+        valid_documents = await collection.count_documents({"updated_at": {"$gte": expire_before}})
+        latest_doc = await collection.find_one({}, sort=[("updated_at", -1)])
+
+        return {
+            "market": self.market,
+            "cache_hours": _DEFAULT_CACHE_HOURS,
+            "available_sources": get_enabled_sources(self.market),
+            "collection": self._basic_info_collection,
+            "cached_symbols": await self._count_cached_symbols(),
+            "total_documents": total_documents,
+            "valid_documents": valid_documents,
+            "expired_documents": max(total_documents - valid_documents, 0),
+            "last_updated": latest_doc.get("updated_at") if latest_doc else None,
+            "latest_symbol": (latest_doc or {}).get("symbol") or (latest_doc or {}).get("code"),
+        }
+
+    async def clear_expired_cache(self) -> Dict[str, Any]:
+        expire_before = now_config_tz() - timedelta(hours=_DEFAULT_CACHE_HOURS)
+        result = await self._get_db()[self._basic_info_collection].delete_many(
+            {"updated_at": {"$lt": expire_before}}
+        )
+        return {
+            "market": self.market,
+            "collection": self._basic_info_collection,
+            "deleted_count": result.deleted_count,
+            "expire_before": expire_before,
+        }
+
+    async def _get_cached_info(self, code: str) -> Optional[Dict[str, Any]]:
+        collection = self._get_db()[self._basic_info_collection]
+        expire_before = now_config_tz() - timedelta(hours=_DEFAULT_CACHE_HOURS)
+
+        cached = await collection.find_one({
+            "$and": [
+                {"$or": [{"symbol": code}, {"code": code}]},
+                {"updated_at": {"$gte": expire_before}},
+            ]
+        })
+        return cached

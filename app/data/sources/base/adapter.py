@@ -75,3 +75,48 @@ class BaseAdapter(ABC):
     def adapt_news(self, raw: Dict[str, Any]) -> Optional[NewsSchema]:
         """将单条原始新闻转换为 NewsSchema（可选实现）"""
         return None
+
+    # ── 每日指标适配（可选） ──
+
+    def adapt_daily_indicators(self, row: Any) -> Optional[Any]:
+        """将单行原始数据转换为 DailyIndicatorsSchema（可选实现）"""
+        return None
+
+    def adapt_daily_indicators_batch(self, df: pd.DataFrame) -> list:
+        """批量转换每日指标（默认逐行调用）"""
+        results = []
+        for _, row in df.iterrows():
+            item = self.adapt_daily_indicators(row)
+            if item is not None:
+                results.append(item)
+        return results
+
+    # ── 复权因子适配（可选） ──
+
+    def adapt_adj_factors(self, row: Any) -> Optional[Any]:
+        """将单行原始数据转换为 AdjFactorsSchema（可选实现）"""
+        return None
+
+    def adapt_adj_factors_batch(self, df: pd.DataFrame) -> list:
+        """批量转换复权因子（默认逐行调用）"""
+        results = []
+        for _, row in df.iterrows():
+            item = self.adapt_adj_factors(row)
+            if item is not None:
+                results.append(item)
+        return results
+
+    # ── 交易日历适配（可选） ──
+
+    def adapt_trade_calendar(self, row: Any) -> Optional[Any]:
+        """将单行原始数据转换为 TradeCalendarSchema（可选实现）"""
+        return None
+
+    def adapt_trade_calendar_batch(self, df: pd.DataFrame) -> list:
+        """批量转换交易日历（默认逐行调用）"""
+        results = []
+        for _, row in df.iterrows():
+            item = self.adapt_trade_calendar(row)
+            if item is not None:
+                results.append(item)
+        return results

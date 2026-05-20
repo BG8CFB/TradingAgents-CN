@@ -1,8 +1,7 @@
 """
-A股同步路由（定时全量同步模式）
+A股同步路由
 
-保留与 stock_sync / multi_source_sync 的兼容路径，
-内部委托到 worker/cn/ 的同步服务。
+通过 CNSyncOrchestrator 域级编排器执行同步任务。
 """
 
 import logging
@@ -80,24 +79,23 @@ async def sync_cn_single(
 ):
     """同步单只 A 股数据"""
     try:
-        from app.worker.cn.tushare_sync import get_tushare_sync_service
-        from app.worker.cn.akshare_sync import get_akshare_sync_service
-        from app.worker.financial_data_sync_service import get_financial_sync_service
+        from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
 
         symbol = request.symbol.strip().zfill(6)
 
+        domains = []
+        if request.sync_historical:
+            domains.extend(["daily_quotes", "daily_indicators", "adj_factors"])
+        if request.sync_financial:
+            domains.append("financial")
+
         async def _do_sync():
-            if request.data_source == "tushare":
-                ts = get_tushare_sync_service()
-                if request.sync_historical:
-                    await ts.sync_single_stock_historical(symbol, days=request.days)
-                if request.sync_financial:
-                    fs = get_financial_sync_service()
-                    await fs.sync_single_stock(symbol)
-            elif request.data_source == "akshare":
-                ak = get_akshare_sync_service()
-                if request.sync_historical:
-                    await ak.sync_single_stock_historical(symbol, days=request.days)
+            orchestrator = get_cn_sync_orchestrator()
+            await orchestrator.run(
+                symbol=symbol,
+                domains=domains or None,
+                skip_trading_day_check=True,
+            )
 
         background_tasks.add_task(_do_sync)
         return ok(message=f"股票 {symbol} 同步已触发")

@@ -20,7 +20,7 @@ def fetch_stock_basic_df():
     """
     import time
     import logging
-    from app.data.providers.china.tushare import get_tushare_provider
+    from app.data.sources.cn.tushare.api.connection import get_tushare_api
     from app.core.config import settings
 
     logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def fetch_stock_basic_df():
             "Set TUSHARE_ENABLED=true in .env or use MultiSourceBasicsSyncService."
         )
 
-    provider = get_tushare_provider()
+    conn = get_tushare_api()
 
     # 等待连接完成（最多等待 5 秒）
     max_wait_seconds = 5
@@ -47,7 +47,7 @@ def fetch_stock_basic_df():
         elapsed += wait_interval
 
     # 检查连接状态和API可用性
-    if not getattr(provider, "connected", False) or provider.api is None:
+    if not getattr(provider, "connected", False) or conn.api is None:
         logger.error(f"❌ Tushare 连接失败（等待 {max_wait_seconds}s 后超时）")
         logger.error(f"💡 请检查：")
         logger.error(f"   1. .env 文件中配置了有效的 TUSHARE_TOKEN")
@@ -62,7 +62,7 @@ def fetch_stock_basic_df():
 
     # 直接调用 Tushare API 获取 DataFrame
     try:
-        df = provider.api.stock_basic(
+        df = conn.api.stock_basic(
             list_status='L',
             fields='ts_code,symbol,name,area,industry,market,exchange,list_date,is_hs'
         )
@@ -98,10 +98,10 @@ def find_latest_trade_date() -> str:
     - 从今天起回溯最多 5 天；
     - 如都不可用，回退为昨天日期。
     """
-    from app.data.providers.china.tushare import get_tushare_provider
+    from app.data.sources.cn.tushare.api.connection import get_tushare_api
 
-    provider = get_tushare_provider()
-    api = provider.api
+    conn = get_tushare_api()
+    api = conn.api
     if api is None:
         raise RuntimeError("Tushare API unavailable")
 
@@ -122,10 +122,10 @@ def fetch_daily_basic_mv_map(trade_date: str) -> Dict[str, Dict[str, float]]:
     根据交易日获取日度基础指标映射。
     覆盖字段：total_mv/circ_mv/pe/pb/ps/turnover_rate/volume_ratio/pe_ttm/pb_mrq/ps_ttm
     """
-    from app.data.providers.china.tushare import get_tushare_provider
+    from app.data.sources.cn.tushare.api.connection import get_tushare_api
 
-    provider = get_tushare_provider()
-    api = provider.api
+    conn = get_tushare_api()
+    api = conn.api
     if api is None:
         raise RuntimeError("Tushare API unavailable")
 
@@ -172,11 +172,11 @@ def fetch_latest_roe_map() -> Dict[str, Dict[str, float]]:
     获取最近一个可用财报期的 ROE 映射（ts_code -> {"roe": float}）。
     优先按最近季度的 end_date 逆序探测，找到第一期非空数据。
     """
-    from app.data.providers.china.tushare import get_tushare_provider
+    from app.data.sources.cn.tushare.api.connection import get_tushare_api
     from datetime import datetime
 
-    provider = get_tushare_provider()
-    api = provider.api
+    conn = get_tushare_api()
+    api = conn.api
     if api is None:
         raise RuntimeError("Tushare API unavailable")
 

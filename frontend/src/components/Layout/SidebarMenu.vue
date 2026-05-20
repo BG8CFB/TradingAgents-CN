@@ -78,6 +78,7 @@
       <!-- 系统管理 -->
       <el-sub-menu index="/settings-admin">
         <template #title>系统管理</template>
+        <el-menu-item index="/settings/data">数据管理</el-menu-item>
         <el-menu-item index="/settings/database">数据库管理</el-menu-item>
         <el-menu-item index="/settings/logs">操作日志</el-menu-item>
         <el-menu-item index="/settings/system-logs">系统日志</el-menu-item>

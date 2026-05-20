@@ -87,27 +87,16 @@ async def query_stock_news(
         if not news_list:
             logger.info(f"📰 数据库无新闻数据，实时获取: {symbol}")
             try:
-                from app.worker.cn.akshare_sync import get_akshare_sync_service
-                sync_service = await get_akshare_sync_service()
+                from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
+                orchestrator = get_cn_sync_orchestrator()
+                await orchestrator.run_news_sync(symbols=[symbol])
 
-                # 实时获取新闻
-                news_data = await sync_service.provider.get_stock_news(
-                    symbol=symbol,
-                    limit=limit
-                )
+                # 重新查询
+                news_list = await service.query_news(params)
+                data_source = "realtime"
 
-                if news_data:
-                    # 保存到数据库
-                    saved_count = await service.save_news_data(
-                        news_data=news_data,
-                        data_source="akshare",
-                        market="CN"
-                    )
-                    logger.info(f"✅ 实时获取并保存 {saved_count} 条新闻")
-
-                    # 重新查询
-                    news_list = await service.query_news(params)
-                    data_source = "realtime"
+                if news_list:
+                    logger.info(f"✅ 实时获取并保存 {len(news_list)} 条新闻")
                 else:
                     logger.warning(f"⚠️ 实时获取新闻失败: {symbol}")
 

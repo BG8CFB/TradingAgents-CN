@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """
-数据源管理器
-统一管理中国股票数据源的选择和切换，支持Tushare、AKShare、BaoStock等
+数据源管理器 (DEPRECATED — 保留为兼容层)
+
+本模块已被新的数据架构替代：
+  - 回退路由: app.data.processor.fallback_router.FallbackRouter
+  - 按需刷新: app.services.cn_data_refresh_service.DataRefreshService
+  - 统一读取: app.data.reader
+
+保留原因：仍被 analysis_service.py、screening_service.py、providers/us/optimized.py 引用。
+新代码请勿引用本模块，预计在下一个 Phase 迁移所有调用方后移除。
 """
 
 import os
@@ -589,7 +596,7 @@ class DataSourceManager:
     def _get_tushare_adapter(self):
         """获取Tushare提供器（原adapter已废弃，现在直接使用provider）"""
         try:
-            from .providers.china.tushare import get_tushare_provider
+            from .sources.cn.tushare.api.connection import get_tushare_api
             return get_tushare_provider()
         except ImportError as e:
             logger.error(f"❌ Tushare提供器导入失败: {e}")
@@ -598,7 +605,7 @@ class DataSourceManager:
     def _get_akshare_adapter(self):
         """获取AKShare适配器"""
         try:
-            from .providers.china.akshare import get_akshare_provider
+            from .sources.cn.akshare.api.anti_scraping import get_anti_scraping_session
             return get_akshare_provider()
         except ImportError as e:
             logger.error(f"❌ AKShare适配器导入失败: {e}")
@@ -607,7 +614,7 @@ class DataSourceManager:
     def _get_baostock_adapter(self):
         """获取BaoStock适配器"""
         try:
-            from .providers.china.baostock import get_baostock_provider
+            from .sources.cn.baostock.api.connection import is_available as baostock_available
             return get_baostock_provider()
         except ImportError as e:
             logger.error(f"❌ BaoStock适配器导入失败: {e}")
@@ -1026,15 +1033,15 @@ class DataSourceManager:
                 adapter = get_mongodb_cache_adapter()
                 df = adapter.get_historical_data(symbol, start_date, end_date, period=period)
             elif self.current_source == ChinaDataSource.TUSHARE:
-                from .providers.china.tushare import get_tushare_provider
+                from .sources.cn.tushare.api.connection import get_tushare_api
                 provider = get_tushare_provider()
                 df = provider.get_daily_data(symbol, start_date, end_date)
             elif self.current_source == ChinaDataSource.AKSHARE:
-                from .providers.china.akshare import get_akshare_provider
+                from .sources.cn.akshare.api.anti_scraping import get_anti_scraping_session
                 provider = get_akshare_provider()
                 df = provider.get_stock_data(symbol, start_date, end_date)
             elif self.current_source == ChinaDataSource.BAOSTOCK:
-                from .providers.china.baostock import get_baostock_provider
+                from .sources.cn.baostock.api.connection import is_available as baostock_available
                 provider = get_baostock_provider()
                 df = provider.get_stock_data(symbol, start_date, end_date)
 
@@ -1053,15 +1060,15 @@ class DataSourceManager:
                         adapter = get_mongodb_cache_adapter()
                         df = adapter.get_historical_data(symbol, start_date, end_date, period=period)
                     elif source == ChinaDataSource.TUSHARE:
-                        from .providers.china.tushare import get_tushare_provider
+                        from .sources.cn.tushare.api.connection import get_tushare_api
                         provider = get_tushare_provider()
                         df = provider.get_daily_data(symbol, start_date, end_date)
                     elif source == ChinaDataSource.AKSHARE:
-                        from .providers.china.akshare import get_akshare_provider
+                        from .sources.cn.akshare.api.anti_scraping import get_anti_scraping_session
                         provider = get_akshare_provider()
                         df = provider.get_stock_data(symbol, start_date, end_date)
                     elif source == ChinaDataSource.BAOSTOCK:
-                        from .providers.china.baostock import get_baostock_provider
+                        from .sources.cn.baostock.api.connection import is_available as baostock_available
                         provider = get_baostock_provider()
                         df = provider.get_stock_data(symbol, start_date, end_date)
 
@@ -1461,7 +1468,7 @@ class DataSourceManager:
         start_time = time.time()
         try:
             # 使用AKShare的统一接口
-            from .providers.china.akshare import get_akshare_provider
+            from .sources.cn.akshare.api.anti_scraping import get_anti_scraping_session
             provider = get_akshare_provider()
 
             # 使用异步方法获取历史数据
@@ -1494,7 +1501,7 @@ class DataSourceManager:
     def _get_baostock_data(self, symbol: str, start_date: str, end_date: str, period: str = "daily") -> str:
         """使用BaoStock获取多周期数据 - 包含技术指标计算"""
         # 使用BaoStock的统一接口
-        from .providers.china.baostock import get_baostock_provider
+        from .sources.cn.baostock.api.connection import is_available as baostock_available
         provider = get_baostock_provider()
 
         # 使用异步方法获取历史数据

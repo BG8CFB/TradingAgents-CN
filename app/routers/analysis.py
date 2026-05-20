@@ -4,9 +4,7 @@
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
 import logging
 import time
 import uuid
@@ -15,10 +13,7 @@ import asyncio
 from app.routers.auth_db import get_current_user, require_admin
 from app.services.queue_service import get_queue_service, QueueService
 from app.services.websocket_manager import get_websocket_manager
-from app.models.analysis import (
-    SingleAnalysisRequest, BatchAnalysisRequest, AnalysisParameters,
-    AnalysisTaskResponse, AnalysisBatchResponse, AnalysisHistoryQuery
-)
+from app.models.analysis import SingleAnalysisRequest, BatchAnalysisRequest
 from app.core.config import settings
 from app.core.response import safe_error_message
 from app.utils.runtime_paths import get_analysis_results_dir, resolve_path
@@ -29,17 +24,6 @@ logger = logging.getLogger("webapi")
 
 # 保存后台任务的引用，防止 GC 提前回收
 _background_tasks: set = set()
-
-# 兼容性：保留原有的请求模型
-class SingleAnalyzeRequest(BaseModel):
-    symbol: str
-    parameters: dict = Field(default_factory=dict)
-
-class BatchAnalyzeRequest(BaseModel):
-    symbols: List[str]
-    parameters: dict = Field(default_factory=dict)
-    title: str = Field(default="批量分析", description="批次标题")
-    description: Optional[str] = Field(None, description="批次描述")
 
 # 新版API端点
 @router.post("/single", response_model=Dict[str, Any])

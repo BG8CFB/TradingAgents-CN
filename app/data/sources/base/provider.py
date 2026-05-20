@@ -81,6 +81,36 @@ class BaseProvider(ABC):
         """获取新闻数据（可选实现）"""
         return None
 
+    # ── 交易日历 ──
+
+    async def get_trade_calendar(
+        self, exchange: str = "SSE",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Optional[pd.DataFrame]:
+        """获取交易日历（可选实现）"""
+        return None
+
+    # ── 每日指标 ──
+
+    async def get_daily_indicators(
+        self,
+        trade_date: Optional[str] = None,
+        symbol: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Optional[pd.DataFrame]:
+        """获取每日指标（PE/PB/市值等，可选实现）"""
+        return None
+
+    # ── 复权因子 ──
+
+    async def get_adj_factors(
+        self, symbol: str, start_date: Optional[str] = None, end_date: Optional[str] = None,
+    ) -> Optional[pd.DataFrame]:
+        """获取复权因子（可选实现）"""
+        return None
+
     # ── K线 ──
 
     async def get_kline(

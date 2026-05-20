@@ -335,6 +335,15 @@ const routes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'data',
+        name: 'DataManagement',
+        component: () => import('@/views/Data/index.vue'),
+        meta: {
+          title: '数据管理',
+          requiresAuth: true
+        }
+      },
+      {
         path: 'cache',
         name: 'CacheManagement',
         component: () => import('@/views/Settings/CacheManagement.vue'),

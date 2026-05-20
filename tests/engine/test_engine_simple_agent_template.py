@@ -7,7 +7,7 @@ LLM 集成测试：标记 @pytest.mark.ai，使用真实 API 测试 agent 节点
 
 import json
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
 from app.engine.agents.analysts.simple_agent_template import (
     format_tool_result,
@@ -98,7 +98,7 @@ class TestInjectToolData:
         assert len(messages) == 0
 
     def test_skips_when_ticker_empty_and_needed(self):
-        """ticker 为空且工具需要 ticker 时不注入"""
+        """ticker 为空且工具需要 ticker 时不注入数据（但可能有 SystemMessage 前导说明）"""
 
         class FakeTool:
             name = "get_stock_data"
@@ -109,7 +109,9 @@ class TestInjectToolData:
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
         )
-        assert len(messages) == 0
+        # 工具因缺少 ticker 跳过，不应有 AIMessage + ToolMessage 对
+        assert not any(isinstance(m, AIMessage) for m in messages)
+        assert not any(isinstance(m, ToolMessage) for m in messages)
 
     def test_injects_tool_result_into_messages(self):
         """get_finance_news 不需要 ticker，应成功注入数据"""
@@ -126,9 +128,10 @@ class TestInjectToolData:
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
         )
-        assert len(messages) == 2
-        assert isinstance(messages[0], AIMessage)
-        assert isinstance(messages[1], ToolMessage)
+        # SystemMessage 前导说明 + AIMessage + ToolMessage
+        assert any(isinstance(m, SystemMessage) for m in messages)
+        assert any(isinstance(m, AIMessage) for m in messages)
+        assert any(isinstance(m, ToolMessage) for m in messages)
 
     def test_handles_tool_exception_gracefully(self):
         """工具执行异常时不崩溃"""
@@ -145,7 +148,9 @@ class TestInjectToolData:
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
         )
-        assert len(messages) == 0
+        # 工具执行失败，不应有 AIMessage + ToolMessage 对（可能有 SystemMessage）
+        assert not any(isinstance(m, AIMessage) for m in messages)
+        assert not any(isinstance(m, ToolMessage) for m in messages)
 
 
 class TestCreateSimpleAgentCallable:

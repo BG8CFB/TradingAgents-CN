@@ -42,279 +42,6 @@ def add_resilient_job(sched: AsyncIOScheduler, func, trigger, **kwargs):
     sched.add_job(func, trigger, **defaults)
 
 
-# ── 数据源任务注册（每数据源一组）───────────────────────────────────────
-
-def _register_tushare_jobs(sched: AsyncIOScheduler):
-    """注册 Tushare 数据同步任务（5 个 job）"""
-    from app.worker.cn import (
-        run_tushare_basic_info_sync,
-        run_tushare_quotes_sync,
-        run_tushare_historical_sync,
-        run_tushare_financial_sync,
-        run_tushare_status_check,
-    )
-
-    tz = settings.TIMEZONE
-
-    # 基础信息同步
-    add_resilient_job(
-        sched, run_tushare_basic_info_sync,
-        CronTrigger.from_crontab(settings.TUSHARE_BASIC_INFO_SYNC_CRON, timezone=tz),
-        id="tushare_basic_info_sync",
-        name="股票基础信息同步（Tushare）",
-        kwargs={"force_update": False},
-    )
-    if not (settings.TUSHARE_UNIFIED_ENABLED and settings.TUSHARE_BASIC_INFO_SYNC_ENABLED):
-        sched.pause_job("tushare_basic_info_sync")
-        logger.info(f"Tushare基础信息同步已添加但暂停: {settings.TUSHARE_BASIC_INFO_SYNC_CRON}")
-    else:
-        logger.info(f"Tushare基础信息同步已配置: {settings.TUSHARE_BASIC_INFO_SYNC_CRON}")
-
-    # 实时行情同步
-    add_resilient_job(
-        sched, run_tushare_quotes_sync,
-        CronTrigger.from_crontab(settings.TUSHARE_QUOTES_SYNC_CRON, timezone=tz),
-        id="tushare_quotes_sync",
-        name="实时行情同步（Tushare）",
-    )
-    if not (settings.TUSHARE_UNIFIED_ENABLED and settings.TUSHARE_QUOTES_SYNC_ENABLED):
-        sched.pause_job("tushare_quotes_sync")
-        logger.info(f"Tushare行情同步已添加但暂停: {settings.TUSHARE_QUOTES_SYNC_CRON}")
-    else:
-        logger.info(f"Tushare行情同步已配置: {settings.TUSHARE_QUOTES_SYNC_CRON}")
-
-    # 历史数据同步
-    add_resilient_job(
-        sched, run_tushare_historical_sync,
-        CronTrigger.from_crontab(settings.TUSHARE_HISTORICAL_SYNC_CRON, timezone=tz),
-        id="tushare_historical_sync",
-        name="历史数据同步（Tushare）",
-        kwargs={"incremental": True},
-    )
-    if not (settings.TUSHARE_UNIFIED_ENABLED and settings.TUSHARE_HISTORICAL_SYNC_ENABLED):
-        sched.pause_job("tushare_historical_sync")
-        logger.info(f"Tushare历史数据同步已添加但暂停: {settings.TUSHARE_HISTORICAL_SYNC_CRON}")
-    else:
-        logger.info(f"Tushare历史数据同步已配置: {settings.TUSHARE_HISTORICAL_SYNC_CRON}")
-
-    # 财务数据同步
-    add_resilient_job(
-        sched, run_tushare_financial_sync,
-        CronTrigger.from_crontab(settings.TUSHARE_FINANCIAL_SYNC_CRON, timezone=tz),
-        id="tushare_financial_sync",
-        name="财务数据同步（Tushare）",
-    )
-    if not (settings.TUSHARE_UNIFIED_ENABLED and settings.TUSHARE_FINANCIAL_SYNC_ENABLED):
-        sched.pause_job("tushare_financial_sync")
-        logger.info(f"Tushare财务数据同步已添加但暂停: {settings.TUSHARE_FINANCIAL_SYNC_CRON}")
-    else:
-        logger.info(f"Tushare财务数据同步已配置: {settings.TUSHARE_FINANCIAL_SYNC_CRON}")
-
-    # 状态检查
-    add_resilient_job(
-        sched, run_tushare_status_check,
-        CronTrigger.from_crontab(settings.TUSHARE_STATUS_CHECK_CRON, timezone=tz),
-        id="tushare_status_check",
-        name="数据源状态检查（Tushare）",
-    )
-    if not (settings.TUSHARE_UNIFIED_ENABLED and settings.TUSHARE_STATUS_CHECK_ENABLED):
-        sched.pause_job("tushare_status_check")
-        logger.info(f"Tushare状态检查已添加但暂停: {settings.TUSHARE_STATUS_CHECK_CRON}")
-    else:
-        logger.info(f"Tushare状态检查已配置: {settings.TUSHARE_STATUS_CHECK_CRON}")
-
-
-def _register_akshare_jobs(sched: AsyncIOScheduler):
-    """注册 AKShare 数据同步任务（5 个 job）"""
-    from app.worker.cn import (
-        run_akshare_basic_info_sync,
-        run_akshare_quotes_sync,
-        run_akshare_historical_sync,
-        run_akshare_financial_sync,
-        run_akshare_status_check,
-    )
-
-    tz = settings.TIMEZONE
-
-    # 基础信息同步
-    add_resilient_job(
-        sched, run_akshare_basic_info_sync,
-        CronTrigger.from_crontab(settings.AKSHARE_BASIC_INFO_SYNC_CRON, timezone=tz),
-        id="akshare_basic_info_sync",
-        name="股票基础信息同步（AKShare）",
-        kwargs={"force_update": False},
-    )
-    if not (settings.AKSHARE_UNIFIED_ENABLED and settings.AKSHARE_BASIC_INFO_SYNC_ENABLED):
-        sched.pause_job("akshare_basic_info_sync")
-        logger.info(f"AKShare基础信息同步已添加但暂停: {settings.AKSHARE_BASIC_INFO_SYNC_CRON}")
-    else:
-        logger.info(f"AKShare基础信息同步已配置: {settings.AKSHARE_BASIC_INFO_SYNC_CRON}")
-
-    # 实时行情同步
-    add_resilient_job(
-        sched, run_akshare_quotes_sync,
-        CronTrigger.from_crontab(settings.AKSHARE_QUOTES_SYNC_CRON, timezone=tz),
-        id="akshare_quotes_sync",
-        name="实时行情同步（AKShare）",
-    )
-    if not (settings.AKSHARE_UNIFIED_ENABLED and settings.AKSHARE_QUOTES_SYNC_ENABLED):
-        sched.pause_job("akshare_quotes_sync")
-        logger.info(f"AKShare行情同步已添加但暂停: {settings.AKSHARE_QUOTES_SYNC_CRON}")
-    else:
-        logger.info(f"AKShare行情同步已配置: {settings.AKSHARE_QUOTES_SYNC_CRON}")
-
-    # 历史数据同步
-    add_resilient_job(
-        sched, run_akshare_historical_sync,
-        CronTrigger.from_crontab(settings.AKSHARE_HISTORICAL_SYNC_CRON, timezone=tz),
-        id="akshare_historical_sync",
-        name="历史数据同步（AKShare）",
-        kwargs={"incremental": True},
-    )
-    if not (settings.AKSHARE_UNIFIED_ENABLED and settings.AKSHARE_HISTORICAL_SYNC_ENABLED):
-        sched.pause_job("akshare_historical_sync")
-        logger.info(f"AKShare历史数据同步已添加但暂停: {settings.AKSHARE_HISTORICAL_SYNC_CRON}")
-    else:
-        logger.info(f"AKShare历史数据同步已配置: {settings.AKSHARE_HISTORICAL_SYNC_CRON}")
-
-    # 财务数据同步
-    add_resilient_job(
-        sched, run_akshare_financial_sync,
-        CronTrigger.from_crontab(settings.AKSHARE_FINANCIAL_SYNC_CRON, timezone=tz),
-        id="akshare_financial_sync",
-        name="财务数据同步（AKShare）",
-    )
-    if not (settings.AKSHARE_UNIFIED_ENABLED and settings.AKSHARE_FINANCIAL_SYNC_ENABLED):
-        sched.pause_job("akshare_financial_sync")
-        logger.info(f"AKShare财务数据同步已添加但暂停: {settings.AKSHARE_FINANCIAL_SYNC_CRON}")
-    else:
-        logger.info(f"AKShare财务数据同步已配置: {settings.AKSHARE_FINANCIAL_SYNC_CRON}")
-
-    # 状态检查
-    add_resilient_job(
-        sched, run_akshare_status_check,
-        CronTrigger.from_crontab(settings.AKSHARE_STATUS_CHECK_CRON, timezone=tz),
-        id="akshare_status_check",
-        name="数据源状态检查（AKShare）",
-    )
-    if not (settings.AKSHARE_UNIFIED_ENABLED and settings.AKSHARE_STATUS_CHECK_ENABLED):
-        sched.pause_job("akshare_status_check")
-        logger.info(f"AKShare状态检查已添加但暂停: {settings.AKSHARE_STATUS_CHECK_CRON}")
-    else:
-        logger.info(f"AKShare状态检查已配置: {settings.AKSHARE_STATUS_CHECK_CRON}")
-
-
-def _register_baostock_jobs(sched: AsyncIOScheduler):
-    """注册 BaoStock 数据同步任务（4 个 job，BaoStock 不支持实时行情）"""
-    from app.worker.cn import (
-        run_baostock_basic_info_sync,
-        run_baostock_daily_quotes_sync,
-        run_baostock_historical_sync,
-        run_baostock_status_check,
-    )
-
-    tz = settings.TIMEZONE
-
-    # 基础信息同步
-    add_resilient_job(
-        sched, run_baostock_basic_info_sync,
-        CronTrigger.from_crontab(settings.BAOSTOCK_BASIC_INFO_SYNC_CRON, timezone=tz),
-        id="baostock_basic_info_sync",
-        name="股票基础信息同步（BaoStock）",
-    )
-    if not (settings.BAOSTOCK_UNIFIED_ENABLED and settings.BAOSTOCK_BASIC_INFO_SYNC_ENABLED):
-        sched.pause_job("baostock_basic_info_sync")
-        logger.info(f"BaoStock基础信息同步已添加但暂停: {settings.BAOSTOCK_BASIC_INFO_SYNC_CRON}")
-    else:
-        logger.info(f"BaoStock基础信息同步已配置: {settings.BAOSTOCK_BASIC_INFO_SYNC_CRON}")
-
-    # 日K线同步（注意：BaoStock不支持实时行情）
-    add_resilient_job(
-        sched, run_baostock_daily_quotes_sync,
-        CronTrigger.from_crontab(settings.BAOSTOCK_DAILY_QUOTES_SYNC_CRON, timezone=tz),
-        id="baostock_daily_quotes_sync",
-        name="日K线数据同步（BaoStock）",
-    )
-    if not (settings.BAOSTOCK_UNIFIED_ENABLED and settings.BAOSTOCK_DAILY_QUOTES_SYNC_ENABLED):
-        sched.pause_job("baostock_daily_quotes_sync")
-        logger.info(f"BaoStock日K线同步已添加但暂停: {settings.BAOSTOCK_DAILY_QUOTES_SYNC_CRON}")
-    else:
-        logger.info(f"BaoStock日K线同步已配置: {settings.BAOSTOCK_DAILY_QUOTES_SYNC_CRON} (注意：BaoStock不支持实时行情)")
-
-    # 历史数据同步
-    add_resilient_job(
-        sched, run_baostock_historical_sync,
-        CronTrigger.from_crontab(settings.BAOSTOCK_HISTORICAL_SYNC_CRON, timezone=tz),
-        id="baostock_historical_sync",
-        name="历史数据同步（BaoStock）",
-    )
-    if not (settings.BAOSTOCK_UNIFIED_ENABLED and settings.BAOSTOCK_HISTORICAL_SYNC_ENABLED):
-        sched.pause_job("baostock_historical_sync")
-        logger.info(f"BaoStock历史数据同步已添加但暂停: {settings.BAOSTOCK_HISTORICAL_SYNC_CRON}")
-    else:
-        logger.info(f"BaoStock历史数据同步已配置: {settings.BAOSTOCK_HISTORICAL_SYNC_CRON}")
-
-    # 状态检查
-    add_resilient_job(
-        sched, run_baostock_status_check,
-        CronTrigger.from_crontab(settings.BAOSTOCK_STATUS_CHECK_CRON, timezone=tz),
-        id="baostock_status_check",
-        name="数据源状态检查（BaoStock）",
-    )
-    if not (settings.BAOSTOCK_UNIFIED_ENABLED and settings.BAOSTOCK_STATUS_CHECK_ENABLED):
-        sched.pause_job("baostock_status_check")
-        logger.info(f"BaoStock状态检查已添加但暂停: {settings.BAOSTOCK_STATUS_CHECK_CRON}")
-    else:
-        logger.info(f"BaoStock状态检查已配置: {settings.BAOSTOCK_STATUS_CHECK_CRON}")
-
-
-# ── 新闻同步任务 ──────────────────────────────────────────────────────
-
-async def _make_news_sync_func():
-    """创建新闻同步闭包（延迟绑定 AKShare sync service）"""
-    from app.worker.cn import get_akshare_sync_service
-
-    async def run_news_sync():
-        """运行新闻同步任务 - 使用AKShare同步自选股新闻"""
-        try:
-            logger.info("开始新闻数据同步（AKShare - 仅自选股）...")
-            service = await get_akshare_sync_service()
-            result = await service.sync_news_data(
-                symbols=None,
-                max_news_per_stock=settings.NEWS_SYNC_MAX_PER_SOURCE,
-                favorites_only=True,
-            )
-            logger.info(
-                f"新闻同步完成: "
-                f"处理{result['total_processed']}只自选股, "
-                f"成功{result['success_count']}只, "
-                f"失败{result['error_count']}只, "
-                f"新闻总数{result['news_count']}条, "
-                f"耗时{(now_utc() - result['start_time']).total_seconds():.2f}秒"
-            )
-        except Exception as e:
-            logger.error(f"新闻同步失败: {e}", exc_info=True)
-
-    return run_news_sync
-
-
-def _register_news_job(sched: AsyncIOScheduler, run_news_sync):
-    """注册新闻同步任务"""
-    tz = settings.TIMEZONE
-
-    add_resilient_job(
-        sched, run_news_sync,
-        CronTrigger.from_crontab(settings.NEWS_SYNC_CRON, timezone=tz),
-        id="news_sync",
-        name="新闻数据同步（AKShare - 仅自选股）",
-    )
-    if not settings.NEWS_SYNC_ENABLED:
-        sched.pause_job("news_sync")
-        logger.info(f"新闻数据同步已添加但暂停: {settings.NEWS_SYNC_CRON}")
-    else:
-        logger.info(f"新闻数据同步已配置（仅自选股）: {settings.NEWS_SYNC_CRON}")
-
-
 # ── 主注册入口 ───────────────────────────────────────────────────────
 
 async def register_jobs(
@@ -392,20 +119,8 @@ async def register_jobs(
         )
         logger.info(f"实时行情入库任务已启动: 每 {settings.QUOTES_INGEST_INTERVAL_SECONDS}s")
 
-    # ── 各数据源同步任务 ──────────────────────────────────────────────
-    logger.info("配置Tushare统一数据同步任务...")
-    _register_tushare_jobs(scheduler)
-
-    logger.info("配置AKShare统一数据同步任务...")
-    _register_akshare_jobs(scheduler)
-
-    logger.info("配置BaoStock统一数据同步任务...")
-    _register_baostock_jobs(scheduler)
-
-    # ── 新闻同步 ──────────────────────────────────────────────────────
-    logger.info("配置新闻数据同步任务...")
-    run_news_sync = await _make_news_sync_func()
-    _register_news_job(scheduler, run_news_sync)
+    # ── A 股域级编排同步（替代旧数据源任务）───────────────────────────
+    _register_cn_domain_jobs(scheduler)
 
     # ── 港股/美股全量同步（默认暂停，用户通过 .env 启用）────────────────
     logger.info("配置港股统一数据同步任务...")
@@ -527,3 +242,144 @@ def _register_us_jobs(sched: AsyncIOScheduler):
         logger.info(f"美股状态检查已添加但暂停: {settings.US_STATUS_CHECK_CRON}")
     else:
         logger.info(f"美股状态检查已配置: {settings.US_STATUS_CHECK_CRON}")
+
+
+# ── A 股域级编排同步 ─────────────────────────────────────────────────
+
+async def _run_cn_daily_sync():
+    """A 股每日域级编排同步（交易日历检查 + 全市场增量）"""
+    try:
+        from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
+        orchestrator = get_cn_sync_orchestrator()
+
+        if not await orchestrator.is_trading_day():
+            logger.info("今日非交易日，跳过域级编排同步")
+            return
+
+        logger.info("开始 A 股域级编排同步...")
+        result = await orchestrator.run_full()
+        success_count = sum(1 for r in result.values() if r.success)
+        logger.info(
+            "A 股域级编排同步完成: %d/%d 成功",
+            success_count, len(result),
+        )
+    except Exception as e:
+        logger.error(f"A 股域级编排同步失败: {e}", exc_info=True)
+
+
+async def _run_cn_trade_calendar_sync():
+    """交易日历同步（独立任务）"""
+    try:
+        from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
+        orchestrator = get_cn_sync_orchestrator()
+        sync = orchestrator._domain_syncs.get("trade_calendar")
+        if sync:
+            result = await sync.sync(providers={})
+            logger.info("交易日历同步: success=%s, records=%d", result.success, result.records_synced)
+    except Exception as e:
+        logger.error(f"交易日历同步失败: {e}", exc_info=True)
+
+
+async def _run_cn_aggregation_sync():
+    """周线/月线聚合同步（日线完成后触发）"""
+    try:
+        from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
+        from app.data.reader import check_freshness
+
+        orchestrator = get_cn_sync_orchestrator()
+        agg_sync = orchestrator._aggregation_sync
+
+        # 获取自选股列表
+        symbols = await orchestrator._get_all_symbols()
+        if not symbols:
+            logger.info("无股票数据，跳过聚合")
+            return
+
+        total = 0
+        for symbol in symbols[:200]:  # 限制首次范围
+            for period in ["weekly", "monthly"]:
+                result = await agg_sync.sync(symbol=symbol, period=period)
+                if result.success:
+                    total += result.records_synced
+
+        logger.info("聚合同步完成: %d 条记录", total)
+    except Exception as e:
+        logger.error(f"聚合同步失败: {e}", exc_info=True)
+
+
+async def _run_cn_integrity_check():
+    """A 股数据完整性检查"""
+    try:
+        from app.services.cn_data_integrity_service import get_integrity_service
+        service = get_integrity_service()
+        report = await service.run_full_check()
+        logger.info(
+            "完整性检查完成: errors=%d, warnings=%d",
+            report.error_count, report.warning_count,
+        )
+    except Exception as e:
+        logger.error(f"完整性检查失败: {e}", exc_info=True)
+
+
+async def _run_cn_news_sync():
+    """A 股新闻同步（自选股优先）"""
+    try:
+        from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
+        orchestrator = get_cn_sync_orchestrator()
+        result = await orchestrator.run_news_sync(favorites_only=True)
+        logger.info(
+            "新闻同步完成: success=%s, domains=%d, skipped=%s",
+            result.success, len(result.domains), result.skipped,
+        )
+    except Exception as e:
+        logger.error(f"新闻同步失败: {e}", exc_info=True)
+
+
+def _register_cn_domain_jobs(sched: AsyncIOScheduler):
+    """注册 A 股域级编排同步任务"""
+    tz = settings.TIMEZONE
+
+    # 每日全量同步（盘后 15:30）
+    add_resilient_job(
+        sched, _run_cn_daily_sync,
+        CronTrigger(hour=15, minute=30, timezone=tz),
+        id="cn_domain_daily_sync",
+        name="A股域级编排同步（每日）",
+    )
+    logger.info("A股域级编排同步已配置: 每日 15:30")
+
+    # 交易日历同步（每周一 06:00）
+    add_resilient_job(
+        sched, _run_cn_trade_calendar_sync,
+        CronTrigger(day_of_week="mon", hour=6, minute=0, timezone=tz),
+        id="cn_trade_calendar_sync",
+        name="A股交易日历同步",
+    )
+    logger.info("A股交易日历同步已配置: 每周一 06:00")
+
+    # 周线/月线聚合（盘后同步完成后 16:00）
+    add_resilient_job(
+        sched, _run_cn_aggregation_sync,
+        CronTrigger(hour=16, minute=0, timezone=tz),
+        id="cn_aggregation_sync",
+        name="A股周线/月线聚合",
+    )
+    logger.info("A股聚合同步已配置: 每日 16:00")
+
+    # 数据完整性检查（每日 17:00）
+    add_resilient_job(
+        sched, _run_cn_integrity_check,
+        CronTrigger(hour=17, minute=0, timezone=tz),
+        id="cn_integrity_check",
+        name="A股数据完整性检查",
+    )
+    logger.info("A股完整性检查已配置: 每日 17:00")
+
+    # 新闻同步（每日 12:00，仅自选股）
+    add_resilient_job(
+        sched, _run_cn_news_sync,
+        CronTrigger(hour=12, minute=0, timezone=tz),
+        id="cn_news_sync",
+        name="A股新闻同步（自选股）",
+    )
+    logger.info("A股新闻同步已配置: 每日 12:00")

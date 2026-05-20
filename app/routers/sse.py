@@ -1,3 +1,9 @@
+"""
+SSE（Server-Sent Events）实时推送路由（Deprecated）
+
+⚠️ 建议使用 WebSocket（/api/ws）替代 SSE，WebSocket 提供全双工通信且无连接泄漏问题。
+本路由保留以兼容旧前端，新功能请使用 app/routers/websocket_notifications.py。
+"""
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 import asyncio

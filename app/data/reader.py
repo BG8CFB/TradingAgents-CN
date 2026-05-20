@@ -682,14 +682,14 @@ def query_tushare_api(api_name: str, **kwargs) -> Optional[List[Dict]]:
         List[Dict]: 查询结果列表，失败返回 None
     """
     try:
-        from app.data.providers.china.tushare import get_tushare_provider
-        provider = get_tushare_provider()
+        from app.data.sources.cn.tushare.api.connection import get_tushare_api
+        conn = get_tushare_api()
 
-        if not provider or not provider.api:
+        if not conn or not conn.is_available():
             logger.warning(f"⚠️ Tushare Provider 不可用")
             return None
 
-        df = provider.api.query(api_name, **kwargs)
+        df = conn.query(api_name, **kwargs)
         if df is not None and not df.empty:
             return df.to_dict(orient="records")
     except Exception as e:
@@ -877,11 +877,11 @@ def get_stock_data_minutes(market_type: str, code: str, start_datetime: str,
 
 def _get_adapters():
     """获取按优先级排序的 A 股数据适配器列表"""
-    from app.data.providers.tushare.adapter import TushareAdapter
-    from app.services.data_sources.akshare_adapter import AKShareAdapter
-    from app.services.data_sources.baostock_adapter import BaoStockAdapter
+    from app.data.sources.cn.tushare import get_tushare_adapter
+    from app.data.sources.cn.akshare import get_akshare_adapter
+    from app.data.sources.cn.baostock import get_baostock_adapter
 
-    adapters = [TushareAdapter(), AKShareAdapter(), BaoStockAdapter()]
+    adapters = [get_tushare_adapter(), get_akshare_adapter(), get_baostock_adapter()]
     try:
         db = _get_sync_db()
         groupings = list(db.datasource_groupings.find(
@@ -1021,3 +1021,93 @@ def get_realtime_quotes_with_fallback():
             logger.debug(f"获取实时行情失败 [{adapter.name}]: {e}")
             continue
     return None, None
+
+
+# ==================== 新鲜度判定 ====================
+
+# 各域的新鲜度要求（小时）
+_FRESHNESS_RULES = {
+    "CN": {
+        "daily_quotes": {"after_trade_close_hours": 0.5, "mode": "trading_day"},
+        "daily_indicators": {"after_trade_close_hours": 1.0, "mode": "trading_day"},
+        "basic_info": {"max_age_hours": 24, "mode": "always"},
+        "financial": {"max_age_hours": 168, "mode": "always"},  # 7 天
+        "news": {"max_age_hours": 2, "mode": "always"},
+        "market_quotes": {"max_age_hours": 0.5, "mode": "always"},
+    },
+    "HK": {"default": {"max_age_hours": 24}},
+    "US": {"default": {"max_age_hours": 24}},
+}
+
+
+def check_freshness(market: str, symbol: str, domain: str) -> str:
+    """
+    检查数据新鲜度。
+
+    Returns:
+        "fresh" / "stale" / "unknown"
+    """
+    rules = _FRESHNESS_RULES.get(market, {})
+    rule = rules.get(domain) or rules.get("default")
+    if not rule:
+        return "unknown"
+
+    try:
+        collection_name = get_collection_name(market, domain)
+        docs = _query_collection(
+            collection_name,
+            {"symbol": _normalize_symbol(symbol, market)},
+            limit=1, sort=[("updated_at", -1)],
+        )
+    except Exception:
+        return "unknown"
+
+    if not docs:
+        return "stale"
+
+    updated_at_str = docs[0].get("updated_at", "")
+    if not updated_at_str:
+        return "unknown"
+
+    try:
+        from datetime import timezone
+        if updated_at_str.endswith("Z"):
+            updated_at_str = updated_at_str[:-1] + "+00:00"
+        updated_dt = datetime.fromisoformat(updated_at_str)
+        if updated_dt.tzinfo is None:
+            updated_dt = updated_dt.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - updated_dt).total_seconds() / 3600
+    except Exception:
+        return "unknown"
+
+    max_age = rule.get("max_age_hours", 24)
+    return "fresh" if age <= max_age else "stale"
+
+
+def notify_refresh_async(market: str, symbol: str, domain: str) -> None:
+    """
+    非阻塞刷新通知：在后台触发刷新服务。
+
+    仅对 A 股生效。HK/US 使用已有的 ForeignMarketCacheService。
+    """
+    if market != "CN":
+        return
+
+    try:
+        import asyncio
+
+        async def _do_notify():
+            try:
+                from app.services.cn_data_refresh_service import get_refresh_service
+                service = get_refresh_service()
+                await service.refresh(symbol, domains=[domain])
+            except Exception as e:
+                logger.debug("异步刷新通知失败 %s/%s/%s: %s", market, symbol, domain, e)
+
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_do_notify())
+        else:
+            logger.debug("无运行中的事件循环，跳过异步刷新通知")
+    except Exception as e:
+        logger.debug("异步刷新通知异常: %s", e)

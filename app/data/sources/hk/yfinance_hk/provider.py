@@ -1,9 +1,11 @@
 """
 港股 yfinance Provider
 
-包装现有 hk_stock 模块，复用全部 API 调用逻辑。
+独立调用 yfinance 库获取港股数据。
+不再委托旧版 providers/hk/hk_stock.py。
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
@@ -26,23 +28,48 @@ class YFinanceHKProvider(BaseProvider):
 
     def is_available(self) -> bool:
         try:
-            import importlib.util
-            return importlib.util.find_spec("app.data.providers.hk.hk_stock") is not None
-        except (ImportError, ValueError):
+            import yfinance as yf  # noqa: F401
+            return True
+        except ImportError:
             return False
 
     async def get_stock_basic_info(self, symbol: str) -> Optional[Dict[str, Any]]:
-        from app.data.providers.hk.hk_stock import get_hk_stock_info
-        return get_hk_stock_info(symbol)
+        try:
+            import yfinance as yf
+            hk_symbol = _to_yfinance_symbol(symbol)
+
+            def _fetch():
+                ticker = yf.Ticker(hk_symbol)
+                return ticker.info
+
+            info = await asyncio.to_thread(_fetch)
+            return info if info else None
+        except Exception as e:
+            logger.error(f"yfinance-HK 基础信息失败 {symbol}: {e}")
+            return None
 
     async def get_daily_quotes(
         self, symbol: str, start_date: str, end_date: str
     ) -> Optional[pd.DataFrame]:
-        """获取港股日线行情数据，直接返回 DataFrame（绕过 format_stock_data）"""
         try:
-            from app.data.providers.hk.hk_stock import get_hk_stock_provider
-            provider = get_hk_stock_provider()
-            return provider.get_stock_data(symbol, start_date, end_date)
+            import yfinance as yf
+            hk_symbol = _to_yfinance_symbol(symbol)
+            end = pd.to_datetime(end_date) + pd.DateOffset(days=1)
+
+            def _fetch():
+                ticker = yf.Ticker(hk_symbol)
+                return ticker.history(start=start_date, end=end.strftime("%Y-%m-%d"))
+
+            df = await asyncio.to_thread(_fetch)
+            if df is not None and not df.empty:
+                logger.info(f"yfinance-HK 行情: {symbol} {len(df)} 条")
+            return df
         except Exception as e:
-            logger.error(f"❌ [YFinance-HK] 获取行情失败: {symbol} - {e}")
+            logger.error(f"yfinance-HK 行情失败 {symbol}: {e}")
             return None
+
+
+def _to_yfinance_symbol(symbol: str) -> str:
+    """将港股代码转为 yfinance 格式: 00700 -> 0700.HK"""
+    code = str(symbol).replace(".HK", "").lstrip("0").zfill(4)
+    return f"{code}.HK"

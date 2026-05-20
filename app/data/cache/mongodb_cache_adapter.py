@@ -1,7 +1,21 @@
 #!/usr/bin/env python3
 """
-MongoDB 缓存适配器
-根据 TA_USE_APP_CACHE 配置，优先使用 MongoDB 中的同步数据
+MongoDB 缓存适配器（已废弃 — DEPRECATED）
+
+本模块已被新的数据架构替代：
+  - 读取: app.data.reader (统一 MongoDB 读取层)
+  - 按需刷新: app.services.cn_data_refresh_service (DataRefreshService)
+  - 回退路由: app.data.processor.fallback_router (FallbackRouter)
+  - 直接缓存: app.data.cache.app_adapter (get_basics_from_cache)
+
+本文件保留仅为向后兼容，新代码请勿引用。
+预计在港股/美股数据层重构完成后（下一个 Phase）移除。
+
+迁移指引：
+  - MongoDBCacheAdapter.get_stock_basic_info() → app.data.reader.get_stock_info()
+  - MongoDBCacheAdapter.get_historical_data()  → app.data.reader.get_stock_data()
+  - MongoDBCacheAdapter.get_financial_data()   → app.data.reader.get_stock_data("CN", domain="financial")
+  - get_stock_data_with_fallback()             → app.data.processor.fallback_router.FallbackRouter.fetch()
 """
 
 import pandas as pd

@@ -416,10 +416,8 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
             # 直接使用 news_data 路由的查询逻辑
             from app.services.news_data_service import get_news_data_service, NewsQueryParams
             from datetime import datetime
-            from app.worker.cn.akshare_sync import get_akshare_sync_service
 
             service = await get_news_data_service()
-            sync_service = await get_akshare_sync_service()
 
             # 计算时间范围
             hours_back = days * 24
@@ -446,14 +444,11 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
             if not news_list:
                 logger.info(f"⚠️ 数据库无新闻数据，调用同步服务获取: {normalized_code}")
                 try:
-                    # 🔥 调用同步服务，传入单个股票代码列表
-                    logger.info("📡 步骤2: 调用同步服务...")
-                    await sync_service.sync_news_data(
-                        symbols=[normalized_code],
-                        max_news_per_stock=limit,
-                        force_update=False,
-                        favorites_only=False
-                    )
+                    # 通过编排器同步新闻
+                    logger.info("📡 步骤2: 调用编排器同步新闻...")
+                    from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
+                    orchestrator = get_cn_sync_orchestrator()
+                    await orchestrator.run_news_sync(symbols=[normalized_code])
 
                     # 重新查询
                     logger.info("🔄 步骤3: 重新从数据库查询...")

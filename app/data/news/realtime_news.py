@@ -313,7 +313,7 @@ class RealtimeNewsAggregator:
             # 1. 尝试使用AKShare获取东方财富个股新闻
             try:
                 logger.info(f"[中文财经新闻] 尝试通过 AKShare Provider 获取新闻")
-                from app.data.providers.china.akshare import AKShareProvider
+                from app.data.sources.cn.akshare.provider import AKShareSourceProvider as AKShareProvider
 
                 provider = AKShareProvider()
 
@@ -741,7 +741,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
         logger.info(f"[新闻分析] 检测到A股股票 {ticker}，优先尝试使用东方财富新闻源")
         try:
             logger.info(f"[新闻分析] 尝试通过 AKShare Provider 获取新闻")
-            from app.data.providers.china.akshare import AKShareProvider
+            from app.data.sources.cn.akshare.provider import AKShareSourceProvider as AKShareProvider
 
             provider = AKShareProvider()
             logger.info(f"[新闻分析] 成功创建 AKShare Provider 实例")
@@ -862,7 +862,7 @@ def get_realtime_stock_news(ticker: str, curr_date: str, hours_back: int = 6) ->
     if not is_china_stock and '.HK' in ticker:
         logger.info(f"[新闻分析] 检测到港股代码 {ticker}，尝试使用东方财富新闻源")
         try:
-            from app.data.providers.china.akshare import AKShareProvider
+            from app.data.sources.cn.akshare.provider import AKShareSourceProvider as AKShareProvider
 
             provider = AKShareProvider()
 

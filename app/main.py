@@ -35,18 +35,14 @@ import jwt as _jwt
 from app.routers import auth_db as auth, analysis, screening, sse, health, favorites, config, reports, database, operation_logs, tags, news_data, usage_statistics, model_capabilities, cache, logs
 from app.routers import mcp, tools
 from app.routers import agent_configs
-from app.routers import multi_source_sync
 from app.routers import stocks as stocks_router
-from app.routers import stock_sync as stock_sync_router
 from app.routers import notifications as notifications_router
 from app.routers import websocket_notifications as websocket_notifications_router
 from app.routers import scheduler as scheduler_router
-from app.services.basics_sync_service import get_basics_sync_service
 from app.services.multi_source_basics_sync_service import get_multi_source_sync_service
 from app.services.scheduler_service import set_scheduler_instance
 # Phase 4G: 数据源 sync service 导入已移至 app/worker/scheduler_setup.py
 from app.middleware.operation_log_middleware import OperationLogMiddleware
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.services.quotes_ingestion_service import QuotesIngestionService
 
 # 模块级变量：供 APScheduler 调度的基础信息同步服务实例（与 API 共用同一单例）
@@ -216,64 +212,41 @@ async def _print_config_summary(logger):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
-    # 启动时初始化
-    setup_logging()
-    logger = logging.getLogger("app.main")
-
-    # 验证启动配置
-    try:
-        from app.core.startup_validator import validate_startup_config
-        validate_startup_config()
-    except Exception as e:
-        logger.error(f"配置验证失败: {e}")
-        raise
-
+async def _init_database(logger):
+    """初始化数据库连接 + UserService"""
     await init_db()
 
-    # 初始化 UserService 的数据库连接
-    try:
-        from app.services.user_service import user_service
-        from app.core.database import get_mongo_db
-        user_service.set_database(get_mongo_db())
-        logger.info("✅ UserService 数据库连接已初始化")
-    except Exception as e:
-        logger.error(f"❌ UserService 初始化失败: {e}")
-        raise
+    from app.services.user_service import user_service
+    from app.core.database import get_mongo_db
+    user_service.set_database(get_mongo_db())
+    logger.info("✅ UserService 数据库连接已初始化")
 
-    # 系统初始化：导入默认配置和用户
-    try:
-        from app.services.system_init_service import SystemInitService
-        await SystemInitService.initialize_system()
-    except Exception as e:
-        logger.error(f"❌ System initialization failed: {e}")
-        logger.error("❌ Application cannot start without proper initialization")
-        raise  # 必须抛出异常，防止系统在半初始化状态下运行
 
-    #  配置桥接：将统一配置写入环境变量，供 TradingAgents 核心库使用
+async def _init_system_defaults(logger):
+    """系统首次启动初始化（默认用户/配置）"""
+    from app.services.system_init_service import SystemInitService
+    await SystemInitService.initialize_system()
+
+
+async def _init_config_bridge(logger):
+    """将数据库配置桥接到环境变量"""
     try:
         from app.core.config_bridge import bridge_config_to_env
-
-        bridge_success = await asyncio.wait_for(
-            bridge_config_to_env(),
-            timeout=30
-        )
+        bridge_success = await asyncio.wait_for(bridge_config_to_env(), timeout=30)
         if not bridge_success:
             logger.warning("⚠️  配置桥接未成功完成，TradingAgents 将使用 .env 文件中的配置")
     except asyncio.TimeoutError:
         logger.error("❌ 配置桥接超时（30 秒），启动流程将降级使用 .env 配置")
-        logger.warning("⚠️  TradingAgents 将使用 .env 文件中的配置")
     except Exception as e:
         logger.warning(f"⚠️  配置桥接失败: {e}")
-        logger.warning("⚠️  TradingAgents 将使用 .env 文件中的配置")
 
-    # Apply dynamic settings (log_level, enable_monitoring) from ConfigProvider
+
+async def _apply_dynamic_settings(logger):
+    """从 ConfigProvider 读取动态设置并应用"""
     try:
-        from app.services.config_provider import provider as config_provider  # local import to avoid early DB init issues
+        from app.services.config_provider import provider as config_provider
         eff = await config_provider.get_effective_system_settings()
 
-        # 将动态配置注入引擎层缓存，供 sync 上下文读取
         from app.engine.config.runtime_settings import set_cached_settings
         set_cached_settings(eff)
 
@@ -289,6 +262,66 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.getLogger("webapi").warning(f"Failed to apply dynamic settings: {e}")
 
+
+async def _init_scheduler(logger):
+    """初始化 APScheduler 定时任务"""
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from app.worker.scheduler_setup import register_jobs
+
+    scheduler = AsyncIOScheduler(timezone=settings.TIMEZONE)
+
+    global _basics_sync_service
+    _basics_sync_service = get_multi_source_sync_service()
+
+    await register_jobs(scheduler, _basics_sync_service, _run_basics_sync)
+    scheduler.start()
+    set_scheduler_instance(scheduler)
+    logger.info("调度器服务已初始化")
+    return scheduler
+
+
+async def _init_mcp(logger):
+    """初始化 MCP 连接和健康检查任务"""
+    from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
+
+    if not LANGCHAIN_MCP_AVAILABLE:
+        logger.info("ℹ️  langchain-mcp-adapters 未安装，MCP 功能不可用")
+        return None
+
+    logger.info("🔧 初始化 MCP 连接管理器...")
+    factory = get_mcp_loader_factory()
+    await factory.initialize_connections()
+
+    async def mcp_health_check_loop():
+        while True:
+            try:
+                await factory.health_check_all()
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"MCP 健康检查失败: {e}")
+                await asyncio.sleep(30)
+
+    task = asyncio.create_task(mcp_health_check_loop())
+    logger.info("✅ MCP 连接已初始化，健康检查任务已启动")
+    return task
+
+
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    setup_logging()
+    logger = logging.getLogger("app.main")
+
+    # 验证启动配置
+    from app.core.startup_validator import validate_startup_config
+    validate_startup_config()
+
+    await _init_database(logger)
+    await _init_system_defaults(logger)
+    await _init_config_bridge(logger)
+    await _apply_dynamic_settings(logger)
+
     # 显示配置摘要
     await _print_config_summary(logger)
 
@@ -303,62 +336,20 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Startup backfill failed (ignored): {e}")
 
-    # 启动每日定时任务：可配置
-    scheduler: AsyncIOScheduler | None = None
-
+    # 启动定时任务
+    scheduler = None
     try:
-        scheduler = AsyncIOScheduler(timezone=settings.TIMEZONE)
-
-        # 初始化多数据源同步服务（与 API 路由共用同一单例）
-        global _basics_sync_service
-        _basics_sync_service = get_multi_source_sync_service()
-
-        # Phase 4G: 所有定时任务注册已提取到 app/worker/scheduler_setup.py
-        from app.worker.scheduler_setup import register_jobs
-        await register_jobs(scheduler, _basics_sync_service, _run_basics_sync)
-
-        scheduler.start()
-
-        # 设置调度器实例到服务中，以便API可以管理任务
-        set_scheduler_instance(scheduler)
-        logger.info("调度器服务已初始化")
+        scheduler = await _init_scheduler(logger)
     except Exception as e:
         logger.error(f"❌ 调度器启动失败: {e}", exc_info=True)
         raise  # 抛出异常，阻止应用启动
 
-    # ==================== MCP 连接初始化（应用级基础设施） ====================
-    # 在应用启动时建立所有 MCP 连接，在整个应用生命周期内保持活跃
+    # ==================== MCP 连接初始化 ====================
     mcp_health_check_task = None
     try:
-        from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
-
-        if LANGCHAIN_MCP_AVAILABLE:
-            logger.info("🔧 初始化 MCP 连接管理器...")
-
-            factory = get_mcp_loader_factory()
-            await factory.initialize_connections()
-
-            # 启动健康检查后台任务
-            async def mcp_health_check_loop():
-                """MCP 服务器健康检查后台任务"""
-                while True:
-                    try:
-                        await factory.health_check_all()
-                        await asyncio.sleep(30)  # 每 30 秒检查一次
-                    except asyncio.CancelledError:
-                        logger.info("🛑 MCP 健康检查任务已停止")
-                        break
-                    except Exception as e:
-                        logger.error(f"MCP 健康检查失败: {e}")
-                        await asyncio.sleep(30)
-
-            mcp_health_check_task = asyncio.create_task(mcp_health_check_loop())
-            logger.info("✅ MCP 连接已初始化，健康检查任务已启动")
-        else:
-            logger.info("ℹ️  langchain-mcp-adapters 未安装，MCP 功能不可用")
+        mcp_health_check_task = await _init_mcp(logger)
     except Exception as e:
         logger.error(f"❌ MCP 初始化失败: {e}", exc_info=True)
-        # MCP 初始化失败不应阻止应用启动，记录警告并继续
         logger.warning("⚠️  应用将在 MCP 功能不可用的情况下继续运行")
 
     try:
@@ -586,7 +577,6 @@ app.include_router(reports.router)
 app.include_router(screening.router)
 app.include_router(favorites.router)
 app.include_router(stocks_router.router)
-app.include_router(stock_sync_router.router)
 app.include_router(tags.router)
 app.include_router(config.router)
 app.include_router(model_capabilities.router)
@@ -617,12 +607,29 @@ app.include_router(websocket_notifications_router.router)
 app.include_router(scheduler_router.router)
 
 app.include_router(sse.router)
-app.include_router(multi_source_sync.router)
 app.include_router(news_data.router)
 
 # 按市场拆分的同步路由（港股/美股按需缓存 + A股同步）
 from app.routers import sync as sync_router
 app.include_router(sync_router.router)
+
+# A 股数据管理 API（Phase 4）
+from app.routers.cn import (
+    data_dashboard,
+    data_sync,
+    data_refresh,
+    source_health,
+    source_config,
+    data_viewer,
+    data_quality,
+)
+app.include_router(data_dashboard.router)
+app.include_router(data_sync.router)
+app.include_router(data_refresh.router)
+app.include_router(source_health.router)
+app.include_router(source_config.router)
+app.include_router(data_viewer.router)
+app.include_router(data_quality.router)
 
 
 @app.get("/")

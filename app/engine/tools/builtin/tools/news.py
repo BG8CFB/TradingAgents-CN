@@ -72,7 +72,7 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
 
         # 2.1 尝试 Tushare
         try:
-            from app.data.providers.china.tushare import TushareProvider
+            from app.data.sources.cn.tushare.api.connection import get_tushare_api
 
             ts_provider = TushareProvider()
             if ts_provider.is_available():
@@ -101,7 +101,7 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
 
         # 2.2 尝试 AKShare
         try:
-            from app.data.providers.china.akshare import AKShareProvider
+            from app.data.sources.cn.akshare.api.connection import get_anti_scraping_session
             import asyncio
             import concurrent.futures
 

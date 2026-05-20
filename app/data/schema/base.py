@@ -53,6 +53,22 @@ def get_full_symbol(symbol: str, market: str) -> str:
     return symbol
 
 
+def normalize_symbol(symbol: str, market: str) -> str:
+    """统一股票代码格式。
+
+    CN: 6 位数字，如 000001
+    HK: 5 位数字（去掉 .HK 后缀），如 00700
+    US: 大写 ticker，如 AAPL
+    """
+    s = str(symbol).strip()
+    if market == "CN":
+        return s.zfill(6)
+    elif market == "HK":
+        return s.replace(".HK", "").lstrip("0").zfill(5)
+    else:
+        return s.upper()
+
+
 def _utc_now_iso() -> str:
     """返回当前 UTC 时间的 ISO 格式字符串"""
     return now_utc().isoformat()

@@ -88,31 +88,33 @@ class SimpleAgentFactory:
                         f"请检查配置文件中的 tools 字段是否正确。"
                     )
 
-            tools = [DynamicAnalystFactory._wrap_tool_safe(tool, toolkit) for tool in tools]
+            # 拆分：内置工具（仅注入数据）vs 可调用工具（MCP + Skill）
+            registry = ToolRegistry.get_instance()
+            if not registry._initialized:
+                registry.initialize()
+
+            builtin_tools = [t for t in tools if registry.is_builtin_tool(t)]
+            callable_tools = [t for t in tools if not registry.is_builtin_tool(t)]
+
+            # 只对 MCP/Skill 工具应用断路器包装（内置工具不再进入 ReAct 循环）
+            callable_tools = [DynamicAnalystFactory._wrap_tool_safe(t, toolkit) for t in callable_tools]
+
+            if builtin_tools:
+                logger.info(
+                    f"💉 [工厂] {name}: {len(builtin_tools)} 个内置工具将预注入, "
+                    f"{len(callable_tools)} 个工具可调用"
+                )
 
             from app.engine.agents.analysts.simple_agent_template import create_simple_agent
-
-            inject_tools_list = []
-            if allowed_tool_names:
-                registry = ToolRegistry.get_instance()
-                if not registry._initialized:
-                    registry.initialize()
-                allowed_set = {str(name).strip() for name in allowed_tool_names if str(name).strip()}
-                for bt in registry.get_builtin_tools():
-                    bt_name = getattr(bt, "name", None)
-                    if bt_name in allowed_set:
-                        inject_tools_list.append(bt)
-                if inject_tools_list:
-                    logger.info(f"💉 [工厂] {name}: 准备注入 {len(inject_tools_list)} 个内置工具数据")
 
             node_function = create_simple_agent(
                 name=name,
                 slug=slug,
                 llm=llm,
-                tools=tools,
+                tools=callable_tools,
                 system_prompt=system_prompt,
                 max_tool_calls=max_tool_calls,
-                inject_tools=inject_tools_list if inject_tools_list else None,
+                inject_tools=builtin_tools if builtin_tools else None,
             )
 
             node_functions[internal_key] = node_function

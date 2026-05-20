@@ -109,6 +109,24 @@ def _inject_tool_data(
     }
 
     injected_count = 0
+    total_chars = 0
+
+    # 注入前导说明：告知 LLM 数据已预加载
+    injectable_names = []
+    for tool in inject_tools:
+        tool_name = getattr(tool, "name", None)
+        if tool_name and _INJECT_TOOL_ARGS_MAP.get(tool_name) is not None:
+            injectable_names.append(tool_name)
+
+    if injectable_names:
+        messages.append(SystemMessage(
+            content=(
+                f"以下 {len(injectable_names)} 个数据源已预加载到上下文中"
+                f"（{', '.join(injectable_names)}），"
+                "你无需也无法重新获取这些数据，请直接基于下方数据进行分析。"
+            )
+        ))
+
     for tool in inject_tools:
         tool_name = getattr(tool, "name", None)
         if not tool_name:
@@ -162,13 +180,14 @@ def _inject_tool_data(
             ))
 
             injected_count += 1
+            total_chars += len(result_str)
             logger.info(f"✅ [{agent_name}] 预加载成功: {tool_name} ({len(result_str)} 字符)")
         except Exception as e:
             logger.warning(f"⚠️ [{agent_name}] 预加载失败: {tool_name}, 错误: {e}")
             continue
 
     if injected_count > 0:
-        logger.info(f"💉 [{agent_name}] 共预加载 {injected_count} 个工具数据到上下文")
+        logger.info(f"💉 [{agent_name}] 共预加载 {injected_count} 个工具数据到上下文, 总计 {total_chars} 字符")
 
 
 def create_simple_agent(
@@ -238,7 +257,7 @@ def create_simple_agent(
                     if "股票名称:" in stock_info:
                         company_name = stock_info.split("股票名称:")[1].split("\n")[0].strip()
                 elif market_info["is_hk"]:
-                    from app.data.providers.hk.improved_hk import get_hk_company_name_improved
+                    from app.data.sources.hk.akshare_hk.provider import AKShareHKProvider as _HKProvider
                     company_name = get_hk_company_name_improved(ticker)
                 elif market_info["is_us"]:
                     company_name = _get_us_company_name(ticker)

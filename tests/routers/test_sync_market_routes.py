@@ -144,8 +144,8 @@ async def test_hk_cache_service_stats_and_clear(monkeypatch):
     )
     fake_db = _FakeDB(collection_name, fake_collection)
 
-    monkeypatch.setattr("app.worker.hk.hk_cache_service.get_mongo_db", lambda: fake_db)
-    monkeypatch.setattr("app.worker.hk.hk_cache_service.get_enabled_sources", lambda m: ["yfinance"])
+    monkeypatch.setattr("app.worker.base_sync_service.get_mongo_db", lambda: fake_db)
+    monkeypatch.setattr("app.worker.base_sync_service.get_enabled_sources", lambda m: ["yfinance"])
 
     service = HKCacheService()
 
@@ -176,8 +176,8 @@ async def test_us_cache_service_stats_and_clear(monkeypatch):
     )
     fake_db = _FakeDB(collection_name, fake_collection)
 
-    monkeypatch.setattr("app.worker.us.us_cache_service.get_mongo_db", lambda: fake_db)
-    monkeypatch.setattr("app.worker.us.us_cache_service.get_enabled_sources", lambda m: ["yfinance"])
+    monkeypatch.setattr("app.worker.base_sync_service.get_mongo_db", lambda: fake_db)
+    monkeypatch.setattr("app.worker.base_sync_service.get_enabled_sources", lambda m: ["yfinance"])
 
     service = USCacheService()
 

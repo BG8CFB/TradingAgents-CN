@@ -185,6 +185,18 @@ class ToolRegistry:
         """获取所有内置工具的元数据"""
         return dict(self._builtin_metas)
 
+    @staticmethod
+    def is_builtin_tool(tool) -> bool:
+        """判断工具是否为内置工具"""
+        meta = getattr(tool, "metadata", None) or {}
+        return meta.get("tool_category") == "builtin"
+
+    @staticmethod
+    def is_builtin_tool_by_name(name: str) -> bool:
+        """根据工具名判断是否为内置工具"""
+        registry = ToolRegistry.get_instance()
+        return name in registry._builtin_metas
+
     def toggle_tool(self, name: str, enabled: bool):
         """
         手动启用/禁用工具

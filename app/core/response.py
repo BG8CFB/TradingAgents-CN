@@ -6,27 +6,42 @@ from typing import Any, Optional, Dict
 from app.utils.timezone import now_tz
 
 
-def ok(data: Any = None, message: str = "ok") -> Dict[str, Any]:
+def ok(data: Any = None, message: str = "ok", data_code: Optional[int] = None) -> Dict[str, Any]:
     """标准成功响应
     返回结构：{"success": True, "data": data, "message": message, "timestamp": ...}
     """
-    return {
+    resp = {
         "success": True,
         "data": data,
         "message": message,
         "timestamp": now_tz().isoformat()
     }
+    if data_code is not None:
+        resp["data_code"] = data_code
+    return resp
 
 
-def fail(message: str = "error", code: int = 500, data: Any = None) -> Dict[str, Any]:
-    """标准失败响应（一般错误仍建议用 HTTPException 抛出，此函数用于业务失败场景）"""
-    return {
+def fail(
+    message: str = "error",
+    code: int = 500,
+    data: Any = None,
+    data_code: Optional[int] = None,
+) -> Dict[str, Any]:
+    """标准失败响应（一般错误仍建议用 HTTPException 抛出，此函数用于业务失败场景）
+
+    Args:
+        data_code: 数据层业务错误码（1001-1099），与 HTTP code 独立
+    """
+    resp = {
         "success": False,
         "data": data,
         "message": message,
         "code": code,
         "timestamp": now_tz().isoformat()
     }
+    if data_code is not None:
+        resp["data_code"] = data_code
+    return resp
 
 
 def safe_error_message(e: Exception, default: str = "操作失败，请稍后重试") -> str:

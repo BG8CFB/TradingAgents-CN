@@ -1,6 +1,8 @@
 """
-股票数据服务层 - 统一数据访问接口
-基于现有MongoDB集合，提供标准化的数据访问服务
+A股专用数据服务（内部实现，仅支持 CN 市场）
+
+新代码请使用 app.services.unified_stock_service.UnifiedStockService，支持 CN/HK/US 三市场。
+本模块因历史原因仍被 tushare_sync、stock_sync、stocks 路由引用，待上游迁移后废弃。
 """
 import logging
 from typing import Optional, Dict, Any, List

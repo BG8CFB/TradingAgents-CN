@@ -1,6 +1,17 @@
 """
-统一数据源提供器包
-按市场分类组织数据提供器
+统一数据源提供器包（DEPRECATED — 计划删除）
+
+⚠️⚠️⚠️ 本目录已废弃，将在未来版本中删除。⚠️⚠️⚠️
+
+新架构位于 app.data.sources/，采用 Provider + Adapter + api/ 独立调用层设计。
+所有新代码必须使用 app.data.sources/ 下的对应数据源。
+
+仍引用本目录的模块（optimized.py、ForeignStockService、alpha_vantage 等）
+将在后续迭代中逐步迁移。
+
+⚠️ 新架构位于 app.data.sources/，采用 Provider + Adapter 分层设计。
+本目录为旧版实现，仍被 engine/tools、worker、data/interface 等模块引用。
+新代码请使用 app.data.sources/ 下的对应数据源。
 """
 try:
     from .base_provider import BaseStockDataProvider

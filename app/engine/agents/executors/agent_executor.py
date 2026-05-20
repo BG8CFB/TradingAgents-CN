@@ -297,7 +297,17 @@ class AgentExecutor:
                             f"⚠️ [AgentExecutor] {tool_name} 执行失败: {e}"
                         )
                 else:
-                    # 工具未找到
+                    # 工具未找到 — 检查是否为已预注入的内置工具
+                    from app.engine.tools.registry import ToolRegistry
+                    if ToolRegistry.is_builtin_tool_by_name(tool_name):
+                        messages.append(ToolMessage(
+                            content=f"工具 '{tool_name}' 的数据已在上下文中预加载，请直接使用已有的数据进行分析。",
+                            tool_call_id=tool_call_id,
+                            name=tool_name,
+                        ))
+                        logger.info(f"ℹ️ [AgentExecutor] LLM 尝试调用已预注入的内置工具: {tool_name}")
+                        continue
+
                     processed = self.result_processor.process_not_found(tool_name)
                     messages.append(ToolMessage(
                         content=processed.content,

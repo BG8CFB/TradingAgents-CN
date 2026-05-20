@@ -755,124 +755,65 @@ class StockDataPreparer:
             priority_order = self._get_data_source_priority_for_sync(stock_code)
             logger.info(f"📊 [数据同步] 数据源优先级: {priority_order}")
 
-            # 2. 按优先级尝试同步
-            last_error = None
-            for data_source in priority_order:
+            # 2. 使用编排器同步
+            try:
+                from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
+                orchestrator = get_cn_sync_orchestrator()
+
+                # 域级同步（日线 + 指标 + 财务）
+                domains = ["daily_quotes", "daily_indicators", "financial"]
+                result = await orchestrator.run(
+                    symbol=stock_code,
+                    domains=domains,
+                    start_date=start_date,
+                    end_date=end_date,
+                    skip_trading_day_check=True,
+                )
+
+                historical_records = 0
+                financial_synced = False
+                realtime_synced = False
+
+                for domain, dr in result.domains.items():
+                    if dr.success:
+                        historical_records += dr.records_synced
+                    if "financial" in domain and dr.success:
+                        financial_synced = True
+
+                # 实时行情
                 try:
-                    logger.info(f"🔄 [数据同步] 尝试使用数据源: {data_source}")
-
-                    # BaoStock 不支持单个股票同步，跳过
-                    if data_source == "baostock":
-                        logger.warning(f"⚠️ [数据同步] BaoStock不支持单个股票同步，跳过")
-                        last_error = f"{data_source}: 不支持单个股票同步"
-                        continue
-
-                    # 根据数据源获取对应的同步服务
-                    if data_source == "tushare":
-                        from app.worker.cn.tushare_sync import get_tushare_sync_service
-                        service = await get_tushare_sync_service()
-                    elif data_source == "akshare":
-                        from app.worker.cn.akshare_sync import get_akshare_sync_service
-                        service = await get_akshare_sync_service()
-                    else:
-                        logger.warning(f"⚠️ [数据同步] 不支持的数据源: {data_source}")
-                        continue
-
-                    # 初始化结果统计
-                    historical_records = 0
-                    financial_synced = False
-                    realtime_synced = False
-
-                    # 2.1 同步历史数据
-                    logger.info(f"📊 [数据同步] 同步历史数据...")
-                    hist_result = await service.sync_historical_data(
-                        symbols=[stock_code],
-                        start_date=start_date,
-                        end_date=end_date,
-                        incremental=False  # 全量同步
-                    )
-
-                    if hist_result.get("success_count", 0) > 0:
-                        historical_records = hist_result.get("total_records", 0)
-                        logger.info(f"✅ [数据同步] 历史数据同步成功: {historical_records}条")
-                    else:
-                        errors = hist_result.get("errors", [])
-                        error_msg = errors[0].get("error", "未知错误") if errors else "同步失败"
-                        logger.warning(f"⚠️ [数据同步] 历史数据同步失败: {error_msg}")
-
-                    # 2.2 同步财务数据
-                    logger.info(f"📊 [数据同步] 同步财务数据...")
-                    try:
-                        fin_result = await service.sync_financial_data(
-                            symbols=[stock_code],
-                            limit=20  # 获取最近20期财报（约5年）
-                        )
-
-                        if fin_result.get("success_count", 0) > 0:
-                            financial_synced = True
-                            logger.info(f"✅ [数据同步] 财务数据同步成功")
-                        else:
-                            logger.warning(f"⚠️ [数据同步] 财务数据同步失败")
-                    except Exception as e:
-                        logger.warning(f"⚠️ [数据同步] 财务数据同步异常: {e}")
-
-                    # 2.3 同步实时行情
-                    logger.info(f"📊 [数据同步] 同步实时行情...")
-                    try:
-                        # 对于单个股票，AKShare更适合获取实时行情
-                        if data_source == "tushare":
-                            # Tushare的实时行情接口有限制，改用AKShare
-                            from app.worker.cn.akshare_sync import get_akshare_sync_service
-                            realtime_service = await get_akshare_sync_service()
-                        else:
-                            realtime_service = service
-
-                        rt_result = await realtime_service.sync_realtime_quotes(
-                            symbols=[stock_code],
-                            force=True  # 强制执行，跳过交易时间检查
-                        )
-
-                        if rt_result.get("success_count", 0) > 0:
-                            realtime_synced = True
-                            logger.info(f"✅ [数据同步] 实时行情同步成功")
-                        else:
-                            logger.warning(f"⚠️ [数据同步] 实时行情同步失败")
-                    except Exception as e:
-                        logger.warning(f"⚠️ [数据同步] 实时行情同步异常: {e}")
-
-                    # 检查同步结果（至少历史数据要成功）
-                    if historical_records > 0:
-                        message = f"使用{data_source}同步成功: 历史{historical_records}条"
-                        if financial_synced:
-                            message += ", 财务数据✓"
-                        if realtime_synced:
-                            message += ", 实时行情✓"
-
-                        logger.info(f"✅ [数据同步] {message}")
-                        return {
-                            "success": True,
-                            "message": message,
-                            "synced_records": historical_records,
-                            "data_source": data_source,
-                            "historical_records": historical_records,
-                            "financial_synced": financial_synced,
-                            "realtime_synced": realtime_synced
-                        }
-                    else:
-                        last_error = f"{data_source}: 历史数据同步失败"
-                        logger.warning(f"⚠️ [数据同步] {data_source}同步失败: 历史数据为空")
-                        # 继续尝试下一个数据源
-
+                    rt_result = await orchestrator.sync_realtime()
+                    realtime_synced = rt_result.success
                 except Exception as e:
-                    last_error = f"{data_source}: {str(e)}"
-                    logger.warning(f"⚠️ [数据同步] {data_source}同步异常: {e}")
-                    import traceback
-                    logger.debug(f"详细错误: {traceback.format_exc()}")
-                    # 继续尝试下一个数据源
-                    continue
+                    logger.warning(f"⚠️ [数据同步] 实时行情同步异常: {e}")
 
-            # 所有数据源都失败
-            message = f"所有数据源同步失败，最后错误: {last_error}"
+                if historical_records > 0:
+                    message = f"同步成功: {historical_records}条记录"
+                    if financial_synced:
+                        message += ", 财务数据✓"
+                    if realtime_synced:
+                        message += ", 实时行情✓"
+
+                    logger.info(f"✅ [数据同步] {message}")
+                    return {
+                        "success": True,
+                        "message": message,
+                        "synced_records": historical_records,
+                        "data_source": "orchestrator",
+                        "historical_records": historical_records,
+                        "financial_synced": financial_synced,
+                        "realtime_synced": realtime_synced
+                    }
+                else:
+                    last_error = "编排器同步失败: 无记录"
+                    logger.warning(f"⚠️ [数据同步] {last_error}")
+
+            except Exception as e:
+                last_error = f"编排器异常: {str(e)}"
+                logger.warning(f"⚠️ [数据同步] {last_error}")
+
+            # 同步失败
+            message = f"数据同步失败: {last_error}"
             logger.error(f"❌ [数据同步] {message}")
             return {
                 "success": False,
@@ -1127,7 +1068,7 @@ class StockDataPreparer:
 
             # 导入美股数据提供器（支持新旧路径）
             try:
-                from app.data.providers.us import OptimizedUSDataProvider
+                from app.data.sources.us.yfinance_us.provider import YFinanceUSProvider
                 provider = OptimizedUSDataProvider()
                 historical_data = provider.get_stock_data(
                     formatted_code,
@@ -1135,7 +1076,7 @@ class StockDataPreparer:
                     end_date_str
                 )
             except ImportError:
-                from app.data.providers.us.optimized import get_us_stock_data_cached
+                from app.data.sources.us.yfinance_us.provider import YFinanceUSProvider
                 historical_data = get_us_stock_data_cached(
                     formatted_code,
                     start_date_str,

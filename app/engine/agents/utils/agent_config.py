@@ -36,7 +36,7 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
 
         if market_info["is_hk"]:
             try:
-                from app.data.providers.hk.improved_hk import get_hk_company_name_improved
+                from app.data.sources.hk.akshare_hk.provider import AKShareHKProvider as _HKProvider
                 return get_hk_company_name_improved(ticker)
             except Exception:
                 clean_ticker = ticker.replace(".HK", "").replace(".hk", "")
@@ -44,7 +44,7 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
 
         if market_info["is_us"]:
             try:
-                from app.data.providers.us.yfinance import YFinanceUtils
+                from app.data.sources.us.yfinance_us.provider import YFinanceUSProvider
                 stock_info = YFinanceUtils.get_stock_info(ticker.upper())
                 company_name = stock_info.get("shortName") or stock_info.get("longName")
                 if company_name:
