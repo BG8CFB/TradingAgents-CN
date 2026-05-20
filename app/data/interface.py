@@ -1,3 +1,11 @@
+"""
+⚠️ DEPRECATED — 本模块已废弃，将在未来版本中删除。
+
+所有数据读取应通过 app.data.reader 模块。
+新闻/情感/基本面数据应通过对应的服务模块获取。
+
+本文件仅作为向后兼容的过渡层保留。
+"""
 from typing import Annotated, Dict
 import time
 import os

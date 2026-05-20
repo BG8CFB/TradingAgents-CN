@@ -16,7 +16,7 @@ import pandas as pd
 from app.utils.indicators import IndicatorSpec, compute_many
 # 统一多数据源DF接口（按优先级降级）
 from app.data.data_source_manager import get_data_source_manager
-from app.data.providers.china.fundamentals_snapshot import get_cn_fund_snapshot
+from app.data.providers.china.fundamentals_snapshot import get_cn_fund_snapshot  # TODO: migrate to sources/
 
 
 from app.services.screening.eval_utils import (

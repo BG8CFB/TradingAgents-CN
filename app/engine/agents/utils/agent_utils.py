@@ -620,7 +620,7 @@ class Toolkit:
 
                 try:
                     # 获取基本面财务数据（这是基本面分析的核心）
-                    from app.data.providers.china.optimized import OptimizedChinaDataProvider
+                    from app.services.fundamentals import OptimizedChinaDataProvider
                     analyzer = OptimizedChinaDataProvider()
                     logger.debug(f"🔍 [股票代码追踪] 调用 OptimizedChinaDataProvider._generate_fundamentals_report，传入参数: ticker='{ticker}', analysis_modules='{analysis_modules}'")
 

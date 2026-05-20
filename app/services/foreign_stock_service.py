@@ -16,7 +16,7 @@ from collections import defaultdict
 from app.data.cache import get_cache
 
 # 复用现有数据源提供者
-from app.data.providers.hk.hk_stock import HKStockProvider
+from app.data.sources.hk.yfinance_hk.provider import YFinanceHKProvider
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class ForeignStockService:
         self.cache = get_cache()
 
         # 初始化港股数据源提供者
-        self.hk_provider = HKStockProvider()
+        self.hk_provider = YFinanceHKProvider()
 
         # 保存数据库连接（用于查询数据源优先级）
         self.db = db
@@ -452,7 +452,7 @@ class ForeignStockService:
     def _get_us_quote_from_alpha_vantage(self, code: str) -> Dict:
         """从Alpha Vantage获取美股行情"""
         try:
-            from app.data.providers.us.alpha_vantage_common import get_api_key, _make_api_request
+            from app.data.sources.us.alpha_vantage import get_api_key, _make_api_request
 
             # 获取 API Key
             api_key = get_api_key()
@@ -983,7 +983,7 @@ class ForeignStockService:
 
     def _get_us_info_from_alpha_vantage(self, code: str) -> Dict:
         """从Alpha Vantage获取美股基础信息"""
-        from app.data.providers.us.alpha_vantage_common import get_api_key, _make_api_request
+        from app.data.sources.us.alpha_vantage import get_api_key, _make_api_request
 
         # 获取 API Key
         api_key = get_api_key()
@@ -1080,7 +1080,7 @@ class ForeignStockService:
 
     def _get_us_kline_from_alpha_vantage(self, code: str, period: str, limit: int) -> List[Dict]:
         """从Alpha Vantage获取美股K线数据"""
-        from app.data.providers.us.alpha_vantage_common import get_api_key, _make_api_request
+        from app.data.sources.us.alpha_vantage import get_api_key, _make_api_request
         import pandas as pd
 
         # 获取 API Key
@@ -1401,7 +1401,7 @@ class ForeignStockService:
 
     def _get_us_news_from_alpha_vantage(self, code: str, days: int, limit: int) -> List[Dict]:
         """从Alpha Vantage获取美股新闻"""
-        from app.data.providers.us.alpha_vantage_common import get_api_key, _make_api_request
+        from app.data.sources.us.alpha_vantage import get_api_key, _make_api_request
         from datetime import datetime, timedelta
 
         # 获取 API Key

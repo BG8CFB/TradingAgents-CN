@@ -82,7 +82,7 @@ def get_stock_fundamentals(
 
             # 获取基本面财务数据
             try:
-                from app.data.providers.china.optimized import OptimizedChinaDataProvider
+                from app.services.fundamentals import OptimizedChinaDataProvider
                 analyzer = OptimizedChinaDataProvider()
 
                 # 根据数据深度选择分析模块
