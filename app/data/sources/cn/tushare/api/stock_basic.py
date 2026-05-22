@@ -3,7 +3,7 @@ Tushare 股票基础信息 API
 """
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 

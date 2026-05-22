@@ -1,0 +1,76 @@
+# 各数据域新鲜度规则: market → domain → rule
+
+CN:
+  daily_quotes:
+    rule_type: trading_day_after_close
+    threshold_minutes: 30
+    reference_time: "15:00"
+  daily_indicators:
+    rule_type: trading_day_after_close
+    threshold_minutes: 60
+    reference_time: "15:00"
+  basic_info:
+    rule_type: time_window
+    threshold_hours: 24
+  financial_data:
+    rule_type: time_window
+    threshold_hours: 168  # 7 天
+  news:
+    rule_type: time_window
+    threshold_hours: 2
+  market_quotes:
+    rule_type: time_window
+    threshold_minutes: 30
+
+HK:
+  daily_quotes:
+    rule_type: trading_day_after_close
+    threshold_minutes: 30
+    reference_time: "16:00"
+  daily_indicators:
+    rule_type: trading_day_after_close
+    threshold_minutes: 60
+    reference_time: "16:00"
+  basic_info:
+    rule_type: time_window
+    threshold_hours: 24
+  financial_data:
+    rule_type: time_window
+    threshold_hours: 168
+  corporate_actions:
+    rule_type: time_window
+    threshold_hours: 24
+  news:
+    rule_type: time_window
+    threshold_hours: 1
+  market_quotes:
+    rule_type: time_window
+    threshold_minutes: 30
+
+US:
+  daily_quotes:
+    rule_type: trading_day_after_close
+    threshold_minutes: 30
+    reference_time: "16:00"  # ET
+  daily_indicators:
+    rule_type: trading_day_after_close
+    threshold_minutes: 90
+    reference_time: "16:00"
+  basic_info:
+    rule_type: time_window
+    threshold_hours: 24
+  financial_data:
+    rule_type: time_window
+    threshold_hours: 168
+  corporate_actions:
+    rule_type: time_window
+    threshold_hours: 24
+  news:
+    rule_type: time_window
+    threshold_minutes: 30
+  market_quotes:
+    rule_type: time_window
+    threshold_minutes: 5
+  pre_post_market:
+    rule_type: time_window
+    threshold_minutes: 5

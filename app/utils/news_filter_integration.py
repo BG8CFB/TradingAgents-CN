@@ -137,8 +137,30 @@ def create_filtered_realtime_news_function():
         logger.info(f"[实时新闻] 开始获取 {ticker} 的新闻")
 
         try:
-            from app.data.news.realtime_news import get_realtime_stock_news
-            return get_realtime_stock_news(ticker, curr_date, hours_back)
+            from app.data.core.interface import DataInterface
+            import asyncio
+            di = DataInterface.get_instance()
+            market = "CN"
+            if ticker and ".HK" in ticker:
+                market = "HK"
+            elif ticker and ticker.isalpha() and ticker == ticker.upper():
+                market = "US"
+            result = asyncio.get_event_loop().run_until_complete(
+                di.read(market, ticker, "news")
+            )
+            news_data = result.get("data", [])
+            if not news_data:
+                return f"暂无 {ticker} 的实时新闻数据"
+            if isinstance(news_data, list):
+                items = news_data[:10]
+            else:
+                items = [news_data]
+            report_lines = [f"## {ticker} 新闻 ({curr_date})\n"]
+            for item in items:
+                title = item.get("title", "")
+                source = item.get("source", item.get("data_source", ""))
+                report_lines.append(f"- [{source}] {title}")
+            return "\n".join(report_lines)
 
         except Exception as e:
             logger.error(f"[实时新闻] 新闻获取失败: {e}")

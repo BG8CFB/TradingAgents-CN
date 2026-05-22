@@ -1,50 +1,49 @@
 """
-Fundamental Data Tools Logic
+Fundamental Data Tools Logic — 基于新数据架构 DataInterface。
 """
-import asyncio
+
 import json
 import logging
 
+from app.data.core.interface import DataInterface
+from app.utils.stock_utils import StockUtils, StockMarket
+
 logger = logging.getLogger(__name__)
 
+_MARKET_MAP = {
+    StockMarket.A_SHARE: "CN",
+    StockMarket.HONG_KONG: "HK",
+    StockMarket.US: "US",
+}
 
-async def get_company_metrics_logic(reader_mod, code: str, date: str) -> str:
-    """
-    Logic for get_company_metrics tool.
-    """
+
+async def get_company_metrics_logic(_reader_mod, code: str, date: str) -> str:
+    """获取公司基本面指标。"""
+    market_enum = StockUtils.identify_stock_market(code)
+    market = _MARKET_MAP.get(market_enum, "CN")
+
+    symbol = code.split(".")[0] if "." in code else code
+
+    di = DataInterface.get_instance()
+
     try:
-        df, source = await asyncio.to_thread(
-            reader_mod.get_daily_basic_with_fallback,
-            trade_date=date
-        )
+        result = await di.read(market, symbol, "daily_indicators", start_date=date, end_date=date)
+        data = result.get("data")
 
-        if df is None or df.empty:
+        if not data or not isinstance(data, list) or not data:
             return json.dumps({
                 "status": "warning",
                 "message": f"No fundamental data found for date {date}."
             }, ensure_ascii=False)
 
-        target_code = code
-
-        if 'ts_code' in df.columns:
-            matched = df[df['ts_code'] == target_code]
-            if matched.empty:
-                prefix = target_code.split('.')[0]
-                matched = df[df['ts_code'].str.startswith(prefix)]
-
-            if not matched.empty:
-                record = matched.iloc[0].to_dict()
-                return json.dumps({
-                    "code": code,
-                    "date": date,
-                    "source": source,
-                    "metrics": record
-                }, ensure_ascii=False, default=str)
+        record = data[0] if isinstance(data[0], dict) else data[0].to_dict() if hasattr(data[0], 'to_dict') else {}
 
         return json.dumps({
-            "status": "warning",
-            "message": f"Data available for {date} but code {code} not found in records."
-        }, ensure_ascii=False)
+            "code": code,
+            "date": date,
+            "source": "data_platform",
+            "metrics": record
+        }, ensure_ascii=False, default=str)
 
     except Exception as e:
         logger.error(f"Error in get_company_metrics_logic: {e}")

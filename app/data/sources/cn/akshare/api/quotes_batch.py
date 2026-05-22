@@ -5,7 +5,6 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Any
 
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 

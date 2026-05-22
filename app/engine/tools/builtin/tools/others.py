@@ -9,8 +9,6 @@ from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data import reader
-
 logger = logging.getLogger(__name__)
 
 
@@ -40,12 +38,8 @@ def get_convertible_bond(
         if tushare_token and tushare_token.strip():
             try:
                 logger.info(f"📊 尝试使用Tushare获取可转债数据: 类型{data_type}")
-                data = reader.get_convertible_bond(
-                    data_type=data_type,
-                    ts_code=ts_code,
-                    start_date=start_date,
-                    end_date=end_date
-                )
+                # TODO: 迁移到新架构 - get_convertible_bond 需要通过新数据层实现
+                data = None
                 if data and not data.empty:
                     logger.info(f"✅ Tushare成功获取可转债数据: {len(data)}条记录")
                     return format_tool_result(success_result(format_result(data, f"CB: {data_type}")))
@@ -159,7 +153,8 @@ def get_csi_index_constituents(
         if not start_date:
             start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
-        data = reader.get_csi_index_constituents(index_code=index_code, start_date=start_date, end_date=end_date)
+        # TODO: 迁移到新架构 - get_csi_index_constituents 需要通过新数据层实现
+        data = None
         return format_tool_result(success_result(format_result(data, f"CSI Constituents: {index_code}")))
     except Exception as e:
         logger.error(f"get_csi_index_constituents failed: {e}")

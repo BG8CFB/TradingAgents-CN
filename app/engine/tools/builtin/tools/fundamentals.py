@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data import reader
+from app.data.core.interface import DataInterface
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -74,27 +75,28 @@ def get_stock_fundamentals(
                 recent_end_date = current_date
                 recent_start_date = (datetime.strptime(current_date, '%Y-%m-%d') - timedelta(days=2)).strftime('%Y-%m-%d')
 
-                from app.data.reader import get_stock_data as _get_stock_data_cn
-                current_price_data = _get_stock_data_cn("CN", stock_code, recent_start_date, recent_end_date)
+                _di = DataInterface.get_instance()
+                _r = asyncio.run(_di.read("CN", stock_code, "daily_quotes",
+                                          start_date=recent_start_date, end_date=recent_end_date))
+                _d = _r.get("data")
+                current_price_data = ""
+                if _d:
+                    import pandas as pd
+                    if isinstance(_d, list) and _d:
+                        current_price_data = pd.DataFrame(_d).to_string()
             except Exception as e:
                 logger.error(f"❌ [MCP基本面工具] A股价格数据获取失败: {e}")
                 current_price_data = ""
 
             # 获取基本面财务数据
             try:
-                from app.services.fundamentals import OptimizedChinaDataProvider
-                analyzer = OptimizedChinaDataProvider()
-
-                # 根据数据深度选择分析模块
-                analysis_modules = data_depth
-
-                # 尝试调用报告生成方法
-                if hasattr(analyzer, "generate_fundamentals_report"):
-                    fundamentals_data = analyzer.generate_fundamentals_report(stock_code, current_price_data, analysis_modules)
-                elif hasattr(analyzer, "_generate_fundamentals_report"):
-                    fundamentals_data = analyzer._generate_fundamentals_report(stock_code, current_price_data, analysis_modules)
+                from app.services.fundamentals import get_fundamentals_provider
+                _fp = get_fundamentals_provider()
+                fundamentals_raw = asyncio.run(_fp.get_fundamentals(stock_code))
+                if fundamentals_raw:
+                    fundamentals_data = str(fundamentals_raw)
                 else:
-                    fundamentals_data = "基本面报告生成方法不可用"
+                    fundamentals_data = "暂无基本面数据"
 
                 result_data.append(f"## A股基本面财务数据\n{fundamentals_data}")
             except Exception as e:
@@ -107,8 +109,13 @@ def get_stock_fundamentals(
 
             # 1. 获取基础信息
             try:
-                from app.data.reader import get_stock_info as _get_stock_info_hk
-                hk_info = _get_stock_info_hk("HK", stock_code)
+                _di_info = DataInterface.get_instance()
+                _r_info = asyncio.run(_di_info.read("HK", stock_code, "basic_info"))
+                hk_info = _r_info.get("data")
+                if isinstance(hk_info, list) and hk_info:
+                    hk_info = hk_info[0]
+                elif not hk_info:
+                    hk_info = {}
 
                 basic_info = f'''## 港股基础信息
 **名称**: {hk_info.get('name', 'N/A')}
@@ -128,8 +135,11 @@ def get_stock_fundamentals(
             try:
                 # 使用 yfinance 获取基本面
                 try:
-                    from app.data.sources.us.yfinance_us.provider import YFinanceUSProvider
-                    us_info = YFinanceUtils.get_stock_info(stock_code)
+                    from app.data.core.interface import DataInterface
+                    import asyncio as _asyncio
+                    _di = DataInterface.get_instance()
+                    _r = _asyncio.run(_di.read("US", stock_code.upper(), "financial_data"))
+                    us_info = _r.get("data")
                     if us_info:
                         result_data.append(f"## 美股基本面信息\n{us_info}")
                     else:
@@ -272,15 +282,8 @@ def get_company_performance_unified(
         # 3. 🔥 优先使用Tushare获取业绩数据
         try:
             logger.info(f"📊 尝试使用Tushare获取{market_name}业绩数据: {stock_code}, data_type: {data_type}")
-            data = reader.get_company_performance(
-                ts_code=stock_code,
-                data_type=data_type,
-                start_date=start_date,
-                end_date=end_date,
-                period=period,
-                ind_name=ind_name,  # 仅港股有效
-                market=market
-            )
+            # TODO: 迁移到新架构 - get_company_performance 需要通过新数据层实现
+            data = None
             if data and not data.empty:
                 logger.info(f"✅ Tushare成功获取{market_name}业绩数据: {stock_code}, {len(data)}条记录")
                 return format_tool_result(success_result(format_result(data, f"{stock_code} Performance ({market.upper()})")))

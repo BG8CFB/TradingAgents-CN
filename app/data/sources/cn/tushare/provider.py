@@ -1,12 +1,7 @@
-"""
-Tushare 数据源 Provider
-
-独立 API 调用层，通过 api/ 子模块直接调用 Tushare SDK。
-不再委托旧版 providers/china/tushare.py。
-"""
+"""Tushare CN Provider — 调用 api/ 子模块获取原始数据。"""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 import pandas as pd
 
@@ -15,8 +10,8 @@ from app.data.sources.base.provider import BaseProvider
 logger = logging.getLogger(__name__)
 
 
-class TushareSourceProvider(BaseProvider):
-    """Tushare 数据源 Provider — 调用 api/ 子模块"""
+class TushareCNProvider(BaseProvider):
+    """Tushare A 股数据源 Provider。"""
 
     def __init__(self):
         super().__init__(name="tushare", market="CN")
@@ -44,99 +39,60 @@ class TushareSourceProvider(BaseProvider):
         except Exception:
             return False
 
-    # ── 股票列表 & 基础信息 ──
-
-    async def get_stock_list(self, market: str = None) -> Optional[pd.DataFrame]:
+    async def get_stock_list(self, **kwargs) -> Optional[pd.DataFrame]:
         from .api.stock_basic import fetch_stock_list
-        return await fetch_stock_list(self._get_conn(), market=market)
+        return await fetch_stock_list(self._get_conn())
 
-    async def get_stock_basic_info(self, symbol: str) -> Optional[Dict[str, Any]]:
-        from .api.stock_basic import fetch_stock_basic_info
-        ts_code = self._to_ts_code(symbol)
-        df = await fetch_stock_basic_info(self._get_conn(), ts_code)
-        if df is not None and not df.empty:
-            return df.iloc[0].to_dict()
-        return None
-
-    # ── 行情数据 ──
+    async def get_trade_calendar(
+        self, exchange: str = "SSE", start_date: str = "1970-01-01",
+        end_date: str = "2099-12-31", **kwargs
+    ) -> Optional[pd.DataFrame]:
+        from .api.trade_calendar import fetch_trade_calendar
+        return await fetch_trade_calendar(self._get_conn(), exchange, start_date, end_date)
 
     async def get_daily_quotes(
-        self, symbol: str, start_date: str, end_date: str
+        self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> Optional[pd.DataFrame]:
         from .api.daily_quotes import fetch_daily_quotes
         ts_code = self._to_ts_code(symbol)
         return await fetch_daily_quotes(self._get_conn(), ts_code, start_date, end_date)
 
-    async def get_realtime_quotes(self) -> Optional[pd.DataFrame]:
-        from .api.daily_quotes import fetch_realtime_batch
-        return await fetch_realtime_batch(self._get_conn())
-
-    # ── 每日指标 ──
-
-    async def get_daily_basic(self, trade_date: str) -> Optional[pd.DataFrame]:
-        from .api.daily_indicators import fetch_daily_indicators
-        return await fetch_daily_indicators(self._get_conn(), trade_date)
-
     async def get_daily_indicators(
-        self,
-        trade_date: Optional[str] = None,
-        symbol: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> Optional[pd.DataFrame]:
-        from .api.daily_indicators import fetch_daily_indicators, fetch_daily_indicators_by_symbol
-        if symbol:
-            ts_code = self._to_ts_code(symbol)
-            return await fetch_daily_indicators_by_symbol(
-                self._get_conn(), ts_code, start_date, end_date
-            )
-        if trade_date:
-            return await fetch_daily_indicators(self._get_conn(), trade_date)
-        return None
+        from .api.daily_indicators import fetch_daily_indicators_by_symbol
+        ts_code = self._to_ts_code(symbol)
+        return await fetch_daily_indicators_by_symbol(self._get_conn(), ts_code, start_date, end_date)
 
-    # ── 复权因子 ──
+    async def get_financial_data(
+        self, symbol: str, start_date: str, end_date: str,
+        statement_type: str = "", **kwargs
+    ) -> Optional[pd.DataFrame]:
+        from .api.financial import fetch_financial_data
+        ts_code = self._to_ts_code(symbol)
+        return await fetch_financial_data(self._get_conn(), ts_code)
 
     async def get_adj_factors(
-        self, symbol: str, start_date: Optional[str] = None, end_date: Optional[str] = None,
+        self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> Optional[pd.DataFrame]:
         from .api.adj_factors import fetch_adj_factors
         ts_code = self._to_ts_code(symbol)
         return await fetch_adj_factors(self._get_conn(), ts_code, start_date, end_date)
 
-    # ── 财务数据 ──
-
-    async def get_financial_data(self, symbol: str) -> Optional[Dict[str, Any]]:
-        from .api.financial import fetch_financial_data
-        ts_code = self._to_ts_code(symbol)
-        return await fetch_financial_data(self._get_conn(), ts_code)
-
-    # ── 新闻 ──
-
     async def get_news(
-        self, symbol: str, days: int = 2, limit: int = 50
-    ) -> Optional[List[Dict[str, Any]]]:
-        from .api.news import fetch_news
-        return await fetch_news(self._get_conn(), symbol=symbol, limit=limit, hours_back=days * 24)
-
-    # ── 交易日历 ──
-
-    async def get_trade_calendar(
-        self, exchange: str = "SSE",
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> Optional[pd.DataFrame]:
-        from .api.trade_calendar import fetch_trade_calendar
-        return await fetch_trade_calendar(self._get_conn(), exchange, start_date, end_date)
+        from .api.news import fetch_news
+        result = await fetch_news(self._get_conn(), symbol=symbol, limit=50)
+        if result and isinstance(result, list):
+            return pd.DataFrame(result)
+        return None
 
-    # ── 通用查询（兼容旧调用） ──
-
-    async def query_api(self, api_name: str, **kwargs) -> Optional[pd.DataFrame]:
-        """通用 Tushare API 查询（同步在线程中执行）"""
-        import asyncio
-        conn = self._get_conn()
-        return await asyncio.to_thread(conn.query, api_name, **kwargs)
-
-    # ── 工具方法 ──
+    async def get_market_quotes(
+        self, symbols=None, **kwargs
+    ) -> Optional[pd.DataFrame]:
+        from .api.daily_quotes import fetch_realtime_batch
+        return await fetch_realtime_batch(self._get_conn())
 
     @staticmethod
     def _to_ts_code(symbol: str) -> str:

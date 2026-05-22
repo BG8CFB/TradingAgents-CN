@@ -7,19 +7,13 @@
 1. 跨市场数据访问（A股/港股/美股）
 2. 多数据源优先级查询
 3. 统一的查询接口
-
-设计说明：
-- 参考A股多数据源设计
-- 同一股票可有多个数据源记录
-- 通过 (code, source) 联合查询
-- 数据源优先级从数据库配置读取
 """
 
 import logging
 from typing import Dict, List, Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.data.schema.collections import get_collection_name
+from app.data.storage.mongo.collections import get_collection_name
 
 logger = logging.getLogger("webapi")
 
@@ -30,30 +24,9 @@ class UnifiedStockService:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.db = db
 
-        # 集合映射统一收敛到 schema/collections，避免多处重复维护。
-        self.collection_map = {
-            "CN": {
-                "basic_info": get_collection_name("CN", "basic_info"),
-                "quotes": get_collection_name("CN", "market_quotes"),
-                "daily": get_collection_name("CN", "daily_quotes"),
-                "financial": get_collection_name("CN", "financial"),
-                "news": get_collection_name("CN", "news"),
-            },
-            "HK": {
-                "basic_info": get_collection_name("HK", "basic_info"),
-                "quotes": get_collection_name("HK", "market_quotes"),
-                "daily": get_collection_name("HK", "daily_quotes"),
-                "financial": get_collection_name("HK", "financial"),
-                "news": get_collection_name("HK", "news"),
-            },
-            "US": {
-                "basic_info": get_collection_name("US", "basic_info"),
-                "quotes": get_collection_name("US", "market_quotes"),
-                "daily": get_collection_name("US", "daily_quotes"),
-                "financial": get_collection_name("US", "financial"),
-                "news": get_collection_name("US", "news"),
-            },
-        }
+    def _get_coll(self, domain: str, market: str):
+        """获取指定域和市场的 MongoDB 集合。"""
+        return self.db[get_collection_name(domain, market)]
 
     @staticmethod
     def _normalize_doc(doc: Optional[Dict]) -> Optional[Dict]:
@@ -77,130 +50,62 @@ class UnifiedStockService:
         return normalized
 
     async def get_stock_info(
-        self, 
-        market: str, 
-        code: str, 
-        source: Optional[str] = None
+        self, market: str, code: str, source: Optional[str] = None
     ) -> Optional[Dict]:
-        """
-        获取股票基础信息（支持多数据源）
-        
-        Args:
-            market: 市场类型 (CN/HK/US)
-            code: 股票代码
-            source: 指定数据源（可选）
-        
-        Returns:
-            股票基础信息字典
-        """
-        collection_name = self.collection_map[market]["basic_info"]
-        collection = self.db[collection_name]
-        
+        """获取股票基础信息（支持多数据源，按优先级查询）。"""
+        coll = self._get_coll("basic_info", market)
+
         if source:
-            # 指定数据源
-            query = {"symbol": code, "data_source": source}
-            doc = await collection.find_one(query, {"_id": 0})
-            if doc:
-                logger.debug(f"✅ 使用指定数据源: {source}")
+            doc = await coll.find_one({"symbol": code, "data_source": source}, {"_id": 0})
         else:
-            # 🔥 按优先级查询（参考A股设计）
             source_priority = await self._get_source_priority(market)
             doc = None
-            
             for src in source_priority:
-                query = {"symbol": code, "data_source": src}
-                doc = await collection.find_one(query, {"_id": 0})
+                doc = await coll.find_one({"symbol": code, "data_source": src}, {"_id": 0})
                 if doc:
-                    logger.debug(f"✅ 使用数据源: {src} (优先级查询)")
                     break
-            
-            # 如果没有找到，尝试不指定数据源查询。
             if not doc:
-                doc = await collection.find_one({"symbol": code}, {"_id": 0})
-                if doc:
-                    logger.debug("✅ 使用默认数据源")
-        
+                doc = await coll.find_one({"symbol": code}, {"_id": 0})
+
         return self._normalize_doc(doc)
 
     async def _get_source_priority(self, market: str) -> List[str]:
-        """
-        从数据库获取数据源优先级
-        
-        Args:
-            market: 市场类型 (CN/HK/US)
-        
-        Returns:
-            数据源优先级列表
-        """
+        """从数据库获取数据源优先级。"""
         market_category_map = {
             "CN": "a_shares",
             "HK": "hk_stocks",
-            "US": "us_stocks"
+            "US": "us_stocks",
         }
-        
         market_category_id = market_category_map.get(market)
-        
+
         try:
-            # 从 datasource_groupings 集合查询
             groupings = await self.db.datasource_groupings.find({
                 "market_category_id": market_category_id,
-                "enabled": True
+                "enabled": True,
             }).sort("priority", -1).to_list(length=None)
-            
+
             if groupings:
-                priority_list = [g["data_source_name"] for g in groupings]
-                logger.debug(f"📊 {market} 数据源优先级（从数据库）: {priority_list}")
-                return priority_list
+                return [g["data_source_name"] for g in groupings]
         except Exception as e:
-            logger.warning(f"⚠️ 从数据库读取数据源优先级失败: {e}")
-        
-        # 默认优先级
+            logger.warning(f"从数据库读取数据源优先级失败: {e}")
+
         default_priority = {
             "CN": ["tushare", "akshare", "baostock"],
             "HK": ["yfinance_hk", "akshare_hk"],
-            "US": ["yfinance_us"]
+            "US": ["yfinance"],
         }
-        priority_list = default_priority.get(market, [])
-        logger.debug(f"📊 {market} 数据源优先级（默认）: {priority_list}")
-        return priority_list
+        return default_priority.get(market, [])
 
     async def get_stock_quote(self, market: str, code: str) -> Optional[Dict]:
-        """
-        获取实时行情
-        
-        Args:
-            market: 市场类型 (CN/HK/US)
-            code: 股票代码
-        
-        Returns:
-            实时行情字典
-        """
-        collection_name = self.collection_map[market]["quotes"]
-        collection = self.db[collection_name]
-        doc = await collection.find_one({"symbol": code}, {"_id": 0})
+        """获取实时行情。"""
+        coll = self._get_coll("market_quotes", market)
+        doc = await coll.find_one({"symbol": code}, {"_id": 0})
         return self._normalize_doc(doc)
 
-    async def search_stocks(
-        self, 
-        market: str, 
-        query: str, 
-        limit: int = 20
-    ) -> List[Dict]:
-        """
-        搜索股票（去重，只返回每个股票的最优数据源）
-        
-        Args:
-            market: 市场类型 (CN/HK/US)
-            query: 搜索关键词
-            limit: 返回数量限制
-        
-        Returns:
-            股票列表
-        """
-        collection_name = self.collection_map[market]["basic_info"]
-        collection = self.db[collection_name]
+    async def search_stocks(self, market: str, query: str, limit: int = 20) -> List[Dict]:
+        """搜索股票（去重，只返回每个股票的最优数据源）。"""
+        coll = self._get_coll("basic_info", market)
 
-        # 支持代码和名称搜索
         filter_query = {
             "$or": [
                 {"symbol": {"$regex": query, "$options": "i"}},
@@ -210,99 +115,65 @@ class UnifiedStockService:
             ]
         }
 
-        # 查询所有匹配的记录
-        cursor = collection.find(filter_query)
+        cursor = coll.find(filter_query)
         all_results = await cursor.to_list(length=None)
-        
+
         if not all_results:
             return []
-        
-        # 按 symbol 分组，每个 symbol 只保留优先级最高的数据源
+
         source_priority = await self._get_source_priority(market)
-        unique_results = {}
-        
+        unique_results: Dict[str, Dict] = {}
+
         for doc in all_results:
             symbol = doc.get("symbol")
             source = doc.get("data_source")
-            
             if not symbol:
                 continue
 
             if symbol not in unique_results:
                 unique_results[symbol] = doc
             else:
-                # 比较优先级
                 current_source = unique_results[symbol].get("data_source")
                 try:
                     if source in source_priority and current_source in source_priority:
                         if source_priority.index(source) < source_priority.index(current_source):
                             unique_results[symbol] = doc
                 except ValueError:
-                    # 如果source不在优先级列表中，保持当前记录
                     pass
-        
-        # 返回前 limit 条
-        result_list = [self._normalize_doc(doc) for doc in list(unique_results.values())[:limit]]
-        logger.info(f"🔍 搜索 {market} 市场: '{query}' -> {len(result_list)} 条结果（已去重）")
-        return result_list
+
+        return [self._normalize_doc(doc) for doc in list(unique_results.values())[:limit]]
 
     async def get_daily_quotes(
-        self,
-        market: str,
-        code: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        limit: int = 100
+        self, market: str, code: str,
+        start_date: Optional[str] = None, end_date: Optional[str] = None,
+        limit: int = 100,
     ) -> List[Dict]:
-        """
-        获取历史K线数据
-        
-        Args:
-            market: 市场类型 (CN/HK/US)
-            code: 股票代码
-            start_date: 开始日期 (YYYY-MM-DD)
-            end_date: 结束日期 (YYYY-MM-DD)
-            limit: 返回数量限制
-        
-        Returns:
-            K线数据列表
-        """
-        collection_name = self.collection_map[market]["daily"]
-        collection = self.db[collection_name]
-        
-        query = {"symbol": code}
+        """获取历史K线数据。"""
+        coll = self._get_coll("daily_quotes", market)
+
+        query: Dict = {"symbol": code}
         if start_date or end_date:
             query["trade_date"] = {}
             if start_date:
                 query["trade_date"]["$gte"] = start_date
             if end_date:
                 query["trade_date"]["$lte"] = end_date
-        
-        cursor = collection.find(query, {"_id": 0}).sort("trade_date", -1).limit(limit)
+
+        cursor = coll.find(query, {"_id": 0}).sort("trade_date", -1).limit(limit)
         docs = await cursor.to_list(length=limit)
         return [self._normalize_doc(doc) for doc in docs]
 
     async def get_cn_quote_with_basic_info(self, code6: str) -> Optional[Dict]:
-        """
-        获取 A 股实时行情（合并 market_quotes + stock_basic_info，按数据源优先级查询）。
-
-        Args:
-            code6: 6位股票代码
-
-        Returns:
-            合并后的行情 + 基础信息字典，或 None。
-        """
-        # 行情
-        quotes_coll = self.db["market_quotes"]
+        """获取 A 股实时行情（合并 market_quotes + stock_basic_info，按数据源优先级查询）。"""
+        quotes_coll = self._get_coll("market_quotes", "CN")
         q = await quotes_coll.find_one({"symbol": code6}, {"_id": 0})
 
-        # 基础信息 - 按数据源优先级查询
         enabled_sources = await self._get_source_priority("CN")
         if not enabled_sources:
             enabled_sources = ["tushare", "akshare", "baostock"]
 
+        basic_info_coll = self._get_coll("basic_info", "CN")
         b = None
-        basic_info_coll = self.db["stock_basic_info"]
         for src in enabled_sources:
             b = await basic_info_coll.find_one({"symbol": code6, "data_source": src}, {"_id": 0})
             if b:
@@ -324,7 +195,6 @@ class UnifiedStockService:
             except Exception:
                 prev_close = None
 
-        # 换手率：优先 market_quotes（实时），降级到 stock_basic_info（日度）
         turnover_rate = (q or {}).get("turnover_rate")
         turnover_rate_date = None
         if turnover_rate is None:
@@ -333,7 +203,6 @@ class UnifiedStockService:
         else:
             turnover_rate_date = (q or {}).get("trade_date")
 
-        # 振幅
         amplitude = None
         amplitude_date = None
         try:
@@ -367,23 +236,11 @@ class UnifiedStockService:
         }
 
     async def get_cn_fundamentals(
-        self,
-        code6: str,
-        source: Optional[str] = None,
+        self, code6: str, source: Optional[str] = None,
     ) -> Optional[Dict]:
-        """
-        获取 A 股基本面快照（stock_basic_info + stock_financial_data，按数据源优先级查询）。
+        """获取 A 股基本面快照（stock_basic_info + stock_financial_data，按数据源优先级查询）。"""
+        basic_info_coll = self._get_coll("basic_info", "CN")
 
-        Args:
-            code6: 6位股票代码
-            source: 指定数据源（可选）
-
-        Returns:
-            包含基础信息、估值指标、财务指标的字典，或 None。
-        """
-        basic_info_coll = self.db["stock_basic_info"]
-
-        # 1. 获取基础信息
         if source:
             b = await basic_info_coll.find_one({"symbol": code6, "data_source": source}, {"_id": 0})
             if not b:
@@ -400,14 +257,13 @@ class UnifiedStockService:
             if not b:
                 return None
 
-        # 2. 财务数据（按数据源优先级查询）
         financial_data = None
         try:
             enabled_sources = await self._get_source_priority("CN")
             if not enabled_sources:
                 enabled_sources = ["tushare", "akshare", "baostock"]
 
-            financial_coll = self.db["stock_financial_data"]
+            financial_coll = self._get_coll("financial_data", "CN")
             for data_source in enabled_sources:
                 financial_data = await financial_coll.find_one(
                     {"symbol": code6, "data_source": data_source},
@@ -417,26 +273,32 @@ class UnifiedStockService:
                 if financial_data:
                     break
         except Exception as e:
-            logger.warning(f"⚠️ 获取财务数据失败: {e}")
+            logger.warning(f"获取财务数据失败: {e}")
 
-        # 3. 实时 PE/PB
         realtime_metrics = {}
         try:
-            from app.data.realtime_metrics import get_pe_pb_with_fallback
-            import asyncio
-            realtime_metrics = await asyncio.to_thread(
-                get_pe_pb_with_fallback,
-                code6,
-                self.db.client,
-            )
+            from app.data.core.interface import DataInterface
+            di = DataInterface.get_instance()
+            result = await di.read("CN", code6, "daily_indicators")
+            data = result.get("data")
+            if data:
+                latest = data[0] if isinstance(data, list) else data
+                realtime_metrics = {
+                    "pe": latest.get("pe_ttm"),
+                    "pb": latest.get("pb"),
+                    "pe_ttm": latest.get("pe_ttm"),
+                    "market_cap": latest.get("total_mv"),
+                    "source": "daily_indicators",
+                    "is_realtime": False,
+                    "updated_at": latest.get("updated_at"),
+                }
         except Exception as e:
-            logger.warning(f"⚠️ 获取实时PE/PB失败: {e}")
+            logger.warning(f"获取实时PE/PB失败: {e}")
 
-        # 4. 构建返回数据
         realtime_market_cap = realtime_metrics.get("market_cap")
         total_mv = realtime_market_cap if realtime_market_cap else b.get("total_mv")
 
-        data = {
+        result_data = {
             "symbol": code6,
             "name": b.get("name"),
             "industry": b.get("industry"),
@@ -462,16 +324,15 @@ class UnifiedStockService:
             "data_source": b.get("data_source"),
         }
 
-        # 5. 从财务数据中提取 ROE、负债率、PS
         if financial_data:
             if financial_data.get("financial_indicators"):
                 indicators = financial_data["financial_indicators"]
-                data["roe"] = indicators.get("roe")
-                data["debt_ratio"] = indicators.get("debt_to_assets")
-            if data["roe"] is None:
-                data["roe"] = financial_data.get("roe")
-            if data["debt_ratio"] is None:
-                data["debt_ratio"] = financial_data.get("debt_to_assets")
+                result_data["roe"] = indicators.get("roe")
+                result_data["debt_ratio"] = indicators.get("debt_to_assets")
+            if result_data["roe"] is None:
+                result_data["roe"] = financial_data.get("roe")
+            if result_data["debt_ratio"] is None:
+                result_data["debt_ratio"] = financial_data.get("debt_to_assets")
 
             revenue_ttm = financial_data.get("revenue_ttm")
             revenue = financial_data.get("revenue")
@@ -480,35 +341,23 @@ class UnifiedStockService:
             if revenue_for_ps and revenue_for_ps > 0 and total_mv and total_mv > 0:
                 revenue_yi = revenue_for_ps / 100000000
                 ps_calculated = total_mv / revenue_yi
-                data["ps"] = round(ps_calculated, 2)
-                data["ps_ttm"] = round(ps_calculated, 2) if revenue_ttm else None
+                result_data["ps"] = round(ps_calculated, 2)
+                result_data["ps_ttm"] = round(ps_calculated, 2) if revenue_ttm else None
 
-        if data["roe"] is None:
-            data["roe"] = b.get("roe")
+        if result_data["roe"] is None:
+            result_data["roe"] = b.get("roe")
 
-        return data
+        return result_data
 
     async def get_market_quotes_raw(self, code: str) -> Optional[Dict]:
-        """
-        获取 market_quotes 原始记录（用于 K 线实时数据补充等场景）。
-
-        Args:
-            code: 股票代码
-
-        Returns:
-            market_quotes 文档字典，或 None。
-        """
-        quotes_coll = self.db["market_quotes"]
-        doc = await quotes_coll.find_one({"symbol": code}, {"_id": 0})
+        """获取 market_quotes 原始记录（用于 K 线实时数据补充等场景）。"""
+        # 默认查 CN 市场（向后兼容）
+        coll = self._get_coll("market_quotes", "CN")
+        doc = await coll.find_one({"symbol": code}, {"_id": 0})
         return self._normalize_doc(doc)
 
     async def get_supported_markets(self) -> List[Dict]:
-        """
-        获取支持的市场列表
-
-        Returns:
-            市场列表
-        """
+        """获取支持的市场列表。"""
         from app.engine.config.runtime_settings import get_timezone_name
 
         return [
@@ -517,21 +366,20 @@ class UnifiedStockService:
                 "name": "A股",
                 "name_en": "China A-Share",
                 "currency": "CNY",
-                "timezone": get_timezone_name()
+                "timezone": get_timezone_name(),
             },
             {
                 "code": "HK",
                 "name": "港股",
                 "name_en": "Hong Kong Stock",
                 "currency": "HKD",
-                "timezone": "Asia/Hong_Kong"
+                "timezone": "Asia/Hong_Kong",
             },
             {
                 "code": "US",
                 "name": "美股",
                 "name_en": "US Stock",
                 "currency": "USD",
-                "timezone": "America/New_York"
-            }
+                "timezone": "America/New_York",
+            },
         ]
-

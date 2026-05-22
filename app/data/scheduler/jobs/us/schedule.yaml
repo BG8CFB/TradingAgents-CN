@@ -1,0 +1,85 @@
+# 美股调度时间表 (ET = America/New_York，含夏令时)
+# 调度引擎自动按 DST 规则换算到服务器时区
+# cron 格式: "分 时 日 月 周"
+
+trade_calendar:
+  cron: "0 0 * * *"
+  timezone: "America/New_York"
+  mode: full
+  description: "每日 00:00 ET 全量同步交易日历"
+  source: "tushare_us"
+
+basic_info:
+  cron: "0 6 * * *"
+  timezone: "America/New_York"
+  mode: full
+  description: "每日 06:00 ET 全量同步股票列表"
+  source: "finnhub"
+  depends_on:
+    - trade_calendar
+
+tushare_universe:
+  cron: "30 6 * * 1"
+  timezone: "America/New_York"
+  mode: full
+  description: "每周一 06:30 ET 维护 Tushare 覆盖白名单"
+  source: "tushare_us"
+
+corporate_actions:
+  cron: "0 18 * * *"
+  timezone: "America/New_York"
+  mode: incremental
+  description: "每日 18:00 ET 增量同步公司行为"
+  source: "yfinance"
+
+daily_quotes:
+  cron: "30 16 * * 1-5"
+  timezone: "America/New_York"
+  mode: incremental
+  description: "每交易日 16:30 ET 增量同步日线行情"
+  depends_on:
+    - basic_info
+
+daily_indicators:
+  cron: "30 17 * * 1-5"
+  timezone: "America/New_York"
+  mode: incremental
+  description: "每交易日 17:30 ET 增量同步每日指标"
+  depends_on:
+    - daily_quotes
+
+adj_factors:
+  cron: "30 18 * * 1-5"
+  timezone: "America/New_York"
+  mode: incremental
+  description: "每交易日 18:30 ET 增量/推导复权因子"
+  depends_on:
+    - daily_quotes
+    - corporate_actions
+
+financial_data:
+  cron: "0 21 * * *"
+  timezone: "America/New_York"
+  mode: incremental
+  description: "每日 21:00 ET 增量同步财务数据"
+
+market_quotes:
+  cron: "1 16 * * 1-5"
+  timezone: "America/New_York"
+  mode: full
+  description: "每交易日 16:01 ET 全量收盘快照"
+  source: "yfinance"
+
+pre_post_market:
+  cron: "*/5 4-20 * * 1-5"
+  timezone: "America/New_York"
+  mode: incremental
+  description: "盘前 04:00-09:30 / 盘后 16:00-20:00 每 5 分钟"
+  source: "finnhub"
+
+news:
+  cron: "0 */1 * * *"
+  timezone: "America/New_York"
+  mode: incremental
+  description: "每 1 小时增量同步新闻"
+  source: "finnhub"

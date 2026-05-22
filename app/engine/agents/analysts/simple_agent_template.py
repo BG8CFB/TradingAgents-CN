@@ -252,13 +252,29 @@ def create_simple_agent(
             company_name = ticker
             try:
                 if market_info["is_china"]:
-                    from app.data.reader import get_stock_info as _get_stock_info_cn
-                    stock_info = _get_stock_info_cn("CN", ticker)
-                    if "股票名称:" in stock_info:
-                        company_name = stock_info.split("股票名称:")[1].split("\n")[0].strip()
+                    import asyncio
+                    from app.data.core.interface import DataInterface
+                    di = DataInterface.get_instance()
+                    result = asyncio.run(di.read("CN", ticker, "basic_info"))
+                    data = result.get("data")
+                    if data:
+                        doc = data[0] if isinstance(data, list) and data else data
+                        if doc.get("name"):
+                            company_name = doc["name"]
                 elif market_info["is_hk"]:
-                    from app.data.sources.hk.akshare_hk.provider import AKShareHKProvider as _HKProvider
-                    company_name = get_hk_company_name_improved(ticker)
+                    import asyncio
+                    from app.data.core.interface import DataInterface
+                    clean_ticker = ticker.replace(".HK", "").replace(".hk", "").zfill(5)
+                    di = DataInterface.get_instance()
+                    result = asyncio.run(di.read("HK", clean_ticker, "basic_info"))
+                    data = result.get("data")
+                    if data:
+                        doc = data[0] if isinstance(data, list) and data else data
+                        name = doc.get("name_zh") or doc.get("name_en") or doc.get("name")
+                        if name:
+                            company_name = name
+                    else:
+                        company_name = f"港股{clean_ticker}"
                 elif market_info["is_us"]:
                     company_name = _get_us_company_name(ticker)
             except Exception as e:

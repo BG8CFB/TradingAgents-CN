@@ -23,7 +23,11 @@ from app.engine.agents.utils.agent_states import (
     InvestDebateState,
     RiskDebateState,
 )
-from app.data.interface import set_config
+import logging as _logging
+_logger_compat = _logging.getLogger(__name__)
+def _set_config_noop(config):
+    """兼容旧版 set_config — 新架构通过 DataInterface 管理。"""
+    _logger_compat.debug("set_config 兼容调用（空操作）")
 
 from .conditional_logic import ConditionalLogic
 from .setup import GraphSetup
@@ -127,7 +131,7 @@ class TradingAgentsGraph:
             logger.info("🔧 [TradingGraph] 检测到 MCP loader，已自动启用 MCP 工具")
 
         # Update the interface's config
-        set_config(self.config)
+        _set_config_noop(self.config)
 
         # Create necessary directories
         cache_root = self.config.get("data_cache_dir") or str(get_cache_dir() / "dataflows")
@@ -290,28 +294,27 @@ class TradingAgentsGraph:
         # 分析前刷新核心数据域（非阻塞，刷新失败不中断分析）
         try:
             import asyncio
-            from app.services.cn_data_refresh_service import get_refresh_service
+            from app.data.core.interface import DataInterface
 
             symbol = company_name
-            refresh_svc = get_refresh_service()
-            refresh_coro = refresh_svc.refresh(
-                symbol, domains=["daily_quotes", "daily_indicators"], timeout=30,
-            )
+            di = DataInterface.get_instance()
+
+            async def _do_refresh():
+                return await di.refresh("CN", symbol, domains=["daily_quotes", "daily_indicators"], force=False, timeout=30)
+
             try:
                 loop = asyncio.get_running_loop()
-                # 已有运行中的事件循环 → 创建后台 Task
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     refresh_result = loop.run_in_executor(
-                        pool, lambda: asyncio.run(refresh_svc.refresh(symbol, domains=["daily_quotes", "daily_indicators"], timeout=30))
+                        pool, lambda: asyncio.run(_do_refresh())
                     )
                 logger.info("📊 [数据刷新] %s 后台刷新已提交", symbol)
             except RuntimeError:
-                # 无事件循环 → 直接运行
-                refresh_result = asyncio.run(refresh_coro)
+                refresh_result = asyncio.run(_do_refresh())
                 logger.info(
                     "📊 [数据刷新] %s 刷新结果: %s (%dms)",
-                    symbol, refresh_result.status, refresh_result.duration_ms,
+                    symbol, refresh_result.status, refresh_result.total_latency_ms,
                 )
         except Exception as refresh_err:
             logger.warning(f"⚠️ [数据刷新] 刷新失败，使用现有数据: {refresh_err}")

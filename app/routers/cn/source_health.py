@@ -1,6 +1,4 @@
-"""
-数据源健康监控 API
-"""
+"""数据源健康监控 API。"""
 
 from fastapi import APIRouter
 
@@ -13,9 +11,10 @@ router = APIRouter(prefix="/api/cn/data", tags=["CN Source Health"])
 async def get_source_health():
     """获取数据源健康统计"""
     try:
-        from app.services.cn_data_refresh_service import get_refresh_service
-        svc = get_refresh_service()
-        health = svc._router.get_source_health() if svc._router else []
+        from app.data.core.interface import DataInterface
+
+        di = DataInterface.get_instance()
+        health = await di.get_source_health("CN")
         return ok(data=health)
     except Exception as e:
         return fail(message=f"查询失败: {e}", code=500)
@@ -25,11 +24,10 @@ async def get_source_health():
 async def reset_circuit_breaker(source: str, domain: str):
     """重置指定数据源的熔断器"""
     try:
-        from app.services.cn_data_refresh_service import get_refresh_service
-        svc = get_refresh_service()
-        if svc._router:
-            svc._router.circuit_breaker.reset(source, domain)
-            return ok(message=f"熔断器 {source}/{domain} 已重置")
-        return fail(message="FallbackRouter 未初始化", code=400)
+        from app.data.processor.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+        cb.reset(source, domain)
+        return ok(message=f"熔断器 {source}/{domain} 已重置")
     except Exception as e:
         return fail(message=f"重置失败: {e}", code=500)

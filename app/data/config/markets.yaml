@@ -1,0 +1,50 @@
+# 各市场基础配置
+
+CN:
+  code: CN
+  name_zh: A股
+  timezone: Asia/Shanghai
+  currency: CNY
+  trading_hours:
+    morning: "09:30-11:30"
+    afternoon: "13:00-15:00"
+  symbol_format: "\\d{6}"
+  exchanges:
+    - SSE
+    - SZSE
+    - BSE
+  collection_suffix: _cn
+  tushare_token_env: TUSHARE_CN_TOKEN
+
+HK:
+  code: HK
+  name_zh: 港股
+  timezone: Asia/Hong_Kong
+  currency: HKD
+  trading_hours:
+    morning: "09:30-12:00"
+    afternoon: "13:00-16:00"
+  symbol_format: "\\d{5}"
+  exchanges:
+    - HKEX
+  collection_suffix: _hk
+  tushare_token_env: TUSHARE_HK_TOKEN
+  tushare_min_credits: 2000
+
+US:
+  code: US
+  name_zh: 美股
+  timezone: America/New_York
+  currency: USD
+  trading_hours:
+    regular: "09:30-16:00"
+    pre_market: "04:00-09:30"
+    post_market: "16:00-20:00"
+  symbol_format: "[A-Z]{1,5}"
+  exchanges:
+    - NYSE
+    - NASDAQ
+    - AMEX
+  collection_suffix: _us
+  tushare_token_env: TUSHARE_US_TOKEN
+  tushare_min_credits: 120

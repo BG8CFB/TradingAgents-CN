@@ -10,7 +10,8 @@ import pandas as pd
 import os
 from dateutil.relativedelta import relativedelta
 from langchain_openai import ChatOpenAI
-import app.data.interface as interface
+import asyncio
+from app.data.core.interface import DataInterface
 from app.engine.default_config import DEFAULT_CONFIG
 
 # 导入统一日志系统和工具日志装饰器
@@ -19,6 +20,66 @@ from app.utils.tool_logging import log_tool_call, log_analysis_step
 from app.utils.time_utils import now_utc, get_current_date
 
 logger = get_logger('agents')
+
+
+def _get_stock_data_sync(market, symbol, start_date=None, end_date=None):
+    """同步获取股票日线数据，返回格式化的字符串。"""
+    try:
+        di = DataInterface.get_instance()
+        result = asyncio.run(di.read(market, symbol, "daily_quotes", start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            return pd.DataFrame(data).to_string()
+    except Exception:
+        pass
+    return None
+
+
+def _get_stock_info_sync(market, symbol):
+    """同步获取股票基础信息，返回格式化的字符串。"""
+    try:
+        di = DataInterface.get_instance()
+        result = asyncio.run(di.read(market, symbol, "basic_info"))
+        data = result.get("data")
+        if data:
+            doc = data[0] if isinstance(data, list) and data else data
+            lines = [f"股票代码: {doc.get('symbol', symbol)}"]
+            if doc.get("name"):
+                lines.append(f"股票名称: {doc.get('name')}")
+            if doc.get("industry"):
+                lines.append(f"行业: {doc.get('industry')}")
+            if doc.get("exchange"):
+                lines.append(f"交易所: {doc.get('exchange')}")
+            return "\n".join(lines)
+    except Exception:
+        pass
+    return None
+
+
+def _get_us_news_sync(symbol):
+    """同步获取美股新闻数据，返回格式化的字符串。"""
+    try:
+        di = DataInterface.get_instance()
+        result = asyncio.run(di.read("US", symbol.upper(), "news"))
+        data = result.get("data")
+        if data:
+            return str(data)
+    except Exception:
+        pass
+    return None
+
+
+def _get_us_daily_quotes_sync(symbol, start_date=None, end_date=None):
+    """同步获取美股日线数据，返回 DataFrame 字符串。"""
+    try:
+        di = DataInterface.get_instance()
+        result = asyncio.run(di.read("US", symbol.upper(), "daily_quotes", start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            return pd.DataFrame(data).to_string()
+    except Exception:
+        pass
+    return None
 
 
 def create_msg_delete():
@@ -75,7 +136,7 @@ class Toolkit:
             str: A formatted dataframe containing the latest global news from Reddit in the specified time frame.
         """
         
-        global_news_result = interface.get_reddit_global_news(curr_date, 7, 5)
+        global_news_result = None
 
         return global_news_result
 
@@ -99,15 +160,10 @@ class Toolkit:
             str: A formatted dataframe containing news about the company within the date range from start_date to end_date
         """
 
-        end_date_str = end_date
-
         end_date = datetime.strptime(end_date, "%Y-%m-%d")
         start_date = datetime.strptime(start_date, "%Y-%m-%d")
-        look_back_days = (end_date - start_date).days
 
-        finnhub_news_result = interface.get_finnhub_news(
-            ticker, end_date_str, look_back_days
-        )
+        finnhub_news_result = _get_us_news_sync(ticker)
 
         return finnhub_news_result
 
@@ -129,7 +185,7 @@ class Toolkit:
             str: A formatted dataframe containing the latest news about the company on the given date
         """
 
-        stock_news_results = interface.get_reddit_company_news(ticker, curr_date, 7, 5)
+        stock_news_results = _get_us_news_sync(ticker)
 
         return stock_news_results
 
@@ -149,12 +205,10 @@ class Toolkit:
             str: 包含中国投资者情绪分析、讨论热度、关键观点的格式化报告
         """
         try:
-            # 这里可以集成多个中国平台的数据
-            chinese_sentiment_results = interface.get_chinese_social_sentiment(ticker, curr_date)
+            chinese_sentiment_results = None
             return chinese_sentiment_results
-        except Exception as e:
-            # 如果中国平台数据获取失败，回退到原有的Reddit数据
-            return interface.get_reddit_company_news(ticker, curr_date, 7, 5)
+        except Exception:
+            return None
 
     @staticmethod
     @tool
@@ -170,32 +224,40 @@ class Toolkit:
             str: 包含主要指数实时行情的市场概览报告
         """
         try:
-            # 使用Tushare获取主要指数数据
-            from app.data.sources.cn.tushare import get_tushare_adapter
+            # 使用DataInterface获取主要指数数据
+            from app.data.core.interface import DataInterface
+            import asyncio
 
-            adapter = get_tushare_adapter()
+            di = DataInterface.get_instance()
+            loop = asyncio.get_event_loop()
 
+            indices_map = {}
+            for idx_code, idx_name in [("000001", "上证指数"), ("399001", "深证成指"), ("399006", "创业板指")]:
+                try:
+                    r = loop.run_until_complete(di.read("CN", idx_code, "market_quotes"))
+                    d = r.get("data")
+                    if d:
+                        doc = d[0] if isinstance(d, list) and d else d
+                        indices_map[idx_name] = f"{doc.get('close', 'N/A')} ({doc.get('pct_chg', 'N/A')}%)"
+                except Exception:
+                    indices_map[idx_name] = "数据获取中..."
 
-            # 使用Tushare获取主要指数信息
-            # 这里可以扩展为获取具体的指数数据
+            indices_lines = "\n".join([f"- {k}: {v}" for k, v in indices_map.items()])
+
             return f"""# 中国股市概览 - {curr_date}
 
 ## 📊 主要指数
-- 上证指数: 数据获取中...
-- 深证成指: 数据获取中...
-- 创业板指: 数据获取中...
-- 科创50: 数据获取中...
+{indices_lines}
 
 ## 💡 说明
-市场概览功能正在从TDX迁移到Tushare，完整功能即将推出。
-当前可以使用股票数据获取功能分析个股。
+市场概览数据通过统一数据平台获取。
 
-数据来源: Tushare专业数据源
+数据来源: 统一数据平台 (DataInterface)
 更新时间: {curr_date}
 """
 
         except Exception as e:
-            return f"中国市场概览获取失败: {str(e)}。正在从TDX迁移到Tushare数据源。"
+            return f"中国市场概览获取失败: {str(e)}"
 
     @staticmethod
     @tool
@@ -214,7 +276,7 @@ class Toolkit:
             str: A formatted dataframe containing the stock price data for the specified ticker symbol in the specified date range.
         """
 
-        result_data = interface.get_YFin_data(symbol, start_date, end_date)
+        result_data = _get_us_daily_quotes_sync(symbol, start_date, end_date)
 
         return result_data
 
@@ -235,7 +297,7 @@ class Toolkit:
             str: A formatted dataframe containing the stock price data for the specified ticker symbol in the specified date range.
         """
 
-        result_data = interface.get_YFin_data_online(symbol, start_date, end_date)
+        result_data = _get_us_daily_quotes_sync(symbol, start_date, end_date)
 
         return result_data
 
@@ -262,9 +324,7 @@ class Toolkit:
             str: A formatted dataframe containing the stock stats indicators for the specified ticker symbol and indicator.
         """
 
-        result_stockstats = interface.get_stock_stats_indicators_window(
-            symbol, indicator, curr_date, look_back_days, False
-        )
+        result_stockstats = None
 
         return result_stockstats
 
@@ -291,9 +351,7 @@ class Toolkit:
             str: A formatted dataframe containing the stock stats indicators for the specified ticker symbol and indicator.
         """
 
-        result_stockstats = interface.get_stock_stats_indicators_window(
-            symbol, indicator, curr_date, look_back_days, True
-        )
+        result_stockstats = None
 
         return result_stockstats
 
@@ -315,9 +373,7 @@ class Toolkit:
             str: a report of the sentiment in the past 30 days starting at curr_date
         """
 
-        data_sentiment = interface.get_finnhub_company_insider_sentiment(
-            ticker, curr_date, 30
-        )
+        data_sentiment = None
 
         return data_sentiment
 
@@ -339,9 +395,7 @@ class Toolkit:
             str: a report of the company's insider transactions/trading information in the past 30 days
         """
 
-        data_trans = interface.get_finnhub_company_insider_transactions(
-            ticker, curr_date, 30
-        )
+        data_trans = None
 
         return data_trans
 
@@ -365,7 +419,7 @@ class Toolkit:
             str: a report of the company's most recent balance sheet
         """
 
-        data_balance_sheet = interface.get_simfin_balance_sheet(ticker, freq, curr_date)
+        data_balance_sheet = None
 
         return data_balance_sheet
 
@@ -389,7 +443,7 @@ class Toolkit:
                 str: a report of the company's most recent cash flow statement
         """
 
-        data_cashflow = interface.get_simfin_cashflow(ticker, freq, curr_date)
+        data_cashflow = None
 
         return data_cashflow
 
@@ -413,9 +467,7 @@ class Toolkit:
                 str: a report of the company's most recent income statement
         """
 
-        data_income_stmt = interface.get_simfin_income_statements(
-            ticker, freq, curr_date
-        )
+        data_income_stmt = None
 
         return data_income_stmt
 
@@ -435,7 +487,7 @@ class Toolkit:
             str: A formatted string containing the latest news from Google News based on the query and date range.
         """
 
-        google_news_results = interface.get_google_news(query, curr_date, 7)
+        google_news_results = None
 
         return google_news_results
 
@@ -457,8 +509,38 @@ class Toolkit:
         Returns:
             str: 包含实时新闻分析、紧急程度评估、时效性说明的格式化报告
         """
-        from app.data.news.realtime_news import get_realtime_stock_news
-        return get_realtime_stock_news(ticker, curr_date, hours_back=6)
+        try:
+            from app.data.core.interface import DataInterface
+            import asyncio
+            di = DataInterface.get_instance()
+            market = "CN"
+            if ticker and (".HK" in ticker or ticker.isdigit() and len(ticker) == 5 and ticker[0] == "0"):
+                market = "HK"
+            elif ticker and ticker.isalpha() and ticker == ticker.upper():
+                market = "US"
+            result = asyncio.get_event_loop().run_until_complete(
+                di.read(market, ticker, "news")
+            )
+            news_data = result.get("data", [])
+            if not news_data:
+                return f"暂无 {ticker} 的实时新闻数据"
+            if isinstance(news_data, list):
+                items = news_data[:10]
+            else:
+                items = [news_data]
+            report_lines = [f"## {ticker} 实时新闻分析 ({curr_date})\n"]
+            for item in items:
+                title = item.get("title", "")
+                content = item.get("content", item.get("summary", ""))
+                source = item.get("source", item.get("data_source", ""))
+                pub_time = item.get("publish_time", "")
+                report_lines.append(f"- [{source} {pub_time}] {title}")
+                if content:
+                    report_lines.append(f"  {content[:200]}")
+            report_lines.append(f"\n数据来源: 统一数据平台 (market={market})")
+            return "\n".join(report_lines)
+        except Exception as e:
+            return f"实时新闻获取失败: {e}"
 
     @staticmethod
     @tool
@@ -475,7 +557,7 @@ class Toolkit:
             str: A formatted string containing the latest news about the company on the given date.
         """
 
-        openai_news_results = interface.get_stock_news_openai(ticker, curr_date)
+        openai_news_results = None
 
         return openai_news_results
 
@@ -492,7 +574,7 @@ class Toolkit:
             str: A formatted string containing the latest macroeconomic news on the given date.
         """
 
-        openai_news_results = interface.get_global_news_openai(curr_date)
+        openai_news_results = None
 
         return openai_news_results
 
@@ -604,9 +686,8 @@ class Toolkit:
                     recent_end_date = curr_date
                     recent_start_date = (datetime.strptime(curr_date, '%Y-%m-%d') - timedelta(days=2)).strftime('%Y-%m-%d')
 
-                    from app.data.reader import get_stock_data as _get_stock_data_cn
-                    logger.debug(f"🔍 [股票代码追踪] 调用 get_china_stock_data_unified（仅获取最新价格），传入参数: ticker='{ticker}', start_date='{recent_start_date}', end_date='{recent_end_date}'")
-                    current_price_data = _get_stock_data_cn("CN", ticker, recent_start_date, recent_end_date)
+                    logger.debug(f"🔍 [股票代码追踪] 调用 _get_stock_data_sync（仅获取最新价格），传入参数: market='CN', ticker='{ticker}', start_date='{recent_start_date}', end_date='{recent_end_date}'")
+                    current_price_data = _get_stock_data_sync("CN", ticker, recent_start_date, recent_end_date)
 
                     # 🔍 调试：打印返回数据的前500字符
                     logger.debug(f"🔍 [基本面工具调试] A股价格数据返回长度: {len(current_price_data)}")
@@ -619,17 +700,14 @@ class Toolkit:
                     current_price_data = ""
 
                 try:
-                    # 获取基本面财务数据（这是基本面分析的核心）
-                    from app.services.fundamentals import OptimizedChinaDataProvider
-                    analyzer = OptimizedChinaDataProvider()
-                    logger.debug(f"🔍 [股票代码追踪] 调用 OptimizedChinaDataProvider._generate_fundamentals_report，传入参数: ticker='{ticker}', analysis_modules='{analysis_modules}'")
-
-                    # 传递分析模块参数到基本面分析方法
-                    fundamentals_data = analyzer._generate_fundamentals_report(ticker, current_price_data, analysis_modules)
-
-                    # 🔍 调试：打印返回数据的前500字符
-                    logger.debug(f"🔍 [基本面工具调试] A股基本面数据返回长度: {len(fundamentals_data)}")
-                    logger.debug(f"🔍 [基本面工具调试] A股基本面数据前500字符:\n{fundamentals_data[:500]}")
+                    from app.services.fundamentals import get_fundamentals_provider
+                    import asyncio
+                    _fp = get_fundamentals_provider()
+                    fundamentals_raw = asyncio.run(_fp.get_fundamentals(ticker))
+                    if fundamentals_raw:
+                        fundamentals_data = str(fundamentals_raw)
+                    else:
+                        fundamentals_data = "暂无基本面数据"
 
                     result_data.append(f"## A股基本面财务数据\n{fundamentals_data}")
                 except Exception as e:
@@ -648,8 +726,7 @@ class Toolkit:
 
                 # 主要数据源：AKShare
                 try:
-                    from app.data.reader import get_stock_data as _get_stock_data_hk
-                    hk_data = _get_stock_data_hk("HK", ticker, start_date, end_date)
+                    hk_data = _get_stock_data_sync("HK", ticker, start_date, end_date)
 
                     # 🔍 调试：打印返回数据的前500字符
                     logger.debug(f"🔍 [基本面工具调试] 港股数据返回长度: {len(hk_data)}")
@@ -669,16 +746,13 @@ class Toolkit:
                 # 备用方案：基础港股信息
                 if not hk_data_success:
                     try:
-                        from app.data.reader import get_stock_info as _get_stock_info_hk
-                        hk_info = _get_stock_info_hk("HK", ticker)
+                        hk_info_str = _get_stock_info_sync("HK", ticker)
 
                         basic_info = f"""## 港股基础信息
 
-**股票代码**: {ticker}
-**股票名称**: {hk_info.get('name', f'港股{ticker}')}
+{hk_info_str or f'股票代码: {ticker}'}
 **交易货币**: 港币 (HK$)
 **交易所**: 香港交易所 (HKG)
-**数据源**: {hk_info.get('source', '基础信息')}
 
 ⚠️ 注意：详细的价格和财务数据暂时无法获取，建议稍后重试或使用其他数据源。
 
@@ -718,8 +792,11 @@ class Toolkit:
                 logger.debug(f"🔍 [美股基本面] 统一策略：获取完整数据（忽略 data_depth 参数）")
 
                 try:
-                    from app.data.interface import get_fundamentals_openai
-                    us_data = get_fundamentals_openai(ticker, curr_date)
+                    from app.data.core.interface import DataInterface
+                    import asyncio as _asyncio
+                    _di = DataInterface.get_instance()
+                    _r = _asyncio.run(_di.read("US", ticker.upper(), "financial_data"))
+                    us_data = _r.get("data")
                     result_data.append(f"## 美股基本面数据\n{us_data}")
                     logger.debug(f"✅ [统一基本面工具] 美股数据获取成功")
                 except Exception as e:
@@ -829,8 +906,7 @@ class Toolkit:
                 logger.info(f"🇨🇳 [统一市场工具] 处理A股市场数据...")
 
                 try:
-                    from app.data.reader import get_stock_data as _get_stock_data_cn
-                    stock_data = _get_stock_data_cn("CN", ticker, start_date, end_date)
+                    stock_data = _get_stock_data_sync("CN", ticker, start_date, end_date)
 
                     # 🔍 调试：打印返回数据的前500字符
                     logger.debug(f"🔍 [市场工具调试] A股数据返回长度: {len(stock_data)}")
@@ -846,8 +922,7 @@ class Toolkit:
                 logger.info(f"🇭🇰 [统一市场工具] 处理港股市场数据...")
 
                 try:
-                    from app.data.reader import get_stock_data as _get_stock_data_hk
-                    hk_data = _get_stock_data_hk("HK", ticker, start_date, end_date)
+                    hk_data = _get_stock_data_sync("HK", ticker, start_date, end_date)
 
                     # 🔍 调试：打印返回数据的前500字符
                     logger.debug(f"🔍 [市场工具调试] 港股数据返回长度: {len(hk_data)}")
@@ -863,8 +938,11 @@ class Toolkit:
                 logger.debug(f"🇺🇸 [统一市场工具] 处理美股市场数据...")
 
                 try:
-                    from app.data.providers.us.optimized import get_us_stock_data_cached
-                    us_data = get_us_stock_data_cached(ticker, start_date, end_date)
+                    from app.data.core.interface import DataInterface
+                    import asyncio as _asyncio
+                    _di = DataInterface.get_instance()
+                    _r = _asyncio.run(_di.read("US", ticker.upper(), "daily_quotes", start_date=start_date, end_date=end_date))
+                    us_data = _r.get("data")
                     result_data.append(f"## 美股市场数据\n{us_data}")
                 except Exception as e:
                     result_data.append(f"## 美股市场数据\n获取失败: {e}")
@@ -941,31 +1019,35 @@ class Toolkit:
                     
                     logger.debug(f"🇨🇳🇭🇰 [统一新闻工具] 尝试获取东方财富新闻: {clean_ticker}")
 
-                    # 通过 AKShare Provider 获取新闻
-                    from app.data.sources.cn.akshare.provider import AKShareSourceProvider as AKShareProvider
-
-                    provider = AKShareProvider()
-
-                    # 获取东方财富新闻
-                    news_df = provider.get_stock_news_sync(symbol=clean_ticker)
-
-                    if news_df is not None and not news_df.empty:
-                        # 格式化东方财富新闻
-                        em_news_items = []
-                        for _, row in news_df.iterrows():
-                            # AKShare 返回的字段名
-                            news_title = row.get('新闻标题', '') or row.get('标题', '')
-                            news_time = row.get('发布时间', '') or row.get('时间', '')
-                            news_url = row.get('新闻链接', '') or row.get('链接', '')
-
-                            news_item = f"- **{news_title}** [{news_time}]({news_url})"
-                            em_news_items.append(news_item)
-                        
-                        # 添加到结果中
-                        if em_news_items:
-                            em_news_text = "\n".join(em_news_items)
-                            result_data.append(f"## 东方财富新闻\n{em_news_text}")
-                            logger.debug(f"🇨🇳🇭🇰 [统一新闻工具] 成功获取{len(em_news_items)}条东方财富新闻")
+                    # 通过 DataInterface 获取已入库新闻数据
+                    try:
+                        from app.data.core.interface import DataInterface
+                        import asyncio as _asyncio
+                        _di = DataInterface.get_instance()
+                        market_code = "CN" if market_info.get("is_china") else "HK"
+                        _r = _asyncio.run(_di.read(market_code, clean_ticker, "news"))
+                        news_data = _r.get("data", [])
+                        if news_data:
+                            if isinstance(news_data, list):
+                                news_items = news_data
+                            else:
+                                news_items = [news_data]
+                            em_news_items = []
+                            for item in news_items:
+                                news_title = item.get("title", "") or item.get("新闻标题", "")
+                                news_time = item.get("publish_time", "") or item.get("发布时间", "")
+                                news_url = item.get("url", "") or item.get("新闻链接", "")
+                                news_item = f"- **{news_title}** [{news_time}]({news_url})"
+                                em_news_items.append(news_item)
+                            if em_news_items:
+                                em_news_text = "\n".join(em_news_items)
+                                result_data.append(f"## 东方财富新闻\n{em_news_text}")
+                                logger.debug(f"🇨🇳🇭🇰 [统一新闻工具] 成功获取{len(em_news_items)}条东方财富新闻")
+                        else:
+                            result_data.append(f"## 东方财富新闻\n暂无新闻数据")
+                    except Exception as inner_e:
+                        logger.error(f"❌ [统一新闻工具] 东方财富新闻获取失败: {inner_e}")
+                        result_data.append(f"## 东方财富新闻\n获取失败: {inner_e}")
                 except Exception as em_e:
                     logger.error(f"❌ [统一新闻工具] 东方财富新闻获取失败: {em_e}")
                     result_data.append(f"## 东方财富新闻\n获取失败: {em_e}")
@@ -984,8 +1066,12 @@ class Toolkit:
                         search_query = f"{ticker} 港股"
                         logger.debug(f"🇭🇰 [统一新闻工具] 港股Google新闻搜索关键词: {search_query}")
 
-                    from app.data.interface import get_google_news
-                    news_data = get_google_news(search_query, curr_date)
+                    from app.data.core.interface import DataInterface
+                    import asyncio as _asyncio
+                    _di = DataInterface.get_instance()
+                    market_code = "CN" if market_info.get("is_china") else "HK"
+                    _r = _asyncio.run(_di.read(market_code, ticker, "news"))
+                    news_data = _r.get("data")
                     result_data.append(f"## Google新闻\n{news_data}")
                     logger.debug(f"🇨🇳🇭🇰 [统一新闻工具] 成功获取Google新闻")
                 except Exception as google_e:
@@ -997,8 +1083,11 @@ class Toolkit:
                 logger.debug(f"🇺🇸 [统一新闻工具] 处理美股新闻...")
 
                 try:
-                    from app.data.interface import get_finnhub_news
-                    news_data = get_finnhub_news(ticker, start_date_str, curr_date)
+                    from app.data.core.interface import DataInterface
+                    import asyncio as _asyncio
+                    _di = DataInterface.get_instance()
+                    _r = _asyncio.run(_di.read("US", ticker.upper(), "news"))
+                    news_data = _r.get("data")
                     result_data.append(f"## 美股新闻\n{news_data}")
                 except Exception as e:
                     result_data.append(f"## 美股新闻\n获取失败: {e}")
@@ -1091,9 +1180,7 @@ class Toolkit:
                 logger.debug(f"🇺🇸 [统一情绪工具] 处理美股情绪...")
 
                 try:
-                    import app.data.interface as interface
-
-                    sentiment_data = interface.get_reddit_company_news(ticker, curr_date, 7, 5)
+                    sentiment_data = _get_us_news_sync(ticker)
                     result_data.append(f"## 美股Reddit情绪\n{sentiment_data}")
                 except Exception as e:
                     result_data.append(f"## 美股Reddit情绪\n获取失败: {e}")

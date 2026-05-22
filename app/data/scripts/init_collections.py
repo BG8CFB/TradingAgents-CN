@@ -10,7 +10,6 @@ MongoDB 集合初始化脚本
 
 import asyncio
 import logging
-import sys
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -61,7 +60,7 @@ INDEX_DEFINITIONS = {
 
 async def init_collections(market: str = "CN") -> None:
     """创建指定市场的全部集合和索引"""
-    from app.data.schema.collections import get_all_collections_for_market
+    from app.data.storage.mongo.collections import get_all_collections
 
     try:
         from app.core.database import get_database
@@ -70,7 +69,7 @@ async def init_collections(market: str = "CN") -> None:
         logger.error("无法连接 MongoDB: %s", e)
         return
 
-    collection_map = get_all_collections_for_market(market)
+    collection_map = get_all_collections(market)
     logger.info("开始初始化 %s 市场 %d 个集合", market, len(collection_map))
 
     for data_type, collection_name in collection_map.items():

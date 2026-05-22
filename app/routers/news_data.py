@@ -11,7 +11,6 @@ import logging
 from app.routers.auth_db import get_current_user, require_admin
 from app.core.response import ok, safe_error_message
 from app.services.news_data_service import get_news_data_service, NewsQueryParams
-from app.worker.news_data_sync_service import get_news_data_sync_service
 from app.utils.timezone import now_utc, format_iso
 
 router = APIRouter(prefix="/api/news", tags=["News"])
@@ -85,11 +84,11 @@ async def query_stock_news(
 
         # 2. 如果数据库没有数据，实时获取
         if not news_list:
-            logger.info(f"📰 数据库无新闻数据，实时获取: {symbol}")
+            logger.info(f"📰 数据库无新闻数据，通过 DataInterface 刷新: {symbol}")
             try:
-                from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
-                orchestrator = get_cn_sync_orchestrator()
-                await orchestrator.run_news_sync(symbols=[symbol])
+                from app.data.core.interface import DataInterface
+                di = DataInterface.get_instance()
+                await di.refresh("CN", symbol, domains=["news"], force=True)
 
                 # 重新查询
                 news_list = await service.query_news(params)
@@ -322,35 +321,23 @@ async def start_news_sync(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_admin)
 ):
-    """
-    启动新闻同步任务
-    
-    Args:
-        request: 同步请求参数
-        background_tasks: 后台任务
-        
-    Returns:
-        dict: 任务启动结果
-    """
+    """启动新闻同步任务。"""
     try:
-        sync_service = await get_news_data_sync_service()
-        
-        # 添加后台同步任务
+        from app.data.core.interface import DataInterface
+
+        di = DataInterface.get_instance()
+
         if request.symbol:
             background_tasks.add_task(
-                _execute_stock_news_sync,
-                sync_service,
-                request
+                _execute_news_refresh, request.symbol
             )
             message = f"股票 {request.symbol} 新闻同步任务已启动"
         else:
             background_tasks.add_task(
-                _execute_market_news_sync,
-                sync_service,
-                request
+                _execute_news_refresh, None
             )
             message = "市场新闻同步任务已启动"
-        
+
         return ok(data={
                 "sync_type": "stock" if request.symbol else "market",
                 "symbol": request.symbol,
@@ -360,7 +347,7 @@ async def start_news_sync(
             },
             message=message
         )
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -376,44 +363,29 @@ async def sync_single_stock_news(
     max_news_per_source: int = 50,
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    同步单只股票新闻（同步执行）
-    
-    Args:
-        symbol: 股票代码
-        data_sources: 数据源列表
-        hours_back: 回溯小时数
-        max_news_per_source: 每个数据源最大新闻数量
-        
-    Returns:
-        dict: 同步结果
-    """
+    """同步单只股票新闻（同步执行）。"""
     try:
-        sync_service = await get_news_data_sync_service()
-        
-        # 执行同步
-        stats = await sync_service.sync_stock_news(
-            symbol=symbol,
-            data_sources=data_sources,
-            hours_back=hours_back,
-            max_news_per_source=max_news_per_source
-        )
-        
+        from app.data.core.interface import DataInterface
+
+        di = DataInterface.get_instance()
+        result = await di.refresh("CN", symbol, domains=["news"], force=True)
+
+        synced = 0
+        domain_result = result.domains.get("news")
+        if domain_result:
+            synced = domain_result.record_count
+
         return ok(data={
                 "symbol": symbol,
                 "sync_stats": {
-                    "total_processed": stats.total_processed,
-                    "successful_saves": stats.successful_saves,
-                    "failed_saves": stats.failed_saves,
-                    "duplicate_skipped": stats.duplicate_skipped,
-                    "sources_used": stats.sources_used,
-                    "duration_seconds": stats.duration_seconds,
-                    "success_rate": stats.success_rate
+                    "synced_records": synced,
+                    "status": result.status,
+                    "source": result.source_used,
                 }
             },
-            message=f"股票 {symbol} 新闻同步完成，成功保存 {stats.successful_saves} 条"
+            message=f"股票 {symbol} 新闻同步完成，同步 {synced} 条"
         )
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -460,15 +432,14 @@ async def health_check():
     """健康检查"""
     try:
         service = await get_news_data_service()
-        sync_service = await get_news_data_sync_service()
-        
+
         return ok(data={
                 "service_status": "healthy",
                 "timestamp": format_iso(now_utc())
             },
             message="新闻数据服务运行正常"
         )
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -476,27 +447,17 @@ async def health_check():
         )
 
 
-# 后台任务执行函数
-async def _execute_stock_news_sync(sync_service, request: NewsSyncRequest):
-    """执行股票新闻同步"""
+async def _execute_news_refresh(symbol: Optional[str]):
+    """后台新闻刷新。"""
     try:
-        await sync_service.sync_stock_news(
-            symbol=request.symbol,
-            data_sources=request.data_sources,
-            hours_back=request.hours_back,
-            max_news_per_source=request.max_news_per_source
-        )
+        from app.data.core.interface import DataInterface
+        di = DataInterface.get_instance()
+        if symbol:
+            await di.refresh("CN", symbol, domains=["news"], force=True)
+        else:
+            from app.worker.scheduler_setup import get_scheduler_engine
+            engine = get_scheduler_engine()
+            if engine:
+                engine.trigger_job("cn", "news")
     except Exception as e:
-        logger.error(f"❌ 后台股票新闻同步失败: {e}")
-
-
-async def _execute_market_news_sync(sync_service, request: NewsSyncRequest):
-    """执行市场新闻同步"""
-    try:
-        await sync_service.sync_market_news(
-            data_sources=request.data_sources,
-            hours_back=request.hours_back,
-            max_news_per_source=request.max_news_per_source
-        )
-    except Exception as e:
-        logger.error(f"❌ 后台市场新闻同步失败: {e}")
+        logger.error(f"❌ 后台新闻刷新失败: {e}")

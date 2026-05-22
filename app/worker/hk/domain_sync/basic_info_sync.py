@@ -1,108 +1,54 @@
-"""港股基础信息同步"""
-import logging
-from typing import Any, Dict, Optional
+"""港股基础信息同步 — 使用新架构。"""
 
-from app.data.processor.capability_registry import CapabilityRegistry
-from app.data.processor.fallback_router import FallbackRouter
-from app.data.schema.base import normalize_symbol
-from app.data.schema.collections import get_collection_name
-from app.worker.cn.domain_sync.base_domain_sync import BaseDomainSync, DomainSyncResult
+import logging
+from typing import Optional
+
+from app.data.sources.hk import get_hk_provider, get_hk_adapter
+from app.data.storage.mongo.collections import get_collection_name
 
 logger = logging.getLogger(__name__)
 
 
-class HKBasicInfoSync(BaseDomainSync):
-    domain = "basic_info"
-    description = "港股基础信息同步"
+async def sync_basic_info() -> dict:
+    """同步港股基础信息。"""
+    import time
+    import asyncio
+    from app.data.core.registry.capability import CapabilityRegistry
+    from app.data.core.registry.priority import PriorityConfig
+    from pymongo import UpdateOne
+    from app.core.database import get_mongo_db_sync
 
-    def __init__(self, router: Optional[FallbackRouter] = None):
-        super().__init__(router=router)
+    start = time.time()
+    registry = CapabilityRegistry()
+    priority = PriorityConfig()
+    sources = registry.get_ordered_sources("HK", "basic_info", user_priority=await priority.get_priority("HK", "basic_info"))
 
-    async def sync(self, **kwargs) -> DomainSyncResult:
-        start = self._now_ms()
+    for source_name in sources:
+        provider = get_hk_provider(source_name)
+        adapter = get_hk_adapter(source_name)
+        if not provider or not adapter:
+            continue
         try:
-            registry = CapabilityRegistry(market="HK")
-            sources = registry.get_ordered_sources("basic_info")
-
-            for source_name in sources:
-                provider = self._get_provider(source_name)
-                if not provider:
-                    continue
-
-                try:
-                    df = await provider.get_stock_list()
-                    if df is None or df.empty:
-                        continue
-
-                    records = self._to_records(df)
-                    written = await self._write_to_mongo(records)
-
-                    return DomainSyncResult(
-                        domain=self.domain,
-                        success=True,
-                        source=source_name,
-                        records_synced=written,
-                        duration_ms=self._elapsed_ms(start),
-                    )
-                except Exception as e:
-                    logger.warning(f"HK basic_info {source_name} 失败: {e}")
-                    continue
-
-            return DomainSyncResult(
-                domain=self.domain, success=False,
-                error="所有数据源失败", duration_ms=self._elapsed_ms(start),
-            )
-        except Exception as e:
-            return DomainSyncResult(
-                domain=self.domain, success=False,
-                error=str(e), duration_ms=self._elapsed_ms(start),
-            )
-
-    def _get_provider(self, source_name: str):
-        if source_name == "akshare_hk":
-            from app.data.sources.hk.akshare_hk.provider import AKShareHKProvider
-            return AKShareHKProvider()
-        elif source_name == "yfinance_hk":
-            from app.data.sources.hk.yfinance_hk.provider import YFinanceHKProvider
-            return YFinanceHKProvider()
-        return None
-
-    def _to_records(self, df) -> list:
-        records = []
-        for _, row in df.iterrows():
-            d = row.to_dict()
-            # 尝试提取 symbol
-            for key in ["代码", "代码", "symbol", "code"]:
-                if key in d and d[key]:
-                    d["symbol"] = str(d[key]).strip()
-                    break
-            if "symbol" in d:
-                d["symbol"] = normalize_symbol(d["symbol"], "HK")
-            records.append(d)
-        return records
-
-    async def _write_to_mongo(self, records: list) -> int:
-        from pymongo import UpdateOne
-        from app.core.database import get_mongo_db_sync
-        db = get_mongo_db_sync()
-        col_name = get_collection_name("HK", "basic_info")
-        col = db[col_name]
-        ops = []
-        for r in records:
-            sym = r.get("symbol", "")
-            if not sym:
+            raw = await provider.get_stock_list()
+            if raw is None or raw.empty:
                 continue
-            ops.append(UpdateOne({"symbol": sym}, {"$set": r}, upsert=True))
-        if ops:
-            col.bulk_write(ops)
-        return len(ops)
 
-    @staticmethod
-    def _now_ms():
-        import time
-        return int(time.time() * 1000)
+            records = adapter.adapt_basic_info(raw)
+            if not records:
+                continue
 
-    @staticmethod
-    def _elapsed_ms(start):
-        import time
-        return int(time.time() * 1000) - start
+            docs = [r.to_db_doc() for r in records if r.symbol]
+            db = get_mongo_db_sync()
+            col = db[get_collection_name("basic_info", "HK")]
+            ops = [UpdateOne({"symbol": d["symbol"]}, {"$set": d}, upsert=True) for d in docs if d.get("symbol")]
+            if ops:
+                col.bulk_write(ops, ordered=False)
+
+            elapsed = int((time.time() - start) * 1000)
+            logger.info(f"HK basic_info 同步完成: {len(ops)} 条, 源={source_name}, 耗时={elapsed}ms")
+            return {"domain": "basic_info", "success": True, "source": source_name, "records": len(ops), "duration_ms": elapsed}
+        except Exception as e:
+            logger.warning(f"HK basic_info 源 {source_name} 失败: {e}")
+            continue
+
+    return {"domain": "basic_info", "success": False, "error": "所有数据源失败", "duration_ms": int((time.time() - start) * 1000)}

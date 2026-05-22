@@ -4,7 +4,6 @@ BaoStock 连接管理（login/logout 生命周期）
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

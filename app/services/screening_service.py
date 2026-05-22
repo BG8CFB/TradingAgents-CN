@@ -15,8 +15,8 @@ import pandas as pd
 # 统一指标库
 from app.utils.indicators import IndicatorSpec, compute_many
 # 统一多数据源DF接口（按优先级降级）
-from app.data.data_source_manager import get_data_source_manager
-from app.data.providers.china.fundamentals_snapshot import get_cn_fund_snapshot  # TODO: migrate to sources/
+from app.data.core.interface import DataInterface
+from app.data.core.reader import Reader
 
 
 from app.services.screening.eval_utils import (
@@ -100,8 +100,8 @@ class ScreeningService:
         need_base = any(f in BASE_FIELDS for f in all_needed) or need_tech
         need_fund = any(f in FUND_FIELDS for f in all_needed)
 
-        # 在循环外获取数据源管理器（避免每只股票重复创建）
-        manager = get_data_source_manager() if need_base else None
+        # 在循环外获取读取器
+        reader = Reader() if need_base else None
 
         for code in symbols:
             try:
@@ -110,8 +110,30 @@ class ScreeningService:
 
                 # 如需要基础行情/技术指标才取K线
                 if need_base:
-                    df = manager.get_stock_dataframe(code, start_s, end_s)
-                    if df is None or df.empty:
+                    import asyncio
+                    loop = None
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_closed():
+                            loop = None
+                    except RuntimeError:
+                        pass
+                    if loop and loop.is_running():
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as pool:
+                            raw_records = pool.submit(
+                                asyncio.run,
+                                reader.get_data("CN", code, "daily_quotes", start_date=start_s, end_date=end_s)
+                            ).result()
+                    else:
+                        raw_records = asyncio.run(
+                            reader.get_data("CN", code, "daily_quotes", start_date=start_s, end_date=end_s)
+                        )
+                    raw_data = raw_records[0] if raw_records else None
+                    if not raw_data:
+                        continue
+                    df = pd.DataFrame(raw_data) if isinstance(raw_data, list) else pd.DataFrame([raw_data])
+                    if df.empty:
                         continue
                     # 统一列为小写
                     dfu = df.rename(columns={
@@ -147,8 +169,29 @@ class ScreeningService:
                 if need_base:
                     passes = self._evaluate_conditions(dfc, conditions)
                 elif need_fund and not need_base and not need_tech:
-                    # 仅基本面条件：使用基本面快照判断
-                    snap = get_cn_fund_snapshot(code)
+                    # 仅基本面条件：通过新接口读取
+                    import asyncio
+                    try:
+                        loop = None
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_closed():
+                                loop = None
+                        except RuntimeError:
+                            pass
+                        _di = DataInterface.get_instance()
+                        if loop and loop.is_running():
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor() as pool:
+                                fund_data = pool.submit(
+                                    asyncio.run,
+                                    _di.read("CN", code, "financial_data")
+                                ).result()
+                        else:
+                            fund_data = asyncio.run(_di.read("CN", code, "financial_data"))
+                        snap = fund_data.get("data")
+                    except Exception:
+                        snap = None
                     if not snap:
                         passes = False
                     else:

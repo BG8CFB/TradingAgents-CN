@@ -5,8 +5,6 @@
 每个数据源包含：provider.py (API调用)、adapter.py (标准化转换)、功能编排模块
 """
 
-from typing import Optional
-
 
 def get_adapter(market: str, source_name: str):
     """
@@ -14,7 +12,7 @@ def get_adapter(market: str, source_name: str):
 
     Args:
         market: "CN" / "HK" / "US"
-        source_name: "tushare" / "akshare" / "baostock" / "yfinance_hk" / "yfinance_us" / "finnhub_us" 等
+        source_name: "tushare" / "akshare" / "baostock" / "yfinance_hk" / "yfinance" / "finnhub" 等
 
     Returns:
         Adapter 实例

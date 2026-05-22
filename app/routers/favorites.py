@@ -251,21 +251,24 @@ async def sync_favorites_realtime(
 
         logger.info(f"🎯 需要同步的股票: {len(symbols)} 只 - {symbols}")
 
-        # 通过编排器同步实时行情（自动选择数据源）
-        from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
-        orchestrator = get_cn_sync_orchestrator()
+        # 通过 DataInterface 刷新实时行情
+        from app.data.core.interface import DataInterface
+        di = DataInterface.get_instance()
 
-        logger.info("🔄 调用编排器同步实时行情...")
-        sync_result = await orchestrator.sync_realtime()
+        logger.info("🔄 通过 DataInterface 刷新实时行情...")
+        success_count = 0
+        failed_count = 0
+        data_source = "data_interface"
 
-        if sync_result.success:
-            success_count = sync_result.records_synced
-            failed_count = 0
-            data_source = sync_result.source
-        else:
-            success_count = 0
-            failed_count = len(symbols)
-            data_source = sync_result.source or "unknown"
+        for symbol in symbols:
+            try:
+                result = await di.refresh("CN", symbol, domains=["market_quotes"], force=True)
+                if result.status == "success":
+                    success_count += 1
+                else:
+                    failed_count += 1
+            except Exception:
+                failed_count += 1
 
         logger.info(f"✅ 自选股实时行情同步完成: 同步 {success_count} 条记录")
 

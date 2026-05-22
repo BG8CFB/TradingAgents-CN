@@ -1,99 +1,11 @@
+"""港股/美股同步路由测试 — 匹配新架构 DataInterface 路由。"""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
-
-class _DeleteResult:
-    def __init__(self, deleted_count: int):
-        self.deleted_count = deleted_count
-
-
-class _FakeCollection:
-    def __init__(self, *, symbols=None, codes=None, total=0, valid=0, latest_doc=None, deleted=0):
-        self._symbols = symbols or []
-        self._codes = codes or []
-        self._total = total
-        self._valid = valid
-        self._latest_doc = latest_doc
-        self._deleted = deleted
-        self.delete_queries = []
-
-    async def distinct(self, field: str):
-        if field == "symbol":
-            return self._symbols
-        if field == "code":
-            return self._codes
-        return []
-
-    async def count_documents(self, query):
-        if not query:
-            return self._total
-        updated_at = query.get("updated_at", {})
-        if "$gte" in updated_at:
-            return self._valid
-        return 0
-
-    async def find_one(self, *args, **kwargs):
-        return self._latest_doc
-
-    async def delete_many(self, query):
-        self.delete_queries.append(query)
-        return _DeleteResult(self._deleted)
-
-
-class _FakeDB:
-    def __init__(self, collection_name: str, collection: _FakeCollection):
-        self._collections = {collection_name: collection}
-
-    def __getitem__(self, name: str):
-        return self._collections[name]
-
-
-class _FakeHKCacheService:
-    """模拟 HKCacheService 供路由测试使用"""
-    def __init__(self):
-        self.calls = []
-
-    async def get_stock_info(self, symbol: str):
-        self.calls.append(("get_stock_info", symbol))
-        return {"symbol": symbol, "name": "Tencent"}
-
-    async def refresh_cache(self, symbol: str):
-        self.calls.append(("refresh_cache", symbol))
-        return {"symbol": symbol, "name": "Tencent", "refreshed": True}
-
-    async def warm_stock_with_quotes(self, stock_code: str, force: bool = False):
-        self.calls.append(("warm_stock_with_quotes", stock_code, force))
-        return {"info_success": True, "quotes_count": 30, "source": "akshare"}
-
-    async def get_cache_stats(self):
-        return {"market": "HK", "cached_symbols": 2}
-
-    async def clear_expired_cache(self):
-        self.calls.append(("clear_expired_cache", None))
-        return {"market": "HK", "deleted_count": 3}
-
-
-class _FakeUSCacheService:
-    """模拟 USCacheService 供路由测试使用"""
-    def __init__(self):
-        self.calls = []
-
-    async def get_stock_info(self, symbol: str):
-        self.calls.append(("get_stock_info", symbol))
-        return {"symbol": symbol, "name": "Apple"}
-
-    async def refresh_cache(self, symbol: str):
-        self.calls.append(("refresh_cache", symbol))
-        return {"symbol": symbol, "name": "Apple", "refreshed": True}
-
-    async def get_cache_stats(self):
-        return {"market": "US", "cached_symbols": 5}
-
-    async def clear_expired_cache(self):
-        self.calls.append(("clear_expired_cache", None))
-        return {"market": "US", "deleted_count": 4}
 
 
 def _create_router_app(router):
@@ -109,10 +21,21 @@ def _create_router_app(router):
     return app
 
 
+def _mock_refresh_result(symbol="00700", status="refreshed"):
+    r = MagicMock()
+    r.symbol = symbol
+    r.status = status
+    r.domains = {}
+    r.total_latency_ms = 100
+    r.source_used = "tushare_hk"
+    r.fallback_from = None
+    r.error = None
+    return r
+
+
 @pytest_asyncio.fixture
 async def hk_client():
-    from app.routers.sync.hk_sync import router
-
+    from app.routers.hk.sync import router
     app = _create_router_app(router)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -121,8 +44,7 @@ async def hk_client():
 
 @pytest_asyncio.fixture
 async def us_client():
-    from app.routers.sync.us_sync import router
-
+    from app.routers.us.sync import router
     app = _create_router_app(router)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -130,97 +52,70 @@ async def us_client():
 
 
 @pytest.mark.asyncio
-async def test_hk_cache_service_stats_and_clear(monkeypatch):
-    from app.worker.hk.hk_cache_service import HKCacheService
-
-    collection_name = "stock_basic_info_hk"
-    fake_collection = _FakeCollection(
-        symbols=["00700", "00005"],
-        codes=["00700"],
-        total=3,
-        valid=2,
-        latest_doc={"symbol": "00700", "updated_at": "2026-05-17T11:00:00"},
-        deleted=1,
-    )
-    fake_db = _FakeDB(collection_name, fake_collection)
-
-    monkeypatch.setattr("app.worker.base_sync_service.get_mongo_db", lambda: fake_db)
-    monkeypatch.setattr("app.worker.base_sync_service.get_enabled_sources", lambda m: ["yfinance"])
-
-    service = HKCacheService()
-
-    stats = await service.get_cache_stats()
-    cleared = await service.clear_expired_cache()
-
-    assert stats["cached_symbols"] == 2
-    assert stats["total_documents"] == 3
-    assert stats["valid_documents"] == 2
-    assert stats["expired_documents"] == 1
-    assert stats["latest_symbol"] == "00700"
-    assert cleared["deleted_count"] == 1
-    assert fake_collection.delete_queries
+async def test_hk_refresh_endpoint(hk_client):
+    mock_result = _mock_refresh_result("00700", "refreshed")
+    with patch("app.data.core.interface.DataInterface.refresh", new_callable=AsyncMock, return_value=mock_result):
+        resp = await hk_client.post(
+            "/api/hk/data/refresh/00700",
+            json={"domains": ["daily_quotes"], "force": False},
+        )
+    assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_us_cache_service_stats_and_clear(monkeypatch):
-    from app.worker.us.us_cache_service import USCacheService
-
-    collection_name = "stock_basic_info_us"
-    fake_collection = _FakeCollection(
-        symbols=["AAPL", "MSFT"],
-        codes=["AAPL"],
-        total=4,
-        valid=3,
-        latest_doc={"code": "MSFT", "updated_at": "2026-05-17T11:00:00"},
-        deleted=2,
-    )
-    fake_db = _FakeDB(collection_name, fake_collection)
-
-    monkeypatch.setattr("app.worker.base_sync_service.get_mongo_db", lambda: fake_db)
-    monkeypatch.setattr("app.worker.base_sync_service.get_enabled_sources", lambda m: ["yfinance"])
-
-    service = USCacheService()
-
-    stats = await service.get_cache_stats()
-    cleared = await service.clear_expired_cache()
-
-    assert stats["cached_symbols"] == 2
-    assert stats["total_documents"] == 4
-    assert stats["valid_documents"] == 3
-    assert stats["expired_documents"] == 1
-    assert stats["latest_symbol"] == "MSFT"
-    assert cleared["deleted_count"] == 2
-    assert fake_collection.delete_queries
+async def test_hk_sync_trigger(hk_client):
+    with patch("app.data.core.interface.DataInterface.trigger_sync", new_callable=AsyncMock, return_value={"ok": True}):
+        resp = await hk_client.post(
+            "/api/hk/data/sync/trigger",
+            json={"domain": "daily_quotes"},
+        )
+    assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_hk_warm_route_respects_force_flag(monkeypatch, hk_client):
-    import app.worker.hk as hk_worker
-
-    fake_service = _FakeHKCacheService()
-    monkeypatch.setattr(hk_worker, "get_hk_cache_service", lambda: fake_service)
-
-    normal_resp = await hk_client.post("/api/sync/hk/cache/warm", json={"symbol": "00700", "force": False})
-    force_resp = await hk_client.post("/api/sync/hk/cache/warm", json={"symbol": "00700", "force": True})
-
-    assert normal_resp.status_code == 200
-    assert force_resp.status_code == 200
-    assert ("warm_stock_with_quotes", "00700", False) in fake_service.calls
-    assert ("warm_stock_with_quotes", "00700", True) in fake_service.calls
-    assert normal_resp.json()["success"] is True
-    assert force_resp.json()["success"] is True
+async def test_hk_sync_status(hk_client):
+    with patch("app.data.core.interface.DataInterface.get_sync_status", new_callable=AsyncMock, return_value={"status": "ok"}):
+        resp = await hk_client.get("/api/hk/data/sync/status")
+    assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_us_clear_route_executes_cleanup(monkeypatch, us_client):
-    import app.worker.us as us_worker
+async def test_hk_sync_events(hk_client):
+    with patch("app.data.core.interface.DataInterface.get_sync_status", new_callable=AsyncMock, return_value={"events": []}):
+        resp = await hk_client.get("/api/hk/data/sync/events")
+    assert resp.status_code == 200
 
-    fake_service = _FakeUSCacheService()
-    monkeypatch.setattr(us_worker, "get_us_cache_service", lambda: fake_service)
 
-    response = await us_client.delete("/api/sync/us/cache")
+@pytest.mark.asyncio
+async def test_us_refresh_endpoint(us_client):
+    mock_result = _mock_refresh_result("AAPL", "refreshed")
+    with patch("app.data.core.interface.DataInterface.refresh", new_callable=AsyncMock, return_value=mock_result):
+        resp = await us_client.post(
+            "/api/us/data/refresh/AAPL",
+            json={"domains": ["daily_quotes"], "force": True},
+        )
+    assert resp.status_code == 200
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["data"]["deleted_count"] == 4
-    assert ("clear_expired_cache", None) in fake_service.calls
+
+@pytest.mark.asyncio
+async def test_us_sync_trigger(us_client):
+    with patch("app.data.core.interface.DataInterface.trigger_sync", new_callable=AsyncMock, return_value={"ok": True}):
+        resp = await us_client.post(
+            "/api/us/data/sync/trigger",
+            json={"domain": "basic_info", "full_sync": True},
+        )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_us_sync_status(us_client):
+    with patch("app.data.core.interface.DataInterface.get_sync_status", new_callable=AsyncMock, return_value={"status": "ok"}):
+        resp = await us_client.get("/api/us/data/sync/status")
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_us_sync_events(us_client):
+    with patch("app.data.core.interface.DataInterface.get_sync_status", new_callable=AsyncMock, return_value={"events": []}):
+        resp = await us_client.get("/api/us/data/sync/events")
+    assert resp.status_code == 200

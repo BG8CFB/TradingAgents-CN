@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from .base_domain_sync import BaseDomainSync, DomainSyncResult
 from app.data.processor.aggregation import aggregate_period
 from app.data.processor.fallback_router import FallbackRouter
-from app.data.schema.collections import get_collection_name
+from app.data.storage.mongo.collections import get_collection_name
 
 logger = logging.getLogger(__name__)
 

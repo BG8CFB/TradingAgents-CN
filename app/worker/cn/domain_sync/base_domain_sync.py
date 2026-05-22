@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from app.data.processor.fallback_router import FallbackRouter
-from app.data.schema.collections import get_collection_name
+from app.data.storage.mongo.collections import get_collection_name
 from app.utils.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,11 @@ class BaseDomainSync(ABC):
     description: str = ""
 
     def __init__(self, router: Optional[FallbackRouter] = None):
-        self._router = router or FallbackRouter()
+        if router is None:
+            from app.data.core.registry.capability import CapabilityRegistry
+            from app.data.core.registry.priority import PriorityConfig
+            router = FallbackRouter(CapabilityRegistry(), PriorityConfig())
+        self._router = router
 
     async def _get_incremental_start_date(self, symbol: str) -> str:
         """

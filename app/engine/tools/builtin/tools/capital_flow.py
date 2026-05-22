@@ -8,8 +8,6 @@ from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data import reader
-
 logger = logging.getLogger(__name__)
 
 
@@ -43,14 +41,8 @@ def get_money_flow(
             if not start_date:
                 start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
-        data = reader.get_money_flow(
-            start_date=start_date,
-            end_date=end_date,
-            query_type=query_type,
-            ts_code=ts_code,
-            content_type=content_type,
-            trade_date=trade_date
-        )
+        # TODO: 迁移到新架构 - get_money_flow 需要通过新数据层实现
+        data = None
         return format_tool_result(success_result(format_result(data, f"Money Flow: {ts_code or query_type}")))
     except Exception as e:
         logger.error(f"get_money_flow failed: {e}")
@@ -90,13 +82,8 @@ def get_margin_trade(
         # 🔥 优先使用Tushare获取融资融券数据
         try:
             logger.info(f"📊 尝试使用Tushare获取融资融券数据: {data_type}")
-            data = reader.get_margin_trade(
-                data_type=data_type,
-                start_date=start_date,
-                end_date=end_date,
-                ts_code=ts_code,
-                exchange=exchange
-            )
+            # TODO: 迁移到新架构 - get_margin_trade 需要通过新数据层实现
+            data = None
             if data and not data.empty:
                 logger.info(f"✅ Tushare成功获取融资融券数据: {data_type}, {len(data)}条记录")
                 return format_tool_result(success_result(format_result(data, f"Margin Trade: {data_type}")))

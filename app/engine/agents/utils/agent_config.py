@@ -21,34 +21,54 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
     try:
         if market_info["is_china"]:
             try:
-                from app.data.data_source_manager import get_china_stock_info_unified as get_info_dict
-                info = get_info_dict(ticker)
-                if info and info.get("name"):
-                    return info["name"]
+                from app.data.core.interface import DataInterface
+                import asyncio
+                _di = DataInterface.get_instance()
+                _r = asyncio.run(_di.read("CN", ticker, "basic_info"))
+                data = _r.get("data")
+                if data and isinstance(data, dict) and data.get("name"):
+                    return data["name"]
+                if data and isinstance(data, list) and data and data[0].get("name"):
+                    return data[0]["name"]
             except Exception:
                 pass
-
-            from app.data.reader import get_stock_info as _get_stock_info_cn
-            stock_info = _get_stock_info_cn("CN", ticker)
-            if stock_info and "股票名称:" in stock_info:
-                return stock_info.split("股票名称:")[1].split("\n")[0].strip()
             return f"股票代码{ticker}"
 
         if market_info["is_hk"]:
             try:
-                from app.data.sources.hk.akshare_hk.provider import AKShareHKProvider as _HKProvider
-                return get_hk_company_name_improved(ticker)
+                from app.data.core.interface import DataInterface
+                import asyncio
+                clean_ticker = ticker.replace(".HK", "").replace(".hk", "").zfill(5)
+                di = DataInterface.get_instance()
+                result = asyncio.get_event_loop().run_until_complete(
+                    di.read("HK", clean_ticker, "basic_info")
+                )
+                data = result.get("data")
+                if data:
+                    name = data.get("name_zh") or data.get("name_en") if isinstance(data, dict) else None
+                    if name:
+                        return name
+                    if isinstance(data, list) and data:
+                        name = data[0].get("name_zh") or data[0].get("name_en")
+                        if name:
+                            return name
             except Exception:
-                clean_ticker = ticker.replace(".HK", "").replace(".hk", "")
-                return f"港股{clean_ticker}"
+                pass
+            clean_ticker = ticker.replace(".HK", "").replace(".hk", "")
+            return f"港股{clean_ticker}"
 
         if market_info["is_us"]:
             try:
-                from app.data.sources.us.yfinance_us.provider import YFinanceUSProvider
-                stock_info = YFinanceUtils.get_stock_info(ticker.upper())
-                company_name = stock_info.get("shortName") or stock_info.get("longName")
-                if company_name:
-                    return company_name
+                from app.data.core.interface import DataInterface
+                import asyncio
+                di = DataInterface.get_instance()
+                result = asyncio.run(di.read("US", ticker.upper(), "basic_info"))
+                data = result.get("data")
+                if data:
+                    doc = data[0] if isinstance(data, list) and data else data
+                    company_name = doc.get("name") or doc.get("shortName") or doc.get("longName")
+                    if company_name:
+                        return company_name
             except Exception:
                 pass
             return StockUtils.US_STOCK_NAMES.get(ticker.upper(), f"美股{ticker}")

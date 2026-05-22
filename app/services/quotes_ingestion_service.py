@@ -8,7 +8,7 @@ from pymongo import UpdateOne
 
 from app.core.config import settings
 from app.core.database import get_mongo_db
-from app.data import reader as _data_reader
+from app.data.storage.mongo.collections import get_collection_name
 from app.utils.time_utils import now_config_tz, format_date_compact
 
 logger = logging.getLogger(__name__)
@@ -26,9 +26,10 @@ class QuotesIngestionService:
     - 字段：symbol(6位)、close、pct_chg、amount、open、high、low、pre_close、trade_date、data_source、updated_at
     """
 
-    def __init__(self, collection_name: str = "market_quotes") -> None:
+    def __init__(self, collection_name: Optional[str] = None) -> None:
 
-        self.collection_name = collection_name
+        self._market = "CN"
+        self.collection_name = collection_name or get_collection_name("market_quotes", self._market)
         self.status_collection_name = "quotes_ingestion_status"  # 状态记录集合
         self.tz = ZoneInfo(settings.TIMEZONE)
 
@@ -43,6 +44,38 @@ class QuotesIngestionService:
         # 接口轮换相关属性
         self._rotation_sources = ["tushare", "akshare_eastmoney", "akshare_sina"]
         self._rotation_index = 0  # 当前轮换索引
+
+    def _find_latest_trade_date(self) -> Optional[str]:
+        """获取最新交易日期（YYYYMMDD 格式），基于新架构。"""
+        try:
+            import asyncio
+            from app.data.storage.mongo.repositories.daily_quotes_repo import DailyQuotesRepo
+            repo = DailyQuotesRepo()
+            loop = asyncio.get_event_loop()
+            return loop.run_until_complete(repo.get_latest_date("__all__", "CN"))
+        except Exception as e:
+            logger.warning(f"获取最新交易日失败: {e}")
+            return None
+
+    def _get_realtime_quotes(self) -> Tuple[Optional[Dict], Optional[str]]:
+        """获取全市场实时行情快照，基于新架构。"""
+        try:
+            import asyncio
+            from app.data.core.interface import DataInterface
+
+            async def _fetch():
+                di = DataInterface.get_instance()
+                result = await di.read("CN", "__all__", "market_quotes")
+                return result.get("data")
+
+            loop = asyncio.get_event_loop()
+            data = loop.run_until_complete(_fetch())
+            if data is not None:
+                return data, "data_interface"
+            return None, None
+        except Exception as e:
+            logger.warning(f"获取实时行情失败: {e}")
+            return None, None
 
     @staticmethod
     def _normalize_stock_code(code: str) -> str:
@@ -216,18 +249,19 @@ class QuotesIngestionService:
             return self._tushare_has_premium or False
 
         try:
-            from app.services.data_sources.tushare_adapter import TushareAdapter
-            adapter = TushareAdapter()
-
-            if not adapter.is_available():
-                logger.info("Tushare 不可用，跳过权限检测")
+            import os
+            token = os.getenv("TUSHARE_TOKEN")
+            if not token or not token.strip():
+                logger.info("Tushare 未配置 Token，跳过权限检测")
                 self._tushare_has_premium = False
                 self._tushare_permission_checked = True
                 return False
 
-            # 尝试调用 rt_k 接口测试权限
             try:
-                df = adapter._provider.api.rt_k(ts_code='000001.SZ')
+                import tushare as ts
+                ts.set_token(token)
+                pro = ts.pro_api()
+                df = pro.daily(ts_code='000001.SZ', limit=1)
                 if df is not None and not getattr(df, 'empty', True):
                     logger.info("✅ 检测到 Tushare rt_k 接口权限（付费用户）")
                     self._tushare_has_premium = True
@@ -427,11 +461,10 @@ class QuotesIngestionService:
             logger.info("📊 market_quotes 集合为空，开始从历史数据导入")
 
             db = get_mongo_db()
-            manager = _data_reader
 
             # 获取最新交易日
             try:
-                latest_trade_date = manager.find_latest_trade_date_with_fallback()
+                latest_trade_date = self._find_latest_trade_date()
                 if not latest_trade_date:
                     logger.warning("⚠️ 无法获取最新交易日，跳过历史数据导入")
                     return
@@ -442,7 +475,7 @@ class QuotesIngestionService:
             logger.info(f"📊 从历史数据集合导入 {latest_trade_date} 的收盘数据到 market_quotes")
 
             # 从 stock_daily_quotes 集合查询最新交易日的数据
-            daily_quotes_collection = db["stock_daily_quotes"]
+            daily_quotes_collection = db[get_collection_name("daily_quotes", self._market)]
             cursor = daily_quotes_collection.find({
                 "trade_date": latest_trade_date,
                 "period": "daily"
@@ -497,14 +530,13 @@ class QuotesIngestionService:
     async def backfill_last_close_snapshot(self) -> None:
         """一次性补齐上一笔收盘快照（用于冷启动或数据陈旧）。允许在休市期调用。"""
         try:
-            manager = _data_reader
             # 使用近实时快照作为兜底，休市期返回的即为最后收盘数据
-            quotes_map, source = manager.get_realtime_quotes_with_fallback()
+            quotes_map, source = self._get_realtime_quotes()
             if not quotes_map:
                 logger.warning("backfill: 未获取到行情数据，跳过")
                 return
             try:
-                trade_date = manager.find_latest_trade_date_with_fallback() or format_date_compact(now_config_tz())
+                trade_date = self._find_latest_trade_date() or format_date_compact(now_config_tz())
             except Exception:
                 trade_date = format_date_compact(now_config_tz())
             await self._bulk_upsert(quotes_map, trade_date, source)
@@ -523,8 +555,7 @@ class QuotesIngestionService:
                 return
 
             # 如果集合不为空但数据陈旧，使用实时接口更新
-            manager = _data_reader
-            latest_td = manager.find_latest_trade_date_with_fallback()
+            latest_td = self._find_latest_trade_date()
             if await self._collection_stale(latest_td):
                 logger.info("🔁 触发休市期/启动期 backfill 以填充最新收盘数据")
                 await self.backfill_last_close_snapshot()
@@ -543,45 +574,60 @@ class QuotesIngestionService:
             (quotes_map, source_name)
         """
         try:
+            import asyncio
+            from app.data.core.interface import DataInterface
+
             if source_type == "tushare":
                 # 检查是否可以调用 Tushare
                 if not self._can_call_tushare():
                     return None, None
 
-                from app.services.data_sources.tushare_adapter import TushareAdapter
-                adapter = TushareAdapter()
+                logger.info("📊 使用 Tushare 接口获取实时行情")
 
-                if not adapter.is_available():
-                    logger.warning("Tushare 不可用")
-                    return None, None
+                async def _fetch_tushare():
+                    di = DataInterface.get_instance()
+                    result = await di.read("CN", "__all__", "market_quotes")
+                    return result.get("data")
 
-                logger.info("📊 使用 Tushare rt_k 接口获取实时行情")
-                quotes_map = adapter.get_realtime_quotes()
-
-                if quotes_map:
+                loop = asyncio.get_event_loop()
+                data = loop.run_until_complete(_fetch_tushare())
+                if data is not None:
                     self._record_tushare_call()
-                    return quotes_map, "tushare"
-                else:
-                    logger.warning("Tushare rt_k 返回空数据")
-                    return None, None
+                    if isinstance(data, dict):
+                        return data, "tushare"
+                    elif isinstance(data, list) and data:
+                        quotes_map = {}
+                        for doc in data:
+                            sym = str(doc.get("symbol", "")).zfill(6)
+                            if sym:
+                                quotes_map[sym] = doc
+                        return quotes_map, "tushare"
+                logger.warning("Tushare 返回空数据")
+                return None, None
 
             elif source_type == "akshare":
-                from app.services.data_sources.akshare_adapter import AKShareAdapter
-                adapter = AKShareAdapter()
-
-                if not adapter.is_available():
-                    logger.warning("AKShare 不可用")
-                    return None, None
-
                 api_name = akshare_api or "eastmoney"
                 logger.info(f"📊 使用 AKShare {api_name} 接口获取实时行情")
-                quotes_map = adapter.get_realtime_quotes(source=api_name)
 
-                if quotes_map:
-                    return quotes_map, f"akshare_{api_name}"
-                else:
-                    logger.warning(f"AKShare {api_name} 返回空数据")
-                    return None, None
+                async def _fetch_akshare():
+                    di = DataInterface.get_instance()
+                    result = await di.read("CN", "__all__", "market_quotes")
+                    return result.get("data")
+
+                loop = asyncio.get_event_loop()
+                data = loop.run_until_complete(_fetch_akshare())
+                if data is not None:
+                    if isinstance(data, dict):
+                        return data, f"akshare_{api_name}"
+                    elif isinstance(data, list) and data:
+                        quotes_map = {}
+                        for doc in data:
+                            sym = str(doc.get("symbol", "")).zfill(6)
+                            if sym:
+                                quotes_map[sym] = doc
+                        return quotes_map, f"akshare_{api_name}"
+                logger.warning(f"AKShare {api_name} 返回空数据")
+                return None, None
 
             else:
                 logger.error(f"未知数据源类型: {source_type}")
@@ -643,8 +689,7 @@ class QuotesIngestionService:
 
             # 获取交易日
             try:
-                manager = _data_reader
-                trade_date = manager.find_latest_trade_date_with_fallback() or format_date_compact(now_config_tz())
+                trade_date = self._find_latest_trade_date() or format_date_compact(now_config_tz())
             except Exception:
                 trade_date = format_date_compact(now_config_tz())
 
@@ -683,7 +728,7 @@ class QuotesIngestionService:
             db = get_mongo_db()
             symbol6 = str(symbol).zfill(6)
 
-            doc = await db.stock_daily_quotes.find_one(
+            doc = await db[get_collection_name("daily_quotes", self._market)].find_one(
                 {"symbol": symbol6},
                 sort=[("trade_date", -1)]
             )

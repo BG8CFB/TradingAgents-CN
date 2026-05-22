@@ -1,0 +1,85 @@
+# 各数据源限流参数
+
+tushare:
+  rate_per_minute: 200
+  polite_interval_ms: 300
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 600
+  requires_token: true
+  token_env_var: TUSHARE_CN_TOKEN
+
+tushare_hk:
+  rate_per_minute: 200
+  polite_interval_ms: 300
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 600
+  requires_token: true
+  token_env_var: TUSHARE_HK_TOKEN
+
+tushare_us:
+  rate_per_minute: 200
+  polite_interval_ms: 300
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 600
+  requires_token: true
+  token_env_var: TUSHARE_US_TOKEN
+
+akshare:
+  rate_per_minute: 120
+  polite_interval_ms: 500
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 600
+  requires_token: false
+
+akshare_hk:
+  rate_per_minute: 60
+  polite_interval_ms: 1000
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 600
+  requires_token: false
+
+baostock:
+  rate_per_minute: 50
+  polite_interval_ms: 200
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 600
+  requires_token: false
+  session_limit: 50
+
+yfinance:
+  rate_per_minute: 60
+  polite_interval_ms: 1000
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 1800
+  requires_token: false
+
+yfinance_hk:
+  rate_per_minute: 60
+  polite_interval_ms: 1000
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 600
+  requires_token: false
+
+finnhub:
+  rate_per_minute: 60
+  polite_interval_ms: 1100
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 1800
+  requires_token: true
+  token_env_var: FINNHUB_API_KEY
+
+alpha_vantage:
+  rate_per_minute: 5
+  rate_per_day: 25
+  polite_interval_ms: 12000
+  circuit_initial_cooldown: 60
+  circuit_max_cooldown: 1800
+  requires_token: true
+  token_env_var: ALPHA_VANTAGE_API_KEY
+
+tencent_hk:
+  rate_per_minute: 120
+  polite_interval_ms: 500
+  circuit_initial_cooldown: 30
+  circuit_max_cooldown: 300
+  requires_token: false

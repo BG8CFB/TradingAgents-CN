@@ -1,122 +1,67 @@
-"""
-BaseAdapter: 数据源标准化转换基类
+"""BaseAdapter: 数据源标准化转换基类。
 
-职责：将 Provider 返回的原始数据转换为 Schema 标准格式。
-负责字段映射、单位转换、数据过滤（丢弃不需要的字段）。
+职责：将 Provider 返回的原始数据转换为标准 Schema 格式。
+负责字段映射、单位转换、空值处理。
+不调外部 API、不写数据库。
 """
 
 import logging
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from abc import ABC
+from typing import Any, List
 
-import pandas as pd
 
-from app.data.schema.stock_basic_info import StockBasicInfoSchema
-from app.data.schema.stock_daily_quotes import StockDailyQuoteSchema
-from app.data.schema.stock_financial_data import FinancialDataSchema
-from app.data.schema.stock_news import NewsSchema
+from app.data.schema.domains.basic_info import StockBasicInfoSchema
+from app.data.schema.domains.trade_calendar import TradeCalendarSchema
+from app.data.schema.domains.daily_quotes import DailyQuotesSchema
+from app.data.schema.domains.daily_indicators import DailyIndicatorsSchema
+from app.data.schema.domains.adj_factors import AdjFactorsSchema
+from app.data.schema.domains.corporate_actions import CorporateActionsSchema
+from app.data.schema.domains.financial_data import FinancialDataSchema
+from app.data.schema.domains.market_quotes import MarketQuotesSchema
+from app.data.schema.domains.stock_news import StockNewsSchema
 
 
 class BaseAdapter(ABC):
-    """数据源标准化转换基类"""
+    """数据源标准化转换基类。"""
 
     def __init__(self, provider, market: str, source_name: str):
-        """
-        Args:
-            provider: BaseProvider 实例
-            market: "CN" / "HK" / "US"
-            source_name: "tushare" / "akshare" 等
-        """
         self.provider = provider
         self.market = market
         self.source_name = source_name
         self.logger = logging.getLogger(f"adapter.{market}.{source_name}")
 
-    @staticmethod
-    def _safe_float(value) -> Optional[float]:
-        """安全转换为浮点数"""
-        if value is None or value == "" or (isinstance(value, float) and pd.isna(value)):
-            return None
-        try:
-            return float(value)
-        except (ValueError, TypeError):
-            return None
+    def adapt_basic_info(self, raw: Any) -> List[StockBasicInfoSchema]:
+        """将原始数据转换为 StockBasicInfoSchema 列表。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 basic_info")
 
-    # ── 基础信息适配 ──
+    def adapt_trade_calendar(self, raw: Any) -> List[TradeCalendarSchema]:
+        """将原始数据转换为 TradeCalendarSchema 列表。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 trade_calendar")
 
-    @abstractmethod
-    def adapt_basic_info(self, row: Any) -> StockBasicInfoSchema:
-        """将单行原始数据转换为 StockBasicInfoSchema"""
-        pass
+    def adapt_daily_quotes(self, raw: Any) -> List[DailyQuotesSchema]:
+        """将原始数据转换为 DailyQuotesSchema 列表。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 daily_quotes")
 
-    def adapt_basic_info_batch(self, df: pd.DataFrame) -> List[StockBasicInfoSchema]:
-        """批量转换基础信息（默认逐行调用）"""
-        return [self.adapt_basic_info(row) for _, row in df.iterrows()]
+    def adapt_daily_indicators(self, raw: Any) -> List[DailyIndicatorsSchema]:
+        """将原始数据转换为 DailyIndicatorsSchema 列表。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 daily_indicators")
 
-    # ── 行情数据适配 ──
+    def adapt_financial_data(self, raw: Any) -> List[FinancialDataSchema]:
+        """将原始数据转换为 FinancialDataSchema 列表。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 financial_data")
 
-    @abstractmethod
-    def adapt_daily_quote(self, row: Any) -> StockDailyQuoteSchema:
-        """将单行原始数据转换为 StockDailyQuoteSchema"""
-        pass
+    def adapt_adj_factors(self, raw: Any) -> List[AdjFactorsSchema]:
+        """将原始数据转换为 AdjFactorsSchema 列表。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 adj_factors")
 
-    def adapt_daily_quote_batch(self, df: pd.DataFrame) -> List[StockDailyQuoteSchema]:
-        """批量转换行情数据（默认逐行调用）"""
-        return [self.adapt_daily_quote(row) for _, row in df.iterrows()]
+    def adapt_corporate_actions(self, raw: Any) -> List[CorporateActionsSchema]:
+        """将原始数据转换为 CorporateActionsSchema 列表。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 corporate_actions")
 
-    # ── 财务数据适配（可选） ──
+    def adapt_news(self, raw: Any) -> List[StockNewsSchema]:
+        """将原始数据转换为 StockNewsSchema 列表。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 news")
 
-    def adapt_financial(self, row: Any) -> Optional[FinancialDataSchema]:
-        """将单行原始数据转换为 FinancialDataSchema（可选实现）"""
-        return None
-
-    # ── 新闻数据适配（可选） ──
-
-    def adapt_news(self, raw: Dict[str, Any]) -> Optional[NewsSchema]:
-        """将单条原始新闻转换为 NewsSchema（可选实现）"""
-        return None
-
-    # ── 每日指标适配（可选） ──
-
-    def adapt_daily_indicators(self, row: Any) -> Optional[Any]:
-        """将单行原始数据转换为 DailyIndicatorsSchema（可选实现）"""
-        return None
-
-    def adapt_daily_indicators_batch(self, df: pd.DataFrame) -> list:
-        """批量转换每日指标（默认逐行调用）"""
-        results = []
-        for _, row in df.iterrows():
-            item = self.adapt_daily_indicators(row)
-            if item is not None:
-                results.append(item)
-        return results
-
-    # ── 复权因子适配（可选） ──
-
-    def adapt_adj_factors(self, row: Any) -> Optional[Any]:
-        """将单行原始数据转换为 AdjFactorsSchema（可选实现）"""
-        return None
-
-    def adapt_adj_factors_batch(self, df: pd.DataFrame) -> list:
-        """批量转换复权因子（默认逐行调用）"""
-        results = []
-        for _, row in df.iterrows():
-            item = self.adapt_adj_factors(row)
-            if item is not None:
-                results.append(item)
-        return results
-
-    # ── 交易日历适配（可选） ──
-
-    def adapt_trade_calendar(self, row: Any) -> Optional[Any]:
-        """将单行原始数据转换为 TradeCalendarSchema（可选实现）"""
-        return None
-
-    def adapt_trade_calendar_batch(self, df: pd.DataFrame) -> list:
-        """批量转换交易日历（默认逐行调用）"""
-        results = []
-        for _, row in df.iterrows():
-            item = self.adapt_trade_calendar(row)
-            if item is not None:
-                results.append(item)
-        return results
+    def adapt_market_quotes(self, raw: Any) -> List[MarketQuotesSchema]:
+        """将原始数据转换为 MarketQuotesSchema 列表。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 market_quotes")

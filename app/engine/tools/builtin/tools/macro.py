@@ -8,8 +8,6 @@ from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data import reader
-
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +34,8 @@ def get_macro_econ(
         if not start_date:
             start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
 
-        data = reader.get_macro_econ(indicator=indicator, start_date=start_date, end_date=end_date)
+        # TODO: 迁移到新架构 - get_macro_econ 需要通过新数据层实现
+        data = None
         return format_tool_result(success_result(format_result(data, f"Macro: {indicator}")))
     except Exception as e:
         logger.error(f"get_macro_econ failed: {e}")

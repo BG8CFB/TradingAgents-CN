@@ -7,7 +7,6 @@ from datetime import datetime
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
-from app.services.quotes_service import get_quotes_service
 from app.utils.timezone import now_utc
 
 
@@ -76,9 +75,10 @@ class FavoritesService:
         codes = [it.get("stock_code") for it in items if it.get("stock_code")]
         if codes:
             try:
-                # 🔥 获取数据源优先级配置
-                from app.services.data_sources.base import get_enabled_cn_sources_async
-                enabled_sources = await get_enabled_cn_sources_async()
+                # 获取数据源优先级配置
+                from app.data.core.registry.priority import PriorityConfig
+                pc = PriorityConfig()
+                enabled_sources = await pc.get_priority("CN", "basic_info")
                 preferred_source = enabled_sources[0] if enabled_sources else 'tushare'
 
                 # 从 stock_basic_info 获取板块信息（只查询优先级最高的数据源）
@@ -120,15 +120,30 @@ class FavoritesService:
                     if q:
                         it["current_price"] = q.get("close")
                         it["change_percent"] = q.get("pct_chg")
-                # 兜底：对未命中的代码使用在线源补齐（可选）
+                # 兜底：对未命中的代码通过 DataInterface 刷新再读取
                 missing = [c for c in codes if c not in quotes_map]
                 if missing:
                     try:
-                        quotes_online = await get_quotes_service().get_quotes(missing)
+                        from app.data.core.interface import DataInterface
+                        di = DataInterface.get_instance()
+                        quotes_online = {}
+                        for code in missing:
+                            try:
+                                await di.refresh(code, "CN", ["market_quotes"])
+                                r = await di.read("CN", code, "market_quotes")
+                                d = r.get("data")
+                                if d:
+                                    doc = d[0] if isinstance(d, list) and d else d
+                                    quotes_online[code] = {
+                                        "close": doc.get("close"),
+                                        "pct_chg": doc.get("pct_chg"),
+                                    }
+                            except Exception:
+                                pass
                         for it in items:
                             code = it.get("stock_code")
                             if it.get("current_price") is None:
-                                q2 = quotes_online.get(code, {}) if quotes_online else {}
+                                q2 = quotes_online.get(code, {})
                                 it["current_price"] = q2.get("close")
                                 it["change_percent"] = q2.get("pct_chg")
                     except Exception:

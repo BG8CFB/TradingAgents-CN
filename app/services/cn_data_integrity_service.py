@@ -109,12 +109,12 @@ class DataIntegrityService:
         return await get_database()
 
     async def _check_domain_counts(self, db) -> Dict[str, int]:
-        from app.data.schema.collections import get_collection_name
+        from app.data.storage.mongo.collections import get_collection_name
         domains = ["basic_info", "daily_quotes", "daily_indicators", "adj_factors", "financial", "news"]
         counts = {}
         for domain in domains:
             try:
-                collection = db[get_collection_name("CN", domain)]
+                collection = db[get_collection_name(domain, "CN")]
                 counts[domain] = await collection.count_documents({})
             except Exception:
                 counts[domain] = 0
@@ -125,11 +125,11 @@ class DataIntegrityService:
         symbols: Optional[List[str]] = None,
     ):
         """检查最近 5 个交易日是否有日线数据"""
-        from app.data.schema.collections import get_collection_name
+        from app.data.storage.mongo.collections import get_collection_name
 
         try:
-            cal_collection = db[get_collection_name("CN", "trade_calendar")]
-            quotes_collection = db[get_collection_name("CN", "daily_quotes")]
+            cal_collection = db[get_collection_name("trade_calendar", "CN")]
+            quotes_collection = db[get_collection_name("daily_quotes", "CN")]
 
             # 获取最近 5 个交易日
             today = now_utc().strftime("%Y%m%d")
@@ -171,7 +171,7 @@ class DataIntegrityService:
 
     async def _check_null_fields(self, db, report: IntegrityReport):
         """检查关键字段空值"""
-        from app.data.schema.collections import get_collection_name
+        from app.data.storage.mongo.collections import get_collection_name
 
         checks = {
             "daily_quotes": ["symbol", "trade_date", "close"],
@@ -181,7 +181,7 @@ class DataIntegrityService:
 
         for domain, required_fields in checks.items():
             try:
-                collection = db[get_collection_name("CN", domain)]
+                collection = db[get_collection_name(domain, "CN")]
                 for f in required_fields:
                     null_count = await collection.count_documents({
                         "$or": [
@@ -205,11 +205,11 @@ class DataIntegrityService:
         symbols: Optional[List[str]] = None,
     ):
         """检查跨域一致性"""
-        from app.data.schema.collections import get_collection_name
+        from app.data.storage.mongo.collections import get_collection_name
 
         try:
-            quotes_collection = db[get_collection_name("CN", "daily_quotes")]
-            indicators_collection = db[get_collection_name("CN", "daily_indicators")]
+            quotes_collection = db[get_collection_name("daily_quotes", "CN")]
+            indicators_collection = db[get_collection_name("daily_indicators", "CN")]
 
             # 检查日线有数据但指标无数据的股票
             pipeline = [
@@ -238,9 +238,9 @@ class DataIntegrityService:
         """保存检查报告到 MongoDB"""
         try:
             db = await self._get_db()
-            from app.data.schema.collections import get_collection_name
+            from app.data.storage.mongo.collections import get_collection_name
 
-            collection = db[get_collection_name("CN", "sync_events")]
+            collection = db[get_collection_name("sync_events", "CN")]
             event = {
                 "event_type": "INTEGRITY_CHECK",
                 "domain": "all",

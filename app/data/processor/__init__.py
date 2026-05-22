@@ -1,11 +1,8 @@
-"""
-处理层 (Processor): 数据源选择、回退、限流、熔断、校验、聚合
+"""Processor 处理层 — 数据源选择、回退、限流、熔断、标准化、校验。"""
 
-职责：
-  - 多数据源选择与接口级回退
-  - 字段标准化与写入前校验
-  - 限流与熔断器状态管理
-  - 周线/月线聚合
-
-禁止：承担业务分析逻辑
-"""
+from app.data.processor.circuit_breaker import CircuitBreaker as CircuitBreaker
+from app.data.processor.rate_limiter import RateLimiter as RateLimiter
+from app.data.processor.fallback_router import FallbackRouter as FallbackRouter
+from app.data.processor.retry_policy import RetryPolicy as RetryPolicy
+from app.data.processor.normalizer import Normalizer as Normalizer
+from app.data.processor.validator import Validator as Validator

@@ -1,13 +1,8 @@
-"""
-港股 yfinance Provider
-
-独立调用 yfinance 库获取港股数据。
-不再委托旧版 providers/hk/hk_stock.py。
-"""
+"""yfinance HK Provider — 调用 yfinance 库获取港股数据。"""
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import pandas as pd
 
@@ -16,8 +11,14 @@ from app.data.sources.base.provider import BaseProvider
 logger = logging.getLogger(__name__)
 
 
+def _to_yfinance_symbol(symbol: str) -> str:
+    """港股代码转 yfinance 格式: 00700 -> 0700.HK"""
+    code = str(symbol).replace(".HK", "").lstrip("0").zfill(4)
+    return f"{code}.HK"
+
+
 class YFinanceHKProvider(BaseProvider):
-    """港股 yfinance Provider"""
+    """yfinance 港股数据源 Provider。"""
 
     def __init__(self):
         super().__init__(name="yfinance_hk", market="HK")
@@ -33,23 +34,17 @@ class YFinanceHKProvider(BaseProvider):
         except ImportError:
             return False
 
-    async def get_stock_basic_info(self, symbol: str) -> Optional[Dict[str, Any]]:
+    async def get_stock_list(self, **kwargs) -> Optional[pd.DataFrame]:
         try:
             import yfinance as yf
-            hk_symbol = _to_yfinance_symbol(symbol)
-
-            def _fetch():
-                ticker = yf.Ticker(hk_symbol)
-                return ticker.info
-
-            info = await asyncio.to_thread(_fetch)
-            return info if info else None
-        except Exception as e:
-            logger.error(f"yfinance-HK 基础信息失败 {symbol}: {e}")
+            # 获取恒指成分股作为基础列表
+            await asyncio.to_thread(lambda: yf.download("^HSI", period="5d"))
+            return None  # yfinance 不支持全市场列表
+        except Exception:
             return None
 
     async def get_daily_quotes(
-        self, symbol: str, start_date: str, end_date: str
+        self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> Optional[pd.DataFrame]:
         try:
             import yfinance as yf
@@ -62,14 +57,68 @@ class YFinanceHKProvider(BaseProvider):
 
             df = await asyncio.to_thread(_fetch)
             if df is not None and not df.empty:
+                df["symbol"] = symbol.zfill(5)
                 logger.info(f"yfinance-HK 行情: {symbol} {len(df)} 条")
             return df
         except Exception as e:
             logger.error(f"yfinance-HK 行情失败 {symbol}: {e}")
             return None
 
+    async def get_corporate_actions(
+        self, symbol: str, start_date: str, end_date: str, **kwargs
+    ) -> Optional[pd.DataFrame]:
+        try:
+            import yfinance as yf
+            hk_symbol = _to_yfinance_symbol(symbol)
 
-def _to_yfinance_symbol(symbol: str) -> str:
-    """将港股代码转为 yfinance 格式: 00700 -> 0700.HK"""
-    code = str(symbol).replace(".HK", "").lstrip("0").zfill(4)
-    return f"{code}.HK"
+            def _fetch():
+                ticker = yf.Ticker(hk_symbol)
+                actions = ticker.actions
+                dividends = ticker.dividends
+                splits = ticker.splits
+                return {"actions": actions, "dividends": dividends, "splits": splits}
+
+            result = await asyncio.to_thread(_fetch)
+            if not result:
+                return None
+
+            # 合并 dividends 和 splits
+            records = []
+            if result["dividends"] is not None and not result["dividends"].empty:
+                for date, val in result["dividends"].items():
+                    if start_date <= str(date)[:10] <= end_date:
+                        records.append({
+                            "date": date, "action_type": "cash_dividend",
+                            "amount": val, "symbol": symbol,
+                        })
+            if result["splits"] is not None and not result["splits"].empty:
+                for date, val in result["splits"].items():
+                    if start_date <= str(date)[:10] <= end_date:
+                        records.append({
+                            "date": date, "action_type": "stock_split",
+                            "ratio": val, "symbol": symbol,
+                        })
+            return pd.DataFrame(records) if records else None
+        except Exception as e:
+            logger.debug(f"yfinance-HK 公司行为失败 {symbol}: {e}")
+            return None
+
+    async def get_financial_data(
+        self, symbol: str, start_date: str, end_date: str,
+        statement_type: str = "", **kwargs
+    ) -> Optional[pd.DataFrame]:
+        try:
+            import yfinance as yf
+            hk_symbol = _to_yfinance_symbol(symbol)
+
+            def _fetch():
+                ticker = yf.Ticker(hk_symbol)
+                return ticker.financials
+
+            df = await asyncio.to_thread(_fetch)
+            if df is not None and not df.empty:
+                df.attrs["symbol"] = symbol.zfill(5)
+            return df
+        except Exception as e:
+            logger.debug(f"yfinance-HK 财务数据失败 {symbol}: {e}")
+            return None

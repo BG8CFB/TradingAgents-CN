@@ -1,8 +1,5 @@
-"""
-数据同步管理 API
-"""
+"""数据同步管理 API。"""
 
-import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Query
@@ -15,37 +12,32 @@ router = APIRouter(prefix="/api/cn/data", tags=["CN Data Sync"])
 
 class SyncRequest(BaseModel):
     domain: str
-    mode: str = "incremental"  # incremental / full
+    mode: str = "incremental"
     symbols: Optional[list[str]] = None
 
 
 @router.post("/sync/{domain}")
 async def trigger_sync(domain: str, request: SyncRequest):
     """手动触发指定域的同步"""
-    from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
-
     valid_domains = [
         "trade_calendar", "basic_info", "daily_quotes",
-        "daily_indicators", "adj_factors", "financial",
+        "daily_indicators", "adj_factors", "financial", "news",
     ]
     if domain not in valid_domains:
         return fail(message=f"不支持的域: {domain}", code=400)
 
     try:
-        orchestrator = get_cn_sync_orchestrator()
-        sync = orchestrator._domain_syncs.get(domain)
-        if not sync:
-            return fail(message=f"域 {domain} 无同步模块", code=400)
+        from app.worker.scheduler_setup import get_scheduler_engine
 
-        if request.symbols:
-            results = []
-            for symbol in request.symbols[:50]:  # 限制最多 50 只
-                result = await sync.sync(symbol=symbol)
-                results.append(result.to_dict())
-            return ok(data={"domain": domain, "results": results})
+        engine = get_scheduler_engine()
+        if engine:
+            job_id = engine.trigger_job("cn", domain)
+            return ok(data={"domain": domain, "job_id": job_id, "triggered": True})
         else:
-            result = await sync.sync()
-            return ok(data=result.to_dict())
+            from app.data.core.interface import DataInterface
+            di = DataInterface.get_instance()
+            task_id = await di.trigger_sync("CN", domain)
+            return ok(data={"domain": domain, "task_id": task_id, "triggered": True})
 
     except Exception as e:
         return fail(message=f"同步失败: {e}", code=500)
@@ -59,22 +51,18 @@ async def get_sync_status(
 ):
     """获取同步任务状态"""
     try:
-        from app.core.database import get_database
-        from app.data.schema.collections import get_collection_name
+        from app.data.core.interface import DataInterface
 
-        db = await get_database()
-        collection = db[get_collection_name("CN", "sync_checkpoints")]
+        di = DataInterface.get_instance()
+        status = await di.get_sync_status("CN", domain)
 
-        query = {}
-        if domain:
-            query["domain"] = domain
-
-        total = await collection.count_documents(query)
-        cursor = collection.find(query).sort("last_sync_time", -1).skip((page - 1) * page_size).limit(page_size)
-        items = await cursor.to_list(length=page_size)
+        items = status if isinstance(status, list) else [status] if status else []
+        total = len(items)
+        start = (page - 1) * page_size
+        paginated = items[start:start + page_size]
 
         return ok(data={
-            "items": items,
+            "items": paginated,
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -93,24 +81,17 @@ async def get_sync_events(
 ):
     """获取同步事件流"""
     try:
-        from app.core.database import get_database
-        from app.data.schema.collections import get_collection_name
+        from app.data.core.interface import DataInterface
 
-        db = await get_database()
-        collection = db[get_collection_name("CN", "sync_events")]
+        di = DataInterface.get_instance()
+        events = await di.get_sync_events("CN", limit=page_size, domain=domain)
 
-        query = {}
-        if domain:
-            query["domain"] = domain
-        if event_type:
-            query["event_type"] = event_type
-
-        total = await collection.count_documents(query)
-        cursor = collection.find(query).sort("updated_at", -1).skip((page - 1) * page_size).limit(page_size)
-        items = await cursor.to_list(length=page_size)
+        total = len(events) if events else 0
+        start = (page - 1) * page_size
+        paginated = events[start:start + page_size] if events else []
 
         return ok(data={
-            "items": items,
+            "items": paginated,
             "total": total,
             "page": page,
             "page_size": page_size,

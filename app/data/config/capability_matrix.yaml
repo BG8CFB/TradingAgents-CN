@@ -1,0 +1,115 @@
+# 能力矩阵: market → domain → source → level (full / partial / none)
+
+CN:
+  basic_info:
+    tushare: full
+    akshare: full
+    baostock: full
+  trade_calendar:
+    tushare: full
+    akshare: full
+    baostock: full
+  daily_quotes:
+    tushare: full
+    akshare: full
+    baostock: full
+  daily_indicators:
+    tushare: full
+    akshare: partial
+    baostock: none
+  adj_factors:
+    tushare: full
+    akshare: full
+    baostock: full
+  financial_data:
+    tushare: full
+    akshare: partial
+    baostock: none
+  market_quotes:
+    tushare: full
+    akshare: full
+    baostock: none
+  news:
+    tushare: full
+    akshare: partial
+    baostock: none
+
+HK:
+  basic_info:
+    tushare_hk: full
+    akshare_hk: full
+    yfinance_hk: partial
+    tencent_hk: partial
+  trade_calendar:
+    tushare_hk: full
+    akshare_hk: partial
+    yfinance_hk: partial
+  daily_quotes:
+    tushare_hk: full
+    akshare_hk: full
+    yfinance_hk: full
+  daily_indicators:
+    tushare_hk: partial
+    akshare_hk: full
+    yfinance_hk: full
+  adj_factors:
+    tushare_hk: full
+    akshare_hk: full
+    yfinance_hk: full
+  financial_data:
+    tushare_hk: full
+    akshare_hk: full
+    yfinance_hk: full
+  corporate_actions:
+    akshare_hk: full
+    yfinance_hk: partial
+  market_quotes:
+    tencent_hk: full
+    tushare_hk: full
+    akshare_hk: full
+    yfinance_hk: full
+  news:
+    akshare_hk: full
+    yfinance_hk: partial
+
+US:
+  basic_info:
+    finnhub: full
+    yfinance: partial
+    tushare_us: partial
+    alpha_vantage: partial
+  trade_calendar:
+    finnhub: full
+    tushare_us: full
+    yfinance: partial
+  daily_quotes:
+    yfinance: full
+    tushare_us: full
+    finnhub: full
+    alpha_vantage: full
+  daily_indicators:
+    yfinance: full
+    finnhub: full
+    tushare_us: partial
+    alpha_vantage: partial
+  adj_factors:
+    tushare_us: full
+    yfinance: partial
+  financial_data:
+    tushare_us: full
+    yfinance: full
+    finnhub: full
+    alpha_vantage: full
+  corporate_actions:
+    yfinance: full
+    alpha_vantage: full
+    finnhub: partial
+  market_quotes:
+    yfinance: full
+    finnhub: full
+  news:
+    finnhub: full
+    yfinance: partial
+    alpha_vantage: partial
+  pre_post_market:
+    finnhub: full

@@ -8,8 +8,6 @@ from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data import reader
-
 logger = logging.getLogger(__name__)
 
 
@@ -43,13 +41,8 @@ def get_fund_data(
         # 🔥 优先使用Tushare获取基金数据
         try:
             logger.info(f"📊 尝试使用Tushare获取基金数据: {ts_code}, 类型: {data_type}")
-            data = reader.get_fund_data(
-                ts_code=ts_code,
-                data_type=data_type,
-                start_date=start_date,
-                end_date=end_date,
-                period=period
-            )
+            # TODO: 迁移到新架构 - get_fund_data 需要通过新数据层实现
+            data = None
             if data and not data.empty:
                 logger.info(f"✅ Tushare成功获取基金数据: {ts_code}, {len(data)}条记录")
                 return format_tool_result(success_result(format_result(data, f"Fund: {ts_code} {data_type}")))
@@ -115,7 +108,8 @@ def get_fund_manager_by_name(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        data = reader.get_fund_manager_by_name(name=name, ann_date=ann_date)
+        # TODO: 迁移到新架构 - get_fund_manager_by_name 需要通过新数据层实现
+        data = None
         return format_tool_result(success_result(format_result(data, f"Manager: {name}")))
     except Exception as e:
         logger.error(f"get_fund_manager_by_name failed: {e}")

@@ -5,7 +5,6 @@ AKShare 反爬虫与限流工具
 """
 
 import logging
-import time
 
 logger = logging.getLogger(__name__)
 

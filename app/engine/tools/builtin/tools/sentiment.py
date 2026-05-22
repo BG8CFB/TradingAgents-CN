@@ -9,8 +9,6 @@ from datetime import datetime, timedelta
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data import reader
-
 logger = logging.getLogger(__name__)
 
 
@@ -101,8 +99,11 @@ def get_stock_sentiment(
                 logger.warning(f"⚠️ [MCP情绪工具] 中文情绪数据为空，尝试备用源")
                 # 备用：Reddit新闻
                 try:
-                    from app.data.interface import get_reddit_company_news
-                    reddit_data = get_reddit_company_news(stock_code, current_date, 7, 5)
+                    from app.data.core.interface import DataInterface
+                    import asyncio as _asyncio
+                    _di = DataInterface.get_instance()
+                    _r = _asyncio.run(_di.read("CN", stock_code, "news"))
+                    reddit_data = _r.get("data")
                     if reddit_data:
                         result_data.append(f"## Reddit讨论(备用)\n{reddit_data}")
                 except Exception as e:
@@ -115,9 +116,8 @@ def get_stock_sentiment(
             try:
                 # 尝试获取内幕交易情绪
                 try:
-                    from app.data.interface import get_finnhub_company_insider_sentiment
-
-                    insider_sentiment = get_finnhub_company_insider_sentiment(stock_code, current_date, 30)
+                    # 内幕情绪暂无直接实现
+                    insider_sentiment = None
                     if insider_sentiment:
                         result_data.append(f"## 内部人士情绪\n{insider_sentiment}")
                 except Exception as e:
@@ -125,8 +125,11 @@ def get_stock_sentiment(
 
                 # 尝试获取Reddit讨论
                 try:
-                    from app.data.interface import get_reddit_company_news
-                    reddit_info = get_reddit_company_news(stock_code, current_date, 7, 5)
+                    from app.data.core.interface import DataInterface
+                    import asyncio as _asyncio
+                    _di = DataInterface.get_instance()
+                    _r = _asyncio.run(_di.read("US", stock_code.upper(), "news"))
+                    reddit_info = _r.get("data")
                     if reddit_info:
                         result_data.append(f"## Reddit讨论\n{reddit_info}")
                 except Exception as e:

@@ -1,62 +1,69 @@
-"""CapabilityRegistry 测试"""
+"""CapabilityRegistry 测试 — 新架构 app.data.core.registry.capability"""
 
-from app.data.processor.capability_registry import CapabilityRegistry, SupportLevel, CN_CAPABILITY_MATRIX, ALL_DOMAINS
+from app.data.core.registry.capability import CapabilityRegistry
+from app.data.schema.base.enums import SupportLevel
 
 
 class TestCapabilityRegistry:
     def setup_method(self):
         self.registry = CapabilityRegistry()
 
-    def test_all_domains_defined(self):
-        assert len(ALL_DOMAINS) == 8
+    def test_register_and_lookup(self):
+        self.registry.register("CN", "daily_quotes", "tushare", SupportLevel.FULL)
+        self.registry.register("CN", "daily_quotes", "akshare", SupportLevel.PARTIAL)
+        sources = self.registry.get_sources("CN", "daily_quotes")
+        assert len(sources) == 2
+        assert sources[0] == ("tushare", SupportLevel.FULL)
 
-    def test_support_level_lookup(self):
-        assert self.registry.get_support_level("daily_quotes", "tushare") == SupportLevel.FULL
-        assert self.registry.get_support_level("daily_indicators", "baostock") == SupportLevel.NONE
-        assert self.registry.get_support_level("daily_indicators", "akshare") == SupportLevel.PARTIAL
+    def test_unknown_market_returns_empty(self):
+        sources = self.registry.get_sources("XX", "daily_quotes")
+        assert sources == []
 
-    def test_unknown_domain_returns_none(self):
-        assert self.registry.get_support_level("nonexistent", "tushare") == SupportLevel.NONE
+    def test_is_supported(self):
+        self.registry.register("CN", "daily_quotes", "tushare", SupportLevel.FULL)
+        assert self.registry.is_supported("CN", "daily_quotes", "tushare") is True
+        assert self.registry.is_supported("CN", "daily_quotes", "akshare") is False
 
-    def test_unknown_source_returns_none(self):
-        assert self.registry.get_support_level("daily_quotes", "nonexistent") == SupportLevel.NONE
-
-    def test_available_sources_excludes_none(self):
-        sources = self.registry.get_available_sources("daily_indicators")
+    def test_ordered_sources_filters_none(self):
+        self.registry.register("CN", "daily_indicators", "tushare", SupportLevel.FULL)
+        self.registry.register("CN", "daily_indicators", "akshare", SupportLevel.PARTIAL)
+        self.registry.register("CN", "daily_indicators", "baostock", SupportLevel.NONE)
+        sources = self.registry.get_ordered_sources("CN", "daily_indicators")
+        assert "baostock" not in sources
         assert "tushare" in sources
         assert "akshare" in sources
-        assert "baostock" not in sources
-
-    def test_ordered_sources_default_priority(self):
-        ordered = self.registry.get_ordered_sources("daily_quotes")
-        assert ordered[0] == "tushare"
-        assert ordered[-1] == "baostock"
 
     def test_ordered_sources_with_disabled(self):
-        ordered = self.registry.get_ordered_sources("daily_quotes", disabled_sources=["tushare"])
-        assert "tushare" not in ordered
-        assert ordered[0] == "akshare"
+        self.registry.register("CN", "daily_quotes", "tushare", SupportLevel.FULL)
+        self.registry.register("CN", "daily_quotes", "akshare", SupportLevel.PARTIAL)
+        sources = self.registry.get_ordered_sources(
+            "CN", "daily_quotes", disabled_sources=["tushare"]
+        )
+        assert "tushare" not in sources
+        assert sources[0] == "akshare"
 
     def test_ordered_sources_user_priority(self):
-        ordered = self.registry.get_ordered_sources("daily_quotes", user_priority=["baostock", "akshare", "tushare"])
-        assert ordered[0] == "baostock"
+        self.registry.register("CN", "daily_quotes", "tushare", SupportLevel.FULL)
+        self.registry.register("CN", "daily_quotes", "akshare", SupportLevel.PARTIAL)
+        self.registry.register("CN", "daily_quotes", "baostock", SupportLevel.PARTIAL)
+        sources = self.registry.get_ordered_sources(
+            "CN", "daily_quotes", user_priority=["baostock", "akshare", "tushare"]
+        )
+        assert sources[0] == "baostock"
 
-    def test_set_user_priority(self):
-        self.registry.set_user_priority("daily_quotes", ["akshare", "tushare"])
-        ordered = self.registry.get_ordered_sources("daily_quotes")
-        assert ordered[0] == "akshare"
+    def test_remove_source(self):
+        self.registry.register("CN", "daily_quotes", "tushare", SupportLevel.FULL)
+        assert self.registry.is_supported("CN", "daily_quotes", "tushare") is True
+        self.registry.remove_source("CN", "daily_quotes", "tushare")
+        assert self.registry.is_supported("CN", "daily_quotes", "tushare") is False
 
-    def test_get_default_priority(self):
-        priority = CapabilityRegistry.get_default_priority("daily_indicators")
-        assert priority == ["tushare", "akshare"]
-
-    def test_get_matrix_summary(self):
-        summary = self.registry.get_matrix_summary()
-        assert "daily_quotes" in summary
-        assert summary["daily_quotes"]["tushare"] == "full"
-
-    def test_financial_only_tushare_akshare(self):
-        sources = self.registry.get_available_sources("financial")
-        assert "tushare" in sources
-        assert "akshare" in sources
-        assert "baostock" not in sources
+    def test_load_from_yaml(self):
+        yaml_data = {
+            "CN": {
+                "daily_quotes": {"tushare": "full", "akshare": "partial"},
+            }
+        }
+        self.registry.load_from_yaml(yaml_data)
+        assert self.registry.is_supported("CN", "daily_quotes", "tushare") is True
+        sources = self.registry.get_sources("CN", "daily_quotes")
+        assert len(sources) == 2

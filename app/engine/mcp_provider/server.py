@@ -1,11 +1,11 @@
 """
-Finance MCP Server Entry Point
+Finance MCP Server Entry Point — 基于新数据架构 DataInterface。
 """
 import json
 import logging
 import re
 from mcp.server.fastmcp import FastMCP
-from app.data import reader
+from app.data.core.interface import DataInterface
 
 # Initialize Logger
 logging.basicConfig(level=logging.INFO)
@@ -118,7 +118,7 @@ async def get_stock_data(code: str, period: str = "day", limit: int = 120) -> st
         return json.dumps({"error": err})
     if err := _check_limit(limit):
         return json.dumps({"error": err})
-    return await get_stock_kline_logic(reader, code, period, limit)
+    return await get_stock_kline_logic(DataInterface.get_instance(), code, period, limit)
 
 
 @mcp.tool()
@@ -135,7 +135,7 @@ async def get_company_metrics(code: str, date: str) -> str:
         return json.dumps({"error": err})
     if err := _check_date(date):
         return json.dumps({"error": err})
-    return await get_company_metrics_logic(reader, code, date)
+    return await get_company_metrics_logic(DataInterface.get_instance(), code, date)
 
 
 @mcp.tool()
@@ -155,7 +155,7 @@ async def get_finance_news(code: str, days: int = 2, limit: int = 10) -> str:
         return json.dumps({"error": err})
     if err := _check_limit(limit):
         return json.dumps({"error": err})
-    return await get_finance_news_logic(reader, code, days, limit)
+    return await get_finance_news_logic(DataInterface.get_instance(), code, days, limit)
 
 
 def main():

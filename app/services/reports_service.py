@@ -58,7 +58,7 @@ def _get_stock_name_sync(stock_code: str) -> str:
         return cached_name
 
     try:
-        from app.services.data_sources.base import get_enabled_cn_sources
+        from app.data.core.registry.priority import PriorityConfig
 
         db = get_mongo_db_sync()
         # 确认返回的是同步 PyMongo 数据库
@@ -67,7 +67,7 @@ def _get_stock_name_sync(stock_code: str) -> str:
 
         code6 = str(stock_code).zfill(6)
 
-        enabled_sources = get_enabled_cn_sources()
+        enabled_sources = PriorityConfig().get_default_sources("CN", "basic_info")
 
         stock_info = None
         for data_source in enabled_sources:

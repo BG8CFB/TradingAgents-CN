@@ -1,0 +1,97 @@
+# 港股调度时间表 (HKT = Asia/Hong_Kong，与 CST 一致)
+# cron 格式: "分 时 日 月 周"
+
+trade_calendar:
+  cron: "0 0 * * *"
+  timezone: "Asia/Hong_Kong"
+  mode: full
+  description: "每日 00:00 全量同步交易日历"
+  source: "tushare_hk"
+
+basic_info:
+  cron: "0 8 * * *"
+  timezone: "Asia/Hong_Kong"
+  mode: full
+  description: "每日 08:00 全量同步股票列表"
+  depends_on:
+    - trade_calendar
+
+connect_status:
+  cron: "0 9 * * 1"
+  timezone: "Asia/Hong_Kong"
+  mode: full
+  description: "每周一 09:00 全量同步港股通名单"
+  source: "akshare_hk"
+  depends_on:
+    - basic_info
+
+daily_quotes:
+  cron: "30 18 * * 1-5"
+  timezone: "Asia/Hong_Kong"
+  mode: incremental
+  description: "每交易日 18:30 增量同步日线行情"
+  source: "tushare_hk"
+  depends_on:
+    - basic_info
+
+daily_indicators:
+  cron: "0 19 * * 1-5"
+  timezone: "Asia/Hong_Kong"
+  mode: incremental
+  description: "每交易日 19:00 增量同步每日指标"
+  source: "akshare_hk"
+  depends_on:
+    - daily_quotes
+
+southbound_holding:
+  cron: "30 19 * * 1-5"
+  timezone: "Asia/Hong_Kong"
+  mode: incremental
+  description: "每交易日 19:30 增量同步南向持股"
+  source: "tushare_hk"
+  depends_on:
+    - connect_status
+
+corporate_actions:
+  cron: "0 20 * * *"
+  timezone: "Asia/Hong_Kong"
+  mode: incremental
+  description: "每日 20:00 增量同步公司行为"
+  source: "akshare_hk"
+
+adj_factors:
+  cron: "30 19 * * 1-5"
+  timezone: "Asia/Hong_Kong"
+  mode: incremental
+  description: "每交易日 19:30 增量同步复权因子"
+  source: "tushare_hk"
+  depends_on:
+    - daily_quotes
+
+financial_data:
+  cron: "0 21 * * *"
+  timezone: "Asia/Hong_Kong"
+  mode: incremental
+  description: "每日 21:00 增量同步财务数据"
+  source: "tushare_hk"
+
+market_quotes:
+  cron: "1 16 * * 1-5"
+  timezone: "Asia/Hong_Kong"
+  mode: full
+  description: "每交易日 16:01 全量收盘快照"
+  source: "tushare_hk"
+
+market_quotes_realtime:
+  cron: "*/30 * 9-16 * * 1-5"
+  timezone: "Asia/Hong_Kong"
+  mode: incremental
+  description: "交易时段每 30 秒准实时行情（仅活跃股票）"
+  source: "tencent_hk"
+
+news:
+  cron: "0 */1 * * *"
+  timezone: "Asia/Hong_Kong"
+  mode: incremental
+  description: "每 1 小时增量同步新闻"
+  source: "akshare_hk"

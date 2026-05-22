@@ -1,0 +1,58 @@
+# A 股调度时间表 (CST = Asia/Shanghai)
+# cron 格式: "分 时 日 月 周"
+
+trade_calendar:
+  cron: "0 0 * * *"
+  timezone: "Asia/Shanghai"
+  mode: full
+  description: "每日 00:00 全量同步交易日历"
+
+basic_info:
+  cron: "0 9 * * *"
+  timezone: "Asia/Shanghai"
+  mode: full
+  description: "每日 09:00 全量同步股票列表"
+  depends_on:
+    - trade_calendar
+
+daily_quotes:
+  cron: "15 16 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 16:15 增量同步日线行情"
+  depends_on:
+    - basic_info
+
+daily_indicators:
+  cron: "45 16 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 16:45 增量同步每日指标"
+  depends_on:
+    - daily_quotes
+
+adj_factors:
+  cron: "0 17 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 17:00 增量同步复权因子"
+  depends_on:
+    - daily_quotes
+
+financial_data:
+  cron: "0 20 * * *"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每日 20:00 增量同步财务数据"
+
+market_quotes:
+  cron: "5 15 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: full
+  description: "每交易日 15:05 全量市场快照"
+
+news:
+  cron: "0 */2 * * *"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每 2 小时增量同步新闻"

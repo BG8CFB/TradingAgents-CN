@@ -411,7 +411,7 @@ class FinancialDataService:
     
     def _get_full_symbol(self, symbol: str, market: str) -> str:
         """获取完整股票代码 — 委托到全局统一函数"""
-        from app.data.schema.base import get_full_symbol
+        from app.data.schema.base.markets import get_full_symbol
         return get_full_symbol(symbol, market or "CN")
     
     def _extract_latest_period(self, financial_data: Dict[str, Any]) -> str:

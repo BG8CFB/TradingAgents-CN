@@ -402,7 +402,7 @@ class NewsDataService:
         """获取完整股票代码 — 委托到全局统一函数"""
         if not symbol:
             return None
-        from app.data.schema.base import get_full_symbol
+        from app.data.schema.base.markets import get_full_symbol
         return get_full_symbol(symbol, market or "CN")
     
     def _parse_datetime(self, dt_value) -> Optional[datetime]:

@@ -3,7 +3,7 @@
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -16,50 +16,36 @@ router = APIRouter(prefix="/api/cn/data", tags=["CN Source Config"])
 
 
 async def _load_priorities_from_db() -> Dict[str, List[str]]:
-    """从 MongoDB 加载用户配置的优先级"""
-    try:
-        from app.core.database import get_database
-        db = await get_database()
-    except Exception:
-        return {}
+    """从 MongoDB 加载用户配置的优先级（通过 DataInterface）"""
+    from app.data.core.interface import DataInterface
 
-    try:
-        cursor = db["system_configs"].find(
-            {"config_type": "data_source_priority", "market": "CN"},
-        )
-        docs = await cursor.to_list(length=None)
-        return {doc["domain"]: doc["sources"] for doc in docs if "domain" in doc and "sources" in doc}
-    except Exception as e:
-        logger.debug("加载优先级配置失败: %s", e)
-        return {}
+    di = DataInterface.get_instance()
+
+    domains = [
+        "daily_quotes", "daily_indicators", "adj_factors",
+        "financial_data", "basic_info", "news",
+    ]
+
+    priorities: Dict[str, List[str]] = {}
+    for domain in domains:
+        try:
+            config = await di.get_config("CN", domain)
+            if config and "sources" in config:
+                priorities[domain] = config["sources"]
+        except Exception as e:
+            logger.debug("加载域 %s 优先级配置失败: %s", domain, e)
+
+    return priorities
 
 
 async def _save_priority_to_db(domain: str, sources: List[str]) -> bool:
-    """将优先级配置保存到 MongoDB"""
-    try:
-        from app.core.database import get_database
-        from app.utils.time_utils import now_utc
-        db = await get_database()
-    except Exception:
-        return False
+    """将优先级配置保存到 MongoDB（通过 DataInterface）"""
+    from app.data.core.interface import DataInterface
+
+    di = DataInterface.get_instance()
 
     try:
-        await db["system_configs"].update_one(
-            {"config_type": "data_source_priority", "market": "CN", "domain": domain},
-            {
-                "$set": {
-                    "sources": sources,
-                    "updated_at": now_utc().isoformat(),
-                },
-                "$setOnInsert": {
-                    "config_type": "data_source_priority",
-                    "market": "CN",
-                    "domain": domain,
-                },
-            },
-            upsert=True,
-        )
-        return True
+        return await di.update_config("CN", domain, sources)
     except Exception as e:
         logger.error("保存优先级配置失败: %s", e)
         return False
@@ -68,7 +54,10 @@ async def _save_priority_to_db(domain: str, sources: List[str]) -> bool:
 @router.get("/source-config")
 async def get_source_config():
     """获取数据源配置（能力矩阵 + 用户自定义优先级）"""
-    from app.data.processor.capability_registry import CapabilityRegistry, _DEFAULT_PRIORITY
+    from app.data.core.registry.capability import CapabilityRegistry
+    from app.data.config import load_yaml
+    _default_config = load_yaml("default_priorities.yaml")
+    _DEFAULT_PRIORITY = _default_config.get("CN", {})
 
     registry = CapabilityRegistry()
     matrix = registry.get_matrix_summary()
@@ -94,7 +83,7 @@ class PriorityUpdateRequest(BaseModel):
 @router.put("/source-config/{domain}")
 async def update_source_priority(domain: str, request: PriorityUpdateRequest):
     """更新指定域的数据源优先级（持久化到 MongoDB）"""
-    from app.data.processor.capability_registry import CapabilityRegistry
+    from app.data.core.registry.capability import CapabilityRegistry
 
     registry = CapabilityRegistry()
 

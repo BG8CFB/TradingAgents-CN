@@ -19,13 +19,14 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import UpdateOne
 
 from app.core.database import get_mongo_db
+from app.data.storage.mongo.collections import get_collection_name
 from app.services.basics_sync import add_financial_metrics as _add_financial_metrics_util
 
 
 logger = logging.getLogger(__name__)
 
 # Collection names
-COLLECTION_NAME = "stock_basic_info"
+COLLECTION_NAME = get_collection_name("basic_info", "CN")
 STATUS_COLLECTION = "sync_status"
 JOB_KEY = "stock_basics_multi_source"
 
@@ -189,25 +190,48 @@ class MultiSourceBasicsSyncService:
         await self._persist_status(db, stats.__dict__.copy())
 
         try:
-            # Step 1: 获取数据源管理器
-            from app.data import reader as _data_reader
-            available_adapters = _data_reader.get_available_adapters()
+            # Step 1: 通过新架构获取数据源和股票列表
+            from app.data.core.interface import DataInterface
+            from app.data.core.registry.priority import PriorityConfig
+            from app.data.processor.fallback_router import FallbackRouter
+            import pandas as pd
 
-            if not available_adapters:
+            di = DataInterface.get_instance()
+            registry = di.get_capability_registry()
+            priority = PriorityConfig()
+            router = FallbackRouter(registry, priority)
+
+            # 获取可用数据源列表
+            cn_sources = priority.get_default_sources("CN", "basic_info")
+            if not cn_sources:
                 raise RuntimeError("No available data sources found")
 
-            logger.info(f"Available data sources: {[adapter.name for adapter in available_adapters]}")
-
-            # 如果指定了优先数据源，记录日志
+            logger.info(f"Available data sources: {cn_sources}")
             if preferred_sources:
                 logger.info(f"Using preferred data sources: {preferred_sources}")
 
-            # Step 2: 尝试从数据源获取股票列表（带超时保护）
+            # Step 2: 获取股票列表
             try:
-                stock_df, source_used = await asyncio.wait_for(
-                    asyncio.to_thread(_data_reader.get_stock_list_with_fallback, preferred_sources),
+                fetch_result = await asyncio.wait_for(
+                    router.fetch("CN", "basic_info", "__all__"),
                     timeout=120,
                 )
+                if fetch_result.success and fetch_result.data:
+                    stock_df = pd.DataFrame(fetch_result.data)
+                    source_used = fetch_result.source or cn_sources[0]
+                else:
+                    # 回退到 MongoDB 已有数据
+                    from app.data.storage.mongo.client import get_motor_db
+                    from app.data.storage.mongo.collections import get_collection_name
+                    mdb = get_motor_db()
+                    existing = await mdb[get_collection_name("basic_info", "CN")].find(
+                        {}, {"_id": 0}
+                    ).to_list(length=None)
+                    if existing:
+                        stock_df = pd.DataFrame(existing)
+                        source_used = "mongodb_cache"
+                    else:
+                        raise RuntimeError("无法获取股票列表")
             except asyncio.TimeoutError:
                 raise RuntimeError("获取股票列表超时（120秒），请检查数据源网络连通性")
             if stock_df is None or getattr(stock_df, "empty", True):
@@ -216,12 +240,21 @@ class MultiSourceBasicsSyncService:
             stats.data_sources_used.append(f"stock_list:{source_used}")
             logger.info(f"Successfully fetched {len(stock_df)} stocks from {source_used}")
 
-            # Step 3: 获取最新交易日期和财务数据
+            # Step 3: 获取最新交易日期和每日指标
             try:
-                latest_trade_date = await asyncio.wait_for(
-                    asyncio.to_thread(_data_reader.find_latest_trade_date_with_fallback, preferred_sources),
+                cal_result = await asyncio.wait_for(
+                    router.fetch("CN", "trade_calendar", "__calendar__"),
                     timeout=60,
                 )
+                if cal_result.success and cal_result.data:
+                    cal_df = pd.DataFrame(cal_result.data)
+                    open_days = cal_df[cal_df.get("is_open", pd.Series(dtype=bool)).astype(bool)]
+                    if not open_days.empty:
+                        latest_trade_date = str(open_days["cal_date"].max())
+                    else:
+                        latest_trade_date = None
+                else:
+                    latest_trade_date = None
             except asyncio.TimeoutError:
                 logger.warning("获取最新交易日期超时（60秒），继续同步但不包含每日基础数据")
                 latest_trade_date = None
@@ -231,18 +264,24 @@ class MultiSourceBasicsSyncService:
             daily_source = ""
             if latest_trade_date:
                 try:
-                    daily_df, daily_source = await asyncio.wait_for(
-                        asyncio.to_thread(_data_reader.get_daily_basic_with_fallback, latest_trade_date, preferred_sources),
+                    indicator_result = await asyncio.wait_for(
+                        router.fetch("CN", "daily_indicators", "__all__",
+                                     start_date=latest_trade_date, end_date=latest_trade_date),
                         timeout=120,
                     )
+                    if indicator_result.success and indicator_result.data:
+                        daily_df = pd.DataFrame(indicator_result.data)
+                        daily_source = indicator_result.source or cn_sources[0]
+                    else:
+                        daily_df = None
                 except asyncio.TimeoutError:
                     logger.warning("获取每日基础数据超时（120秒），跳过财务指标")
                     daily_df = None
                 if daily_df is not None and not daily_df.empty:
                     for _, row in daily_df.iterrows():
-                        ts_code = row.get("ts_code")
-                        if ts_code:
-                            daily_data_map[ts_code] = row.to_dict()
+                        sym = row.get("symbol") or row.get("ts_code", "")
+                        if sym:
+                            daily_data_map[sym] = row.to_dict()
                     stats.data_sources_used.append(f"daily_data:{daily_source}")
 
             # Step 5: 处理和更新数据（分批处理）
@@ -391,7 +430,7 @@ class MultiSourceBasicsSyncService:
 
     def _generate_full_symbol(self, code: str) -> str:
         """根据股票代码生成完整标准化代码 — 委托到全局统一函数"""
-        from app.data.schema.base import get_full_symbol
+        from app.data.schema.base.markets import get_full_symbol
         if not code:
             return ""
         return get_full_symbol(str(code).strip(), "CN")

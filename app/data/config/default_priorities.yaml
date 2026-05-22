@@ -1,0 +1,34 @@
+# 默认数据源优先级: market → domain → sources (按优先级排序)
+
+CN:
+  basic_info: [tushare, akshare, baostock]
+  trade_calendar: [tushare, akshare, baostock]
+  daily_quotes: [tushare, akshare, baostock]
+  daily_indicators: [tushare, akshare, baostock]
+  adj_factors: [tushare, akshare, baostock]
+  financial_data: [tushare, akshare, baostock]
+  market_quotes: [tushare, akshare, baostock]
+  news: [tushare, akshare, baostock]
+
+HK:
+  basic_info: [tushare_hk, akshare_hk, yfinance_hk]
+  trade_calendar: [tushare_hk, akshare_hk]
+  daily_quotes: [tushare_hk, akshare_hk, yfinance_hk]
+  daily_indicators: [akshare_hk, yfinance_hk, tushare_hk]
+  adj_factors: [tushare_hk, akshare_hk, yfinance_hk]
+  financial_data: [tushare_hk, akshare_hk, yfinance_hk]
+  corporate_actions: [akshare_hk, yfinance_hk]
+  market_quotes: [tencent_hk, tushare_hk, akshare_hk, yfinance_hk]
+  news: [akshare_hk, yfinance_hk]
+
+US:
+  basic_info: [finnhub, yfinance, tushare_us, alpha_vantage]
+  trade_calendar: [finnhub, tushare_us, yfinance]
+  daily_quotes: [yfinance, tushare_us, finnhub, alpha_vantage]
+  daily_indicators: [yfinance, finnhub, tushare_us, alpha_vantage]
+  adj_factors: [tushare_us, yfinance]
+  financial_data: [tushare_us, yfinance, finnhub, alpha_vantage]
+  corporate_actions: [yfinance, alpha_vantage, finnhub]
+  market_quotes: [yfinance, finnhub]
+  news: [finnhub, yfinance, alpha_vantage]
+  pre_post_market: [finnhub]

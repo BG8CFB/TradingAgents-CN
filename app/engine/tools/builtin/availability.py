@@ -18,25 +18,30 @@ def get_available_data_sources() -> Set[str]:
         可用数据源名称的集合，如 {"tushare", "akshare"}
     """
     try:
-        from app.data import reader as _data_reader
+        from app.data.core.registry.capability import CapabilityRegistry
+        from app.data.config import load_yaml
 
-        available_adapters = _data_reader.get_available_adapters()
-
+        # 从 capability_matrix.yaml 获取所有数据源名称
+        cap_data = load_yaml("capability_matrix.yaml")
         sources = set()
-        for adapter in available_adapters:
-            name = adapter.name.lower()
-            # 标准化数据源名称
-            if 'tushare' in name:
-                sources.add('tushare')
-            elif 'akshare' in name or 'ak' in name:
-                sources.add('akshare')
-            elif 'baostock' in name or 'bst' in name:
-                sources.add('baostock')
-            elif 'finnhub' in name:
-                sources.add('finnhub')
-            else:
-                # 使用原始名称（小写）
-                sources.add(name.lower())
+        for market, domains in cap_data.items():
+            if not isinstance(domains, dict):
+                continue
+            for domain, source_map in domains.items():
+                if not isinstance(source_map, dict):
+                    continue
+                for source_name in source_map.keys():
+                    name = source_name.lower()
+                    if 'tushare' in name:
+                        sources.add('tushare')
+                    elif 'akshare' in name or 'ak' in name:
+                        sources.add('akshare')
+                    elif 'baostock' in name or 'bst' in name:
+                        sources.add('baostock')
+                    elif 'finnhub' in name:
+                        sources.add('finnhub')
+                    else:
+                        sources.add(name)
 
         return sources
     except Exception as e:

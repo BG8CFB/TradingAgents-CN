@@ -68,8 +68,9 @@ class DatabaseScreeningService:
 
     async def _resolve_preferred_source(self) -> str:
         """从配置中解析优先级最高的数据源（统一入口，避免重复查询）"""
-        from app.services.data_sources.base import get_enabled_cn_sources_async
-        enabled_sources = await get_enabled_cn_sources_async()
+        from app.data.core.registry.priority import PriorityConfig
+        pc = PriorityConfig()
+        enabled_sources = await pc.get_priority("CN", "basic_info")
         return enabled_sources[0] if enabled_sources else 'tushare'
 
     async def can_handle_conditions(self, conditions: List[Dict[str, Any]]) -> bool:

@@ -41,7 +41,6 @@ from app.routers import websocket_notifications as websocket_notifications_route
 from app.routers import scheduler as scheduler_router
 from app.services.multi_source_basics_sync_service import get_multi_source_sync_service
 from app.services.scheduler_service import set_scheduler_instance
-# Phase 4G: 数据源 sync service 导入已移至 app/worker/scheduler_setup.py
 from app.middleware.operation_log_middleware import OperationLogMiddleware
 from app.services.quotes_ingestion_service import QuotesIngestionService
 

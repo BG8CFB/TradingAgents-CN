@@ -92,7 +92,8 @@ class EnhancedScreeningService:
             if source == "mongodb" and items:
                 try:
                     db = get_mongo_db()
-                    coll = db["market_quotes"]
+                    from app.data.storage.mongo.collections import get_collection_name
+                    coll = db[get_collection_name("market_quotes", "CN")]
                     codes = [str(it.get("symbol")).zfill(6) for it in items if it.get("symbol")]
                     if codes:
                         cursor = coll.find(
@@ -319,12 +320,14 @@ class EnhancedScreeningService:
         过滤掉 None / 空字符串 / NaN 等无效行业值。
         """
         try:
-            from app.services.data_sources.base import get_enabled_cn_sources_async
+            from app.data.core.registry.priority import PriorityConfig
 
             db = get_mongo_db()
-            collection = db["stock_basic_info"]
+            from app.data.storage.mongo.collections import get_collection_name
+            collection = db[get_collection_name("basic_info", "CN")]
 
-            enabled_sources = await get_enabled_cn_sources_async()
+            pc = PriorityConfig()
+            enabled_sources = await pc.get_priority("CN", "basic_info")
             logger.info(f"[get_industries] 数据源优先级: {enabled_sources}")
 
             # 通用聚合管道：按源查询，过滤无效行业值

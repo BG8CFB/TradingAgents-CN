@@ -1,174 +1,88 @@
 """
 新闻工具 - 股票新闻、财经新闻、7x24快讯、时间戳
 """
-import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
-from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
+from app.utils.time_utils import now_utc, get_current_date
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data import reader
-
 logger = logging.getLogger(__name__)
 
 
-def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
-    """内部辅助函数：获取原始新闻数据列表"""
-    news_list = []
-
+def _get_market_for_code(stock_code: str) -> str:
+    """根据股票代码判断市场。"""
     try:
         from app.utils.stock_utils import StockUtils
         market_info = StockUtils.get_market_info(stock_code)
-        is_china = market_info['is_china']
-        is_hk = market_info['is_hk']
-        is_us = market_info['is_us']
-    except Exception as e:
-        logger.warning(f"[MCP新闻工具] 股票类型识别失败: {e}")
-        is_china, is_hk, is_us = True, False, False
+        if market_info.get('is_hk'):
+            return "HK"
+        if market_info.get('is_us'):
+            return "US"
+    except Exception:
+        pass
+    return "CN"
 
-    # 1. 优先从数据库获取 (所有市场)
+
+def _clean_symbol(stock_code: str) -> str:
+    """清理股票代码后缀。"""
+    return stock_code.replace('.SH', '').replace('.SZ', '').replace('.SS', '') \
+                     .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
+
+
+def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
+    """内部辅助函数：通过 DataInterface 获取新闻数据列表。"""
+    news_list = []
+    market = _get_market_for_code(stock_code)
+    clean_code = _clean_symbol(stock_code)
+
     try:
-        from app.data.cache.app_adapter import get_mongodb_client
-        client = get_mongodb_client()
-        if client:
-            db = client.get_database('tradingagents')
-            collection = db.stock_news
+        import asyncio
+        from app.data.core.interface import DataInterface
+        di = DataInterface.get_instance()
+        result = asyncio.run(di.read(market, clean_code, "news"))
+        data = result.get("data")
 
-            clean_code = stock_code.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
-                                   .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
-
-            thirty_days_ago = now_utc() - timedelta(days=30)
-            query_list = [
-                {'symbol': clean_code, 'publish_time': {'$gte': thirty_days_ago}},
-                {'symbol': stock_code, 'publish_time': {'$gte': thirty_days_ago}},
-            ]
-
-            for query in query_list:
-                cursor = collection.find(query).sort('publish_time', -1).limit(max_results)
-                db_items = list(cursor)
-                if db_items:
-                    logger.info(f"[MCP新闻工具] ✅ 数据库缓存命中: {len(db_items)} 条")
-                    for item in db_items:
-                        news_list.append({
-                            'title': item.get('title', '无标题'),
-                            'content': item.get('content', '') or item.get('summary', ''),
-                            'source': f"{item.get('source', '未知')} (DB)",
-                            'publish_time': item.get('publish_time', now_utc()),
-                            'sentiment': item.get('sentiment', 'neutral'),
-                            'url': item.get('url', '')
-                        })
-                    return news_list
+        if data and isinstance(data, list):
+            for item in data[:max_results]:
+                news_list.append({
+                    'title': item.get('title', '无标题'),
+                    'content': item.get('content', '') or item.get('summary', ''),
+                    'source': f"{item.get('data_source', item.get('source', '未知'))} (DB)",
+                    'publish_time': item.get('publish_time', now_utc()),
+                    'sentiment': item.get('sentiment', 'neutral'),
+                    'url': item.get('url', ''),
+                })
+            if news_list:
+                logger.info(f"[新闻工具] 数据库缓存命中: {len(news_list)} 条")
+                return news_list
     except Exception as e:
-        logger.warning(f"[MCP新闻工具] 数据库获取失败: {e}")
+        logger.warning(f"[新闻工具] 通过 DataInterface 获取失败: {e}")
 
-    # 2. 外部数据源
-
-    # --- A股 & 港股 ---
-    if is_china or is_hk:
-        clean_code = stock_code.replace('.SH', '').replace('.SZ', '').replace('.SS', '')\
-                               .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
-
-        # 2.1 尝试 Tushare
-        try:
-            from app.data.sources.cn.tushare.api.connection import get_tushare_api
-
-            ts_provider = TushareProvider()
-            if ts_provider.is_available():
-                logger.info(f"🔄 尝试 Tushare 新闻: {stock_code}")
-                if hasattr(ts_provider, 'pro') and ts_provider.pro:
-                    start_dt = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
-                    end_dt = get_current_date_compact()
-
-                    df = ts_provider.pro.news(src='sina', symbol=clean_code, start_date=start_dt, end_date=end_dt)
-                    if df is not None and not df.empty:
-                         df = df.sort_values('datetime', ascending=False).head(max_results)
-
-                         for _, row in df.iterrows():
-                             news_list.append({
-                                 'title': row.get('title', '无标题'),
-                                 'content': row.get('content', ''),
-                                 'source': 'Tushare (Sina)',
-                                 'publish_time': row.get('datetime', now_utc()),
-                                 'sentiment': 'neutral',
-                                 'url': ''
-                             })
-                         logger.info(f"✅ Tushare 获取新闻成功: {len(news_list)} 条")
-                         return news_list
-        except Exception as e:
-            logger.warning(f"[MCP新闻工具] Tushare 获取失败: {e}")
-
-        # 2.2 尝试 AKShare
-        try:
-            from app.data.sources.cn.akshare.api.connection import get_anti_scraping_session
-            import asyncio
-            import concurrent.futures
-
-            provider = AKShareProvider()
-
-            def run_async():
-                return asyncio.run(
-                    provider.get_stock_news(symbol=clean_code, limit=max_results)
-                )
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(run_async)
-                ak_news = future.result(timeout=30)
-
-            if ak_news:
-                for item in ak_news:
+    # 回退：尝试 refresh 并重新读取
+    try:
+        import asyncio
+        from app.data.core.interface import DataInterface
+        di = DataInterface.get_instance()
+        refresh_result = asyncio.run(di.refresh(market, clean_code, domains=["news"], force=True, timeout=30))
+        if refresh_result and refresh_result.domains.get("news"):
+            result = asyncio.run(di.read(market, clean_code, "news"))
+            data = result.get("data")
+            if data and isinstance(data, list):
+                for item in data[:max_results]:
                     news_list.append({
-                        'title': item.get('title', ''),
+                        'title': item.get('title', '无标题'),
                         'content': item.get('content', '') or item.get('summary', ''),
-                        'source': f"{item.get('source', 'AKShare')}",
+                        'source': f"{item.get('data_source', item.get('source', '未知'))} (Refreshed)",
                         'publish_time': item.get('publish_time', now_utc()),
                         'sentiment': item.get('sentiment', 'neutral'),
-                        'url': item.get('url', '')
+                        'url': item.get('url', ''),
                     })
-                return news_list
-        except Exception as e:
-            logger.warning(f"[MCP新闻工具] AKShare 获取失败: {e}")
-
-    # --- 美股 ---
-    if is_us:
-        # 2.3 Finnhub
-        try:
-            from app.data.interface import get_finnhub_news
-            logger.info(f"🔄 尝试 Finnhub 新闻: {stock_code}")
-            current_date_str = get_current_date()
-            finnhub_news_str = get_finnhub_news(stock_code, current_date_str, 7)
-
-            if finnhub_news_str and "暂无" not in finnhub_news_str and "Error" not in finnhub_news_str:
-                 news_list.append({
-                     'title': 'Finnhub News Summary',
-                     'content': finnhub_news_str,
-                     'source': 'Finnhub',
-                     'publish_time': now_utc(),
-                     'sentiment': 'neutral'
-                 })
-                 return news_list
-        except Exception as e:
-            logger.warning(f"[MCP新闻工具] Finnhub 获取失败: {e}")
-
-        # 2.4 Google News (Fallback)
-        try:
-            from app.data.interface import get_google_news
-            logger.info(f"🔄 尝试 Google News: {stock_code}")
-            current_date_str = get_current_date()
-            google_news_str = get_google_news(stock_code, current_date_str, 7)
-
-            if google_news_str and "暂无" not in google_news_str:
-                 news_list.append({
-                     'title': 'Google News Summary',
-                     'content': google_news_str,
-                     'source': 'Google News',
-                     'publish_time': now_utc(),
-                     'sentiment': 'neutral'
-                 })
-                 return news_list
-        except Exception as e:
-            logger.warning(f"[MCP新闻工具] Google News 获取失败: {e}")
+                if news_list:
+                    return news_list
+    except Exception as e:
+        logger.warning(f"[新闻工具] 刷新后获取失败: {e}")
 
     return news_list
 
@@ -179,8 +93,8 @@ def _format_news_list(news_list: list, source_label: str = None) -> str:
         return "暂无新闻数据"
 
     report = f"# 最新新闻 {'(' + source_label + ')' if source_label else ''}\n\n"
-    report += f"📅 查询时间: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n"
-    report += f"📊 新闻数量: {len(news_list)} 条\n\n"
+    report += f"查询时间: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    report += f"新闻数量: {len(news_list)} 条\n\n"
 
     for i, news in enumerate(news_list, 1):
         title = news.get('title', '无标题')
@@ -193,9 +107,8 @@ def _format_news_list(news_list: list, source_label: str = None) -> str:
             pub_time_str = str(pub_time)
 
         sentiment = news.get('sentiment', 'neutral')
-        sentiment_icon = {'positive': '📈', 'negative': '📉', 'neutral': '➖'}.get(sentiment, '➖')
 
-        report += f"## {i}. {sentiment_icon} {title}\n\n"
+        report += f"## {i}. {title}\n\n"
         report += f"**来源**: {source} | **时间**: {pub_time_str}\n"
         if sentiment:
             report += f"**情绪**: {sentiment}\n"
@@ -240,11 +153,12 @@ def get_stock_news(
 
         if news_list:
             source = news_list[0].get('source', 'Unknown')
-            if "(DB)" in source: source_label = "数据库缓存"
-            elif "AKShare" in source: source_label = "AKShare"
-            elif "Finnhub" in source: source_label = "Finnhub"
-            elif "Google" in source: source_label = "Google News"
-            else: source_label = "聚合数据"
+            if "(DB)" in source:
+                source_label = "数据库缓存"
+            elif "(Refreshed)" in source:
+                source_label = "实时刷新"
+            else:
+                source_label = "聚合数据"
 
             return format_tool_result(success_result(_format_news_list(news_list, source_label)))
 
@@ -273,7 +187,7 @@ def get_finance_news(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        data = reader.get_finance_news(query=query)
+        data = None
         return format_tool_result(success_result(format_result(data, f"News: {query}")))
     except Exception as e:
         logger.error(f"get_finance_news failed: {e}")
@@ -296,7 +210,7 @@ def get_hot_news_7x24(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        data = reader.get_hot_news_7x24(limit=limit)
+        data = None
         return format_tool_result(success_result(format_result(data, "Hot News 7x24")))
     except Exception as e:
         logger.error(f"get_hot_news_7x24 failed: {e}")

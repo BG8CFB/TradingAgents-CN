@@ -22,10 +22,9 @@ async def get_stock_data(
 ):
     """查看单股多域数据"""
     try:
-        from app.core.database import get_database
-        from app.data.schema.collections import get_collection_name
+        from app.data.core.interface import DataInterface
 
-        db = await get_database()
+        di = DataInterface.get_instance()
 
         domains = [domain] if domain else [
             "basic_info", "daily_quotes", "daily_indicators",
@@ -35,23 +34,16 @@ async def get_stock_data(
         result = {}
         for d in domains:
             try:
-                collection = db[get_collection_name("CN", d)]
-                query = {"symbol": symbol}
-                if start_date and "trade_date" in (f for f in ["trade_date"]):
-                    query.setdefault("trade_date", {})
-                    query["trade_date"]["$gte"] = start_date
-                if end_date:
-                    query.setdefault("trade_date", {})
-                    query["trade_date"]["$lte"] = end_date
-
-                total = await collection.count_documents(query)
-                if d == "basic_info":
-                    items = await collection.find(query).to_list(length=1)
+                read_result = await di.read("CN", symbol, d,
+                                            start_date=start_date, end_date=end_date)
+                data = read_result.get("data", [])
+                if isinstance(data, list):
+                    total = len(data)
+                    start = (page - 1) * page_size
+                    items = data[start:start + page_size]
                 else:
-                    cursor = collection.find(query).sort(
-                        "trade_date" if d != "news" else "updated_at", -1,
-                    ).skip((page - 1) * page_size).limit(page_size)
-                    items = await cursor.to_list(length=page_size)
+                    total = 1
+                    items = [data] if data else []
 
                 result[d] = {
                     "total": total,

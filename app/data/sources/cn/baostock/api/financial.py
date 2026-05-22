@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 import pandas as pd
 
-from .connection import baostock_session
+from .connection import baostock_session, bs
 from .daily_quotes import _to_baostock_code
 
 logger = logging.getLogger(__name__)

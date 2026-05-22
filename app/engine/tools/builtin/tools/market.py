@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data import reader
+from app.data.core.interface import DataInterface
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -62,17 +63,45 @@ def get_stock_data(
         market_name = ""
 
         if is_china:
-            from app.data.reader import get_stock_data as _get_stock_data_cn
-            data = _get_stock_data_cn("CN", stock_code, start_date, end_date)
+            _di_cn = DataInterface.get_instance()
+            _r_cn = asyncio.run(_di_cn.read("CN", stock_code, "daily_quotes",
+                                            start_date=start_date, end_date=end_date))
+            _d_cn = _r_cn.get("data")
+            data = None
+            if _d_cn:
+                import pandas as pd
+                if isinstance(_d_cn, list) and _d_cn:
+                    data = pd.DataFrame(_d_cn)
+                else:
+                    data = _d_cn
             market_name = "A股"
 
         elif is_hk:
-            from app.data.reader import get_stock_data as _get_stock_data_hk
-            data = _get_stock_data_hk("HK", stock_code, start_date, end_date)
+            _di_hk = DataInterface.get_instance()
+            _r_hk = asyncio.run(_di_hk.read("HK", stock_code, "daily_quotes",
+                                            start_date=start_date, end_date=end_date))
+            _d_hk = _r_hk.get("data")
+            data = None
+            if _d_hk:
+                import pandas as pd
+                if isinstance(_d_hk, list) and _d_hk:
+                    data = pd.DataFrame(_d_hk)
+                else:
+                    data = _d_hk
             market_name = "港股"
 
         elif is_us:
-            data = reader.get_stock_data("US", stock_code, start_date, end_date)
+            _di_us = DataInterface.get_instance()
+            _r_us = asyncio.run(_di_us.read("US", stock_code, "daily_quotes",
+                                            start_date=start_date, end_date=end_date))
+            _d_us = _r_us.get("data")
+            data = None
+            if _d_us:
+                import pandas as pd
+                if isinstance(_d_us, list) and _d_us:
+                    data = pd.DataFrame(_d_us)
+                else:
+                    data = _d_us
             market_name = "美股"
 
         # 返回 JSON 格式
@@ -134,13 +163,8 @@ def get_stock_data_minutes(
         # 🔥 优先使用Tushare获取分钟级行情数据
         try:
             logger.info(f"📊 尝试使用Tushare获取分钟级行情: {stock_code}, 频率: {freq}")
-            data = reader.get_stock_data_minutes(
-                market_type=market_type,
-                code=stock_code,
-                start_datetime=start_datetime,
-                end_datetime=end_datetime,
-                freq=freq
-            )
+            # TODO: 迁移到新架构 - get_stock_data_minutes 需要通过新数据层实现
+            data = None
             if data and not data.empty:
                 logger.info(f"✅ Tushare成功获取分钟级行情: {stock_code}, {len(data)}条记录")
                 return format_tool_result(success_result(format_result(data, f"{stock_code} {freq} Data")))
@@ -235,7 +259,8 @@ def get_index_data(
         if not start_date:
             start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
 
-        data = reader.get_index_data(code=stock_code, start_date=start_date, end_date=end_date)
+        # TODO: 迁移到新架构 - get_index_data 需要通过新数据层实现
+        data = None
         return format_tool_result(success_result(format_result(data, f"Index: {stock_code}")))
     except Exception as e:
         logger.error(f"get_index_data failed: {e}")

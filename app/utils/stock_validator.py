@@ -13,7 +13,68 @@ from app.utils.time_utils import now_utc, get_current_date, parse_date_aware
 
 # 导入日志模块
 from app.utils.logging_manager import get_logger
+
+
 logger = get_logger('stock_validator')
+
+
+# ── 新架构同步辅助函数 ──────────────────────────────────────────────
+
+def _get_stock_info_sync(market: str, symbol: str):
+    """同步获取股票基础信息（基于 DataInterface）。"""
+    try:
+        import pandas as pd
+        from app.data.core.interface import DataInterface
+
+        async def _read():
+            di = DataInterface.get_instance()
+            result = await di.read(market, symbol, "basic_info")
+            data = result.get("data")
+            if data:
+                doc = data[0] if isinstance(data, list) and data else data
+                lines = [f"股票代码: {doc.get('symbol', symbol)}"]
+                for key, label in [("name", "股票名称"), ("industry", "行业"), ("exchange", "交易所")]:
+                    if doc.get(key):
+                        lines.append(f"{label}: {doc[key]}")
+                return "\n".join(lines)
+            return None
+
+        try:
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, _read()).result()
+        except RuntimeError:
+            return asyncio.run(_read())
+    except Exception:
+        pass
+    return None
+
+
+def _get_stock_data_sync(market: str, symbol: str, start_date=None, end_date=None):
+    """同步获取股票日线数据（基于 DataInterface）。"""
+    try:
+        import pandas as pd
+        from app.data.core.interface import DataInterface
+
+        async def _read():
+            di = DataInterface.get_instance()
+            result = await di.read(market, symbol, "daily_quotes", start_date=start_date, end_date=end_date)
+            data = result.get("data")
+            if data and isinstance(data, list) and data:
+                return pd.DataFrame(data).to_string()
+            return None
+
+        try:
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, _read()).result()
+        except RuntimeError:
+            return asyncio.run(_read())
+    except Exception:
+        pass
+    return None
 
 
 class StockDataPreparationResult:
@@ -372,9 +433,7 @@ class StockDataPreparer:
 
             # 3. 获取基本信息
             logger.debug(f"📊 [A股数据] 获取{stock_code}基本信息...")
-            from app.data.reader import get_stock_info as _get_stock_info_cn
-
-            stock_info = _get_stock_info_cn("CN", stock_code)
+            stock_info = _get_stock_info_sync("CN", stock_code)
 
             if stock_info and "❌" not in stock_info and "未能获取" not in stock_info:
                 # 解析股票名称
@@ -411,9 +470,7 @@ class StockDataPreparer:
 
             # 4. 获取历史数据（使用扩展后的日期范围）
             logger.debug(f"📊 [A股数据] 获取{stock_code}历史数据 ({extended_start_date_str} 到 {end_date_str})...")
-            from app.data.reader import get_stock_data as _get_stock_data_cn
-
-            historical_data = _get_stock_data_cn("CN", stock_code, extended_start_date_str, end_date_str)
+            historical_data = _get_stock_data_sync("CN", stock_code, extended_start_date_str, end_date_str)
 
             if historical_data and "❌" not in historical_data and "获取失败" not in historical_data:
                 # 更宽松的数据有效性检查
@@ -525,50 +582,31 @@ class StockDataPreparer:
                 logger.info(f"✅ [A股数据-异步] 数据库数据检查通过: {db_check_result['message']}")
                 cache_status += "数据库数据最新; "
 
-            # 3. 获取基本信息（同步操作）
+            # 3. 获取基本信息
             logger.debug(f"📊 [A股数据-异步] 获取{stock_code}基本信息...")
-            from app.data.reader import get_stock_info as _get_stock_info_cn
-            stock_info = _get_stock_info_cn("CN", stock_code)
+            from app.data.core.interface import DataInterface
+            di = DataInterface.get_instance()
+            info_result = await di.read("CN", stock_code, "basic_info")
+            info_doc = info_result.get("data")
 
-            if stock_info and "❌" not in stock_info and "未能获取" not in stock_info:
-                if "股票名称:" in stock_info:
-                    lines = stock_info.split('\n')
-                    for line in lines:
-                        if "股票名称:" in line:
-                            stock_name = line.split(':')[1].strip()
-                            break
-
-                if stock_name != "未知" and not stock_name.startswith(f"股票{stock_code}"):
+            if info_doc:
+                name = info_doc.get("name", "") if isinstance(info_doc, dict) else ""
+                if name and name != "未知" and not name.startswith(f"股票{stock_code}"):
+                    stock_name = name
                     has_basic_info = True
                     logger.info(f"✅ [A股数据-异步] 基本信息获取成功: {stock_code} - {stock_name}")
                     cache_status += "基本信息已缓存; "
 
-            # 4. 获取历史数据（同步操作）
+            # 4. 获取历史数据
             logger.debug(f"📊 [A股数据-异步] 获取{stock_code}历史数据...")
-            from app.data.reader import get_stock_data as _get_stock_data_cn
-            historical_data = _get_stock_data_cn("CN", stock_code, extended_start_date_str, end_date_str)
+            quotes_result = await di.read("CN", stock_code, "daily_quotes",
+                                          start_date=extended_start_date_str, end_date=end_date_str)
+            quotes_data = quotes_result.get("data")
 
-            if historical_data and "❌" not in historical_data and "获取失败" not in historical_data:
-                data_indicators = ["开盘价", "收盘价", "最高价", "最低价", "成交量"]
-                has_valid_data = (
-                    len(historical_data) > 50 and
-                    any(indicator in historical_data for indicator in data_indicators)
-                )
-
-                if has_valid_data:
-                    has_historical_data = True
-                    logger.info(f"✅ [A股数据-异步] 历史数据获取成功: {stock_code}")
-                    cache_status += f"历史数据已缓存({lookback_days}天); "
-                else:
-                    return StockDataPreparationResult(
-                        is_valid=False,
-                        stock_code=stock_code,
-                        market_type="A股",
-                        stock_name=stock_name,
-                        has_basic_info=has_basic_info,
-                        error_message=f"股票 {stock_code} 的历史数据无效或不足",
-                        suggestion="该股票可能为新上市股票或数据源暂时不可用，请稍后重试"
-                    )
+            if quotes_data and isinstance(quotes_data, list) and len(quotes_data) > 0:
+                has_historical_data = True
+                logger.info(f"✅ [A股数据-异步] 历史数据获取成功: {stock_code} ({len(quotes_data)}条)")
+                cache_status += f"历史数据已缓存({lookback_days}天); "
             else:
                 return StockDataPreparationResult(
                     is_valid=False,
@@ -622,22 +660,23 @@ class StockDataPreparer:
             }
         """
         try:
-            from app.data.cache.mongodb_cache_adapter import get_mongodb_cache_adapter
+            from app.data.core.interface import DataInterface
 
-            adapter = get_mongodb_cache_adapter()
-            if not adapter.use_app_cache or adapter.db is None:
-                return {
-                    "has_data": False,
-                    "is_latest": False,
-                    "record_count": 0,
-                    "latest_date": None,
-                    "message": "MongoDB缓存未启用"
-                }
+            async def _query():
+                di = DataInterface.get_instance()
+                result = await di.read("CN", stock_code, "daily_quotes",
+                                       start_date=start_date, end_date=end_date)
+                return result.get("data")
 
-            # 查询数据库中的历史数据
-            df = adapter.get_historical_data(stock_code, start_date, end_date)
+            try:
+                loop = asyncio.get_running_loop()
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    records = pool.submit(asyncio.run, _query()).result()
+            except RuntimeError:
+                records = asyncio.run(_query())
 
-            if df is None or df.empty:
+            if not records or not isinstance(records, list) or len(records) == 0:
                 return {
                     "has_data": False,
                     "is_latest": False,
@@ -646,38 +685,34 @@ class StockDataPreparer:
                     "message": "数据库中没有数据"
                 }
 
-            # 检查数据量
-            record_count = len(df)
+            record_count = len(records)
 
             # 获取最新数据日期
-            if 'trade_date' in df.columns:
-                latest_date = df['trade_date'].max()
-            elif 'date' in df.columns:
-                latest_date = df['date'].max()
-            else:
-                latest_date = None
+            latest_date = None
+            for rec in reversed(records):
+                td = rec.get("trade_date")
+                if td:
+                    latest_date = str(td)[:10]
+                    break
 
             # 检查是否包含最近的交易日
             from datetime import timedelta
             today = now_utc()
 
-            # 获取最近的交易日（考虑周末）
             recent_trade_date = today
-            for i in range(5):  # 最多回溯5天
+            for i in range(5):
                 check_date = today - timedelta(days=i)
-                if check_date.weekday() < 5:  # 周一到周五
+                if check_date.weekday() < 5:
                     recent_trade_date = check_date
                     break
 
             recent_trade_date_str = recent_trade_date.strftime('%Y-%m-%d')
 
-            # 判断数据是否最新（允许1天的延迟）
             is_latest = False
             if latest_date:
-                latest_date_str = str(latest_date)[:10]  # 取前10个字符 YYYY-MM-DD
-                latest_dt = parse_date_aware(latest_date_str, to_config_tz=False)  # 解析为aware UTC
-                days_diff = (recent_trade_date - latest_dt).days  # ✅ aware - aware
-                is_latest = days_diff <= 1  # 允许1天延迟
+                latest_dt = parse_date_aware(latest_date, to_config_tz=False)
+                days_diff = (recent_trade_date - latest_dt).days
+                is_latest = days_diff <= 1
 
             message = f"找到{record_count}条记录，最新日期: {latest_date}"
             if not is_latest:
@@ -687,7 +722,7 @@ class StockDataPreparer:
                 "has_data": True,
                 "is_latest": is_latest,
                 "record_count": record_count,
-                "latest_date": str(latest_date) if latest_date else None,
+                "latest_date": latest_date,
                 "message": message
             }
 
@@ -755,35 +790,29 @@ class StockDataPreparer:
             priority_order = self._get_data_source_priority_for_sync(stock_code)
             logger.info(f"📊 [数据同步] 数据源优先级: {priority_order}")
 
-            # 2. 使用编排器同步
+            # 2. 通过 DataInterface 同步
             try:
-                from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
-                orchestrator = get_cn_sync_orchestrator()
+                from app.data.core.interface import DataInterface
+                di = DataInterface.get_instance()
 
-                # 域级同步（日线 + 指标 + 财务）
                 domains = ["daily_quotes", "daily_indicators", "financial"]
-                result = await orchestrator.run(
-                    symbol=stock_code,
-                    domains=domains,
-                    start_date=start_date,
-                    end_date=end_date,
-                    skip_trading_day_check=True,
-                )
+                result = await di.refresh("CN", stock_code, domains=domains, force=True, timeout=60)
 
                 historical_records = 0
                 financial_synced = False
                 realtime_synced = False
 
                 for domain, dr in result.domains.items():
-                    if dr.success:
-                        historical_records += dr.records_synced
-                    if "financial" in domain and dr.success:
+                    if dr.status in ("refreshed", "fresh"):
+                        historical_records += dr.record_count
+                    if "financial" in domain and dr.status in ("refreshed", "fresh"):
                         financial_synced = True
 
                 # 实时行情
                 try:
-                    rt_result = await orchestrator.sync_realtime()
-                    realtime_synced = rt_result.success
+                    rt_result = await di.refresh("CN", stock_code, domains=["market_quotes"], force=True)
+                    rt_domain = rt_result.domains.get("market_quotes")
+                    realtime_synced = rt_domain is not None and rt_domain.status in ("refreshed", "fresh")
                 except Exception as e:
                     logger.warning(f"⚠️ [数据同步] 实时行情同步异常: {e}")
 
@@ -847,21 +876,32 @@ class StockDataPreparer:
             list: 数据源列表，按优先级排序 ['tushare', 'akshare', 'baostock']
         """
         try:
-            from app.data.cache.mongodb_cache_adapter import get_mongodb_cache_adapter
+            from app.data.core.interface import DataInterface
 
-            adapter = get_mongodb_cache_adapter()
-            if adapter.use_app_cache and adapter.db is not None:
-                # 使用 MongoDB 适配器的方法获取优先级
-                priority_order = adapter._get_data_source_priority(stock_code)
+            async def _get_priority():
+                di = DataInterface.get_instance()
+                config = await di.get_config("CN", "daily_quotes")
+                if config and "sources" in config:
+                    return config["sources"]
+                return None
+
+            try:
+                loop = asyncio.get_running_loop()
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    priority_order = pool.submit(asyncio.run, _get_priority()).result()
+            except RuntimeError:
+                priority_order = asyncio.run(_get_priority())
+
+            if priority_order:
                 logger.info(f"✅ [数据源优先级] 从数据库获取: {priority_order}")
                 return priority_order
             else:
-                logger.warning(f"⚠️ [数据源优先级] MongoDB未启用，使用默认顺序")
+                logger.warning(f"⚠️ [数据源优先级] 未找到配置，使用默认顺序")
                 return ['tushare', 'akshare', 'baostock']
 
         except Exception as e:
             logger.error(f"❌ [数据源优先级] 获取失败: {e}")
-            # 返回默认顺序
             return ['tushare', 'akshare', 'baostock']
 
     def _prepare_hk_stock_data(self, stock_code: str, period_days: int,
@@ -898,21 +938,33 @@ class StockDataPreparer:
         try:
             # 1. 获取基本信息
             logger.debug(f"📊 [港股数据] 获取{formatted_code}基本信息...")
-            from app.data.reader import get_stock_info as _get_stock_info_hk
+            from app.data.core.interface import DataInterface
 
-            stock_info = _get_stock_info_hk("HK", formatted_code)
+            hk_code = formatted_code.replace(".HK", "").zfill(4)
 
-            if stock_info and "❌" not in stock_info and "未找到" not in stock_info:
-                # 解析股票名称 - 支持多种格式
-                stock_name = self._extract_hk_stock_name(stock_info, formatted_code)
+            async def _get_hk_info():
+                di = DataInterface.get_instance()
+                return await di.read("HK", hk_code, "basic_info")
 
-                if stock_name and stock_name != "未知":
+            try:
+                loop = asyncio.get_running_loop()
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    info_result = pool.submit(asyncio.run, _get_hk_info()).result()
+            except RuntimeError:
+                info_result = asyncio.run(_get_hk_info())
+
+            info_doc = info_result.get("data") if info_result else None
+
+            if info_doc:
+                name = info_doc.get("name", "") if isinstance(info_doc, dict) else ""
+                if name and name != "未知":
+                    stock_name = name
                     has_basic_info = True
                     logger.info(f"✅ [港股数据] 基本信息获取成功: {formatted_code} - {stock_name}")
                     cache_status += "基本信息已缓存; "
                 else:
                     logger.warning(f"⚠️ [港股数据] 基本信息无效: {formatted_code}")
-                    logger.debug(f"🔍 [港股数据] 信息内容: {stock_info[:200]}...")
                     return StockDataPreparationResult(
                         is_valid=False,
                         stock_code=formatted_code,
@@ -921,99 +973,47 @@ class StockDataPreparer:
                         suggestion="请检查港股代码是否正确，格式如：0700.HK"
                     )
             else:
-                # 检查是否为网络限制问题
-                network_error_indicators = [
-                    "Too Many Requests", "Rate limited", "Connection aborted",
-                    "Remote end closed connection", "网络连接", "超时", "限制"
-                ]
-
-                is_network_issue = any(indicator in str(stock_info) for indicator in network_error_indicators)
-
-                if is_network_issue:
-                    logger.warning(f"🌐 [港股数据] 网络限制影响: {formatted_code}")
-                    return StockDataPreparationResult(
-                        is_valid=False,
-                        stock_code=formatted_code,
-                        market_type="港股",
-                        error_message=f"港股数据获取受到网络限制影响",
-                        suggestion=self._get_hk_network_limitation_suggestion()
-                    )
-                else:
-                    logger.warning(f"⚠️ [港股数据] 无法获取基本信息: {formatted_code}")
-                    return StockDataPreparationResult(
-                        is_valid=False,
-                        stock_code=formatted_code,
-                        market_type="港股",
-                        error_message=f"港股代码 {formatted_code} 可能不存在或数据源暂时不可用",
-                        suggestion="请检查港股代码是否正确，格式如：0700.HK，或稍后重试"
-                    )
+                logger.warning(f"⚠️ [港股数据] 无法获取基本信息: {formatted_code}")
+                return StockDataPreparationResult(
+                    is_valid=False,
+                    stock_code=formatted_code,
+                    market_type="港股",
+                    error_message=f"港股代码 {formatted_code} 可能不存在或数据源暂时不可用",
+                    suggestion="请检查港股代码是否正确，格式如：0700.HK，或稍后重试"
+                )
 
             # 2. 获取历史数据
             logger.debug(f"📊 [港股数据] 获取{formatted_code}历史数据 ({start_date_str} 到 {end_date_str})...")
-            from app.data.reader import get_stock_data as _get_stock_data_hk
 
-            historical_data = _get_stock_data_hk("HK", formatted_code, start_date_str, end_date_str)
+            async def _get_hk_quotes():
+                di = DataInterface.get_instance()
+                return await di.read("HK", hk_code, "daily_quotes",
+                                     start_date=start_date_str, end_date=end_date_str)
 
-            if historical_data and "❌" not in historical_data and "获取失败" not in historical_data:
-                # 更宽松的数据有效性检查
-                data_indicators = [
-                    "开盘价", "收盘价", "最高价", "最低价", "成交量",
-                    "open", "close", "high", "low", "volume",
-                    "日期", "date", "时间", "time"
-                ]
+            try:
+                loop = asyncio.get_running_loop()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    quotes_result = pool.submit(asyncio.run, _get_hk_quotes()).result()
+            except RuntimeError:
+                quotes_result = asyncio.run(_get_hk_quotes())
 
-                has_valid_data = (
-                    len(historical_data) > 50 and  # 降低长度要求
-                    any(indicator in historical_data for indicator in data_indicators)
-                )
+            quotes_data = quotes_result.get("data") if quotes_result else None
 
-                if has_valid_data:
-                    has_historical_data = True
-                    logger.info(f"✅ [港股数据] 历史数据获取成功: {formatted_code} ({period_days}天)")
-                    cache_status += f"历史数据已缓存({period_days}天); "
-                else:
-                    logger.warning(f"⚠️ [港股数据] 历史数据无效: {formatted_code}")
-                    logger.debug(f"🔍 [港股数据] 数据内容预览: {historical_data[:200]}...")
-                    return StockDataPreparationResult(
-                        is_valid=False,
-                        stock_code=formatted_code,
-                        market_type="港股",
-                        stock_name=stock_name,
-                        has_basic_info=has_basic_info,
-                        error_message=f"港股 {formatted_code} 的历史数据无效或不足",
-                        suggestion="该股票可能为新上市股票或数据源暂时不可用，请稍后重试"
-                    )
+            if quotes_data and isinstance(quotes_data, list) and len(quotes_data) > 0:
+                has_historical_data = True
+                logger.info(f"✅ [港股数据] 历史数据获取成功: {formatted_code} ({len(quotes_data)}条)")
+                cache_status += f"历史数据已缓存({period_days}天); "
             else:
-                # 检查是否为网络限制问题
-                network_error_indicators = [
-                    "Too Many Requests", "Rate limited", "Connection aborted",
-                    "Remote end closed connection", "网络连接", "超时", "限制"
-                ]
-
-                is_network_issue = any(indicator in str(historical_data) for indicator in network_error_indicators)
-
-                if is_network_issue:
-                    logger.warning(f"🌐 [港股数据] 历史数据获取受网络限制: {formatted_code}")
-                    return StockDataPreparationResult(
-                        is_valid=False,
-                        stock_code=formatted_code,
-                        market_type="港股",
-                        stock_name=stock_name,
-                        has_basic_info=has_basic_info,
-                        error_message=f"港股历史数据获取受到网络限制影响",
-                        suggestion=self._get_hk_network_limitation_suggestion()
-                    )
-                else:
-                    logger.warning(f"⚠️ [港股数据] 无法获取历史数据: {formatted_code}")
-                    return StockDataPreparationResult(
-                        is_valid=False,
-                        stock_code=formatted_code,
-                        market_type="港股",
-                        stock_name=stock_name,
-                        has_basic_info=has_basic_info,
-                        error_message=f"无法获取港股 {formatted_code} 的历史数据",
-                        suggestion="数据源可能暂时不可用，请稍后重试或联系技术支持"
-                    )
+                logger.warning(f"⚠️ [港股数据] 无法获取历史数据: {formatted_code}")
+                return StockDataPreparationResult(
+                    is_valid=False,
+                    stock_code=formatted_code,
+                    market_type="港股",
+                    stock_name=stock_name,
+                    has_basic_info=has_basic_info,
+                    error_message=f"无法获取港股 {formatted_code} 的历史数据",
+                    suggestion="数据源可能暂时不可用，请稍后重试或联系技术支持"
+                )
 
             # 3. 数据准备成功
             logger.info(f"🎉 [港股数据] 数据准备完成: {formatted_code} - {stock_name}")
@@ -1066,22 +1066,12 @@ class StockDataPreparer:
             # 1. 获取历史数据（美股通常直接通过历史数据验证股票是否存在）
             logger.debug(f"📊 [美股数据] 获取{formatted_code}历史数据 ({start_date_str} 到 {end_date_str})...")
 
-            # 导入美股数据提供器（支持新旧路径）
+            # 通过新架构获取美股数据
             try:
-                from app.data.sources.us.yfinance_us.provider import YFinanceUSProvider
-                provider = OptimizedUSDataProvider()
-                historical_data = provider.get_stock_data(
-                    formatted_code,
-                    start_date_str,
-                    end_date_str
-                )
-            except ImportError:
-                from app.data.sources.us.yfinance_us.provider import YFinanceUSProvider
-                historical_data = get_us_stock_data_cached(
-                    formatted_code,
-                    start_date_str,
-                    end_date_str
-                )
+                _stock_data = _get_stock_data_sync("US", formatted_code, start_date_str, end_date_str)
+                historical_data = _stock_data
+            except Exception:
+                historical_data = None
 
             if historical_data and "❌" not in historical_data and "错误" not in historical_data and "无法获取" not in historical_data:
                 # 更宽松的数据有效性检查

@@ -92,16 +92,20 @@ async def get_quote(
     # 检测市场类型
     market, normalized_code = _detect_market_and_code(code)
 
-    # 港股和美股：使用新服务
+    # 港股和美股：使用新架构 DataInterface
     if market in ['HK', 'US']:
-        from app.services.foreign_stock_service import ForeignStockService
+        from app.data.core.interface import DataInterface
 
-        db = get_mongo_db()  # 不需要 await，直接返回数据库对象
-        service = ForeignStockService(db=db)
+        di = DataInterface.get_instance()
 
         try:
-            quote = await service.get_quote(market, normalized_code, force_refresh)
+            result = await di.read(market, normalized_code, "market_quotes")
+            quote = result.get("data")
+            if not quote:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到行情数据")
             return ok(data=quote)
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"获取{market}股票{code}行情失败: {e}")
             raise HTTPException(
@@ -143,16 +147,22 @@ async def get_fundamentals(
     # 检测市场类型
     market, normalized_code = _detect_market_and_code(code)
 
-    # 港股和美股：使用新服务
+    # 港股和美股：使用新架构 DataInterface
     if market in ['HK', 'US']:
-        from app.services.foreign_stock_service import ForeignStockService
+        from app.data.core.interface import DataInterface
 
-        db = get_mongo_db()  # 不需要 await，直接返回数据库对象
-        service = ForeignStockService(db=db)
+        di = DataInterface.get_instance()
 
         try:
-            info = await service.get_basic_info(market, normalized_code, force_refresh)
+            result = await di.read(market, normalized_code, "basic_info")
+            info = result.get("data")
+            if isinstance(info, list):
+                info = info[0] if info else None
+            if not info:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到基础信息")
             return ok(data=info)
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"获取{market}股票{code}基础信息失败: {e}")
             raise HTTPException(
@@ -214,20 +224,21 @@ async def get_kline(
     # 检测市场类型
     market, normalized_code = _detect_market_and_code(code)
 
-    # 港股和美股：使用新服务
+    # 港股和美股：使用新架构 DataInterface
     if market in ['HK', 'US']:
-        from app.services.foreign_stock_service import ForeignStockService
+        from app.data.core.interface import DataInterface
+        from datetime import timedelta, time as dtime
 
-        db = get_mongo_db()  # 不需要 await，直接返回数据库对象
-        service = ForeignStockService(db=db)
+        di = DataInterface.get_instance()
 
         try:
-            kline_data = await service.get_kline(market, normalized_code, period, limit, force_refresh)
+            result = await di.read(market, normalized_code, "daily_quotes")
+            kline_data = result.get("data", [])
             return ok(data={
                 'code': normalized_code,
                 'period': period,
                 'items': kline_data,
-                'source': 'cache_or_api'
+                'source': result.get("freshness", "unknown")
             })
         except Exception as e:
             logger.error(f"获取{market}股票{code}K线数据失败: {e}")
@@ -259,48 +270,65 @@ async def get_kline(
     today_str_yyyymmdd = format_date_compact(now)  # 格式：20251028（用于查询）
     today_str_formatted = format_date_short(now)  # 格式：2025-10-28（用于返回）
 
-    # 1. 优先从 MongoDB 缓存获取
+    # 1. 优先从 MongoDB 获取（通过新架构 DataInterface）
     try:
-        from app.data.cache.mongodb_cache_adapter import get_mongodb_cache_adapter
-        adapter = get_mongodb_cache_adapter()
+        from app.data.core.interface import DataInterface
 
-        # 计算日期范围
+        di = DataInterface.get_instance()
+
         end_date = now.strftime("%Y-%m-%d")
         start_date = (now - timedelta(days=limit * 2)).strftime("%Y-%m-%d")
 
-        logger.info(f"🔍 尝试从 MongoDB 获取 K 线数据: {code_padded}, period={period} (MongoDB: {mongodb_period}), limit={limit}")
-        df = adapter.get_historical_data(code_padded, start_date, end_date, period=mongodb_period)
+        logger.info(f"尝试从数据平台获取 K 线数据: {code_padded}, period={period}, limit={limit}")
+        result = await di.read("CN", code_padded, "daily_quotes", start_date=start_date, end_date=end_date)
+        data = result.get("data")
 
-        if df is not None and not df.empty:
-            # 转换 DataFrame 为列表格式
-            items = []
-            for _, row in df.tail(limit).iterrows():
+        if data and isinstance(data, list):
+            for row in data[-limit:]:
                 items.append({
-                    "time": row.get("trade_date", row.get("date", "")),  # 前端期望 time 字段
-                    "open": float(row.get("open", 0)),
-                    "high": float(row.get("high", 0)),
-                    "low": float(row.get("low", 0)),
-                    "close": float(row.get("close", 0)),
-                    "volume": float(row.get("volume", row.get("vol", 0))),
-                    "amount": float(row.get("amount", 0)) if "amount" in row else None,
+                    "time": row.get("trade_date", row.get("date", "")),
+                    "open": float(row.get("open", 0)) if row.get("open") else None,
+                    "high": float(row.get("high", 0)) if row.get("high") else None,
+                    "low": float(row.get("low", 0)) if row.get("low") else None,
+                    "close": float(row.get("close", 0)) if row.get("close") else None,
+                    "volume": float(row.get("volume", row.get("vol", 0))) if row.get("volume") or row.get("vol") else None,
+                    "amount": float(row.get("amount", 0)) if row.get("amount") else None,
                 })
             source = "mongodb"
-            logger.info(f"✅ 从 MongoDB 获取到 {len(items)} 条 K 线数据")
+            logger.info(f"从数据平台获取到 {len(items)} 条 K 线数据")
     except Exception as e:
         logger.warning(f"⚠️ MongoDB 获取 K 线失败: {e}")
 
     # 2. 如果 MongoDB 没有数据，降级到外部 API（带超时保护）
     if not items:
-        logger.info("📡 MongoDB 无数据，降级到外部 API")
+        logger.info("MongoDB 无数据，降级到外部 API")
         try:
             import asyncio
-            from app.data import reader as _data_reader
+            from app.data.core.interface import DataInterface
+            from datetime import datetime, timedelta
 
-            # 添加 10 秒超时保护
-            items, source = await asyncio.wait_for(
-                asyncio.to_thread(_data_reader.get_kline_with_fallback, code_padded, period, limit, adj_norm),
+            di = DataInterface.get_instance()
+            end_date = format_date_compact(now_config_tz())
+            start_date = format_date_compact(now_config_tz() - timedelta(days=max(limit * 2, 60)))
+            market = "CN"
+            result = await asyncio.wait_for(
+                di.read(market, code_padded, "daily_quotes", start_date=start_date, end_date=end_date),
                 timeout=10.0
             )
+            data = result.get("data")
+            if data and isinstance(data, list):
+                for row in data:
+                    items.append({
+                        "date": row.get("trade_date", ""),
+                        "open": float(row.get("open", 0)) if row.get("open") else None,
+                        "close": float(row.get("close", 0)) if row.get("close") else None,
+                        "high": float(row.get("high", 0)) if row.get("high") else None,
+                        "low": float(row.get("low", 0)) if row.get("low") else None,
+                        "volume": float(row.get("volume", 0)) if row.get("volume") else None,
+                        "amount": float(row.get("amount", 0)) if row.get("amount") else None,
+                    })
+                source = "data_platform"
+                logger.info(f"从数据平台获取到 {len(items)} 条 K 线数据")
         except asyncio.TimeoutError:
             logger.error("❌ 外部 API 获取 K 线超时（10秒）")
             raise HTTPException(status_code=504, detail="获取K线数据超时，请稍后重试")
@@ -386,17 +414,18 @@ async def get_kline(
 @router.get("/{code}/news", response_model=dict)
 async def get_news(code: str, days: int = 30, limit: int = 50, include_announcements: bool = True, current_user: dict = Depends(get_current_user)):
     """获取新闻与公告（支持A股、港股、美股）"""
-    from app.services.foreign_stock_service import ForeignStockService
+    from app.data.core.interface import DataInterface
     from app.services.news_data_service import get_news_data_service, NewsQueryParams
 
     # 检测股票类型
     market, normalized_code = _detect_market_and_code(code)
 
     if market == 'US':
-        # 美股：使用 ForeignStockService
-        service = ForeignStockService()
-        result = await service.get_us_news(normalized_code, days=days, limit=limit)
-        return ok(result)
+        # 美股：使用 DataInterface
+        di = DataInterface.get_instance()
+        result = await di.read("US", normalized_code, "news")
+        news_items = result.get("data", [])
+        return ok(data={"symbol": normalized_code, "items": news_items or [], "supported": True})
     elif market == 'HK':
         # 港股新闻功能尚未实现
         return ok(
@@ -442,13 +471,11 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
 
             # 2. 如果数据库没有数据，调用同步服务
             if not news_list:
-                logger.info(f"⚠️ 数据库无新闻数据，调用同步服务获取: {normalized_code}")
+                logger.info(f"⚠️ 数据库无新闻数据，通过 DataInterface 刷新: {normalized_code}")
                 try:
-                    # 通过编排器同步新闻
-                    logger.info("📡 步骤2: 调用编排器同步新闻...")
-                    from app.worker.cn.cn_sync_orchestrator import get_cn_sync_orchestrator
-                    orchestrator = get_cn_sync_orchestrator()
-                    await orchestrator.run_news_sync(symbols=[normalized_code])
+                    from app.data.core.interface import DataInterface
+                    di = DataInterface.get_instance()
+                    await di.refresh("CN", normalized_code, domains=["news"], force=True)
 
                     # 重新查询
                     logger.info("🔄 步骤3: 重新从数据库查询...")
@@ -545,15 +572,19 @@ async def get_basic_info(
 ):
     """获取股票基础信息（替代原 /api/stock-data/basic-info/{symbol}）"""
     try:
-        from app.services.stock_data_service import get_stock_data_service
-        service = get_stock_data_service()
-        stock_info = await service.get_stock_basic_info(code)
+        from app.data.core.interface import DataInterface
+        di = DataInterface.get_instance()
+        result = await di.read("CN", str(code).zfill(6), "basic_info")
+        stock_info = result.get("data")
 
         if not stock_info:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"未找到股票代码 {code} 的基础信息"
             )
+        # 返回第一条记录（如果数据是列表）
+        if isinstance(stock_info, list):
+            stock_info = stock_info[0] if stock_info else None
         return ok(data=stock_info)
     except HTTPException:
         raise

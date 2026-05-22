@@ -16,7 +16,7 @@ import os
 from app.engine.graph.trading_graph import TradingAgentsGraph
 from app.engine.default_config import DEFAULT_CONFIG
 from app.utils.runtime_paths import get_analysis_results_dir
-from app.data.data_source_manager import get_data_source_manager
+from app.data.core.interface import DataInterface
 from app.utils.stock_utils import StockUtils
 from app.utils.dataflow_utils import get_trading_date_range
 
@@ -47,10 +47,30 @@ logger = logging.getLogger("app.services.analysis_service")
 
 # 股票基础信息获取（用于补充显示名称）
 try:
-    _data_source_manager = get_data_source_manager()
+    _di = DataInterface.get_instance()
     def _get_stock_info_safe(stock_code: str):
         """获取股票基础信息的安全封装"""
-        return _data_source_manager.get_stock_basic_info(stock_code)
+        import asyncio
+        try:
+            loop = None
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    loop = None
+            except RuntimeError:
+                pass
+            if loop and loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    result = pool.submit(
+                        asyncio.run,
+                        _di.read("CN", stock_code, "basic_info")
+                    ).result()
+            else:
+                result = asyncio.run(_di.read("CN", stock_code, "basic_info"))
+            return result.get("data")
+        except Exception:
+            return None
 except Exception:
     _get_stock_info_safe = None
 
@@ -2108,8 +2128,8 @@ class AnalysisService:
 
             # 数据源优先级
             try:
-                from app.services.data_sources.base import get_enabled_cn_sources
-                enabled_sources = get_enabled_cn_sources()
+                from app.data.core.registry.priority import PriorityConfig
+                enabled_sources = PriorityConfig().get_default_sources("CN", "basic_info")
             except Exception:
                 enabled_sources = ["tushare", "akshare", "baostock"]
 

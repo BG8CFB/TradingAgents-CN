@@ -1,38 +1,31 @@
-"""DataErrorCode 测试"""
+"""DataErrorCode 测试 — 匹配新架构字符串枚举 API"""
 
-from app.data.processor.error_codes import DataErrorCode, data_error_message, data_fail
+from app.data.sources.base.error_codes import DataErrorCode
 
 
 class TestDataErrorCode:
-    def test_all_codes_unique(self):
+    def test_all_codes_have_string_values(self):
+        for code in DataErrorCode:
+            assert isinstance(code.value, str)
+            assert len(code.value) > 0
+
+    def test_key_codes_exist(self):
+        assert DataErrorCode.RATE_LIMITED.value == "rate_limited"
+        assert DataErrorCode.AUTH_FAILED.value == "auth_failed"
+        assert DataErrorCode.NETWORK_TIMEOUT.value == "network_timeout"
+        assert DataErrorCode.CONNECTION_ERROR.value == "connection_error"
+        assert DataErrorCode.SERVER_ERROR.value == "server_error"
+        assert DataErrorCode.DATA_INVALID.value == "data_invalid"
+        assert DataErrorCode.EMPTY_RESULT.value == "empty_result"
+        assert DataErrorCode.SYMBOL_NOT_FOUND.value == "symbol_not_found"
+        assert DataErrorCode.NOT_SUPPORTED.value == "not_supported"
+        assert DataErrorCode.UNKNOWN.value == "unknown"
+
+    def test_all_values_unique(self):
         values = [code.value for code in DataErrorCode]
         assert len(values) == len(set(values)), "错误码值不唯一"
 
-    def test_code_ranges(self):
-        for code in DataErrorCode:
-            assert 1000 <= code.value <= 1099, f"{code.name}={code.value} 不在 1001-1099 范围"
-
-    def test_message_mapping_complete(self):
-        for code in DataErrorCode:
-            msg = data_error_message(code)
-            assert msg, f"{code.name} 缺少中文消息映射"
-            assert "未知" not in msg, f"{code.name} 映射到了默认消息"
-
-    def test_unknown_code_returns_default(self):
-        msg = data_error_message(9999)
-        assert "未知" in msg
-
-    def test_data_fail_response(self):
-        resp = data_fail(DataErrorCode.REFRESH_COOLDOWN)
-        assert resp["success"] is False
-        assert resp["data_code"] == 1001
-        assert "冷却期" in resp["message"]
-
-    def test_data_fail_custom_message(self):
-        resp = data_fail(DataErrorCode.SOURCE_ALL_FAILED, message="自定义消息")
-        assert resp["message"] == "自定义消息"
-        assert resp["data_code"] == 1010
-
-    def test_data_fail_with_data(self):
-        resp = data_fail(DataErrorCode.VALIDATION_FAILED, data={"field": "symbol"})
-        assert resp["data"] == {"field": "symbol"}
+    def test_is_string_enum(self):
+        """DataErrorCode 是 str 的子类，可直接用于字符串比较。"""
+        assert DataErrorCode.RATE_LIMITED == "rate_limited"
+        assert DataErrorCode.UNKNOWN == "unknown"
