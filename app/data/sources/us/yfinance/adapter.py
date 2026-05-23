@@ -12,9 +12,11 @@ from app.data.sources.base.adapter import BaseAdapter
 from app.data.schema.base.types import _safe_float, _parse_date
 from app.data.schema.domains.basic_info import StockBasicInfoSchema
 from app.data.schema.domains.daily_quotes import DailyQuotesSchema
+from app.data.schema.domains.daily_indicators import DailyIndicatorsSchema
 from app.data.schema.domains.corporate_actions import CorporateActionsSchema
 from app.data.schema.domains.financial_data import FinancialDataSchema
 from app.data.schema.domains.market_quotes import MarketQuotesSchema
+from app.data.schema.domains.stock_news import StockNewsSchema
 
 logger = logging.getLogger(__name__)
 
@@ -133,5 +135,55 @@ class YFinanceUSAdapter(BaseAdapter):
                 data_source="yfinance",
                 last_price=_safe_float(get("price")),
                 last_volume=_safe_float(get("volume")),
+            ))
+        return results
+
+    def adapt_daily_indicators(self, raw: Any) -> List[DailyIndicatorsSchema]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = str(get("symbol", "")).upper()
+            trade_date = _parse_date(get("trade_date", ""))
+            if not trade_date:
+                continue
+            results.append(DailyIndicatorsSchema(
+                symbol=symbol,
+                market="US",
+                data_source="yfinance",
+                trade_date=trade_date,
+                pe_ttm=_safe_float(get("pe_ttm") or get("trailingPE")),
+                pb=_safe_float(get("pb") or get("priceToBook")),
+                ps_ttm=_safe_float(get("ps_ttm") or get("priceToSalesTrailing12Months")),
+                dividend_yield=_safe_float(get("dividend_yield") or get("dividendYield")),
+                market_cap=_safe_float(get("market_cap") or get("marketCap")),
+                float_market_cap=_safe_float(get("float_market_cap") or get("floatShares")),
+                shares_outstanding=_safe_float(get("shares_outstanding") or get("sharesOutstanding")),
+                float_shares=_safe_float(get("float_shares") or get("floatShares")),
+            ))
+        return results
+
+    def adapt_news(self, raw: Any) -> List[StockNewsSchema]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            title = get("title", "") or get("title", "")
+            publish_time = get("publish_time", "") or get("datetime", "")
+            content_hash = StockNewsSchema.compute_hash(title, str(publish_time)) if title else None
+            results.append(StockNewsSchema(
+                symbol=str(get("symbol", "")).upper(),
+                market="US",
+                data_source="yfinance",
+                title=title,
+                content=get("content") or get("summary"),
+                content_hash=content_hash,
+                source=get("source") or get("publisher", ""),
+                publish_time=publish_time,
+                url=get("url") or get("link"),
             ))
         return results

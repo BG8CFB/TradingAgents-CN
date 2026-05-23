@@ -3,7 +3,7 @@
 
 设计原则：
 - 调用实际代码函数，不使用 MagicMock/patch 替代被测逻辑
-- DB/Redis 使用模拟数据（真实数据结构），连接不可用时优雅降级
+- DB/Redis 使用 SimulatedMongoDB/SimulatedRedis（内存实现），连接不可用时优雅降级
 - LLM 测试拆分为：业务逻辑测试（无 LLM 调用）和 LLM 集成测试（真实 API）
 """
 
@@ -162,6 +162,21 @@ def sim_db():
 def sim_redis():
     """创建内存模拟的 Redis 客户端"""
     return SimulatedRedis()
+
+
+@pytest.fixture
+def inject_sim_db(sim_db):
+    """将 SimulatedMongoDB 注入到 app.data.storage.mongo.client._motor_db。
+
+    直接替换全局 _motor_db 变量，使所有通过 get_motor_db() 获取数据库的代码
+    走内存模拟，而不是连接真实 MongoDB。
+    """
+    from app.data.storage.mongo import client as mongo_client
+
+    original = mongo_client._motor_db
+    mongo_client._motor_db = sim_db
+    yield sim_db
+    mongo_client._motor_db = original
 
 
 # ============================================================

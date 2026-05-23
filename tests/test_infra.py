@@ -6,7 +6,7 @@
 
 import os
 from contextlib import contextmanager
-from bson import ObjectId
+import uuid
 
 
 @contextmanager
@@ -33,8 +33,16 @@ _SENTINEL = object()
 
 
 def _match_filter(doc: dict, filter_dict: dict) -> bool:
-    """判断文档是否匹配 MongoDB 风格过滤条件，支持 $ne 等操作符。"""
+    """判断文档是否匹配 MongoDB 风格过滤条件，支持 $or/$ne 等操作符。"""
     for key, condition in filter_dict.items():
+        if key == "$or":
+            if not any(_match_filter(doc, sub) for sub in condition):
+                return False
+            continue
+        if key == "$and":
+            if not all(_match_filter(doc, sub) for sub in condition):
+                return False
+            continue
         value = doc.get(key)
         if isinstance(condition, dict):
             # 操作符条件，如 {"$ne": "value"}
@@ -88,7 +96,7 @@ class SimulatedMongoCollection:
     def _insert(self, doc):
         self._counter += 1
         if "_id" not in doc:
-            doc["_id"] = ObjectId()
+            doc["_id"] = uuid.uuid4().hex[:24]
         self._data[str(doc["_id"])] = doc
         return doc["_id"]
 
@@ -96,7 +104,7 @@ class SimulatedMongoCollection:
         oid = self._insert(doc)
         return type("Result", (), {"inserted_id": oid})()
 
-    async def find_one(self, filter_dict=None):
+    async def find_one(self, filter_dict=None, projection=None):
         if not filter_dict:
             return next(iter(self._data.values()), None)
         for doc in self._data.values():
@@ -105,6 +113,7 @@ class SimulatedMongoCollection:
         return None
 
     async def update_one(self, filter_dict, update_dict, **kwargs):
+        upsert = kwargs.get("upsert", False)
         doc = await self.find_one(filter_dict)
         if doc:
             if "$set" in update_dict:
@@ -115,6 +124,14 @@ class SimulatedMongoCollection:
             else:
                 doc.update(update_dict)
             return type("Result", (), {"modified_count": 1, "matched_count": 1})()
+        elif upsert:
+            new_doc = dict(filter_dict)
+            if "$set" in update_dict:
+                new_doc.update(update_dict["$set"])
+            else:
+                new_doc.update(update_dict)
+            self._insert(new_doc)
+            return type("Result", (), {"modified_count": 0, "matched_count": 0, "upserted_id": new_doc["_id"]})()
         return type("Result", (), {"modified_count": 0, "matched_count": 0})()
 
     async def delete_one(self, filter_dict):
@@ -138,6 +155,24 @@ class SimulatedMongoCollection:
 
     async def create_index(self, *args, **kwargs):
         pass
+
+    async def insert_many(self, docs):
+        """批量插入文档。"""
+        ids = []
+        for doc in docs:
+            oid = self._insert(doc)
+            ids.append(oid)
+        return type("Result", (), {"inserted_ids": ids})()
+
+    async def distinct(self, field, filter_dict=None):
+        """获取指定字段的不重复值列表。"""
+        values = set()
+        for doc in self._data.values():
+            if filter_dict is None or _match_filter(doc, filter_dict):
+                val = doc.get(field)
+                if val is not None:
+                    values.add(val)
+        return list(values)
 
 
 class SimulatedCursor:
@@ -197,6 +232,10 @@ class SimulatedMongoDB:
         if name not in self._collections:
             self._collections[name] = SimulatedMongoCollection()
         return self._collections[name]
+
+    def __getitem__(self, name):
+        """支持 db["collection"] 语法。"""
+        return self.__getattr__(name)
 
     async def list_collection_names(self):
         return list(self._collections.keys())

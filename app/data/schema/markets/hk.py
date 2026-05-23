@@ -10,6 +10,9 @@ class HKBasicInfoFields:
 
     name_en: Optional[str] = None
     board: Optional[str] = None                  # MAIN / GEM
+    industry_l1: Optional[str] = None            # 恒生一级行业
+    industry_l2: Optional[str] = None            # 恒生二级行业
+    sector: Optional[str] = None                 # 板块（金融、地产、科技）
     connect_status: Optional[str] = None          # stock_connect_sh / stock_connect_sz / stock_connect_both / none
     dual_listed: Optional[bool] = None
     dual_listed_us_symbol: Optional[str] = None   # 对应美股 ticker

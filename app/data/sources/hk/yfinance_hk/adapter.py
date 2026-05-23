@@ -99,7 +99,6 @@ class YFinanceHKAdapter(BaseAdapter):
                 symbol=str(get("symbol", "")).zfill(5),
                 market="HK",
                 data_source="yfinance_hk",
-                trade_date=ex_date,
                 ex_date=ex_date,
                 action_type=action_type,
                 amount=_safe_float(get("amount")),
@@ -126,8 +125,6 @@ class YFinanceHKAdapter(BaseAdapter):
                     statement_type="income",
                     revenue=_safe_float(row_data.get("Total Revenue")),
                     net_profit=_safe_float(row_data.get("Net Income")),
-                    total_revenue=_safe_float(row_data.get("Total Revenue")),
-                    gross_profit=_safe_float(row_data.get("Gross Profit")),
                 ))
             except Exception:
                 continue

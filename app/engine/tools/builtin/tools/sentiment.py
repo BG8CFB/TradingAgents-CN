@@ -102,7 +102,7 @@ def get_stock_sentiment(
                     from app.data.core.interface import DataInterface
                     import asyncio as _asyncio
                     _di = DataInterface.get_instance()
-                    _r = _asyncio.run(_di.read("CN", stock_code, "news"))
+                    _r = _asyncio.run(_di.read("CN", "news", symbol=stock_code))
                     reddit_data = _r.get("data")
                     if reddit_data:
                         result_data.append(f"## Reddit讨论(备用)\n{reddit_data}")
@@ -128,7 +128,7 @@ def get_stock_sentiment(
                     from app.data.core.interface import DataInterface
                     import asyncio as _asyncio
                     _di = DataInterface.get_instance()
-                    _r = _asyncio.run(_di.read("US", stock_code.upper(), "news"))
+                    _r = _asyncio.run(_di.read("US", "news", symbol=stock_code.upper()))
                     reddit_info = _r.get("data")
                     if reddit_info:
                         result_data.append(f"## Reddit讨论\n{reddit_info}")

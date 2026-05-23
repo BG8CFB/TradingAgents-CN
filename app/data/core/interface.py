@@ -43,9 +43,26 @@ class DataInterface:
 
     # ── 数据读取 ──
 
-    async def read(self, market: str, symbol: str, domain: str, **kwargs) -> Dict:
-        """读取标准数据。"""
-        data, freshness = await self.reader.get_data(market, symbol, domain, **kwargs)
+    async def read(
+        self, market: str, domain: str, symbol: Optional[str] = None,
+        start_date: Optional[str] = None, end_date: Optional[str] = None,
+        filters: Optional[Dict] = None,
+    ) -> Dict:
+        """读取标准数据。
+
+        Args:
+            market: 市场 (CN/HK/US)
+            domain: 数据域 (basic_info/daily_quotes/...)
+            symbol: 股票代码（可选，不传则查询全量）
+            start_date: 起始日期（可选）
+            end_date: 结束日期（可选）
+            filters: 额外过滤条件（可选，如 list_status/statement_type 等）
+        """
+        data, freshness = await self.reader.get_data(
+            market, domain, symbol,
+            start_date=start_date, end_date=end_date,
+            filters=filters,
+        )
         return {
             "data": data,
             "freshness": freshness,
@@ -102,10 +119,17 @@ class DataInterface:
     # ── 数据源管理 ──
 
     async def get_source_health(self, market: str) -> List[Dict]:
-        """获取数据源健康状态。"""
+        """获取数据源健康状态。优先从 MongoDB 读取，回退到内存监控。"""
         from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
         repo = MetadataRepo()
-        return await repo.get_all_health(market)
+        mongo_health = await repo.get_all_health(market)
+
+        if mongo_health:
+            return mongo_health
+
+        from app.data.monitoring.source_health import SourceHealthMonitor
+        monitor = SourceHealthMonitor()
+        return monitor.get_all_health(market)
 
     def get_capability_registry(self) -> CapabilityRegistry:
         """获取能力注册表。"""

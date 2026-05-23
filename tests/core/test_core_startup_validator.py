@@ -106,25 +106,25 @@ class TestStartupValidator:
 
     def test_validate_recommended_configs(self):
         """缺少推荐配置时加入 missing_recommended"""
-        from unittest.mock import patch, MagicMock
-        from app.core.config import settings as real_settings
+        from app.core.config import settings
+        import app.core.startup_validator as sv_mod
 
         validator = StartupValidator()
 
-        # mock settings：三个 API Key 返回空值，其余字段透传到真实 settings
-        class MockSettings:
-            def __getattr__(self, name):
-                if name == "DEEPSEEK_API_KEY":
-                    return None
-                if name == "DASHSCOPE_API_KEY":
-                    return None
-                if name == "TUSHARE_TOKEN":
-                    return ""
-                return getattr(real_settings, name)
+        saved_tushare = settings.TUSHARE_TOKEN
+        original_settings = sv_mod.settings
+        try:
+            # DEEPSEEK_API_KEY 和 DASHSCOPE_API_KEY 不在 Settings 模型中，
+            # getattr(settings, ...) 默认返回 None，天然视为缺失。
+            # 只需将 TUSHARE_TOKEN 设为空字符串（占位值）使其被判定为缺失。
+            settings.TUSHARE_TOKEN = ""
+            sv_mod.settings = settings
 
-        with patch("app.core.startup_validator.settings", MockSettings()):
             validator._validate_recommended_configs()
             assert len(validator.result.missing_recommended) >= 3
+        finally:
+            settings.TUSHARE_TOKEN = saved_tushare
+            sv_mod.settings = original_settings
 
     def test_validate_detects_invalid_jwt_secret_too_short(self):
         """JWT_SECRET 格式不正确时被检测到（通过 os.getenv 检查）"""

@@ -96,3 +96,13 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "asyncio: async test",
+    "slow: slow test",
+    "integration: integration test",
+    "requires_db: requires real MongoDB/Redis",
+    "ai: requires AI API key",
+]
+asyncio_mode = "auto"

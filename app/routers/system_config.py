@@ -101,14 +101,10 @@ async def validate_config(current_user: dict = Depends(get_current_user)):
                 get_env_api_key_for_provider
             )
 
-            # 🔥 修改：直接从数据库读取原始数据，避免使用 get_llm_providers() 返回的已修改数据
-            # get_llm_providers() 会将环境变量的 Key 赋值给 provider.api_key，导致无法区分来源
             from app.core.config import settings
             from app.models.config import LLMProvider
 
-            # 使用已有异步 service 而非创建同步 MongoClient 阻塞事件循环
-            config = await config_service.get_system_config()
-            llm_providers = config.llm_providers if config else []
+            llm_providers = await config_service.get_llm_providers()
 
             logger.info(f"🔍 获取到 {len(llm_providers)} 个大模型厂家")
 

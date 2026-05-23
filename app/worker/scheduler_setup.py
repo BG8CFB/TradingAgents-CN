@@ -135,7 +135,7 @@ def _start_scheduler_engine(scheduler: AsyncIOScheduler):
 def get_scheduler_engine():
     """获取全局 SchedulerEngine 实例。"""
     from app.data.scheduler.engine import SchedulerEngine
-    return getattr(SchedulerEngine, '_instance', None)
+    return SchedulerEngine.get_instance()
 
 
 def _handle_basics_sync_task_result(task: asyncio.Task) -> None:

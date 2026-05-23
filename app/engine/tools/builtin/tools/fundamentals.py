@@ -76,7 +76,7 @@ def get_stock_fundamentals(
                 recent_start_date = (datetime.strptime(current_date, '%Y-%m-%d') - timedelta(days=2)).strftime('%Y-%m-%d')
 
                 _di = DataInterface.get_instance()
-                _r = asyncio.run(_di.read("CN", stock_code, "daily_quotes",
+                _r = asyncio.run(_di.read("CN", "daily_quotes", symbol=stock_code,
                                           start_date=recent_start_date, end_date=recent_end_date))
                 _d = _r.get("data")
                 current_price_data = ""
@@ -110,7 +110,7 @@ def get_stock_fundamentals(
             # 1. 获取基础信息
             try:
                 _di_info = DataInterface.get_instance()
-                _r_info = asyncio.run(_di_info.read("HK", stock_code, "basic_info"))
+                _r_info = asyncio.run(_di_info.read("HK", "basic_info", symbol=stock_code))
                 hk_info = _r_info.get("data")
                 if isinstance(hk_info, list) and hk_info:
                     hk_info = hk_info[0]
@@ -138,7 +138,7 @@ def get_stock_fundamentals(
                     from app.data.core.interface import DataInterface
                     import asyncio as _asyncio
                     _di = DataInterface.get_instance()
-                    _r = _asyncio.run(_di.read("US", stock_code.upper(), "financial_data"))
+                    _r = _asyncio.run(_di.read("US", "financial_data", symbol=stock_code.upper()))
                     us_info = _r.get("data")
                     if us_info:
                         result_data.append(f"## 美股基本面信息\n{us_info}")
@@ -279,16 +279,18 @@ def get_company_performance_unified(
                 # 可以使用 AkShare 回退，给出提示
                 logger.info(f"⚠️ 未配置 Tushare，将使用 AkShare 获取 A股/港股 forecast 数据")
 
-        # 3. 🔥 优先使用Tushare获取业绩数据
+        # 3. 通过 DataInterface 获取业绩数据（映射到 financial_data 域）
         try:
-            logger.info(f"📊 尝试使用Tushare获取{market_name}业绩数据: {stock_code}, data_type: {data_type}")
-            # TODO: 迁移到新架构 - get_company_performance 需要通过新数据层实现
-            data = None
-            if data and not data.empty:
-                logger.info(f"✅ Tushare成功获取{market_name}业绩数据: {stock_code}, {len(data)}条记录")
+            di = DataInterface.get_instance()
+            result = asyncio.run(di.read(market.upper(), "financial_data", symbol=stock_code,
+                                         start_date=start_date, end_date=end_date))
+            perf_data = result.get("data")
+            if perf_data:
+                import pandas as pd
+                data = pd.DataFrame(perf_data) if isinstance(perf_data, list) else perf_data
                 return format_tool_result(success_result(format_result(data, f"{stock_code} Performance ({market.upper()})")))
-        except Exception as tu_e:
-            logger.info(f"⚠️ Tushare获取{market_name}业绩数据失败: {tu_e}，尝试AkShare")
+        except Exception as di_e:
+            logger.info(f"DataInterface 获取业绩数据失败: {di_e}，尝试AkShare")
 
         # 4. 回退到AkShare（仅支持A股和港股的业绩预告forecast）
         if data_type == "forecast" and market in ["cn", "hk"]:

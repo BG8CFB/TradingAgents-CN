@@ -17,11 +17,18 @@ logger = logging.getLogger(__name__)
 class SchedulerEngine:
     """调度引擎，管理三市场的定时同步任务。"""
 
+    _instance: Optional["SchedulerEngine"] = None
+
     def __init__(self, scheduler: Optional[AsyncIOScheduler] = None):
         self._scheduler = scheduler or AsyncIOScheduler(timezone="UTC")
         self._registry = JobRegistry()
         self._checkpoint = CheckpointManager()
         self._jobs_registered = False
+        SchedulerEngine._instance = self
+
+    @classmethod
+    def get_instance(cls) -> Optional["SchedulerEngine"]:
+        return cls._instance
 
     def get_scheduler(self) -> AsyncIOScheduler:
         return self._scheduler
@@ -81,7 +88,7 @@ class SchedulerEngine:
                 trigger = CronTrigger(
                     minute=parts[0] if len(parts) > 0 else "*",
                     hour=parts[1] if len(parts) > 1 else "*",
-                    day_of_month=parts[2] if len(parts) > 2 else "*",
+                    day=parts[2] if len(parts) > 2 else "*",
                     month=parts[3] if len(parts) > 3 else "*",
                     day_of_week=parts[4] if len(parts) > 4 else "*",
                     timezone=timezone,

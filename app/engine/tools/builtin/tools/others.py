@@ -7,7 +7,7 @@ from typing import Optional
 from datetime import timedelta
 
 from app.utils.time_utils import now_utc, get_current_date_compact
-from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
 logger = logging.getLogger(__name__)
 
@@ -31,22 +31,20 @@ def get_convertible_bond(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        import os
-
-        # 🔥 优先使用Tushare获取可转债数据（仅当配置了token时）
-        tushare_token = os.getenv("TUSHARE_TOKEN")
-        if tushare_token and tushare_token.strip():
-            try:
-                logger.info(f"📊 尝试使用Tushare获取可转债数据: 类型{data_type}")
-                # TODO: 迁移到新架构 - get_convertible_bond 需要通过新数据层实现
-                data = None
-                if data and not data.empty:
-                    logger.info(f"✅ Tushare成功获取可转债数据: {len(data)}条记录")
-                    return format_tool_result(success_result(format_result(data, f"CB: {data_type}")))
-            except Exception as tu_e:
-                logger.info(f"⚠️ Tushare获取可转债数据失败: {tu_e}，尝试AkShare")
-        else:
-            logger.debug("⚠️ 未配置Tushare token，直接使用AkShare")
+        # 通过 DataInterface 尝试获取可转债数据
+        try:
+            from app.data.core.interface import DataInterface
+            import asyncio
+            import pandas as pd
+            di = DataInterface.get_instance()
+            result = asyncio.run(di.read("CN", "convertible_bond", symbol=ts_code or "all",
+                                         start_date=start_date, end_date=end_date))
+            cb_data = result.get("data")
+            if cb_data:
+                df = pd.DataFrame(cb_data) if isinstance(cb_data, list) else cb_data
+                return format_tool_result(success_result(format_result(df, f"CB: {data_type}")))
+        except Exception:
+            pass
 
         # 回退到AkShare
         try:
@@ -113,7 +111,7 @@ def get_convertible_bond(
                     data=json_data,
                 ))
             else:
-                logger.warning(f"⚠️ AkShare可转债接口返回空数据")
+                logger.warning("AkShare可转债接口返回空数据")
         except Exception as ak_e:
             logger.warning(f"⚠️ AkShare获取可转债数据失败: {ak_e}")
 
@@ -153,9 +151,26 @@ def get_csi_index_constituents(
         if not start_date:
             start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
-        # TODO: 迁移到新架构 - get_csi_index_constituents 需要通过新数据层实现
-        data = None
-        return format_tool_result(success_result(format_result(data, f"CSI Constituents: {index_code}")))
+        # 通过 DataInterface 尝试获取指数成分股数据
+        try:
+            from app.data.core.interface import DataInterface
+            import asyncio
+            import pandas as pd
+            di = DataInterface.get_instance()
+            result = asyncio.run(di.read("CN", "index_constituents", symbol=index_code,
+                                         start_date=start_date, end_date=end_date))
+            idx_data = result.get("data")
+            if idx_data:
+                df = pd.DataFrame(idx_data) if isinstance(idx_data, list) else idx_data
+                return format_tool_result(success_result(format_result(df, f"CSI Constituents: {index_code}")))
+        except Exception:
+            pass
+
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            f"指数成分股数据暂不可用: {index_code}",
+            suggestion="指数成分股功能待数据源对接后可用"
+        ))
     except Exception as e:
         logger.error(f"get_csi_index_constituents failed: {e}")
         return format_tool_result(error_result(

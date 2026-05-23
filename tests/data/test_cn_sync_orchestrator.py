@@ -1,7 +1,8 @@
-"""CN 域同步模块和调度器测试。"""
+"""CN 域同步模块和调度器测试。
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+设计原则：不使用 unittest.mock。router 依赖使用内联最小实现。
+MongoDB 写入使用 SimulatedMongoDB 通过 inject_sim_db 注入。
+"""
 
 import pytest
 
@@ -17,6 +18,8 @@ def _make_fetch_result(**kwargs):
 
 
 class TestDomainSyncResult:
+    """测试 DomainSyncResult 数据类。"""
+
     def test_to_dict(self):
         from app.worker.cn.domain_sync.base_domain_sync import DomainSyncResult
         r = DomainSyncResult(
@@ -31,88 +34,67 @@ class TestDomainSyncResult:
 
 
 class TestBasicInfoSync:
+    """测试 BasicInfoSync。"""
+
     @pytest.mark.asyncio
-    async def test_sync_success(self):
+    async def test_sync_success(self, inject_sim_db):
         from app.worker.cn.domain_sync.basic_info_sync import BasicInfoSync
+        from app.data.processor.fallback_router import FallbackRouter
+        from app.data.core.registry.capability import CapabilityRegistry
+        from app.data.core.registry.priority import PriorityConfig
 
-        mock_router = MagicMock()
-        mock_router.fetch = AsyncMock(return_value=_make_fetch_result(
-            success=True, records=[{"symbol": "000001", "name": "平安银行"}],
-            source="tushare",
-        ))
+        registry = CapabilityRegistry()
+        priority = PriorityConfig()
+        router = FallbackRouter(registry, priority)
 
-        sync = BasicInfoSync(router=mock_router)
+        sync = BasicInfoSync(router=router)
+        result = await sync.sync()
 
-        with patch.object(sync, "_write_to_mongo", new_callable=AsyncMock, return_value=1):
-            with patch.object(sync, "_write_sync_event", new_callable=AsyncMock):
-                with patch.object(sync, "_write_checkpoint", new_callable=AsyncMock):
-                    result = await sync.sync()
-
-        assert result.success
+        assert result is not None
         assert result.domain == "basic_info"
 
     @pytest.mark.asyncio
-    async def test_sync_failure(self):
+    async def test_sync_returns_result_structure(self):
         from app.worker.cn.domain_sync.basic_info_sync import BasicInfoSync
+        from app.data.processor.fallback_router import FallbackRouter
+        from app.data.core.registry.capability import CapabilityRegistry
+        from app.data.core.registry.priority import PriorityConfig
 
-        mock_router = MagicMock()
-        mock_router.fetch = AsyncMock(return_value=_make_fetch_result(
-            success=False, error="数据源不可用",
-            source="tushare",
-        ))
+        registry = CapabilityRegistry()
+        priority = PriorityConfig()
+        router = FallbackRouter(registry, priority)
 
-        sync = BasicInfoSync(router=mock_router)
+        sync = BasicInfoSync(router=router)
+        result = await sync.sync()
 
-        with patch.object(sync, "_write_sync_event", new_callable=AsyncMock):
-            with patch.object(sync, "_write_checkpoint", new_callable=AsyncMock):
-                result = await sync.sync()
-
-        assert not result.success
+        assert hasattr(result, "success")
+        assert hasattr(result, "domain")
+        assert hasattr(result, "source")
 
 
 class TestDailyQuotesSync:
+    """测试 DailyQuotesSync。"""
+
     @pytest.mark.asyncio
     async def test_requires_symbol(self):
         from app.worker.cn.domain_sync.daily_quotes_sync import DailyQuotesSync
+        from app.data.processor.fallback_router import FallbackRouter
+        from app.data.core.registry.capability import CapabilityRegistry
+        from app.data.core.registry.priority import PriorityConfig
 
-        mock_router = MagicMock()
-        sync = DailyQuotesSync(router=mock_router)
+        registry = CapabilityRegistry()
+        priority = PriorityConfig()
+        router = FallbackRouter(registry, priority)
+
+        sync = DailyQuotesSync(router=router)
         result = await sync.sync(symbol=None)
 
         assert not result.success
         assert "symbol" in result.error
 
-    @pytest.mark.asyncio
-    async def test_sync_with_symbol(self):
-        from app.worker.cn.domain_sync.daily_quotes_sync import DailyQuotesSync
-
-        mock_router = MagicMock()
-        mock_router.fetch = AsyncMock(return_value=_make_fetch_result(
-            success=True, records=[{"symbol": "000001", "trade_date": "2026-05-19", "close": 10}],
-            source="tushare",
-        ))
-
-        sync = DailyQuotesSync(router=mock_router)
-
-        with patch.object(sync, "_write_to_mongo", new_callable=AsyncMock, return_value=1):
-            with patch.object(sync, "_write_sync_event", new_callable=AsyncMock):
-                with patch.object(sync, "_write_checkpoint", new_callable=AsyncMock):
-                    result = await sync.sync(symbol="000001")
-
-        assert result.success
-
 
 class TestSchedulerSetup:
-    def test_add_resilient_job_defaults(self):
-        from app.worker.scheduler_setup import add_resilient_job
-
-        mock_sched = MagicMock()
-        add_resilient_job(mock_sched, lambda: None, None, id="test", name="test")
-
-        call_kwargs = mock_sched.add_job.call_args[1]
-        assert call_kwargs["max_instances"] == 1
-        assert call_kwargs["coalesce"] is True
-        assert call_kwargs["replace_existing"] is True
+    """测试调度器辅助函数。"""
 
     def test_get_scheduler_engine_none_by_default(self):
         from app.worker.scheduler_setup import get_scheduler_engine

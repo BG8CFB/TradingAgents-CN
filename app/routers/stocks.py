@@ -116,7 +116,7 @@ async def get_quote(
     # A股：使用统一服务
     code6 = normalized_code
     db = get_mongo_db()
-    service = UnifiedStockService(db)
+    service = UnifiedStockService()
 
     data = await service.get_cn_quote_with_basic_info(code6)
     if not data:
@@ -173,7 +173,7 @@ async def get_fundamentals(
     # A股：使用统一服务
     code6 = normalized_code
     db = get_mongo_db()
-    service = UnifiedStockService(db)
+    service = UnifiedStockService()
 
     if source:
         # 指定数据源时，先检查是否存在
@@ -367,7 +367,7 @@ async def get_kline(
 
                 # 使用统一服务获取实时行情原始数据
                 db = get_mongo_db()
-                stock_service = UnifiedStockService(db)
+                stock_service = UnifiedStockService()
 
                 # 查询当天的实时行情
                 realtime_quote = await stock_service.get_market_quotes_raw(code_padded)
@@ -549,7 +549,7 @@ async def search_stocks(
         )
 
     db = get_mongo_db()
-    service = UnifiedStockService(db)
+    service = UnifiedStockService()
 
     try:
         results = await service.search_stocks(market, q, limit)

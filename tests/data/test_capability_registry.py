@@ -4,9 +4,16 @@ from app.data.core.registry.capability import CapabilityRegistry
 from app.data.schema.base.enums import SupportLevel
 
 
+def _empty_registry() -> CapabilityRegistry:
+    """创建不自动加载 YAML 的空注册表，用于单元测试。"""
+    registry = object.__new__(CapabilityRegistry)
+    registry._capabilities = {}
+    return registry
+
+
 class TestCapabilityRegistry:
     def setup_method(self):
-        self.registry = CapabilityRegistry()
+        self.registry = _empty_registry()
 
     def test_register_and_lookup(self):
         self.registry.register("CN", "daily_quotes", "tushare", SupportLevel.FULL)
@@ -67,3 +74,10 @@ class TestCapabilityRegistry:
         assert self.registry.is_supported("CN", "daily_quotes", "tushare") is True
         sources = self.registry.get_sources("CN", "daily_quotes")
         assert len(sources) == 2
+
+    def test_auto_loads_from_yaml(self):
+        """验证 CapabilityRegistry 初始化时自动从 YAML 加载能力。"""
+        registry = CapabilityRegistry()
+        assert len(registry.get_sources("CN", "daily_quotes")) >= 3
+        assert registry.is_supported("HK", "daily_quotes", "tushare_hk") is True
+        assert registry.is_supported("US", "daily_quotes", "yfinance") is True

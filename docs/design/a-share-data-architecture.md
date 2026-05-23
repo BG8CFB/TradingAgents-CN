@@ -347,7 +347,7 @@ A 股数据域
 | exchange | string | 交易所（SSE / SZSE / BSE） |
 | industry | string | 所属行业 |
 | area | string | 所属地区 |
-| market | string | 板块（主板 / 创业板 / 科创板 / 北交所） |
+| market_board | string | 板块（主板 / 创业板 / 科创板 / 北交所），字段名用 `market_board` 以避免与公共字段 `market`（市场类型 CN/HK/US）冲突 |
 | list_status | string | 上市状态（L 上市 / D 退市 / P 暂停） |
 | list_date | string | 上市日期 |
 | delist_date | string | 退市日期（可为空） |

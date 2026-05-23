@@ -4,11 +4,11 @@ CN:
   basic_info: [tushare, akshare, baostock]
   trade_calendar: [tushare, akshare, baostock]
   daily_quotes: [tushare, akshare, baostock]
-  daily_indicators: [tushare, akshare, baostock]
+  daily_indicators: [tushare, akshare]
   adj_factors: [tushare, akshare, baostock]
-  financial_data: [tushare, akshare, baostock]
-  market_quotes: [tushare, akshare, baostock]
-  news: [tushare, akshare, baostock]
+  financial_data: [tushare, akshare]
+  market_quotes: [tushare, akshare]
+  news: [tushare, akshare]
 
 HK:
   basic_info: [tushare_hk, akshare_hk, yfinance_hk]
@@ -20,6 +20,8 @@ HK:
   corporate_actions: [akshare_hk, yfinance_hk]
   market_quotes: [tencent_hk, tushare_hk, akshare_hk, yfinance_hk]
   news: [akshare_hk, yfinance_hk]
+  connect_status: [akshare_hk, tushare_hk]
+  southbound_holding: [tushare_hk, akshare_hk]
 
 US:
   basic_info: [finnhub, yfinance, tushare_us, alpha_vantage]

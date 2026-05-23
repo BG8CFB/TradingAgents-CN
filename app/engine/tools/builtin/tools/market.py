@@ -64,7 +64,7 @@ def get_stock_data(
 
         if is_china:
             _di_cn = DataInterface.get_instance()
-            _r_cn = asyncio.run(_di_cn.read("CN", stock_code, "daily_quotes",
+            _r_cn = asyncio.run(_di_cn.read("CN", "daily_quotes", symbol=stock_code,
                                             start_date=start_date, end_date=end_date))
             _d_cn = _r_cn.get("data")
             data = None
@@ -78,7 +78,7 @@ def get_stock_data(
 
         elif is_hk:
             _di_hk = DataInterface.get_instance()
-            _r_hk = asyncio.run(_di_hk.read("HK", stock_code, "daily_quotes",
+            _r_hk = asyncio.run(_di_hk.read("HK", "daily_quotes", symbol=stock_code,
                                             start_date=start_date, end_date=end_date))
             _d_hk = _r_hk.get("data")
             data = None
@@ -92,7 +92,7 @@ def get_stock_data(
 
         elif is_us:
             _di_us = DataInterface.get_instance()
-            _r_us = asyncio.run(_di_us.read("US", stock_code, "daily_quotes",
+            _r_us = asyncio.run(_di_us.read("US", "daily_quotes", symbol=stock_code,
                                             start_date=start_date, end_date=end_date))
             _d_us = _r_us.get("data")
             data = None
@@ -160,16 +160,18 @@ def get_stock_data_minutes(
         if not start_datetime:
             start_datetime = (now_utc() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
 
-        # 🔥 优先使用Tushare获取分钟级行情数据
+        # 尝试通过 DataInterface 获取分钟级行情（若域可用）
         try:
-            logger.info(f"📊 尝试使用Tushare获取分钟级行情: {stock_code}, 频率: {freq}")
-            # TODO: 迁移到新架构 - get_stock_data_minutes 需要通过新数据层实现
-            data = None
-            if data and not data.empty:
-                logger.info(f"✅ Tushare成功获取分钟级行情: {stock_code}, {len(data)}条记录")
+            di = DataInterface.get_instance()
+            result = asyncio.run(di.read("CN", "intraday_quotes", symbol=stock_code,
+                                         start_date=start_datetime, end_date=end_datetime))
+            intraday_data = result.get("data")
+            if intraday_data:
+                import pandas as pd
+                data = pd.DataFrame(intraday_data) if isinstance(intraday_data, list) else intraday_data
                 return format_tool_result(success_result(format_result(data, f"{stock_code} {freq} Data")))
-        except Exception as tu_e:
-            logger.info(f"⚠️ Tushare获取分钟级行情失败: {tu_e}，尝试AkShare")
+        except Exception:
+            pass
 
         # 回退到AkShare
         if market_type == "cn":
@@ -259,9 +261,19 @@ def get_index_data(
         if not start_date:
             start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
 
-        # TODO: 迁移到新架构 - get_index_data 需要通过新数据层实现
-        data = None
-        return format_tool_result(success_result(format_result(data, f"Index: {stock_code}")))
+        # 通过 DataInterface 读取指数数据（指数存储在 market_quotes 域）
+        try:
+            di = DataInterface.get_instance()
+            market = "CN"
+            result = asyncio.run(di.read(market, "market_quotes", symbol=stock_code,
+                                         start_date=start_date, end_date=end_date))
+            index_data = result.get("data")
+            if index_data:
+                import pandas as pd
+                data = pd.DataFrame(index_data) if isinstance(index_data, list) else index_data
+                return format_tool_result(success_result(format_result(data, f"Index: {stock_code}")))
+        except Exception as e:
+            logger.warning(f"DataInterface 获取指数数据失败: {e}")
     except Exception as e:
         logger.error(f"get_index_data failed: {e}")
         return format_tool_result(error_result(

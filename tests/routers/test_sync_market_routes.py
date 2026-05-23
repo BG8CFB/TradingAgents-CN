@@ -1,121 +1,227 @@
-"""港股/美股同步路由测试 — 匹配新架构 DataInterface 路由。"""
+"""港股/美股同步路由测试 — 使用真实 DataInterface + SimulatedMongoDB。
 
-from unittest.mock import AsyncMock, MagicMock, patch
+设计原则：不使用 unittest.mock。通过 inject_sim_db 注入内存 MongoDB，
+DataInterface 走真实代码路径。dependency_overrides 是 FastAPI 官方推荐
+的测试方式，不属于 unittest.mock。
+"""
 
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from app.data.core.interface import DataInterface
+
 
 def _create_router_app(router):
-    from app.routers.auth_db import get_current_user
-
     app = FastAPI()
     app.include_router(router)
-    app.dependency_overrides[get_current_user] = lambda: {
-        "id": "test-user",
-        "username": "tester",
-        "is_admin": True,
-    }
     return app
 
 
-def _mock_refresh_result(symbol="00700", status="refreshed"):
-    r = MagicMock()
-    r.symbol = symbol
-    r.status = status
-    r.domains = {}
-    r.total_latency_ms = 100
-    r.source_used = "tushare_hk"
-    r.fallback_from = None
-    r.error = None
-    return r
-
-
 @pytest_asyncio.fixture
-async def hk_client():
+async def hk_client(inject_sim_db):
+    """创建港股测试客户端，注入 SimulatedMongoDB 到 DataInterface。"""
     from app.routers.hk.sync import router
+
+    DataInterface.reset_instance()
+    di = DataInterface()
+    DataInterface._instance = di
+
     app = _create_router_app(router)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
+
+    DataInterface.reset_instance()
 
 
 @pytest_asyncio.fixture
-async def us_client():
+async def us_client(inject_sim_db):
+    """创建美股测试客户端，注入 SimulatedMongoDB 到 DataInterface。"""
     from app.routers.us.sync import router
+
+    DataInterface.reset_instance()
+    di = DataInterface()
+    DataInterface._instance = di
+
     app = _create_router_app(router)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
 
+    DataInterface.reset_instance()
 
-@pytest.mark.asyncio
-async def test_hk_refresh_endpoint(hk_client):
-    mock_result = _mock_refresh_result("00700", "refreshed")
-    with patch("app.data.core.interface.DataInterface.refresh", new_callable=AsyncMock, return_value=mock_result):
+
+# ---------------------------------------------------------------------------
+# 港股路由测试
+# ---------------------------------------------------------------------------
+
+
+class TestHKRefresh:
+    """港股按需刷新路由。"""
+
+    @pytest.mark.asyncio
+    async def test_refresh_endpoint_returns_200(self, hk_client, inject_sim_db):
         resp = await hk_client.post(
             "/api/hk/data/refresh/00700",
             json={"domains": ["daily_quotes"], "force": False},
         )
-    assert resp.status_code == 200
+        assert resp.status_code == 200
+
+        body = resp.json()
+        assert body["success"] is True
+        assert body["data"]["symbol"] == "00700"
+
+    @pytest.mark.asyncio
+    async def test_refresh_endpoint_response_structure(self, hk_client, inject_sim_db):
+        resp = await hk_client.post(
+            "/api/hk/data/refresh/00700",
+            json={"domains": ["daily_quotes"], "force": False},
+        )
+        body = resp.json()["data"]
+        assert "symbol" in body
+        assert "status" in body
+        assert "domains" in body
+        assert "duration_ms" in body
 
 
-@pytest.mark.asyncio
-async def test_hk_sync_trigger(hk_client):
-    with patch("app.data.core.interface.DataInterface.trigger_sync", new_callable=AsyncMock, return_value={"ok": True}):
+class TestHKSyncTrigger:
+    """港股同步触发路由。"""
+
+    @pytest.mark.asyncio
+    async def test_sync_trigger_returns_200(self, hk_client, inject_sim_db):
         resp = await hk_client.post(
             "/api/hk/data/sync/trigger",
             json={"domain": "daily_quotes"},
         )
-    assert resp.status_code == 200
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_sync_trigger_writes_event(self, hk_client, inject_sim_db):
+        await hk_client.post(
+            "/api/hk/data/sync/trigger",
+            json={"domain": "daily_quotes"},
+        )
+
+        events = await inject_sim_db["sync_events"].find({}).to_list()
+        assert len(events) >= 1
+        event = events[-1]
+        assert event["market"] == "HK"
+        assert event["domain"] == "daily_quotes"
+        assert event["event_type"] == "SYNC_START"
+        assert event["task_id"].startswith("sync_HK_daily_quotes_")
 
 
-@pytest.mark.asyncio
-async def test_hk_sync_status(hk_client):
-    with patch("app.data.core.interface.DataInterface.get_sync_status", new_callable=AsyncMock, return_value={"status": "ok"}):
+class TestHKSyncStatus:
+    """港股同步状态路由。"""
+
+    @pytest.mark.asyncio
+    async def test_sync_status_returns_200(self, hk_client, inject_sim_db):
         resp = await hk_client.get("/api/hk/data/sync/status")
-    assert resp.status_code == 200
+        assert resp.status_code == 200
+
+        body = resp.json()
+        assert body["success"] is True
+        assert "items" in body["data"]
+        assert "total" in body["data"]
+
+    @pytest.mark.asyncio
+    async def test_sync_status_with_domain_filter(self, hk_client, inject_sim_db):
+        await hk_client.post(
+            "/api/hk/data/sync/trigger",
+            json={"domain": "daily_quotes"},
+        )
+
+        resp = await hk_client.get("/api/hk/data/sync/status?domain=daily_quotes")
+        assert resp.status_code == 200
 
 
-@pytest.mark.asyncio
-async def test_hk_sync_events(hk_client):
-    with patch("app.data.core.interface.DataInterface.get_sync_status", new_callable=AsyncMock, return_value={"events": []}):
+class TestHKSyncEvents:
+    """港股同步事件路由。"""
+
+    @pytest.mark.asyncio
+    async def test_sync_events_returns_200(self, hk_client, inject_sim_db):
         resp = await hk_client.get("/api/hk/data/sync/events")
-    assert resp.status_code == 200
+        assert resp.status_code == 200
+
+        body = resp.json()
+        assert body["success"] is True
+        assert "items" in body["data"]
+
+    @pytest.mark.asyncio
+    async def test_sync_events_after_trigger(self, hk_client, inject_sim_db):
+        await hk_client.post(
+            "/api/hk/data/sync/trigger",
+            json={"domain": "daily_quotes"},
+        )
+
+        resp = await hk_client.get("/api/hk/data/sync/events")
+        body = resp.json()["data"]
+        assert body["total"] >= 1
 
 
-@pytest.mark.asyncio
-async def test_us_refresh_endpoint(us_client):
-    mock_result = _mock_refresh_result("AAPL", "refreshed")
-    with patch("app.data.core.interface.DataInterface.refresh", new_callable=AsyncMock, return_value=mock_result):
+# ---------------------------------------------------------------------------
+# 美股路由测试
+# ---------------------------------------------------------------------------
+
+
+class TestUSRefresh:
+    """美股按需刷新路由。"""
+
+    @pytest.mark.asyncio
+    async def test_refresh_endpoint_returns_200(self, us_client, inject_sim_db):
         resp = await us_client.post(
             "/api/us/data/refresh/AAPL",
             json={"domains": ["daily_quotes"], "force": True},
         )
-    assert resp.status_code == 200
+        assert resp.status_code == 200
+
+        body = resp.json()
+        assert body["success"] is True
+        assert body["data"]["symbol"] == "AAPL"
 
 
-@pytest.mark.asyncio
-async def test_us_sync_trigger(us_client):
-    with patch("app.data.core.interface.DataInterface.trigger_sync", new_callable=AsyncMock, return_value={"ok": True}):
+class TestUSSyncTrigger:
+    """美股同步触发路由。"""
+
+    @pytest.mark.asyncio
+    async def test_sync_trigger_returns_200(self, us_client, inject_sim_db):
         resp = await us_client.post(
             "/api/us/data/sync/trigger",
             json={"domain": "basic_info", "full_sync": True},
         )
-    assert resp.status_code == 200
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_sync_trigger_writes_event(self, us_client, inject_sim_db):
+        await us_client.post(
+            "/api/us/data/sync/trigger",
+            json={"domain": "basic_info"},
+        )
+
+        events = await inject_sim_db["sync_events"].find({}).to_list()
+        assert len(events) >= 1
+        event = events[-1]
+        assert event["market"] == "US"
+        assert event["domain"] == "basic_info"
 
 
-@pytest.mark.asyncio
-async def test_us_sync_status(us_client):
-    with patch("app.data.core.interface.DataInterface.get_sync_status", new_callable=AsyncMock, return_value={"status": "ok"}):
+class TestUSSyncStatus:
+    """美股同步状态路由。"""
+
+    @pytest.mark.asyncio
+    async def test_sync_status_returns_200(self, us_client, inject_sim_db):
         resp = await us_client.get("/api/us/data/sync/status")
-    assert resp.status_code == 200
+        assert resp.status_code == 200
 
 
-@pytest.mark.asyncio
-async def test_us_sync_events(us_client):
-    with patch("app.data.core.interface.DataInterface.get_sync_status", new_callable=AsyncMock, return_value={"events": []}):
+class TestUSSyncEvents:
+    """美股同步事件路由。"""
+
+    @pytest.mark.asyncio
+    async def test_sync_events_returns_200(self, us_client, inject_sim_db):
         resp = await us_client.get("/api/us/data/sync/events")
-    assert resp.status_code == 200
+        assert resp.status_code == 200

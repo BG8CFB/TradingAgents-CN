@@ -1,6 +1,6 @@
 """集合命名规则 — 按 domain + market 计算集合名。
 
-业务集合: <entity>_<market_lower> (如 stock_basic_info_cn)
+业务集合: A股无后缀(如 stock_basic_info)，港股/美股加市场后缀(如 stock_basic_info_hk)
 元数据集合: 无市场后缀 (如 sync_checkpoints)
 """
 
@@ -17,6 +17,9 @@ _BUSINESS_COLLECTIONS: Dict[str, str] = {
     "financial_data": "stock_financial_data",
     "market_quotes": "market_quotes",
     "news": "stock_news",
+    "connect_status": "stock_connect_status",
+    "southbound_holding": "stock_southbound_holding",
+    "pre_post_market": "stock_pre_post_market",
 }
 
 # 元数据集合: 无市场后缀
@@ -49,9 +52,11 @@ def get_collection_name(domain: str, market: str) -> str:
     if domain in _METADATA_COLLECTIONS:
         return _METADATA_COLLECTIONS[domain]
 
-    # 业务集合加市场后缀
+    # 业务集合: CN 不加后缀，HK/US 加市场后缀
     if domain in _BUSINESS_COLLECTIONS:
         base = _BUSINESS_COLLECTIONS[domain]
+        if market == "CN":
+            return base
         suffix = _MARKET_SUFFIX.get(market, "")
         return f"{base}{suffix}"
 
@@ -61,7 +66,7 @@ def get_collection_name(domain: str, market: str) -> str:
 def get_all_collections(market: str) -> Dict[str, str]:
     """返回指定市场的所有集合名映射 {domain: collection_name}。"""
     result = {}
-    suffix = _MARKET_SUFFIX.get(market, "")
+    suffix = "" if market == "CN" else _MARKET_SUFFIX.get(market, "")
     for domain, base in _BUSINESS_COLLECTIONS.items():
         result[domain] = f"{base}{suffix}"
     for domain, name in _METADATA_COLLECTIONS.items():

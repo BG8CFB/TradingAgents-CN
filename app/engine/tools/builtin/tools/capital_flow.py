@@ -6,8 +6,12 @@ from typing import Optional
 from datetime import timedelta
 
 from app.utils.time_utils import now_utc, get_current_date_compact
-from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
+from app.data.core.interface import DataInterface
+import asyncio
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,16 +38,29 @@ def get_money_flow(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        # 设置默认日期 (如果未提供 trade_date)
         if not trade_date:
             if not end_date:
                 end_date = get_current_date_compact()
             if not start_date:
                 start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
-        # TODO: 迁移到新架构 - get_money_flow 需要通过新数据层实现
-        data = None
-        return format_tool_result(success_result(format_result(data, f"Money Flow: {ts_code or query_type}")))
+        symbol = ts_code or "market"
+        try:
+            di = DataInterface.get_instance()
+            result = asyncio.run(di.read("CN", "money_flow", symbol=symbol,
+                                         start_date=start_date, end_date=end_date))
+            data = result.get("data")
+            if data:
+                df = pd.DataFrame(data) if isinstance(data, list) else data
+                return format_tool_result(success_result(format_result(df, f"Money Flow: {ts_code or query_type}")))
+        except Exception:
+            pass
+
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            f"资金流向数据暂不可用: {ts_code or query_type}",
+            suggestion="请先通过同步任务获取资金流向数据，或确认数据源已配置"
+        ))
     except Exception as e:
         logger.error(f"get_money_flow failed: {e}")
         return format_tool_result(error_result(
@@ -73,31 +90,27 @@ def get_margin_trade(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        # 设置默认日期
         if not end_date:
             end_date = get_current_date_compact()
         if not start_date:
             start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
-        # 🔥 优先使用Tushare获取融资融券数据
+        symbol = ts_code or "market"
         try:
-            logger.info(f"📊 尝试使用Tushare获取融资融券数据: {data_type}")
-            # TODO: 迁移到新架构 - get_margin_trade 需要通过新数据层实现
-            data = None
-            if data and not data.empty:
-                logger.info(f"✅ Tushare成功获取融资融券数据: {data_type}, {len(data)}条记录")
-                return format_tool_result(success_result(format_result(data, f"Margin Trade: {data_type}")))
-        except Exception as tu_e:
-            logger.info(f"⚠️ Tushare获取融资融券数据失败: {tu_e}，尝试AkShare")
+            di = DataInterface.get_instance()
+            result = asyncio.run(di.read("CN", "margin_trading", symbol=symbol,
+                                         start_date=start_date, end_date=end_date))
+            data = result.get("data")
+            if data:
+                df = pd.DataFrame(data) if isinstance(data, list) else data
+                return format_tool_result(success_result(format_result(df, f"Margin Trade: {data_type}")))
+        except Exception:
+            pass
 
-        # 回退到AkShare（暂不支持融资融券明细数据）
-        # AkShare不提供个股融资融券明细接口，仅提供融资融券汇总数据
-        logger.info(f"⚠️ AkShare暂不支持个股融资融券明细数据，仅Tushare支持")
-
-        # 两个数据源都失败
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR,
-            f"无法从Tushare和AkShare获取融资融券数据: {data_type}"
+            f"融资融券数据暂不可用: {data_type}",
+            suggestion="请先通过同步任务获取融资融券数据，或确认数据源已配置"
         ))
     except Exception as e:
         logger.error(f"get_margin_trade failed: {e}")

@@ -41,7 +41,7 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
         import asyncio
         from app.data.core.interface import DataInterface
         di = DataInterface.get_instance()
-        result = asyncio.run(di.read(market, clean_code, "news"))
+        result = asyncio.run(di.read(market, "news", symbol=clean_code))
         data = result.get("data")
 
         if data and isinstance(data, list):
@@ -67,7 +67,7 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
         di = DataInterface.get_instance()
         refresh_result = asyncio.run(di.refresh(market, clean_code, domains=["news"], force=True, timeout=30))
         if refresh_result and refresh_result.domains.get("news"):
-            result = asyncio.run(di.read(market, clean_code, "news"))
+            result = asyncio.run(di.read(market, "news", symbol=clean_code))
             data = result.get("data")
             if data and isinstance(data, list):
                 for item in data[:max_results]:

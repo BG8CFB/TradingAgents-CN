@@ -97,7 +97,7 @@ const routes: RouteRecordRaw[] = [
     name: 'Favorites',
     component: () => import('@/layouts/BasicLayout.vue'),
     meta: {
-      title: '我的自选股',
+      title: '我的自选',
       icon: 'Star',
       requiresAuth: true,
       transition: 'slide-up'
@@ -108,12 +108,44 @@ const routes: RouteRecordRaw[] = [
         name: 'FavoritesHome',
         component: () => import('@/views/Favorites/index.vue'),
         meta: {
-          title: '我的自选股',
+          title: '我的自选',
           requiresAuth: true
         }
       }
     ]
   },
+
+  // ==================== 数据中心（系统设置下的二级功能） ====================
+  {
+    path: '/data',
+    name: 'DataCenter',
+    component: () => import('@/layouts/BasicLayout.vue'),
+    meta: {
+      title: '数据中心',
+      icon: 'Coin',
+      requiresAuth: true,
+      transition: 'fade'
+    },
+    children: [
+      {
+        path: '',
+        name: 'DataCenterHome',
+        component: () => import('@/views/Data/index.vue'),
+        meta: {
+          title: '数据中心',
+          requiresAuth: true
+        }
+      }
+    ]
+  },
+  // 兼容旧路径
+  { path: '/settings/data', redirect: '/data' },
+  { path: '/settings/sync', redirect: '/data' },
+  { path: '/settings/sources', redirect: '/data' },
+  { path: '/data/sync', redirect: '/data' },
+  { path: '/data/quality', redirect: '/data' },
+  { path: '/data/viewer', redirect: '/data' },
+  { path: '/data/sources', redirect: '/data' },
   {
     path: '/learning',
     name: 'Learning',
@@ -322,24 +354,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/System/LogManagement.vue'),
         meta: {
           title: '系统日志',
-          requiresAuth: true
-        }
-      },
-      {
-        path: 'sync',
-        name: 'MultiSourceSync',
-        component: () => import('@/views/System/MultiSourceSync.vue'),
-        meta: {
-          title: '多数据源同步',
-          requiresAuth: true
-        }
-      },
-      {
-        path: 'data',
-        name: 'DataManagement',
-        component: () => import('@/views/Data/index.vue'),
-        meta: {
-          title: '数据管理',
           requiresAuth: true
         }
       },

@@ -15,7 +15,7 @@ const props = defineProps<{
 const tagType = computed(() => {
   if (props.status === 'fresh') return 'success'
   if (props.status === 'stale') return 'danger'
-  if (props.status === 'refreshed') return ''
+  if (props.status === 'refreshed') return 'info' as const
   if (props.status === 'unknown') return 'info'
   return 'warning'
 })

@@ -50,3 +50,9 @@ class BaoStockCNProvider(BaseProvider):
     ) -> Optional[pd.DataFrame]:
         from .api.financial import fetch_financial_data
         return await fetch_financial_data(symbol)
+
+    async def get_adj_factors(
+        self, symbol: str, start_date: str, end_date: str, **kwargs
+    ) -> Optional[pd.DataFrame]:
+        from .api.daily_quotes import fetch_adj_factors
+        return await fetch_adj_factors(symbol, start_date, end_date)

@@ -107,7 +107,7 @@ EXPOSE 8000
 ENV DOCKER_CONTAINER=true
 
 # 创建非 root 用户并以该用户运行
-RUN useradd -r -s /bin/false appuser
+RUN useradd -r -m -s /bin/false appuser
 USER appuser
 
 # 启动FastAPI服务

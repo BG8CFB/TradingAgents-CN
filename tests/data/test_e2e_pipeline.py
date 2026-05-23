@@ -1,14 +1,13 @@
-"""端到端测试 — MockProvider → Adapter → Normalizer → Validator → Repo 全链路。"""
+"""端到端测试 — MockProvider → Adapter → Normalizer → Validator → Repo 全链路。
+
+设计原则：不使用 unittest.mock。Provider 和 Adapter 使用内联真实实现。
+"""
 
 import pytest
 import pandas as pd
-from dataclasses import dataclass
-from typing import Optional, List
-from unittest.mock import AsyncMock, MagicMock
 
 from app.data.sources.base.provider import BaseProvider
 from app.data.sources.base.adapter import BaseAdapter
-from app.data.processor.normalizer import Normalizer
 from app.data.processor.validator import Validator
 from app.data.schema.domains.basic_info import StockBasicInfoSchema
 
@@ -62,25 +61,21 @@ class MockAdapter(BaseAdapter):
 class TestE2EPipeline:
     @pytest.mark.asyncio
     async def test_basic_info_full_pipeline(self):
-        # 1. Provider 获取原始数据
         provider = MockProvider()
         raw_data = await provider.get_stock_list()
         assert raw_data is not None
         assert len(raw_data) == 2
 
-        # 2. Adapter 标准化
         adapter = MockAdapter()
         schemas = adapter.adapt_basic_info(raw_data)
         assert len(schemas) == 2
         assert all(isinstance(s, StockBasicInfoSchema) for s in schemas)
         assert schemas[0].symbol == "000001"
 
-        # 3. 转为 MongoDB 文档
         docs = [s.to_db_doc() for s in schemas]
         assert all("symbol" in d for d in docs)
         assert all("updated_at" in d for d in docs)
 
-        # 4. Validator 校验
         validator = Validator()
         valid, errors = validator.validate(docs, "basic_info", "CN")
         assert len(valid) == 2
@@ -122,6 +117,5 @@ class TestE2EPipeline:
         assert raw_data is None
 
         adapter = MockAdapter()
-        # 传入 None 应返回空列表
         results = adapter.adapt_basic_info(raw_data or pd.DataFrame())
         assert results == []

@@ -97,3 +97,13 @@ class CircuitBreaker:
         state["cooldown"] = min(int(base_cooldown * multiplier), 3600)
 
         logger.warning(f"熔断器打开: {source}/{domain}, 冷却 {state['cooldown']}s (错误: {error_code})")
+
+    def reset(self, source: str, domain: str) -> None:
+        """手动重置熔断器到 Closed 状态。"""
+        state = self._get_state(source, domain)
+        state["state"] = CircuitState.CLOSED
+        state["failures"] = []
+        state["trip_count"] = 0
+        state["opened_at"] = 0
+        state["cooldown"] = COOLDOWN_STEPS[0]
+        logger.info(f"熔断器已重置: {source}/{domain}")

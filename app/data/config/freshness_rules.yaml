@@ -46,6 +46,12 @@ HK:
   market_quotes:
     rule_type: time_window
     threshold_minutes: 30
+  connect_status:
+    rule_type: time_window
+    threshold_hours: 168  # 7 天，名单变更频率低
+  southbound_holding:
+    rule_type: time_window
+    threshold_hours: 24  # 每日收盘后港交所披露
 
 US:
   daily_quotes:

@@ -71,6 +71,12 @@ HK:
   news:
     akshare_hk: full
     yfinance_hk: partial
+  connect_status:
+    akshare_hk: full
+    tushare_hk: partial
+  southbound_holding:
+    tushare_hk: full
+    akshare_hk: full
 
 US:
   basic_info:

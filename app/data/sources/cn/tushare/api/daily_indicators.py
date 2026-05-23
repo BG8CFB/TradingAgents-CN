@@ -12,7 +12,7 @@ from .connection import TushareConnection
 logger = logging.getLogger(__name__)
 
 _DAILY_BASIC_FIELDS = (
-    "ts_code,total_mv,circ_mv,pe,pb,turnover_rate,volume_ratio,pe_ttm,pb_mrq,ps,ps_ttm"
+    "ts_code,trade_date,total_mv,circ_mv,pe,pb,turnover_rate,volume_ratio,pe_ttm,pb_mrq,ps,ps_ttm"
 )
 
 

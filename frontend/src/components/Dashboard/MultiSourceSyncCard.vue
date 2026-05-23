@@ -124,13 +124,37 @@ import {
   ArrowRight,
   Refresh
 } from '@element-plus/icons-vue'
-import { 
-  getSyncStatus, 
-  getDataSourcesStatus, 
-  runStockBasicsSync,
-  type SyncStatus, 
-  type DataSourceStatus 
-} from '@/api/sync'
+import {
+  getSyncStatus as getMarketSyncStatus,
+  getSourcesHealth,
+  triggerSync as triggerMarketSync,
+  type SourceHealthItem,
+  type MarketCode
+} from '@/api/marketData'
+
+type SyncStatus = {
+  job: string
+  status: 'idle' | 'running' | 'success' | 'success_with_errors' | 'failed' | 'never_run'
+  started_at?: string
+  finished_at?: string
+  total: number
+  inserted: number
+  updated: number
+  errors: number
+  last_trade_date?: string
+  data_sources_used: string[]
+  source_stats?: Record<string, Record<string, number>>
+  message?: string
+}
+
+interface DataSourceStatus {
+  name: string
+  priority: number
+  available: boolean
+  description: string
+}
+
+const MARKET: MarketCode = 'cn'
 
 // 路由
 const router = useRouter()
@@ -143,12 +167,24 @@ const syncStatus = ref<SyncStatus | null>(null)
 const dataSources = ref<DataSourceStatus[]>([])
 const refreshTimer = ref<NodeJS.Timeout | null>(null)
 
-// 获取同步状态
+// 获取同步状态（从 sync checkpoints 推断）
 const fetchSyncStatus = async () => {
   try {
-    const response = await getSyncStatus()
-    if (response.success) {
-      syncStatus.value = response.data
+    const response = await getMarketSyncStatus(MARKET, { page: 1, page_size: 1 })
+    if (response.success && response.data?.items?.length) {
+      const latest = response.data.items[0]
+      syncStatus.value = {
+        job: latest.domain,
+        status: latest.status === 'success' ? 'success' : latest.status === 'failed' ? 'failed' : 'idle',
+        total: latest.record_count,
+        inserted: 0,
+        updated: latest.record_count,
+        errors: 0,
+        finished_at: latest.last_sync_time,
+        data_sources_used: [latest.source],
+      }
+    } else {
+      syncStatus.value = { job: '', status: 'never_run', total: 0, inserted: 0, updated: 0, errors: 0, data_sources_used: [] }
     }
   } catch (err: any) {
     console.error('获取同步状态失败:', err)
@@ -158,11 +194,24 @@ const fetchSyncStatus = async () => {
 // 获取数据源状态
 const fetchDataSources = async () => {
   try {
-    const response = await getDataSourcesStatus()
-    if (response.success) {
-      dataSources.value = response.data
-        .sort((a, b) => b.priority - a.priority) // 倒序：优先级高的在前
-        .slice(0, 3) // 只显示前3个数据源
+    const response = await getSourcesHealth(MARKET)
+    if (response.success && response.data) {
+      const seen = new Set<string>()
+      const sources: DataSourceStatus[] = []
+      response.data
+        .sort((a, b) => a.source.localeCompare(b.source))
+        .forEach((item: SourceHealthItem) => {
+          if (!seen.has(item.source)) {
+            seen.add(item.source)
+            sources.push({
+              name: item.source,
+              priority: sources.length + 1,
+              available: item.circuit_state === 'closed',
+              description: `${item.domain} - ${item.circuit_state}`,
+            })
+          }
+        })
+      dataSources.value = sources.slice(0, 3)
     }
   } catch (err: any) {
     console.error('获取数据源状态失败:', err)
@@ -184,10 +233,9 @@ const quickSync = async () => {
   try {
     syncing.value = true
     
-    const response = await runStockBasicsSync()
+    const response = await triggerMarketSync(MARKET, 'basic_info')
     if (response.success) {
       ElMessage.success('同步任务已启动')
-      syncStatus.value = response.data
       startStatusPolling()
     } else {
       ElMessage.error(`同步启动失败: ${response.message}`)
@@ -200,9 +248,9 @@ const quickSync = async () => {
   }
 }
 
-// 跳转到同步管理页面
+// 跳转到数据中心页面
 const goToSyncPage = () => {
-  router.push('/settings/sync')
+  router.push('/data')
 }
 
 // 开始状态轮询

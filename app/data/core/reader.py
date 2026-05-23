@@ -46,45 +46,71 @@ class Reader:
         return None
 
     async def get_data(
-        self, market: str, symbol: str, domain: str,
+        self, market: str, domain: str, symbol: Optional[str] = None,
         start_date: Optional[str] = None, end_date: Optional[str] = None,
+        filters: Optional[Dict] = None,
     ) -> Tuple[Optional[Any], str]:
         """读取数据并返回 (data, freshness_state)。
 
-        Returns:
-            Tuple[数据, 新鲜度(fresh/stale/unknown)]
+        Args:
+            market: 市场
+            domain: 数据域
+            symbol: 股票代码（可选）
+            start_date: 起始日期
+            end_date: 结束日期
+            filters: 额外过滤条件
         """
         repo = self._get_repo(domain)
         if not repo:
             return None, FreshnessState.UNKNOWN
 
+        filters = filters or {}
         data = None
 
         if domain == "basic_info":
-            data = await repo.get_by_symbol(symbol, market)
-        elif domain in ("daily_quotes", "daily_indicators", "adj_factors", "corporate_actions"):
-            if start_date and end_date:
-                data = await repo.get_by_symbol_and_range(symbol, market, start_date, end_date)
+            if symbol:
+                data = await repo.get_by_symbol(symbol, market)
             else:
-                data = await repo.get_by_symbol_and_range(symbol, market, "1970-01-01", "2099-12-31")
-        elif domain == "financial_data":
-            data = await repo.get_by_symbol(symbol, market)
-        elif domain == "market_quotes":
-            data = await repo.get_by_symbol(symbol, market)
-        elif domain == "news":
-            data = await repo.get_by_symbol(symbol, market)
+                limit = filters.get("limit", 0)
+                data = await repo.get_all(market, limit=limit)
+
         elif domain == "trade_calendar":
-            exchange = "SSE" if market == "CN" else "HKEX" if market == "HK" else "NYSE"
-            data = await repo.get_range(exchange, market, start_date or "1970-01-01", end_date or "2099-12-31")
+            exchange = filters.get("exchange",
+                                   "SSE" if market == "CN" else "HKEX" if market == "HK" else "NYSE")
+            data = await repo.get_range(exchange, market,
+                                        start_date or "1970-01-01", end_date or "2099-12-31")
+
+        elif domain in ("daily_quotes", "daily_indicators", "adj_factors", "corporate_actions"):
+            if symbol:
+                data = await repo.get_by_symbol_and_range(
+                    symbol, market,
+                    start_date or "1970-01-01", end_date or "2099-12-31")
+
+        elif domain == "financial_data":
+            if symbol:
+                statement_type = filters.get("statement_type")
+                data = await repo.get_by_symbol(symbol, market, statement_type=statement_type)
+
+        elif domain == "market_quotes":
+            if symbol:
+                data = await repo.get_by_symbol(symbol, market)
+            else:
+                limit = filters.get("limit", 100)
+                data = await repo.get_all(market, limit=limit)
+
+        elif domain == "news":
+            if symbol:
+                limit = filters.get("limit", 20)
+                data = await repo.get_by_symbol(symbol, market, limit=limit)
 
         if not data:
             return None, FreshnessState.UNKNOWN
 
         # 新鲜度判定
-        freshness = await self.check_freshness(market, symbol, domain, data)
+        freshness = await self.check_freshness(market, symbol or "", domain, data)
 
-        # 异步通知刷新（stale 时）
-        if freshness == FreshnessState.STALE:
+        # 异步通知刷新（stale 时且有 symbol）
+        if freshness == FreshnessState.STALE and symbol:
             await self.notify_refresh_async(market, symbol, domain)
 
         return data, freshness

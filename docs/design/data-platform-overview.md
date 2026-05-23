@@ -104,8 +104,8 @@ Tushare 是平台中**唯一横跨三市场的数据源**，分别对应 `tushar
         ┌──────────────────┐       │       ┌────────────────────────┐
         │     MongoDB      │       │       │   DataRefreshService   │
         │ ┌──────────────┐ │       │       │      (市场无关)         │
-        │ │ _cn / _hk /  │ │       │       └─────────┬──────────────┘
-        │ │ _us 集合族   │ │       │                 │
+        │ │ A股/_hk/_us │ │       │       └─────────┬──────────────┘
+        │ │  集合族     │ │       │                 │
         │ ├──────────────┤ │       │                 ▼
         │ │ 共用元数据   │ │       │       ┌────────────────────────┐
         │ │（含 market） │ │◄──────┴──────┤      处理层 (Processor)   │
@@ -213,30 +213,30 @@ Tushare 是平台中**唯一横跨三市场的数据源**，分别对应 `tushar
 | 财务指标 | ✓ | ✓ | ✓ | 字段大体一致 |
 | 市场快照 | ✓ | ✓ | ✓ | 美股增盘前盘后字段，港股增准实时来源 |
 | 新闻 | ✓ | ✓ | ✓ | 三市场通用 |
-| 公司行为 | – | ✓ | ✓ | 美股 / 港股独有 |
+| 公司行为 | – | ✓ | ✓ | 港股 / 美股独有 |
 | 港股通标识 | – | ✓ | – | 港股独有 |
 | 南向持股 | – | ✓ | – | 港股独有 |
 | 盘前盘后行情 | – | – | ✓ | 美股可选增强域 |
 
 ### 3.4 集合后缀与命名规则
 
-业务集合按市场后缀区分：
+业务集合按市场后缀区分（A 股不加后缀，港股加 `_hk`，美股加 `_us`）：
 
 ```text
 基本信息：
-  stock_basic_info_cn      # A 股
+  stock_basic_info         # A 股（无后缀）
   stock_basic_info_hk      # 港股
   stock_basic_info_us      # 美股
 
 日线行情：
-  stock_daily_quotes_cn
-  stock_daily_quotes_hk
-  stock_daily_quotes_us
+  stock_daily_quotes       # A 股
+  stock_daily_quotes_hk    # 港股
+  stock_daily_quotes_us    # 美股
 
 财务数据：
-  stock_financial_data_cn
-  stock_financial_data_hk
-  stock_financial_data_us
+  stock_financial_data     # A 股
+  stock_financial_data_hk  # 港股
+  stock_financial_data_us  # 美股
 
 公司行为（仅港股 / 美股）：
   stock_corporate_actions_hk
@@ -247,6 +247,8 @@ Tushare 是平台中**唯一横跨三市场的数据源**，分别对应 `tushar
   sync_events              # 含 market 字段
   source_health            # 含 market 字段
 ```
+
+> **A 股不加后缀的原因**：A 股作为平台的第一个市场，在 `collections.py` 中不使用后缀以保持向后兼容。代码中通过 `market` 参数在 `get_collection_name()` 中自动处理：CN → 无后缀，HK → `_hk`，US → `_us`。
 
 ---
 
@@ -537,7 +539,7 @@ app/data/
 | Tushare 跨市场命名 | A 股用 `tushare`（无后缀以保持向后兼容），港股用 `tushare_hk`，美股用 `tushare_us`；三者共享同一 Token / 配额，但 Provider / Adapter 实现完全独立 |
 | 市场编码 | 大写两字母，如 `CN` / `HK` / `US` |
 | 数据域编码 | 蛇形小写，如 `basic_info`、`daily_quotes`、`corporate_actions` |
-| 集合命名 | 业务集合 `<entity>_<market_lower>`，如 `stock_basic_info_cn`；元数据集合不带后缀 |
+| 集合命名 | 业务集合 A 股无后缀（如 `stock_basic_info`），港股/美股加 `_<market_lower>`（如 `stock_basic_info_hk`）；元数据集合不带后缀 |
 | 配置 key | 蛇形小写 |
 | 类名 | 大驼峰，Provider/Adapter 后缀，如 `TushareProvider` / `TushareHkProvider` / `TushareUsProvider` |
 
@@ -724,15 +726,15 @@ Tushare 在三市场（A 股 / 港股 / 美股）有独立的 Provider 实现，
 
 | 数据域 | A 股集合 | 港股集合 | 美股集合 |
 |--------|---------|---------|---------|
-| 股票基本信息 | stock_basic_info_cn | stock_basic_info_hk | stock_basic_info_us |
-| 交易日历 | trade_calendar_cn | trade_calendar_hk | trade_calendar_us |
-| 日线行情 | stock_daily_quotes_cn | stock_daily_quotes_hk | stock_daily_quotes_us |
-| 每日指标 | stock_daily_indicators_cn | stock_daily_indicators_hk | stock_daily_indicators_us |
-| 复权因子 | stock_adj_factors_cn | stock_adj_factors_hk | stock_adj_factors_us |
+| 股票基本信息 | stock_basic_info | stock_basic_info_hk | stock_basic_info_us |
+| 交易日历 | trade_calendar | trade_calendar_hk | trade_calendar_us |
+| 日线行情 | stock_daily_quotes | stock_daily_quotes_hk | stock_daily_quotes_us |
+| 每日指标 | stock_daily_indicators | stock_daily_indicators_hk | stock_daily_indicators_us |
+| 复权因子 | stock_adj_factors | stock_adj_factors_hk | stock_adj_factors_us |
 | 公司行为 | – | stock_corporate_actions_hk | stock_corporate_actions_us |
-| 财务数据 | stock_financial_data_cn | stock_financial_data_hk | stock_financial_data_us |
-| 市场快照 | market_quotes_cn | market_quotes_hk | market_quotes_us |
-| 新闻公告 | stock_news_cn | stock_news_hk | stock_news_us |
+| 财务数据 | stock_financial_data | stock_financial_data_hk | stock_financial_data_us |
+| 市场快照 | market_quotes | market_quotes_hk | market_quotes_us |
+| 新闻公告 | stock_news | stock_news_hk | stock_news_us |
 
 元数据集合三市场共用：
 
@@ -774,7 +776,7 @@ Tushare 在三市场（A 股 / 港股 / 美股）有独立的 Provider 实现，
 get_collection_name(domain, market) → str
 
 示例：
-  ("basic_info", "CN") → "stock_basic_info_cn"
+  ("basic_info", "CN") → "stock_basic_info"        # A 股无后缀
   ("daily_quotes", "HK") → "stock_daily_quotes_hk"
   ("corporate_actions", "US") → "stock_corporate_actions_us"
   ("sync_checkpoints", "*")  → "sync_checkpoints"  # 元数据集合无后缀
@@ -1199,7 +1201,7 @@ app/routers/
 |------|------|------|
 | 架构层数 | 4 层 | 够用即可，不为"可能的需求"预留空层 |
 | 市场组织方式 | sources/<market>/ + schema/markets/<market>.py | 市场可独立演进 |
-| 集合命名 | 业务集合带 `_<market_lower>` 后缀 | 物理隔离，便于运维与扩展 |
+| 集合命名 | A 股无后缀，港股/美股业务集合带 `_<market_lower>` 后缀 | 物理隔离，便于运维与扩展；A 股向后兼容不加后缀 |
 | 元数据集合 | 三市场共用，含 market 字段 | 减少集合数量，便于跨市场对比 |
 | 回退粒度 | 接口级（source × domain） | 避免一个接口故障拖累整个数据源 |
 | 按需刷新模式 | 同步阻塞 + 30 秒超时 | 调用方明确等待，便于业务编排 |

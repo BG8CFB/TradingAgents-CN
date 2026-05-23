@@ -25,9 +25,6 @@ from app.engine.agents.utils.agent_states import (
 )
 import logging as _logging
 _logger_compat = _logging.getLogger(__name__)
-def _set_config_noop(config):
-    """兼容旧版 set_config — 新架构通过 DataInterface 管理。"""
-    _logger_compat.debug("set_config 兼容调用（空操作）")
 
 from .conditional_logic import ConditionalLogic
 from .setup import GraphSetup
@@ -130,8 +127,8 @@ class TradingAgentsGraph:
             self.config["enable_mcp"] = True
             logger.info("🔧 [TradingGraph] 检测到 MCP loader，已自动启用 MCP 工具")
 
-        # Update the interface's config
-        _set_config_noop(self.config)
+        # Update the interface's config — 新架构通过 DataInterface 管理，无需额外操作
+        _logger_compat.debug("config 已加载到 graph 实例: %s", list(self.config.keys()) if self.config else "empty")
 
         # Create necessary directories
         cache_root = self.config.get("data_cache_dir") or str(get_cache_dir() / "dataflows")

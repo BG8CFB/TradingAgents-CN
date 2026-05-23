@@ -54,3 +54,36 @@ async def fetch_daily_quotes(
     except Exception as e:
         logger.error(f"BaoStock 获取行情失败 {code}: {e}")
         return None
+
+
+async def fetch_adj_factors(
+    code: str, start_date: str, end_date: str
+) -> Optional[pd.DataFrame]:
+    """获取复权因子"""
+    try:
+        bs_code = _to_baostock_code(code)
+        start = start_date.replace("-", "")
+        end = end_date.replace("-", "")
+
+        async with baostock_session():
+            def _fetch():
+                rs = bs.query_adjust_factor(
+                    code=bs_code,
+                    start_date=start,
+                    end_date=end,
+                )
+                rows = []
+                while rs.error_code == "0" and rs.next():
+                    rows.append(rs.get_row_data())
+                if rows:
+                    return pd.DataFrame(rows, columns=rs.fields)
+                return None
+
+            df = await asyncio.to_thread(_fetch)
+            if df is not None and not df.empty:
+                logger.info(f"BaoStock 复权因子: {code} {len(df)} 条")
+            return df
+
+    except Exception as e:
+        logger.error(f"BaoStock 获取复权因子失败 {code}: {e}")
+        return None

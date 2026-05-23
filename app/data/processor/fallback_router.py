@@ -12,6 +12,7 @@ from app.data.processor.normalizer import Normalizer
 from app.data.processor.validator import Validator
 from app.data.core.registry.capability import CapabilityRegistry
 from app.data.core.registry.priority import PriorityConfig
+from app.data.monitoring.source_health import SourceHealthMonitor
 from app.data.sources.base.exceptions import DataSourceError
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ class FallbackRouter:
         self._rate_limiter = rate_limiter or RateLimiter()
         self._normalizer = Normalizer()
         self._validator = Validator()
+        self._health_monitor = SourceHealthMonitor()
 
     async def fetch(
         self, market: str, domain: str, symbol: str,
@@ -88,18 +90,27 @@ class FallbackRouter:
 
                 if raw_data is None or (hasattr(raw_data, 'empty') and raw_data.empty):
                     self._circuit.record_failure(source_name, domain)
+                    self._health_monitor.record_call(
+                        market, source_name, domain, success=False, latency_ms=int((time.time() - start) * 1000), error="empty data"
+                    )
                     fallback_chain.append(source_name)
                     continue
 
                 records = self._normalizer.normalize(raw_data, domain, adapter)
                 if not records:
                     self._circuit.record_failure(source_name, domain)
+                    self._health_monitor.record_call(
+                        market, source_name, domain, success=False, latency_ms=int((time.time() - start) * 1000), error="normalize empty"
+                    )
                     fallback_chain.append(source_name)
                     continue
 
                 valid, errors = self._validator.validate(records, domain, market)
 
                 self._circuit.record_success(source_name, domain)
+                self._health_monitor.record_call(
+                    market, source_name, domain, success=True, latency_ms=result.latency_ms
+                )
                 result.success = True
                 result.records = valid
                 result.source = source_name
@@ -110,10 +121,16 @@ class FallbackRouter:
 
             except DataSourceError as e:
                 self._circuit.record_failure(source_name, domain, e.code)
+                self._health_monitor.record_call(
+                    market, source_name, domain, success=False, latency_ms=int((time.time() - start) * 1000), error=str(e)
+                )
                 fallback_chain.append(source_name)
                 logger.warning(f"源 {source_name}/{domain} 失败: {e}")
             except Exception as e:
                 self._circuit.record_failure(source_name, domain)
+                self._health_monitor.record_call(
+                    market, source_name, domain, success=False, latency_ms=int((time.time() - start) * 1000), error=str(e)
+                )
                 fallback_chain.append(source_name)
                 logger.warning(f"源 {source_name}/{domain} 异常: {e}")
 

@@ -6,8 +6,12 @@ from typing import Optional
 from datetime import timedelta
 
 from app.utils.time_utils import now_utc, get_current_date_compact
-from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
+from app.data.core.interface import DataInterface
+import asyncio
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,58 +36,47 @@ def get_fund_data(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        # 设置默认日期
         if not end_date:
             end_date = get_current_date_compact()
         if not start_date:
             start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
 
-        # 🔥 优先使用Tushare获取基金数据
+        # 通过 DataInterface 尝试获取基金数据
         try:
-            logger.info(f"📊 尝试使用Tushare获取基金数据: {ts_code}, 类型: {data_type}")
-            # TODO: 迁移到新架构 - get_fund_data 需要通过新数据层实现
-            data = None
-            if data and not data.empty:
-                logger.info(f"✅ Tushare成功获取基金数据: {ts_code}, {len(data)}条记录")
-                return format_tool_result(success_result(format_result(data, f"Fund: {ts_code} {data_type}")))
-        except Exception as tu_e:
-            logger.info(f"⚠️ Tushare获取基金数据失败: {tu_e}，尝试AkShare")
+            di = DataInterface.get_instance()
+            result = asyncio.run(di.read("CN", "fund_data", symbol=ts_code,
+                                         start_date=start_date, end_date=end_date))
+            data = result.get("data")
+            if data:
+                df = pd.DataFrame(data) if isinstance(data, list) else data
+                return format_tool_result(success_result(format_result(df, f"Fund: {ts_code} {data_type}")))
+        except Exception:
+            pass
 
-        # 回退到AkShare（仅支持basic、nav、all类型）
+        # AkShare 回退（仅支持 basic、nav、all 类型）
         if data_type in ["basic", "nav", "all"]:
             try:
                 import akshare as ak
-                import pandas as pd
 
-                logger.info(f"📊 尝试使用AkShare获取基金数据: {ts_code}, 类型: {data_type}")
-
-                # 获取基金信息（注意：fund_open_fund_info_em不需要year参数）
+                logger.info(f"尝试使用AkShare获取基金数据: {ts_code}, 类型: {data_type}")
                 df = ak.fund_open_fund_info_em(symbol=ts_code)
 
                 if df is not None and not df.empty:
-                    logger.info(f"✅ AkShare成功获取基金数据: {ts_code}")
-
-                    # 格式化数据
                     result_text = f"# {ts_code} 基金数据（来源：AkShare）\n\n"
                     result_text += f"**数据类型**: {data_type}\n\n"
-
                     result_text += "## 基金信息\n\n"
                     for col in df.columns:
                         value = df.iloc[0][col]
-                        # 处理NaN值
                         if pd.notna(value):
                             result_text += f"- **{col}**: {value}\n"
-
                     return result_text
-                else:
-                    logger.warning(f"⚠️ AkShare未获取到基金数据")
             except Exception as ak_e:
-                logger.warning(f"⚠️ AkShare获取基金数据失败: {ak_e}")
+                logger.warning(f"AkShare获取基金数据失败: {ak_e}")
 
-        # 两个数据源都失败
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR,
-            f"无法从Tushare和AkShare获取基金数据: {ts_code}, data_type: {data_type}"
+            f"无法获取基金数据: {ts_code}, data_type: {data_type}",
+            suggestion="请确认基金代码正确且数据源已配置"
         ))
     except Exception as e:
         logger.error(f"get_fund_data failed: {e}")
@@ -108,9 +101,21 @@ def get_fund_manager_by_name(
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
     try:
-        # TODO: 迁移到新架构 - get_fund_manager_by_name 需要通过新数据层实现
-        data = None
-        return format_tool_result(success_result(format_result(data, f"Manager: {name}")))
+        try:
+            di = DataInterface.get_instance()
+            result = asyncio.run(di.read("CN", "fund_managers", symbol=name))
+            data = result.get("data")
+            if data:
+                df = pd.DataFrame(data) if isinstance(data, list) else data
+                return format_tool_result(success_result(format_result(df, f"Manager: {name}")))
+        except Exception:
+            pass
+
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            f"基金经理数据暂不可用: {name}",
+            suggestion="基金经经理数据功能待数据源对接后可用"
+        ))
     except Exception as e:
         logger.error(f"get_fund_manager_by_name failed: {e}")
         return format_tool_result(error_result(

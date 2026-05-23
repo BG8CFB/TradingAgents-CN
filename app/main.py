@@ -22,7 +22,7 @@ import logging
 import re
 import time
 from datetime import datetime
-from contextlib import asynccontextmanager
+
 import asyncio
 from pathlib import Path
 
@@ -39,26 +39,9 @@ from app.routers import stocks as stocks_router
 from app.routers import notifications as notifications_router
 from app.routers import websocket_notifications as websocket_notifications_router
 from app.routers import scheduler as scheduler_router
-from app.services.multi_source_basics_sync_service import get_multi_source_sync_service
+from app.data.scheduler.engine import SchedulerEngine
 from app.services.scheduler_service import set_scheduler_instance
 from app.middleware.operation_log_middleware import OperationLogMiddleware
-from app.services.quotes_ingestion_service import QuotesIngestionService
-
-# 模块级变量：供 APScheduler 调度的基础信息同步服务实例（与 API 共用同一单例）
-_basics_sync_service = None
-
-
-async def _run_basics_sync(force: bool = False, preferred_sources: list | None = None):
-    """
-    模块级异步函数，供 APScheduler 调度基础信息同步。
-    APScheduler 要求 job 目标函数可被模块路径引用（app.main._run_basics_sync），
-    因此不能使用闭包或局部函数。
-    """
-    if _basics_sync_service is None:
-        logger_placeholder = logging.getLogger("app.main")
-        logger_placeholder.warning("⚠️ 基础信息同步服务未初始化，跳过同步")
-        return
-    await _basics_sync_service.run_full_sync(force=force, preferred_sources=preferred_sources)
 
 
 def get_version() -> str:
@@ -210,7 +193,6 @@ async def _print_config_summary(logger):
         logger.error(f"Failed to print config summary: {e}")
 
 
-@asynccontextmanager
 async def _init_database(logger):
     """初始化数据库连接 + UserService"""
     await init_db()
@@ -265,18 +247,14 @@ async def _apply_dynamic_settings(logger):
 async def _init_scheduler(logger):
     """初始化 APScheduler 定时任务"""
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    from app.worker.scheduler_setup import register_jobs
 
-    scheduler = AsyncIOScheduler(timezone=settings.TIMEZONE)
+    apscheduler = AsyncIOScheduler(timezone=settings.TIMEZONE)
+    engine = SchedulerEngine(scheduler=apscheduler)
+    engine.start()
 
-    global _basics_sync_service
-    _basics_sync_service = get_multi_source_sync_service()
-
-    await register_jobs(scheduler, _basics_sync_service, _run_basics_sync)
-    scheduler.start()
-    set_scheduler_instance(scheduler)
-    logger.info("调度器服务已初始化")
-    return scheduler
+    set_scheduler_instance(apscheduler)
+    logger.info("调度器服务已初始化（统一调度引擎）")
+    return apscheduler
 
 
 async def _init_mcp(logger):
@@ -325,15 +303,6 @@ async def lifespan(app: FastAPI):
     await _print_config_summary(logger)
 
     logger.info("TradingAgents FastAPI backend started")
-
-    # 启动期：若需要在休市时补充上一交易日收盘快照
-    if settings.QUOTES_BACKFILL_ON_STARTUP:
-        try:
-            qi = QuotesIngestionService()
-            await qi.ensure_indexes()
-            await qi.backfill_last_close_snapshot_if_needed()
-        except Exception as e:
-            logger.warning(f"Startup backfill failed (ignored): {e}")
 
     # 启动定时任务
     scheduler = None
@@ -608,27 +577,20 @@ app.include_router(scheduler_router.router)
 app.include_router(sse.router)
 app.include_router(news_data.router)
 
-# 按市场拆分的同步路由（港股/美股按需缓存 + A股同步）
-from app.routers import sync as sync_router
-app.include_router(sync_router.router)
+# 三市场标准化数据路由（CN / HK / US 各 3 个文件）
+from app.routers.cn import data as cn_data, stocks as cn_stocks, sync as cn_sync
+from app.routers.hk import data as hk_data, stocks as hk_stocks, sync as hk_sync
+from app.routers.us import data as us_data, stocks as us_stocks, sync as us_sync
 
-# A 股数据管理 API（Phase 4）
-from app.routers.cn import (
-    data_dashboard,
-    data_sync,
-    data_refresh,
-    source_health,
-    source_config,
-    data_viewer,
-    data_quality,
-)
-app.include_router(data_dashboard.router)
-app.include_router(data_sync.router)
-app.include_router(data_refresh.router)
-app.include_router(source_health.router)
-app.include_router(source_config.router)
-app.include_router(data_viewer.router)
-app.include_router(data_quality.router)
+app.include_router(cn_data.router)
+app.include_router(cn_stocks.router)
+app.include_router(cn_sync.router)
+app.include_router(hk_data.router)
+app.include_router(hk_stocks.router)
+app.include_router(hk_sync.router)
+app.include_router(us_data.router)
+app.include_router(us_stocks.router)
+app.include_router(us_sync.router)
 
 
 @app.get("/")

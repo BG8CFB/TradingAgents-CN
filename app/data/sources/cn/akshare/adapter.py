@@ -12,6 +12,8 @@ from app.data.sources.base.adapter import BaseAdapter
 from app.data.schema.base.types import _safe_float, _parse_date
 from app.data.schema.domains.basic_info import StockBasicInfoSchema
 from app.data.schema.domains.daily_quotes import DailyQuotesSchema
+from app.data.schema.domains.daily_indicators import DailyIndicatorsSchema
+from app.data.schema.domains.adj_factors import AdjFactorsSchema
 from app.data.schema.domains.financial_data import FinancialDataSchema
 from app.data.schema.domains.stock_news import StockNewsSchema
 from app.data.schema.domains.market_quotes import MarketQuotesSchema
@@ -94,6 +96,74 @@ class AKShareCNAdapter(BaseAdapter):
                 volume=_safe_float(get("volume") or get("vol") or get("成交量")),
                 amount=_safe_float(get("amount") or get("turnover") or get("成交额")),
                 turnover_rate=_safe_float(get("turnover_rate") or get("换手率")),
+            ))
+        return results
+
+    def adapt_daily_indicators(self, raw: Any) -> List[DailyIndicatorsSchema]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = str(get("symbol", "") or get("code", "") or get("代码", "")).zfill(6)
+            trade_date = _parse_date(
+                get("trade_date") or get("日期") or get("date")
+            )
+            if not trade_date:
+                continue
+
+            total_mv = _safe_float(
+                get("total_mv") or get("总市值")
+            )
+            circ_mv = _safe_float(
+                get("circ_mv") or get("流通市值")
+            )
+
+            results.append(DailyIndicatorsSchema(
+                symbol=symbol,
+                market="CN",
+                data_source="akshare",
+                trade_date=trade_date,
+                pe_ttm=_safe_float(
+                    get("pe_ttm") or get("市盈率-动态") or get("pe")
+                ),
+                pb=_safe_float(get("pb") or get("市净率")),
+                ps_ttm=_safe_float(get("ps_ttm")),
+                turnover_rate=_safe_float(get("turnover_rate") or get("换手率")),
+                total_mv=total_mv,
+                circ_mv=circ_mv,
+                volume_ratio=_safe_float(get("volume_ratio") or get("量比")),
+            ))
+        return results
+
+    def adapt_adj_factors(self, raw: Any) -> List[AdjFactorsSchema]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            trade_date = _parse_date(
+                get("trade_date") or get("date") or get("日期")
+            )
+            if not trade_date:
+                continue
+
+            qfq_factor = _safe_float(get("qfq_factor") or get("fore_adj_factor"))
+            hfq_factor = _safe_float(get("hfq_factor") or get("back_adj_factor"))
+            adj_factor = _safe_float(get("adj_factor"))
+            if adj_factor is None and qfq_factor is not None:
+                adj_factor = qfq_factor
+
+            results.append(AdjFactorsSchema(
+                symbol=str(get("symbol", "") or get("code", "")).zfill(6),
+                market="CN",
+                data_source="akshare",
+                trade_date=trade_date,
+                adj_factor=adj_factor,
+                fore_adj_factor=qfq_factor,
+                back_adj_factor=hfq_factor,
             ))
         return results
 

@@ -3,11 +3,11 @@
     <!-- 页面标题 -->
     <div class="page-header">
       <h1 class="page-title">
-        <el-icon><Setting /></el-icon>
-        {{ pageTitle }}
+        <el-icon><User /></el-icon>
+        个人设置
       </h1>
       <p class="page-description">
-        {{ pageDescription }}
+        个性化配置和偏好设置
       </p>
     </div>
 
@@ -20,73 +20,26 @@
             @select="handleMenuSelect"
             class="settings-nav"
           >
-            <!-- 个人设置菜单 -->
-            <template v-if="currentSection === 'personal'">
-              <el-menu-item index="general">
-                <el-icon><User /></el-icon>
-                <span>通用设置</span>
-              </el-menu-item>
-              <el-menu-item index="appearance">
-                <el-icon><Brush /></el-icon>
-                <span>外观设置</span>
-              </el-menu-item>
-              <el-menu-item index="analysis">
-                <el-icon><TrendCharts /></el-icon>
-                <span>分析偏好</span>
-              </el-menu-item>
-              <el-menu-item index="notifications">
-                <el-icon><Bell /></el-icon>
-                <span>通知设置</span>
-              </el-menu-item>
-              <el-menu-item index="security">
-                <el-icon><Lock /></el-icon>
-                <span>安全设置</span>
-              </el-menu-item>
-            </template>
-
-            <!-- 系统配置菜单 -->
-            <template v-else-if="currentSection === 'config'">
-              <el-menu-item index="config">
-                <el-icon><Tools /></el-icon>
-                <span>配置管理</span>
-              </el-menu-item>
-              <el-menu-item index="mcp">
-                <el-icon><Connection /></el-icon>
-                <span>MCP 管理</span>
-              </el-menu-item>
-              <el-menu-item index="mcp-tools">
-                <el-icon><Box /></el-icon>
-                <span>MCP 工具</span>
-              </el-menu-item>
-              <el-menu-item index="agents">
-                <el-icon><UserFilled /></el-icon>
-                <span>智能体管理</span>
-              </el-menu-item>
-              <el-menu-item index="usage">
-                <el-icon><DataAnalysis /></el-icon>
-                <span>使用统计</span>
-              </el-menu-item>
-              <el-menu-item index="cache">
-                <el-icon><Coin /></el-icon>
-                <span>缓存管理</span>
-              </el-menu-item>
-            </template>
-
-            <!-- 系统管理菜单 -->
-            <template v-else-if="currentSection === 'admin'">
-              <el-menu-item index="database">
-                <el-icon><Monitor /></el-icon>
-                <span>数据库管理</span>
-              </el-menu-item>
-              <el-menu-item index="logs">
-                <el-icon><Document /></el-icon>
-                <span>操作日志</span>
-              </el-menu-item>
-              <el-menu-item index="sync">
-                <el-icon><Refresh /></el-icon>
-                <span>多数据源同步</span>
-              </el-menu-item>
-            </template>
+            <el-menu-item index="general">
+              <el-icon><User /></el-icon>
+              <span>通用设置</span>
+            </el-menu-item>
+            <el-menu-item index="appearance">
+              <el-icon><Brush /></el-icon>
+              <span>外观设置</span>
+            </el-menu-item>
+            <el-menu-item index="analysis">
+              <el-icon><TrendCharts /></el-icon>
+              <span>分析偏好</span>
+            </el-menu-item>
+            <el-menu-item index="notifications">
+              <el-icon><Bell /></el-icon>
+              <span>通知设置</span>
+            </el-menu-item>
+            <el-menu-item index="security">
+              <el-icon><Lock /></el-icon>
+              <span>安全设置</span>
+            </el-menu-item>
           </el-menu>
         </el-card>
       </el-col>
@@ -205,8 +158,6 @@
               </el-checkbox-group>
             </el-form-item>
 
-
-            
             <el-form-item label="自动刷新">
               <el-switch v-model="analysisSettings.autoRefresh" />
               <span class="setting-description">自动刷新分析结果</span>
@@ -273,190 +224,6 @@
             </el-form-item>
           </el-form>
         </el-card>
-
-
-
-        <!-- 配置管理 -->
-        <el-card v-show="activeTab === 'config'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>配置管理</h3>
-          </template>
-
-          <div class="config-content">
-            <el-alert
-              title="配置管理"
-              type="info"
-              description="管理 LLM 配置、数据源配置和市场分类配置"
-              :closable="false"
-              style="margin-bottom: 20px;"
-            />
-            <el-button type="primary" @click="goToConfigManagement">
-              进入配置管理
-            </el-button>
-          </div>
-        </el-card>
-
-        <!-- 使用统计 -->
-        <el-card v-show="activeTab === 'usage'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>使用统计</h3>
-          </template>
-
-          <div class="cache-content">
-            <el-alert
-              title="使用统计与计费"
-              type="info"
-              description="查看模型使用情况、Token 消耗和成本统计"
-              :closable="false"
-              style="margin-bottom: 20px;"
-            />
-            <el-button type="primary" @click="goToUsageStatistics">
-              查看使用统计
-            </el-button>
-          </div>
-        </el-card>
-
-        <!-- MCP 管理 -->
-        <el-card v-show="activeTab === 'mcp'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>MCP 管理</h3>
-          </template>
-
-          <div class="config-content">
-            <el-alert
-              title="管理 MCP 连接器"
-              type="info"
-              description="配置 MCP 端点、启停和健康检查，统一管理外部工具能力"
-              :closable="false"
-              style="margin-bottom: 20px;"
-            />
-            <el-button type="primary" @click="goToMCPManagement">
-              前往 MCP 管理
-            </el-button>
-          </div>
-        </el-card>
-
-        <!-- MCP 工具 -->
-        <el-card v-show="activeTab === 'mcp-tools'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>MCP 工具</h3>
-          </template>
-
-          <div class="config-content">
-            <el-alert
-              title="本地 MCP 工具管理"
-              type="info"
-              description="管理 20 个内置金融数据工具，查看可用性状态并启用/禁用工具"
-              :closable="false"
-              style="margin-bottom: 20px;"
-            />
-            <el-button type="primary" @click="goToMCPToolsManagement">
-              进入 MCP 工具管理
-            </el-button>
-          </div>
-        </el-card>
-
-        <!-- 智能体管理 -->
-        <el-card v-show="activeTab === 'agents'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>智能体管理</h3>
-          </template>
-
-          <div class="config-content">
-            <el-alert
-              title="智能体配置管理"
-              type="info"
-              description="配置各个阶段的智能体 Prompt、启用状态和参数"
-              :closable="false"
-              style="margin-bottom: 20px;"
-            />
-            <el-button type="primary" @click="goToAgentManagement">
-              前往智能体管理
-            </el-button>
-          </div>
-        </el-card>
-
-        <!-- 缓存管理 -->
-        <el-card v-show="activeTab === 'cache'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>缓存管理</h3>
-          </template>
-
-          <div class="settings-section">
-            <el-alert
-              title="缓存管理"
-              type="info"
-              description="管理系统缓存，清理过期数据"
-              :closable="false"
-              style="margin-bottom: 20px;"
-            />
-            <el-button type="primary" @click="goToCacheManagement">
-              进入缓存管理
-            </el-button>
-          </div>
-        </el-card>
-
-        <!-- 数据库管理 -->
-        <el-card v-show="activeTab === 'database'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>数据库管理</h3>
-          </template>
-
-          <div class="database-content">
-            <el-alert
-              title="数据库管理"
-              type="info"
-              description="管理数据库连接、备份和恢复"
-              :closable="false"
-              style="margin-bottom: 20px;"
-            />
-            <el-button type="primary" @click="goToDatabaseManagement">
-              进入数据库管理
-            </el-button>
-          </div>
-        </el-card>
-
-        <!-- 操作日志 -->
-        <el-card v-show="activeTab === 'logs'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>操作日志</h3>
-          </template>
-
-          <div class="logs-content">
-            <el-alert
-              title="操作日志"
-              type="info"
-              description="查看系统操作日志和审计记录"
-              :closable="false"
-              style="margin-bottom: 20px;"
-            />
-            <el-button type="primary" @click="goToOperationLogs">
-              查看操作日志
-            </el-button>
-          </div>
-        </el-card>
-
-        <!-- 多数据源同步 -->
-        <el-card v-show="activeTab === 'sync'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>多数据源同步</h3>
-          </template>
-
-          <div class="sync-content">
-            <el-alert
-              title="多数据源同步"
-              type="info"
-              description="管理多个数据源的同步配置和状态"
-              :closable="false"
-              style="margin-bottom: 20px;"
-            />
-            <el-button type="primary" @click="goToMultiSourceSync">
-              进入同步管理
-            </el-button>
-          </div>
-        </el-card>
-
-
       </el-col>
     </el-row>
 
@@ -512,117 +279,39 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { agentConfigApi } from '@/api/agentConfigs'
 import { normalizeAnalystIds } from '@/constants/analysts'
 import {
-  Setting,
   User,
   Brush,
   TrendCharts,
   Bell,
   Lock,
-  Tools,
-  Connection,
-  Monitor,
-  Coin,
-  Document,
-  Refresh,
-  DataAnalysis,
-  UserFilled,
-  Box
+  Refresh
 } from '@element-plus/icons-vue'
 
-const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
-// 当前分组：personal（个人设置）、config（系统配置）、admin（系统管理）
-const currentSection = ref('personal')
-
-// 页面标题和描述
-const pageTitle = computed(() => {
-  switch (currentSection.value) {
-    case 'personal':
-      return '个人设置'
-    case 'config':
-      return '系统配置'
-    case 'admin':
-      return '系统管理'
-    default:
-      return '设置'
-  }
-})
-
-const pageDescription = computed(() => {
-  switch (currentSection.value) {
-    case 'personal':
-      return '个性化配置和偏好设置'
-    case 'config':
-      return 'LLM、数据源、使用统计和缓存配置'
-    case 'admin':
-      return '数据库、日志和同步管理'
-    default:
-      return '个性化配置和系统管理'
-  }
-})
-
-// 响应式数据
 const activeTab = ref('general')
 
-// 根据路由路径和 query 参数确定当前分组和默认激活的标签
-const updateSectionFromRoute = () => {
-  const path = route.path
+const updateTabFromRoute = () => {
   const tab = route.query.tab as string
-
-  if (path === '/settings') {
-    // 个人设置页面
-    currentSection.value = 'personal'
-    // 根据 tab 参数切换标签
-    if (tab) {
-      activeTab.value = tab
-    } else {
-      activeTab.value = 'general'
-    }
-  } else if (path === '/settings/config') {
-    currentSection.value = 'config'
-    activeTab.value = 'config'
-  } else if (path === '/settings/mcp') {
-    currentSection.value = 'config'
-    activeTab.value = 'mcp'
-  } else if (path === '/settings/mcp-tools') {
-    currentSection.value = 'config'
-    activeTab.value = 'mcp-tools'
-  } else if (path === '/settings/agents') {
-    currentSection.value = 'config'
-    activeTab.value = 'agents'
-  } else if (path === '/settings/usage') {
-    currentSection.value = 'config'
-    activeTab.value = 'usage'
-  } else if (path === '/settings/cache') {
-    currentSection.value = 'config'
-    activeTab.value = 'cache'
-  } else if (path === '/settings/database') {
-    currentSection.value = 'admin'
-    activeTab.value = 'database'
-  } else if (path === '/settings/logs') {
-    currentSection.value = 'admin'
-    activeTab.value = 'logs'
-  } else if (path === '/settings/sync') {
-    currentSection.value = 'admin'
-    activeTab.value = 'sync'
+  if (tab && ['appearance', 'analysis', 'notifications', 'security'].includes(tab)) {
+    activeTab.value = tab
+  } else {
+    activeTab.value = 'general'
   }
 }
 
-// 监听路由变化（包括 query 参数）
-watch(() => [route.path, route.query.tab], updateSectionFromRoute, { immediate: true })
+watch(() => route.query.tab, updateTabFromRoute, { immediate: true })
 
-// 从 authStore 获取用户信息（使用 computed 实现响应式）
 const generalSettings = ref({
   username: authStore.user?.username || 'admin',
   email: authStore.user?.email || 'admin@example.com',
@@ -649,7 +338,6 @@ const notificationSettings = ref({
   systemMaintenance: authStore.user?.preferences?.system_maintenance_notification ?? true
 })
 
-// 动态分析师列表
 interface AnalystOption {
   id: string
   name: string
@@ -658,21 +346,19 @@ interface AnalystOption {
 const availableAnalysts = ref<AnalystOption[]>([])
 const loadingAnalysts = ref(false)
 
-// slug 到简短 ID 的映射
 const slugToShortId = (slug: string): string => {
   if (!slug) return ''
   return slug.replace('-analyst', '').replace(/-/g, '_')
 }
 
-// 获取分析师列表
 const fetchAnalysts = async () => {
   loadingAnalysts.value = true
   try {
     const res = await agentConfigApi.getPhase(1)
     if (res.success && res.data && res.data.customModes) {
       availableAnalysts.value = res.data.customModes.map(mode => ({
-        id: slugToShortId(mode.slug), // 使用简短 ID 以兼容后端
-        name: mode.name, // 显示中文名称
+        id: slugToShortId(mode.slug),
+        name: mode.name,
         slug: mode.slug
       }))
     } else {
@@ -686,33 +372,27 @@ const fetchAnalysts = async () => {
   }
 }
 
-// 监听用户信息变化，同步更新设置
 watch(() => authStore.user, (newUser) => {
   if (newUser) {
-    // 更新通用设置
     generalSettings.value.username = newUser.username || 'admin'
     generalSettings.value.email = newUser.email || 'admin@example.com'
     generalSettings.value.language = newUser.preferences?.language || 'zh-CN'
 
-    // 更新外观设置
     appearanceSettings.value.theme = newUser.preferences?.ui_theme || 'light'
     appearanceSettings.value.sidebarWidth = newUser.preferences?.sidebar_width || 240
 
-    // 更新分析偏好
     analysisSettings.value.defaultMarket = newUser.preferences?.default_market || 'A股'
     analysisSettings.value.defaultDebateRounds = newUser.preferences?.default_debate_rounds ?? 2
     analysisSettings.value.defaultAnalysts = newUser.preferences?.default_analysts || []
     analysisSettings.value.autoRefresh = newUser.preferences?.auto_refresh ?? true
     analysisSettings.value.refreshInterval = newUser.preferences?.refresh_interval || 30
 
-    // 更新通知设置
     notificationSettings.value.desktop = newUser.preferences?.desktop_notifications ?? true
     notificationSettings.value.analysisComplete = newUser.preferences?.analysis_complete_notification ?? true
     notificationSettings.value.systemMaintenance = newUser.preferences?.system_maintenance_notification ?? true
   }
 }, { deep: true })
 
-// 方法
 const handleMenuSelect = (index: string) => {
   activeTab.value = index
 }
@@ -723,14 +403,12 @@ const handleThemeChange = (theme: string | number | boolean | undefined) => {
 
 const saveGeneralSettings = async () => {
   try {
-    // 调用 authStore 更新用户信息
     const success = await authStore.updateUserInfo({
       email: generalSettings.value.email,
       preferences: {
         language: generalSettings.value.language
       } as any
     })
-
     if (success) {
       ElMessage.success('通用设置已保存')
     }
@@ -742,18 +420,15 @@ const saveGeneralSettings = async () => {
 
 const saveAppearanceSettings = async () => {
   try {
-    // 更新本地 store（立即生效）
     appStore.setSidebarWidth(appearanceSettings.value.sidebarWidth)
     appStore.setTheme(appearanceSettings.value.theme as any)
 
-    // 保存到后端
     const success = await authStore.updateUserInfo({
       preferences: {
         ui_theme: appearanceSettings.value.theme,
         sidebar_width: appearanceSettings.value.sidebarWidth
       } as any
     })
-
     if (success) {
       ElMessage.success('外观设置已保存')
     }
@@ -767,7 +442,6 @@ const saveAnalysisSettings = async () => {
   try {
     const normalizedAnalysts = normalizeAnalystIds(analysisSettings.value.defaultAnalysts)
 
-    // 更新本地 store（立即生效）
     appStore.updatePreferences({
       defaultMarket: analysisSettings.value.defaultMarket as any,
       defaultDebateRounds: analysisSettings.value.defaultDebateRounds,
@@ -776,7 +450,6 @@ const saveAnalysisSettings = async () => {
       defaultAnalysts: normalizedAnalysts
     } as any)
 
-    // 保存到后端
     const success = await authStore.updateUserInfo({
       preferences: {
         default_market: analysisSettings.value.defaultMarket,
@@ -786,7 +459,6 @@ const saveAnalysisSettings = async () => {
         refresh_interval: analysisSettings.value.refreshInterval
       } as any
     })
-
     if (success) {
       ElMessage.success('分析偏好已保存')
     }
@@ -798,7 +470,6 @@ const saveAnalysisSettings = async () => {
 
 const saveNotificationSettings = async () => {
   try {
-    // 保存到后端
     const success = await authStore.updateUserInfo({
       preferences: {
         desktop_notifications: notificationSettings.value.desktop,
@@ -807,7 +478,6 @@ const saveNotificationSettings = async () => {
         notifications_enabled: notificationSettings.value.desktop || notificationSettings.value.analysisComplete || notificationSettings.value.systemMaintenance
       } as any
     })
-
     if (success) {
       ElMessage.success('通知设置已保存')
     }
@@ -817,44 +487,6 @@ const saveNotificationSettings = async () => {
   }
 }
 
-// 导航函数
-const goToConfigManagement = () => {
-  router.push('/settings/config')
-}
-
-const goToMCPManagement = () => {
-  router.push('/settings/mcp')
-}
-
-const goToMCPToolsManagement = () => {
-  router.push('/settings/mcp-tools')
-}
-
-const goToAgentManagement = () => {
-  router.push('/settings/agents')
-}
-
-const goToUsageStatistics = () => {
-  router.push('/settings/usage')
-}
-
-const goToCacheManagement = () => {
-  router.push('/settings/cache')
-}
-
-const goToDatabaseManagement = () => {
-  router.push('/settings/database')
-}
-
-const goToOperationLogs = () => {
-  router.push('/settings/logs')
-}
-
-const goToMultiSourceSync = () => {
-  router.push('/settings/sync')
-}
-
-// 修改密码相关
 const changePasswordDialogVisible = ref(false)
 const changePasswordLoading = ref(false)
 const changePasswordFormRef = ref()
@@ -907,10 +539,8 @@ const handleChangePassword = async () => {
             newPassword: '',
             confirmPassword: ''
           }
-          // 延迟跳转到登录页
           setTimeout(() => {
             authStore.logout()
-            router.push('/login')
           }, 1500)
         }
       } catch (error: any) {
@@ -922,14 +552,9 @@ const handleChangePassword = async () => {
   })
 }
 
-
-
-// 生命周期
 onMounted(async () => {
-  // 加载分析师列表
   await fetchAnalysts()
   
-  // 从store加载设置
   appearanceSettings.value.theme = appStore.theme
   appearanceSettings.value.sidebarWidth = appStore.sidebarWidth
   
@@ -974,31 +599,6 @@ onMounted(async () => {
       margin-left: 8px;
       font-size: 12px;
       color: var(--el-text-color-placeholder);
-    }
-
-    .about-content {
-      .system-info,
-      .system-status,
-      .links {
-        margin-bottom: 32px;
-
-        h4 {
-          margin: 0 0 16px 0;
-          color: var(--el-text-color-primary);
-        }
-
-        p {
-          margin: 8px 0;
-          color: var(--el-text-color-regular);
-        }
-      }
-
-      .links {
-        .el-link {
-          margin-right: 16px;
-          margin-bottom: 8px;
-        }
-      }
     }
   }
 }

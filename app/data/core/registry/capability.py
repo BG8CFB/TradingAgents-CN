@@ -4,8 +4,11 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from app.data.schema.base.enums import SupportLevel
+from app.data.storage.cache.memory_cache import TTLCache
 
 logger = logging.getLogger(__name__)
+
+_user_priority_cache = TTLCache(default_ttl=30)
 
 
 class CapabilityRegistry:
@@ -16,6 +19,14 @@ class CapabilityRegistry:
 
     def __init__(self):
         self._capabilities: Dict[Tuple[str, str], Dict[str, SupportLevel]] = {}
+        self._load_from_default_yaml()
+
+    def _load_from_default_yaml(self) -> None:
+        """启动时从 capability_matrix.yaml 加载默认能力。"""
+        from app.data.config import load_yaml
+        data = load_yaml("capability_matrix.yaml")
+        if data:
+            self.load_from_yaml(data)
 
     def register(self, market: str, domain: str, source: str, level: SupportLevel) -> None:
         """注册数据源能力。"""
@@ -76,3 +87,43 @@ class CapabilityRegistry:
         """检查某数据源是否支持某域。"""
         key = (market, domain)
         return key in self._capabilities and source in self._capabilities[key] and self._capabilities[key][source] != SupportLevel.NONE
+
+    def get_available_sources(self, domain: str) -> List[str]:
+        """获取指定域在所有市场中可用的数据源。"""
+        sources = set()
+        for (m, d), src_map in self._capabilities.items():
+            if d == domain:
+                for s, level in src_map.items():
+                    if level != SupportLevel.NONE:
+                        sources.add(s)
+        return sorted(sources)
+
+    def get_support_level(self, domain: str, source: str) -> SupportLevel:
+        """获取某源对某域的支持级别（全市场搜索）。"""
+        for (m, d), src_map in self._capabilities.items():
+            if d == domain and source in src_map:
+                return src_map[source]
+        return SupportLevel.NONE
+
+    def set_user_priority(self, domain: str, sources: List[str]) -> None:
+        """用户自定义优先级（暂存内存，由 PriorityConfig 持久化）。
+
+        将用户优先级写入内存缓存（30s TTL），并同步更新
+        get_ordered_sources 中各市场的排序结果。
+        """
+        for (market, d), src_map in self._capabilities.items():
+            if d == domain:
+                cache_key = f"priority:{market}:{domain}"
+                _user_priority_cache.set(cache_key, sources)
+                logger.info(f"用户优先级已更新: {market}/{domain} → {sources}")
+                break
+
+    def get_matrix_summary(self) -> Dict[str, Dict[str, List[str]]]:
+        """获取能力矩阵摘要 {domain: {source: level}}。"""
+        summary: Dict[str, Dict[str, List[str]]] = {}
+        for (market, domain), src_map in self._capabilities.items():
+            if domain not in summary:
+                summary[domain] = {}
+            for source, level in src_map.items():
+                summary[domain][source] = level.value
+        return summary

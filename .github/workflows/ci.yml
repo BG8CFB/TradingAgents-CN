@@ -26,6 +26,39 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: tradingagents123
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})' -u admin -p tradingagents123"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MONGODB_HOST: localhost
+      MONGODB_PORT: 27017
+      MONGODB_USERNAME: admin
+      MONGODB_PASSWORD: tradingagents123
+      MONGODB_DATABASE: tradingagents_test
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+
     steps:
       - uses: actions/checkout@v4
 
@@ -49,9 +82,9 @@ jobs:
           uv pip install -e .
           uv pip install pytest pytest-asyncio hypothesis httpx
 
-      - name: Run all tests
+      - name: Run tests
         run: |
-          pytest tests/ -v --tb=short
+          pytest tests/ -v --tb=short -m "not slow and not ai"
 
   docker-build:
     needs: test

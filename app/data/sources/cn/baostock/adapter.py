@@ -13,6 +13,7 @@ from app.data.schema.base.types import _safe_float, _parse_date
 from app.data.schema.domains.basic_info import StockBasicInfoSchema
 from app.data.schema.domains.daily_quotes import DailyQuotesSchema
 from app.data.schema.domains.financial_data import FinancialDataSchema
+from app.data.schema.domains.adj_factors import AdjFactorsSchema
 
 logger = logging.getLogger(__name__)
 
@@ -128,5 +129,28 @@ class BaoStockCNAdapter(BaseAdapter):
                 total_equity=_safe_float(get("total_equity")),
                 roe=_safe_float(get("roe")),
                 eps=_safe_float(get("eps")),
+            ))
+        return results
+
+    def adapt_adj_factors(self, raw: Any) -> List[AdjFactorsSchema]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            raw_code = str(get("code", ""))
+            symbol = raw_code.split(".")[-1] if "." in raw_code else raw_code.zfill(6)
+            trade_date = _parse_date(get("date"))
+            if not trade_date:
+                continue
+
+            results.append(AdjFactorsSchema(
+                symbol=symbol,
+                market="CN",
+                data_source="baostock",
+                trade_date=trade_date,
+                fore_adj_factor=_safe_float(get("foreAdjustFactor")),
+                back_adj_factor=_safe_float(get("backAdjustFactor")),
             ))
         return results

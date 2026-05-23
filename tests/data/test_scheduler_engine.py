@@ -1,195 +1,191 @@
 """测试 SchedulerEngine — 基于 APScheduler 的调度引擎。
 
 覆盖范围：
-- 引擎启动与关闭（mock APScheduler）
-- YAML 配置加载与 CronTrigger 创建
+- 引擎启动与关闭（真实 APScheduler）
+- YAML 配置加载与 CronTrigger 创建（真实触发器，验证参数名正确）
 - 任务注册与查找
 - 手动触发任务
 - 状态查询
 - _make_job_func 执行逻辑
+
+设计原则：不使用 unittest.mock，所有路径使用真实代码。
 """
 
 import os
 import pytest
-import tempfile
-from unittest.mock import AsyncMock, MagicMock, patch
+import asyncio
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from app.data.scheduler.engine import SchedulerEngine
+from app.data.scheduler.job_registry import JobRegistry
 
 
-@pytest.fixture
-def engine():
-    """创建一个引擎实例，替换内部 scheduler 为 mock。"""
-    eng = SchedulerEngine()
-    yield eng
+class FakeJob:
+    """用于注册到 JobRegistry 的简单 Job 类。"""
+
+    async def execute(self):
+        return {"status": "success"}
 
 
-@pytest.fixture
-def sample_yaml_path():
-    """创建临时 YAML 配置文件。"""
-    yaml_content = """\
-daily_quotes:
-  cron: "15 16 * * 1-5"
-  timezone: "Asia/Shanghai"
-  mode: incremental
-basic_info:
-  cron: "0 9 * * *"
-  timezone: "Asia/Shanghai"
-  mode: full
-"""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
-        f.write(yaml_content)
-        path = f.name
-    yield path
-    os.unlink(path)
+class BrokenJob:
+    """构造时抛出异常的 Job 类。"""
+
+    def __init__(self):
+        raise RuntimeError("init failed")
 
 
 # ---------------------------------------------------------------------------
 # 引擎启停测试
 # ---------------------------------------------------------------------------
 class TestEngineStartStop:
-    """测试引擎启动与关闭。"""
+    """测试引擎启动与关闭（需要异步事件循环）。"""
 
-    def test_start_registers_jobs_and_loads_schedules(self, engine):
-        with patch.object(engine, "_register_all_jobs") as mock_register, \
-             patch.object(engine, "_load_all_schedules") as mock_load, \
-             patch.object(engine._scheduler, "start") as mock_sched_start:
-            engine._scheduler._eventloop = MagicMock()
-            engine.start()
+    @pytest.mark.asyncio
+    async def test_start_registers_jobs_and_starts_scheduler(self, scheduler_engine):
+        scheduler_engine.start()
+        assert scheduler_engine._scheduler.running
+        assert scheduler_engine._jobs_registered
+        scheduler_engine.shutdown(wait=False)
 
-        mock_register.assert_called_once()
-        mock_load.assert_called_once()
-        mock_sched_start.assert_called_once()
+    @pytest.mark.asyncio
+    async def test_shutdown_stops_scheduler(self, scheduler_engine):
+        scheduler_engine.start()
+        assert scheduler_engine._scheduler.running
+        scheduler_engine.shutdown(wait=True)
+        await asyncio.sleep(0.1)
+        assert not scheduler_engine._scheduler.running
 
-    def test_shutdown_calls_scheduler_shutdown_when_running(self, engine):
-        with patch.object(engine._scheduler, "shutdown") as mock_shutdown:
-            type(engine._scheduler).running = property(lambda self: True)
-            try:
-                engine.shutdown(wait=False)
-                mock_shutdown.assert_called_once_with(wait=False)
-            finally:
-                del type(engine._scheduler).running
-
-    def test_shutdown_skips_when_not_running(self, engine):
-        with patch.object(engine._scheduler, "shutdown") as mock_shutdown:
-            type(engine._scheduler).running = property(lambda self: False)
-            try:
-                engine.shutdown(wait=False)
-                mock_shutdown.assert_not_called()
-            finally:
-                del type(engine._scheduler).running
+    def test_shutdown_when_not_running_is_safe(self, scheduler_engine):
+        scheduler_engine.shutdown(wait=False)
 
 
 # ---------------------------------------------------------------------------
 # 任务注册测试
 # ---------------------------------------------------------------------------
 class TestJobRegistration:
-    """测试任务注册逻辑。"""
+    """测试任务注册逻辑（使用真实 JobRegistry）。"""
 
-    def test_register_all_jobs_calls_market_registrars(self, engine):
-        with patch("app.data.scheduler.jobs.cn.register_cn_jobs") as mock_cn, \
-             patch("app.data.scheduler.jobs.hk.register_hk_jobs") as mock_hk, \
-             patch("app.data.scheduler.jobs.us.register_us_jobs") as mock_us:
-            engine._register_all_jobs()
+    def test_register_all_jobs_populates_registry(self, scheduler_engine):
+        scheduler_engine._register_all_jobs()
+        jobs = scheduler_engine._registry.list_jobs()
+        assert len(jobs) > 0
+        assert scheduler_engine._jobs_registered
 
-        mock_cn.assert_called_once_with(engine._registry)
-        mock_hk.assert_called_once_with(engine._registry)
-        mock_us.assert_called_once_with(engine._registry)
-        assert engine._jobs_registered is True
+    def test_register_all_jobs_idempotent(self, scheduler_engine):
+        scheduler_engine._register_all_jobs()
+        first_count = len(scheduler_engine._registry.list_jobs())
+        scheduler_engine._register_all_jobs()
+        second_count = len(scheduler_engine._registry.list_jobs())
+        assert first_count == second_count
 
-    def test_register_all_jobs_idempotent(self, engine):
-        with patch("app.data.scheduler.jobs.cn.register_cn_jobs"), \
-             patch("app.data.scheduler.jobs.hk.register_hk_jobs"), \
-             patch("app.data.scheduler.jobs.us.register_us_jobs"):
-            engine._register_all_jobs()
-
-        with patch("app.data.scheduler.jobs.cn.register_cn_jobs") as mock_cn:
-            engine._register_all_jobs()
-            mock_cn.assert_not_called()
+    def test_register_specific_job(self, scheduler_engine):
+        scheduler_engine._registry.register("test_domain", "CN", FakeJob)
+        entry = scheduler_engine._registry.get_job("test_domain", "CN")
+        assert entry is not None
+        assert entry["domain"] == "test_domain"
+        assert entry["market"] == "CN"
+        assert entry["class"] is FakeJob
 
 
 # ---------------------------------------------------------------------------
-# YAML 配置加载测试
+# YAML 配置加载测试 — 使用真实 CronTrigger
 # ---------------------------------------------------------------------------
 class TestLoadSchedule:
-    """测试 YAML 配置加载与 CronTrigger 创建。"""
+    """测试 YAML 配置加载与 CronTrigger 创建。
 
-    def test_load_schedule_registers_jobs(self, engine, sample_yaml_path):
-        with patch.object(engine._scheduler, "add_job") as mock_add, \
-             patch("app.data.scheduler.engine.CronTrigger", return_value=MagicMock()) as mock_trigger:
-            engine.load_schedule("cn", sample_yaml_path)
+    这是之前 bug 的直接回归测试：
+    - CronTrigger 正确使用 'day' 而非 'day_of_month'
+    - cron 表达式正确解析为 5 部分
+    - APScheduler add_job 被成功调用
+    """
 
-        assert mock_add.call_count == 2
-        job_ids = [call.kwargs.get("id") for call in mock_add.call_args_list]
+    def test_load_schedule_creates_real_triggers(self, scheduler_engine, sample_schedule_yaml):
+        scheduler_engine.load_schedule("cn", sample_schedule_yaml)
+
+        job_ids = [j.id for j in scheduler_engine._scheduler.get_jobs()]
         assert "cn_daily_quotes" in job_ids
         assert "cn_basic_info" in job_ids
 
-    def test_load_schedule_nonexistent_file(self, engine):
-        engine.load_schedule("cn", "/nonexistent/path.yaml")
+    def test_load_schedule_trigger_is_valid_cron(self, scheduler_engine, sample_schedule_yaml):
+        scheduler_engine.load_schedule("cn", sample_schedule_yaml)
 
-    def test_load_schedule_no_cron_field_skipped(self, engine):
-        yaml_content = """\
-daily_quotes:
-  timezone: "Asia/Shanghai"
-  mode: incremental
-"""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
-            f.write(yaml_content)
-            path = f.name
+        for job in scheduler_engine._scheduler.get_jobs():
+            assert isinstance(job.trigger, CronTrigger)
 
-        try:
-            with patch.object(engine._scheduler, "add_job") as mock_add:
-                engine.load_schedule("cn", path)
-            mock_add.assert_not_called()
-        finally:
-            os.unlink(path)
+    def test_load_schedule_daily_quotes_trigger_fields(self, scheduler_engine, sample_schedule_yaml):
+        scheduler_engine.load_schedule("cn", sample_schedule_yaml)
 
-    def test_load_schedule_empty_yaml(self, engine):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
-            f.write("")
-            path = f.name
+        job = scheduler_engine._scheduler.get_job("cn_daily_quotes")
+        assert job is not None
+        assert isinstance(job.trigger, CronTrigger)
 
-        try:
-            with patch.object(engine._scheduler, "add_job") as mock_add:
-                engine.load_schedule("cn", path)
-            mock_add.assert_not_called()
-        finally:
-            os.unlink(path)
+    def test_load_schedule_nonexistent_file(self, scheduler_engine):
+        scheduler_engine.load_schedule("cn", "/nonexistent/path.yaml")
+        assert len(scheduler_engine._scheduler.get_jobs()) == 0
+
+    def test_load_schedule_no_cron_field_skipped(self, scheduler_engine, sample_schedule_yaml_no_cron):
+        scheduler_engine.load_schedule("cn", sample_schedule_yaml_no_cron)
+        assert len(scheduler_engine._scheduler.get_jobs()) == 0
+
+    def test_load_schedule_empty_yaml(self, scheduler_engine, sample_schedule_yaml_empty):
+        scheduler_engine.load_schedule("cn", sample_schedule_yaml_empty)
+        assert len(scheduler_engine._scheduler.get_jobs()) == 0
+
+    def test_load_schedule_with_uppercase_market(self, scheduler_engine, sample_schedule_yaml):
+        scheduler_engine.load_schedule("CN", sample_schedule_yaml)
+        job_ids = [j.id for j in scheduler_engine._scheduler.get_jobs()]
+        assert "CN_daily_quotes" in job_ids
+
+
+# ---------------------------------------------------------------------------
+# CronTrigger 参数正确性回归测试
+# ---------------------------------------------------------------------------
+class TestCronTriggerRegression:
+    """回归测试：验证 CronTrigger 参数名正确（day vs day_of_month）。"""
+
+    def test_cron_trigger_accepts_day_parameter(self):
+        trigger = CronTrigger(minute="15", hour="16", day="*", month="*", day_of_week="1-5")
+        assert trigger is not None
+
+    def test_cron_trigger_from_five_part_cron(self):
+        parts = "15 16 * * 1-5".split()
+        trigger = CronTrigger(
+            minute=parts[0],
+            hour=parts[1],
+            day=parts[2] if len(parts) > 2 else "*",
+            month=parts[3] if len(parts) > 3 else "*",
+            day_of_week=parts[4] if len(parts) > 4 else "*",
+        )
+        assert trigger is not None
 
 
 # ---------------------------------------------------------------------------
 # _make_job_func 测试
 # ---------------------------------------------------------------------------
 class TestMakeJobFunc:
-    """测试任务函数创建。"""
+    """测试任务函数创建（使用真实 FakeJob）。"""
 
     @pytest.mark.asyncio
-    async def test_job_func_executes_registered_job(self, engine):
-        mock_job_cls = MagicMock()
-        mock_instance = MagicMock()
-        mock_instance.execute = AsyncMock(return_value={"status": "success"})
-        mock_job_cls.return_value = mock_instance
-
-        engine._registry.register("daily_quotes", "CN", mock_job_cls)
-        job_func = engine._make_job_func("CN", "daily_quotes")
-        await job_func()
-
-        mock_instance.execute.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_job_func_handles_missing_job(self, engine):
-        job_func = engine._make_job_func("CN", "unknown_domain")
+    async def test_job_func_executes_registered_job(self, scheduler_engine):
+        scheduler_engine._registry.register("daily_quotes", "CN", FakeJob)
+        job_func = scheduler_engine._make_job_func("CN", "daily_quotes")
         await job_func()
 
     @pytest.mark.asyncio
-    async def test_job_func_handles_execution_error(self, engine):
-        mock_job_cls = MagicMock()
-        mock_instance = MagicMock()
-        mock_instance.execute = AsyncMock(side_effect=RuntimeError("sync failed"))
-        mock_job_cls.return_value = mock_instance
+    async def test_job_func_handles_missing_job(self, scheduler_engine):
+        job_func = scheduler_engine._make_job_func("CN", "unknown_domain")
+        await job_func()
 
-        engine._registry.register("daily_quotes", "CN", mock_job_cls)
-        job_func = engine._make_job_func("CN", "daily_quotes")
+    @pytest.mark.asyncio
+    async def test_job_func_handles_execution_error(self, scheduler_engine):
+        class ErrorJob:
+            async def execute(self):
+                raise RuntimeError("sync failed")
+
+        scheduler_engine._registry.register("daily_quotes", "CN", ErrorJob)
+        job_func = scheduler_engine._make_job_func("CN", "daily_quotes")
         await job_func()
 
 
@@ -197,64 +193,75 @@ class TestMakeJobFunc:
 # 手动触发测试
 # ---------------------------------------------------------------------------
 class TestTriggerJob:
-    """测试手动触发任务。"""
+    """测试手动触发任务（使用真实 JobRegistry + FakeJob）。
 
-    def test_trigger_job_returns_job_id(self, engine):
-        mock_job_cls = MagicMock()
-        mock_instance = MagicMock()
-        mock_instance.execute = AsyncMock(return_value={"status": "success"})
-        mock_job_cls.return_value = mock_instance
+    trigger_job 内部使用 asyncio.create_task，需要在异步上下文中运行。
+    """
 
-        engine._registry.register("daily_quotes", "CN", mock_job_cls)
-
-        with patch("asyncio.create_task") as mock_create_task:
-            result = engine.trigger_job("CN", "daily_quotes")
-
+    @pytest.mark.asyncio
+    async def test_trigger_job_returns_job_id(self, scheduler_engine):
+        scheduler_engine._registry.register("daily_quotes", "CN", FakeJob)
+        result = scheduler_engine.trigger_job("CN", "daily_quotes")
         assert result == "CN_daily_quotes"
-        mock_create_task.assert_called_once()
 
-    def test_trigger_job_unregistered_returns_empty(self, engine):
-        result = engine.trigger_job("CN", "unknown_domain")
+    def test_trigger_job_unregistered_returns_empty(self, scheduler_engine):
+        result = scheduler_engine.trigger_job("CN", "unknown_domain")
         assert result == ""
 
-    def test_trigger_job_instantiation_error_returns_empty(self, engine):
-        mock_job_cls = MagicMock(side_effect=RuntimeError("init failed"))
-        engine._registry.register("daily_quotes", "CN", mock_job_cls)
-        result = engine.trigger_job("CN", "daily_quotes")
+    def test_trigger_job_instantiation_error_returns_empty(self, scheduler_engine):
+        scheduler_engine._registry.register("daily_quotes", "CN", BrokenJob)
+        result = scheduler_engine.trigger_job("CN", "daily_quotes")
         assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_trigger_job_market_case_sensitivity(self, scheduler_engine):
+        scheduler_engine._registry.register("daily_quotes", "CN", FakeJob)
+        assert scheduler_engine.trigger_job("CN", "daily_quotes") == "CN_daily_quotes"
+        assert scheduler_engine.trigger_job("cn", "daily_quotes") == ""
+
+    @pytest.mark.asyncio
+    async def test_trigger_job_multiple_markets(self, scheduler_engine):
+        scheduler_engine._registry.register("daily_quotes", "CN", FakeJob)
+        scheduler_engine._registry.register("daily_quotes", "HK", FakeJob)
+        scheduler_engine._registry.register("daily_quotes", "US", FakeJob)
+
+        assert scheduler_engine.trigger_job("CN", "daily_quotes") == "CN_daily_quotes"
+        assert scheduler_engine.trigger_job("HK", "daily_quotes") == "HK_daily_quotes"
+        assert scheduler_engine.trigger_job("US", "daily_quotes") == "US_daily_quotes"
 
 
 # ---------------------------------------------------------------------------
 # 状态查询测试
 # ---------------------------------------------------------------------------
 class TestGetJobStatus:
-    """测试任务状态查询。"""
+    """测试任务状态查询（使用真实 APScheduler）。"""
 
-    def test_get_job_status_running(self, engine):
-        mock_job = MagicMock()
-        mock_job.id = "cn_daily_quotes"
-        mock_job.next_run_time = MagicMock()
+    @pytest.mark.asyncio
+    async def test_get_job_status_running(self, scheduler_engine, sample_schedule_yaml):
+        scheduler_engine.load_schedule("cn", sample_schedule_yaml)
+        scheduler_engine.start()
+        try:
+            status = scheduler_engine.get_job_status("cn_daily_quotes")
+            assert status is not None
+            assert status["id"] == "cn_daily_quotes"
+            assert status["status"] == "running"
+        finally:
+            scheduler_engine.shutdown(wait=False)
 
-        with patch.object(engine._scheduler, "get_job", return_value=mock_job):
-            status = engine.get_job_status("cn_daily_quotes")
+    @pytest.mark.asyncio
+    async def test_get_job_status_paused(self, scheduler_engine, sample_schedule_yaml):
+        scheduler_engine.load_schedule("cn", sample_schedule_yaml)
+        scheduler_engine.start()
+        scheduler_engine._scheduler.pause_job("cn_daily_quotes")
+        try:
+            status = scheduler_engine.get_job_status("cn_daily_quotes")
+            assert status is not None
+            assert status["status"] == "paused"
+        finally:
+            scheduler_engine.shutdown(wait=False)
 
-        assert status is not None
-        assert status["id"] == "cn_daily_quotes"
-        assert status["status"] == "running"
-
-    def test_get_job_status_paused(self, engine):
-        mock_job = MagicMock()
-        mock_job.id = "cn_daily_quotes"
-        mock_job.next_run_time = None
-
-        with patch.object(engine._scheduler, "get_job", return_value=mock_job):
-            status = engine.get_job_status("cn_daily_quotes")
-
-        assert status["status"] == "paused"
-
-    def test_get_job_status_not_found(self, engine):
-        with patch.object(engine._scheduler, "get_job", return_value=None):
-            status = engine.get_job_status("nonexistent_job")
+    def test_get_job_status_not_found(self, scheduler_engine):
+        status = scheduler_engine.get_job_status("nonexistent_job")
         assert status is None
 
 
@@ -264,12 +271,7 @@ class TestGetJobStatus:
 class TestLoadAllSchedules:
     """测试全市场调度加载。"""
 
-    def test_load_all_schedules_loads_three_markets(self, engine):
-        with patch.object(engine, "load_schedule") as mock_load:
-            engine._load_all_schedules()
-
-        assert mock_load.call_count == 3
-        called_markets = [call[0][0] for call in mock_load.call_args_list]
-        assert "cn" in called_markets
-        assert "hk" in called_markets
-        assert "us" in called_markets
+    def test_load_all_schedules_loads_three_markets(self, scheduler_engine):
+        scheduler_engine._load_all_schedules()
+        job_ids = [j.id for j in scheduler_engine._scheduler.get_jobs()]
+        assert len(job_ids) > 0

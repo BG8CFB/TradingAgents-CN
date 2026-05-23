@@ -1,7 +1,12 @@
-"""Reader 新鲜度判定测试 — 基于新架构 app.data.core.reader.Reader。"""
+"""Reader 新鲜度判定测试 — 基于新架构 app.data.core.reader.Reader。
+
+设计原则：不使用 unittest.mock。Reader 的 _get_repo 方法依赖 MongoDB，
+当无可用数据库时自然返回 None，测试覆盖此降级场景。
+对于有数据传入的场景，直接传入 data 参数绕过数据库查询。
+"""
 
 import asyncio
-from unittest.mock import patch, MagicMock, AsyncMock
+import pytest
 
 
 class TestFreshnessCheck:
@@ -18,15 +23,14 @@ class TestFreshnessCheck:
         assert result == "unknown" or result.value == "unknown"
 
     def test_freshness_unknown_when_no_data(self):
-        """无数据时返回 unknown。"""
+        """无数据且无数据库连接时返回 unknown 或 stale。"""
         reader = self._get_reader()
-        with patch.object(reader, "_get_repo", return_value=None):
-            result = asyncio.run(reader.check_freshness("CN", "000001", "basic_info"))
-            assert result in ("unknown", "stale") or (hasattr(result, 'value') and result.value in ("unknown", "stale"))
+        result = asyncio.run(reader.check_freshness("CN", "000001", "basic_info"))
+        assert result in ("unknown", "stale") or (hasattr(result, 'value') and result.value in ("unknown", "stale"))
 
     def test_freshness_fresh_when_recent(self):
         """最近更新的数据应返回 fresh。"""
-        from datetime import datetime, timezone, timedelta
+        from datetime import timedelta
         from app.utils.time_utils import now_utc
 
         reader = self._get_reader()
@@ -38,7 +42,7 @@ class TestFreshnessCheck:
 
     def test_freshness_stale_when_old(self):
         """过期数据应返回 stale。"""
-        from datetime import datetime, timezone, timedelta
+        from datetime import timedelta
         from app.utils.time_utils import now_utc
 
         reader = self._get_reader()
@@ -60,4 +64,10 @@ class TestFreshnessCheck:
         """HK 市场应使用默认阈值。"""
         reader = self._get_reader()
         result = asyncio.run(reader.check_freshness("HK", "00700", "daily_quotes"))
+        assert result in ("unknown", "stale") or (hasattr(result, 'value') and result.value in ("unknown", "stale"))
+
+    def test_us_market_freshness(self):
+        """US 市场应使用默认阈值。"""
+        reader = self._get_reader()
+        result = asyncio.run(reader.check_freshness("US", "AAPL", "daily_quotes"))
         assert result in ("unknown", "stale") or (hasattr(result, 'value') and result.value in ("unknown", "stale"))

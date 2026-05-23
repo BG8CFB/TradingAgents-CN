@@ -371,7 +371,7 @@ import { Search, Refresh, TrendCharts, Download, Star, Connection, Warning } fro
 import type { StockInfo } from '@/types/analysis'
 import { screeningApi, type FieldConfigResponse } from '@/api/screening'
 import { favoritesApi } from '@/api/favorites'
-import { getCurrentDataSource } from '@/api/sync'
+import { getSourceConfig } from '@/api/marketData'
 import { normalizeMarketForAnalysis, exchangeCodeToMarket, getMarketByStockCode } from '@/utils/market'
 
 // 响应式数据
@@ -750,9 +750,18 @@ const loadFavorites = async () => {
 // 获取当前数据源
 const loadCurrentDataSource = async () => {
   try {
-    const response = await getCurrentDataSource()
-    if (response.success && response.data) {
-      currentDataSource.value = response.data
+    const response = await getSourceConfig('cn')
+    if (response.success && response.data?.priorities) {
+      const priorities = response.data.priorities
+      const firstDomain = Object.keys(priorities)[0]
+      const firstSource = firstDomain ? priorities[firstDomain]?.[0] : undefined
+      if (firstSource) {
+        currentDataSource.value = {
+          name: firstSource,
+          priority: 1,
+          description: firstSource.toUpperCase(),
+        }
+      }
     }
   } catch (e) {
     console.warn('获取当前数据源失败', e)
