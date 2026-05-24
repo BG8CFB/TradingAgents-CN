@@ -128,8 +128,9 @@
 
         <div class="card-footer">
           <p class="disclaimer">
-            TradingAgents-CN 是一个 AI 多 Agents 的股票分析学习平台。平台中的分析结论、观点均由 AI
-            自动生成，仅用于学习与研究，不构成任何投资建议。市场有风险，入市需谨慎。
+            TradingAgents-CN 是一款 AI 多智能体股票分析<strong>学习研究工具</strong>，不具备证券投资咨询资质。
+            平台中的分析结论均由 AI 自动生成，仅供学习研究与技术交流，
+            <strong>不构成任何投资建议或决策依据</strong>。投资有风险，入市需谨慎。
           </p>
         </div>
       </div>

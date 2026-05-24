@@ -197,10 +197,7 @@ class FavoritesService:
                 # 先尝试使用 ObjectId 查询
                 result = await db.users.update_one(
                     {"_id": ObjectId(user_id)},
-                    {
-                        "$push": {"favorite_stocks": favorite_stock},
-                        "$setOnInsert": {"favorite_stocks": []}
-                    }
+                    {"$push": {"favorite_stocks": favorite_stock}}
                 )
                 logger.info(f"🔧 [add_favorite] ObjectId查询结果: matched_count={result.matched_count}, modified_count={result.modified_count}")
 

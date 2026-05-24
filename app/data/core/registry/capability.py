@@ -88,40 +88,39 @@ class CapabilityRegistry:
         key = (market, domain)
         return key in self._capabilities and source in self._capabilities[key] and self._capabilities[key][source] != SupportLevel.NONE
 
-    def get_available_sources(self, domain: str) -> List[str]:
-        """获取指定域在所有市场中可用的数据源。"""
+    def get_available_sources(self, domain: str, market: Optional[str] = None) -> List[str]:
+        """获取指定域在特定市场或所有市场中可用的数据源。"""
         sources = set()
         for (m, d), src_map in self._capabilities.items():
-            if d == domain:
+            if d == domain and (market is None or m == market):
                 for s, level in src_map.items():
                     if level != SupportLevel.NONE:
                         sources.add(s)
         return sorted(sources)
 
-    def get_support_level(self, domain: str, source: str) -> SupportLevel:
-        """获取某源对某域的支持级别（全市场搜索）。"""
+    def get_support_level(self, domain: str, source: str, market: Optional[str] = None) -> SupportLevel:
+        """获取某源对某域的支持级别。若指定 market 则精确匹配，否则全市场搜索。"""
         for (m, d), src_map in self._capabilities.items():
-            if d == domain and source in src_map:
+            if d == domain and source in src_map and (market is None or m == market):
                 return src_map[source]
         return SupportLevel.NONE
 
-    def set_user_priority(self, domain: str, sources: List[str]) -> None:
+    def set_user_priority(self, market: str, domain: str, sources: List[str]) -> None:
         """用户自定义优先级（暂存内存，由 PriorityConfig 持久化）。
 
         将用户优先级写入内存缓存（30s TTL），并同步更新
         get_ordered_sources 中各市场的排序结果。
         """
-        for (market, d), src_map in self._capabilities.items():
-            if d == domain:
-                cache_key = f"priority:{market}:{domain}"
-                _user_priority_cache.set(cache_key, sources)
-                logger.info(f"用户优先级已更新: {market}/{domain} → {sources}")
-                break
+        cache_key = f"priority:{market}:{domain}"
+        _user_priority_cache.set(cache_key, sources)
+        logger.info(f"用户优先级已更新: {market}/{domain} → {sources}")
 
-    def get_matrix_summary(self) -> Dict[str, Dict[str, List[str]]]:
-        """获取能力矩阵摘要 {domain: {source: level}}。"""
-        summary: Dict[str, Dict[str, List[str]]] = {}
-        for (market, domain), src_map in self._capabilities.items():
+    def get_matrix_summary(self, market: Optional[str] = None) -> Dict[str, Dict[str, str]]:
+        """获取能力矩阵摘要 {domain: {source: level}}。若指定 market 则仅返回该市场。"""
+        summary: Dict[str, Dict[str, str]] = {}
+        for (m, domain), src_map in self._capabilities.items():
+            if market is not None and m != market:
+                continue
             if domain not in summary:
                 summary[domain] = {}
             for source, level in src_map.items():

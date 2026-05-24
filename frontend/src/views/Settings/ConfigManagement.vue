@@ -807,10 +807,24 @@
           </template>
 
           <div class="import-export-content">
+            <el-alert
+              type="info"
+              :closable="false"
+              show-icon
+              style="margin-bottom: 16px"
+            >
+              <template #title>
+                导出范围：系统配置、AI厂家、模型目录、市场分类、数据源分组、智能体(Agent)配置
+              </template>
+              <template #default>
+                敏感信息（API Key、密码、Token）导出时自动脱敏，导入后需重新配置
+              </template>
+            </el-alert>
+
             <el-row :gutter="24">
               <el-col :span="12">
                 <h4>导出配置</h4>
-                <p>将当前系统配置导出为JSON文件</p>
+                <p>将当前全部配置导出为 JSON 文件，可用于备份或迁移到其他实例</p>
                 <el-button type="primary" @click="exportConfig" :loading="exportLoading">
                   <el-icon><Download /></el-icon>
                   导出配置
@@ -819,7 +833,7 @@
 
               <el-col :span="12">
                 <h4>导入配置</h4>
-                <p>从JSON文件导入配置（将覆盖现有配置）</p>
+                <p>从 JSON 文件导入配置（将覆盖现有配置，敏感信息需重新填写）</p>
                 <el-upload
                   :before-upload="handleImportConfig"
                   :show-file-list="false"
@@ -837,7 +851,7 @@
 
             <div class="legacy-migration">
               <h4>传统配置迁移</h4>
-              <p>将旧版本的配置文件迁移到新系统</p>
+              <p>从 config/models.json 和 config/agents/ 目录迁移配置到数据库（追加模式，不删除已有配置）</p>
               <el-button type="warning" @click="migrateLegacyConfig" :loading="migrateLoading">
                 <el-icon><Refresh /></el-icon>
                 迁移传统配置
@@ -1943,7 +1957,17 @@ const exportConfig = async () => {
     link.click()
     URL.revokeObjectURL(url)
 
-    ElMessage.success('配置导出成功')
+    // 统计导出项
+    const data = result.data || {}
+    const items: string[] = []
+    if (data.system_configs) items.push('系统配置')
+    if (data.llm_providers?.length) items.push(`厂家(${data.llm_providers.length})`)
+    if (data.model_catalog?.length) items.push(`模型目录(${data.model_catalog.length})`)
+    if (data.market_categories?.length) items.push('市场分类')
+    if (data.datasource_groupings?.length) items.push('数据源分组')
+    if (data.agent_configs && Object.keys(data.agent_configs).length) items.push('智能体配置')
+    const summary = items.length ? items.join('、') : '基本配置'
+    ElMessage.success(`配置导出成功（含 ${summary}）`)
   } catch (error) {
     ElMessage.error('配置导出失败')
   } finally {
@@ -1957,16 +1981,31 @@ const handleImportConfig = async (file: File) => {
     const text = await file.text()
     const configData = JSON.parse(text)
 
+    // 生成覆盖范围提示
+    const scopeParts: string[] = ['系统配置（LLM/数据源/数据库/系统设置）']
+    if (configData.llm_providers?.length) scopeParts.push('厂家配置')
+    if (configData.model_catalog?.length) scopeParts.push('模型目录')
+    if (configData.market_categories?.length) scopeParts.push('市场分类')
+    if (configData.datasource_groupings?.length) scopeParts.push('数据源分组')
+    if (configData.agent_configs && Object.keys(configData.agent_configs).length) scopeParts.push('智能体配置')
+    const scopeText = scopeParts.join('、')
+
     await ElMessageBox.confirm(
-      '导入配置将覆盖现有配置，确定要继续吗？',
+      `导入将覆盖以下配置：${scopeText}。敏感信息（API Key、密码）不会被导入，需重新配置。确定继续？`,
       '确认导入',
-      { type: 'warning' }
+      { type: 'warning', confirmButtonText: '确定导入', cancelButtonText: '取消' }
     )
 
     await configApi.importConfig(configData)
-    ElMessage.success('配置导入成功')
 
-    // 重新加载当前标签页数据
+    // 导入成功后触发配置重载
+    try {
+      await configApi.reloadConfig()
+    } catch (_) { /* 重载失败不影响导入结果 */ }
+
+    ElMessage.success('配置导入成功，已自动刷新')
+
+    // 重新加载所有标签页数据
     await loadTabData(activeTab.value)
   } catch (error) {
     if (error !== 'cancel') {
@@ -1983,15 +2022,19 @@ const migrateLegacyConfig = async () => {
   migrateLoading.value = true
   try {
     await ElMessageBox.confirm(
-      '迁移传统配置可能会覆盖现有配置，确定要继续吗？',
+      '将从 config/models.json 和 config/agents/ 迁移配置到数据库，已有配置不会被删除。确定继续？',
       '确认迁移',
       { type: 'warning' }
     )
 
     await configApi.migrateLegacyConfig()
-    ElMessage.success('传统配置迁移成功')
 
-    // 重新加载所有数据
+    // 迁移后触发配置重载
+    try {
+      await configApi.reloadConfig()
+    } catch (_) { /* ignore */ }
+
+    ElMessage.success('传统配置迁移成功')
     await loadTabData(activeTab.value)
   } catch (error) {
     if (error !== 'cancel') {

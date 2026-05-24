@@ -142,15 +142,18 @@
               </span>
             </div>
 
-            <!-- 投资建议 - 重点突出 -->
+            <!-- 分析参考 - 重点突出 -->
             <div class="recommendation-box">
               <div class="recommendation-header">
                 <el-icon class="icon"><TrendCharts /></el-icon>
-                <span class="title">投资建议</span>
+                <span class="title">分析参考</span>
               </div>
               <div class="recommendation-content">
                 <div class="recommendation-text">
                   {{ lastAnalysis?.recommendation || '-' }}
+                </div>
+                <div class="recommendation-disclaimer">
+                  以上内容由 AI 自动生成，仅供学习研究，不构成任何投资建议
                 </div>
               </div>
             </div>
@@ -1149,7 +1152,7 @@ function formatReportName(key: string): string {
     'final_trade_decision': '最终交易决策',
 
     // 兼容旧字段
-    'investment_plan': '投资建议',
+    'investment_plan': '分析参考',
     'investment_debate_state': '研究团队决策（旧）',
     'risk_debate_state': '风险管理团队（旧）'
   }
@@ -1208,7 +1211,7 @@ function exportReport() {
     : lastAnalysis.value?.analysis_date
 
   fullReport += `**分析时间**: ${reportTime}\n`
-  fullReport += `**投资建议**: ${lastAnalysis.value.recommendation}\n`
+  fullReport += `**分析参考**: ${lastAnalysis.value.recommendation}\n`
   fullReport += `**信心度**: ${fmtConf(lastAnalysis.value.confidence_score)}\n\n`
   fullReport += `---\n\n`
 
@@ -1453,7 +1456,7 @@ function exportReport() {
   font-size: 14px;
 }
 
-/* 投资建议盒子 - 重点突出 */
+/* 分析参考盒子 */
 .recommendation-box {
   background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
   border-radius: 12px;
@@ -1497,6 +1500,14 @@ function exportReport() {
   word-wrap: break-word;
   word-break: break-word;
   white-space: pre-wrap;
+}
+
+.recommendation-disclaimer {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 12px;
+  color: #9e9688;
 }
 
 /* 分析摘要 */

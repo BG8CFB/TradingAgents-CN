@@ -51,6 +51,7 @@ def register_cn_sources(registry) -> None:
             "basic_info": SupportLevel.FULL,
             "daily_quotes": SupportLevel.FULL,
             "daily_indicators": SupportLevel.PARTIAL,
+            "adj_factors": SupportLevel.FULL,
             "financial_data": SupportLevel.PARTIAL,
             "news": SupportLevel.PARTIAL,
             "market_quotes": SupportLevel.FULL,
@@ -58,6 +59,7 @@ def register_cn_sources(registry) -> None:
         "baostock": {
             "basic_info": SupportLevel.PARTIAL,
             "daily_quotes": SupportLevel.FULL,
+            "adj_factors": SupportLevel.FULL,
             "financial_data": SupportLevel.PARTIAL,
         },
     }

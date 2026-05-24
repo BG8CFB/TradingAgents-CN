@@ -37,3 +37,11 @@ class NewsRepo:
             {"symbol": symbol}, {"_id": 0}
         ).sort("publish_time", -1).limit(limit)
         return await cursor.to_list(length=None)
+
+    async def get_all(self, market: str, limit: int = 100) -> List[Dict]:
+        db = get_motor_db()
+        coll = db[get_collection_name("news", market)]
+        cursor = coll.find({"_id": 0}).sort("publish_time", -1)
+        if limit:
+            cursor = cursor.limit(limit)
+        return await cursor.to_list(length=None)

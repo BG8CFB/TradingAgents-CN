@@ -158,6 +158,7 @@ class UnifiedStockService:
                     "pe": latest.get("pe_ttm"),
                     "pb": latest.get("pb"),
                     "pe_ttm": latest.get("pe_ttm"),
+                    "ps_ttm": latest.get("ps_ttm"),
                     "market_cap": latest.get("total_mv"),
                     "source": "daily_indicators",
                     "is_realtime": False,
@@ -168,6 +169,7 @@ class UnifiedStockService:
                     "pe": ind_data.get("pe_ttm"),
                     "pb": ind_data.get("pb"),
                     "pe_ttm": ind_data.get("pe_ttm"),
+                    "ps_ttm": ind_data.get("ps_ttm"),
                     "market_cap": ind_data.get("total_mv"),
                     "source": "daily_indicators",
                     "is_realtime": False,
@@ -191,8 +193,8 @@ class UnifiedStockService:
             "pb": realtime_metrics.get("pb") or b.get("pb"),
             "pe_ttm": realtime_metrics.get("pe_ttm") or b.get("pe_ttm"),
             "pb_mrq": realtime_metrics.get("pb_mrq") or b.get("pb_mrq"),
-            "ps": None,
-            "ps_ttm": None,
+            "ps": realtime_metrics.get("ps_ttm"),
+            "ps_ttm": realtime_metrics.get("ps_ttm"),
             "pe_source": realtime_metrics.get("source", "unknown"),
             "pe_is_realtime": realtime_metrics.get("is_realtime", False),
             "pe_updated_at": realtime_metrics.get("updated_at"),
@@ -211,11 +213,11 @@ class UnifiedStockService:
             if financial_data.get("financial_indicators"):
                 indicators = financial_data["financial_indicators"]
                 result_data["roe"] = indicators.get("roe")
-                result_data["debt_ratio"] = indicators.get("debt_to_assets")
+                result_data["debt_ratio"] = indicators.get("debt_to_assets") or indicators.get("debt_ratio")
             if result_data["roe"] is None:
                 result_data["roe"] = financial_data.get("roe")
             if result_data["debt_ratio"] is None:
-                result_data["debt_ratio"] = financial_data.get("debt_to_assets")
+                result_data["debt_ratio"] = financial_data.get("debt_to_assets") or financial_data.get("debt_ratio")
 
             revenue_ttm = financial_data.get("revenue_ttm")
             revenue = financial_data.get("revenue")
@@ -225,7 +227,8 @@ class UnifiedStockService:
                 revenue_yi = revenue_for_ps / 100000000
                 ps_calculated = total_mv / revenue_yi
                 result_data["ps"] = round(ps_calculated, 2)
-                result_data["ps_ttm"] = round(ps_calculated, 2) if revenue_ttm else None
+                if revenue_ttm:
+                    result_data["ps_ttm"] = round(ps_calculated, 2)
 
         if result_data["roe"] is None:
             result_data["roe"] = b.get("roe")

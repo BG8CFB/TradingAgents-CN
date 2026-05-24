@@ -48,7 +48,8 @@ class SourceHealthMonitor:
 
     def record_call(
         self, market: str, source: str, domain: str,
-        success: bool, latency_ms: int = 0, error: Optional[str] = None
+        success: bool, latency_ms: int = 0, error: Optional[str] = None,
+        circuit_state: str = "closed",
     ):
         """记录一次数据源调用。"""
         key = f"{market}:{source}:{domain}"
@@ -59,18 +60,23 @@ class SourceHealthMonitor:
                 "total_latency_ms": 0, "call_count": 0,
                 "last_success_at": None, "last_failure_at": None,
                 "last_error": None,
+                "consecutive_failures": 0,
+                "circuit_state": "closed",
             }
 
         s = self._stats[key]
         s["call_count"] += 1
         s["total_latency_ms"] += latency_ms
+        s["circuit_state"] = circuit_state
 
         if success:
             s["success_count"] += 1
             s["last_success_at"] = datetime.now(timezone.utc).isoformat()
+            s["consecutive_failures"] = 0
         else:
             s["failure_count"] += 1
             s["last_failure_at"] = datetime.now(timezone.utc).isoformat()
+            s["consecutive_failures"] = s.get("consecutive_failures", 0) + 1
             if error:
                 s["last_error"] = error
 
@@ -100,10 +106,16 @@ class SourceHealthMonitor:
             "market": stats["market"],
             "source": stats["source"],
             "domain": stats["domain"],
+            "circuit_state": stats.get("circuit_state", "closed"),
             "success_rate": round(success_rate, 4),
+            "success_rate_1h": round(success_rate, 4),
             "success_count": stats["success_count"],
             "failure_count": stats["failure_count"],
             "avg_latency_ms": round(avg_latency, 1),
+            "avg_latency_1h": round(avg_latency, 1),
+            "total_calls": stats["call_count"],
+            "consecutive_failures": stats.get("consecutive_failures", 0),
+            "open_count": 0,
             "last_success_at": stats["last_success_at"],
             "last_failure_at": stats["last_failure_at"],
             "last_error": stats["last_error"],
@@ -118,8 +130,13 @@ class SourceHealthMonitor:
                 logger.error(f"健康度刷入失败: {e}")
 
     def _flush_to_mongo(self):
-        """将内存统计刷入 MongoDB。"""
-        import asyncio
+        """将内存统计刷入 MongoDB。
+
+        使用 run_async 确保在 uvicorn 主事件循环中执行 Motor 操作，
+        避免后台线程中 asyncio.run() 创建新循环导致 Motor 报错。
+        """
+        if not self._stats:
+            return
 
         async def _do_flush():
             for stats in list(self._stats.values()):
@@ -132,16 +149,7 @@ class SourceHealthMonitor:
                     logger.debug(f"刷入健康度失败: {e}")
 
         try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            # 已有运行中的事件循环（如 uvicorn），提交为任务
-            asyncio.ensure_future(_do_flush(), loop=loop)
-        else:
-            # 无运行中的事件循环（如后台线程），直接运行
-            try:
-                asyncio.run(_do_flush())
-            except Exception as e:
-                logger.debug(f"健康度刷入失败: {e}")
+            from app.core.async_utils import run_async
+            run_async(_do_flush())
+        except Exception as e:
+            logger.debug(f"健康度刷入失败: {e}")

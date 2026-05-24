@@ -2,8 +2,8 @@
   <div class="mcp-tools-page">
     <div class="page-header">
       <div class="header-left">
-        <h1 class="page-title">MCP 工具</h1>
-        <el-tooltip content="管理本地 MCP 金融数据工具" placement="top">
+        <h1 class="page-title">数据工具管理</h1>
+        <el-tooltip content="管理项目内置的金融数据工具（MCP Provider）" placement="top">
           <el-icon class="help-icon"><QuestionFilled /></el-icon>
         </el-tooltip>
       </div>
@@ -53,6 +53,35 @@
       </template>
     </el-alert>
 
+    <!-- 类型说明 -->
+    <el-alert
+      type="info"
+      :closable="false"
+      class="type-info-alert"
+    >
+      <template #title>
+        <div class="type-info">
+          <span>本页面展示的是项目内置的<strong>数据工具（MCP Provider）</strong>，它们也属于「内置」类型，通过 MCP 协议暴露给外部 LLM 使用。</span>
+        </div>
+      </template>
+      <template #default>
+        <div class="type-legend">
+          <span class="type-legend-item">
+            <el-tag size="small" type="primary">内置</el-tag>
+            项目自带的所有工具（分析引擎 + 数据接口）
+          </span>
+          <span class="type-legend-item">
+            <el-tag size="small" type="warning">MCP</el-tag>
+            外部 MCP 连接器提供的工具（如 sequentialthinking）
+          </span>
+          <span class="type-legend-item">
+            <el-tag size="small" type="danger">技能</el-tag>
+            渐进式披露的分析指导（load_skill）
+          </span>
+        </div>
+      </template>
+    </el-alert>
+
     <!-- 工具列表 -->
     <div class="tools-list" v-loading="toolsStore.loading">
       <div
@@ -65,6 +94,7 @@
             <ArrowRight />
           </el-icon>
           <span class="category-name">{{ category }}</span>
+          <el-tag size="small" type="primary" class="type-badge">内置</el-tag>
           <el-tag size="small" type="info">{{ tools.length }}个工具</el-tag>
         </div>
 
@@ -80,6 +110,13 @@
               <div class="tool-description">{{ tool.description || '暂无描述' }}</div>
               <div class="tool-meta">
                 <el-tag
+                  size="small"
+                  type="primary"
+                  class="type-tag"
+                >
+                  内置
+                </el-tag>
+                <el-tag
                   v-if="tool.tushare_only"
                   size="small"
                   type="warning"
@@ -94,6 +131,14 @@
                   class="availability-tag"
                 >
                   数据源不可用
+                </el-tag>
+                <el-tag
+                  v-else
+                  size="small"
+                  type="success"
+                  class="availability-tag"
+                >
+                  可用
                 </el-tag>
               </div>
             </div>
@@ -111,7 +156,7 @@
 
       <div v-if="toolsStore.tools.length === 0 && !toolsStore.loading" class="empty-state">
         <el-icon class="empty-icon"><Tools /></el-icon>
-        <p class="empty-text">暂无 MCP 工具</p>
+        <p class="empty-text">暂无数据工具</p>
       </div>
     </div>
   </div>
@@ -236,6 +281,29 @@ onMounted(() => {
   font-weight: 500;
 }
 
+.type-info-alert {
+  margin-bottom: 16px;
+}
+
+.type-info {
+  font-size: 13px;
+}
+
+.type-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.type-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
 .category-section {
   background-color: var(--el-bg-color-overlay);
   border: 1px solid var(--el-border-color-darker);
@@ -269,6 +337,10 @@ onMounted(() => {
   font-weight: 500;
   color: var(--el-text-color-primary);
   flex: 1;
+}
+
+.type-badge {
+  flex-shrink: 0;
 }
 
 .category-tools {
@@ -314,6 +386,10 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.type-tag {
+  flex-shrink: 0;
 }
 
 .source-tag {

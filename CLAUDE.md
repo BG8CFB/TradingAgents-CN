@@ -12,49 +12,128 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Data Layer**: Multi-source stock data with MongoDB + Redis caching
 - **Runtime**: `runtime/` holds `cache/`, `data/`, `logs/`, `results/` (created at startup)
 
-## Common Commands
+## Environment & Execution Model
 
-### Development Setup (Miniconda Required)
+### Two Execution Modes
 
-**All Python dependencies must be installed in a Miniconda conda environment. Direct `pip install` to system Python or venv is forbidden.**
+| Mode | Where to Run | Infrastructure | When to Use |
+|------|-------------|----------------|-------------|
+| **Development** | Docker containers | MongoDB, Redis in Docker Compose | Running the app, API development, feature work |
+| **Testing** | Host machine (Miniconda) | Connect to Docker-hosted MongoDB/Redis | Running tests, debugging, CI |
+
+### Development Mode (Container-First)
+
+The project runs inside Docker containers during development. Database and Redis are always containerized.
 
 ```bash
-# 1. Create and activate conda environment (do NOT use the base environment)
+# Start full dev environment (backend hot-reload + frontend HMR + MongoDB + Redis)
+docker compose -f docker-compose.dev.yml up --build
+
+# Start only infrastructure services (for testing or standalone scripts)
+docker compose -f docker-compose.dev.yml up -d mongodb redis
+
+# Access points:
+#   Frontend (Vite HMR): http://localhost:3000
+#   Backend API docs:    http://localhost:8000/docs
+#   MongoDB:             localhost:27017
+#   Redis:               localhost:6379
+```
+
+**Why containers?** The backend Docker image includes all Python dependencies pre-installed. Source code is volume-mounted for hot-reload (`./app:/app/app`). No need to manage Python environments on the host for development.
+
+### Testing Mode (Host + Miniconda)
+
+Tests run on the host machine inside a Miniconda conda environment. They connect to containerized MongoDB/Redis for real I/O.
+
+```bash
+# 1. Ensure infrastructure is running
+docker compose -f docker-compose.dev.yml up -d mongodb redis
+
+# 2. Activate conda environment
+conda activate tradingagents
+
+# 3. Run tests
+python -m pytest tests/ -v --tb=short
+```
+
+**Environment Setup (Miniconda Only):**
+
+```bash
+# Create conda environment (do NOT use the base environment)
 conda env create -f environment.yml       # or: conda create -n tradingagents python=3.12 -y
 conda activate tradingagents
 
-# 2. Install project dependencies inside conda env
-#    pyproject.toml is the source of truth
-pip install -e .                          # installs into conda env, not system Python
-# Optional extras: qianfan support
+# Install project dependencies inside conda env
+pip install -e .                          # pyproject.toml is the source of truth
+
+# Optional extras
 pip install -e ".[qianfan]"
+pip install -e ".[dev]"
 
-# 3. Verify installation
+# Verify installation
 python -c "import fastapi; print(f'fastapi={fastapi.__version__}')"
-python -m pytest tests/ -q
 
-# 4. Install frontend dependencies
+# Frontend dependencies (if working on frontend)
 cd frontend && npm install
-
-# 5. Configure environment — create .env manually in project root
-#    (see "Configuration" section for required keys)
 ```
 
 **Environment Rules**:
-- Use Miniconda only (not system Python, not venv, not virtualenv)
+- **Miniconda only** — never use system Python, venv, or virtualenv
 - All `pip install` commands run inside the activated conda environment
 - Do not create `.venv/` or `venv/` directories — if found, delete them
 - `uv.lock` is committed for reference; `uv sync` only within conda env if used
 
-### Running the Application
+## Docker Reference
+
+**Container Selection Rule**: 默认始终使用 `docker-compose.dev.yml`（开发模式）。仅在用户明确要求"生产部署"时才切换到 `docker-compose.build.yml`。
+
+| Compose File | Mode | Use When |
+|--------------|------|----------|
+| `docker-compose.dev.yml` | Development (hot-reload, HMR) | **默认** — 始终优先使用 |
+| `docker-compose.build.yml` | Production (Nginx, built images) | 用户明确说"生产部署" |
+
+### 开发模式热重载机制（重要）
+
+`docker-compose.dev.yml` 的后端服务通过 volume 挂载 + uvicorn `--reload` 实现代码热重载：
+
+- **`./app:/app/app`** — Python 源码卷挂载，修改后 uvicorn 自动检测并重启
+- **`./config:/app/config`** — 配置文件挂载
+- **`./frontend:/app/frontend`** — 前端源码挂载，Vite HMR 热更新
+
+**因此：修改 Python 代码后不需要重新构建容器镜像。** 只需要保存文件，uvicorn 会自动重载。只有在以下场景才需要重新构建：
+- 修改了 `pyproject.toml` 中新增/删除了依赖包（首次 `--build` 时安装）
+- 修改了 `Dockerfile.backend` 本身
+- 第一次启动项目
 
 ```bash
-# Start backend (from project root) — handles Windows UTF-8, .env discovery, uvicorn launch
-python -m app
-# or with uvicorn directly (skips bootstrap)
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# ── Development (DEFAULT) ──
+# 首次启动或修改了依赖/Dockerfile（需要 --build）
+docker compose -f docker-compose.dev.yml up --build -d
 
-# Start frontend (in frontend/ directory)
+# 日常开发：修改 Python 代码后无需任何操作，uvicorn 自动重载
+# 如果容器已在运行，直接保存文件即可
+
+# 如果需要重启后端服务（不重新构建）
+docker compose -f docker-compose.dev.yml restart backend
+
+# ── Production (ONLY when user requests) ──
+# Full stack (MongoDB + Redis + Nginx + backend + frontend)
+docker compose -f docker-compose.build.yml up -d
+# Access: http://localhost:3000 (Nginx proxy) | API: http://localhost:8000/api
+
+# ── Infrastructure Only (for testing) ──
+docker compose -f docker-compose.dev.yml up -d mongodb redis
+# Tear down when done
+docker compose -f docker-compose.dev.yml down
+```
+
+## CLI / Programmatic Entry
+
+`pyproject.toml` registers `tradingagents -> scripts.examples.run_analysis:main`. After `pip install -e .` (inside conda env), run `tradingagents` for a sample end-to-end analysis.
+
+## Frontend Commands
+
+```bash
 cd frontend
 npm run dev          # Vite dev server
 npm run build        # vue-tsc type check + production build
@@ -63,45 +142,14 @@ npm run lint         # ESLint with --fix
 npm run format       # Prettier
 ```
 
-### CLI / Programmatic Entry
-
-`pyproject.toml` registers `tradingagents -> scripts.examples.run_analysis:main`. After `pip install -e .` (inside conda env), run `tradingagents` for a sample end-to-end analysis.
-
-### Docker Deployment
-
-```bash
-# Full stack (MongoDB + Redis + Nginx + backend + frontend)
-docker compose -f docker-compose.build.yml up -d
-# Access: http://localhost:3000 (Nginx proxy) | API: http://localhost:8000/api
-
-# Dev mode (hot reload backend, HMR frontend)
-docker compose -f docker-compose.dev.yml up --build
-```
-
-### Running Tests
-
-```bash
-# All tests
-python -m pytest tests/
-
-# Specific file
-python -m pytest tests/integration/test_subgraph_architecture.py
-python -m pytest tests/routers/test_tools.py
-
-# With verbose output
-python -m pytest tests/ -v --tb=short
-```
-
-### Testing Rules (Mandatory)
+## Testing Rules (Mandatory)
 
 **All tests must be real — no mocks allowed. All tests run inside the Miniconda conda environment.**
 
-1. **Real Database & Cache**: Tests needing MongoDB or Redis must run against real instances via Docker Compose:
+1. **Real Database & Cache**: Tests needing MongoDB or Redis connect to containerized instances:
    ```bash
-   # Start infrastructure only
    docker compose -f docker-compose.dev.yml up -d mongodb redis
    # Wait for health checks, then run tests
-   docker compose -f docker-compose.dev.yml down
    ```
 
 2. **Conda Environment Only**: Test dependencies in `tradingagents` conda env. **venv is forbidden** — delete `.venv/` or `venv/` if found.

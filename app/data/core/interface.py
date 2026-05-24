@@ -84,19 +84,33 @@ class DataInterface:
     # ── 同步管理 ──
 
     async def trigger_sync(self, market: str, domain: str) -> str:
-        """手动触发同步任务。"""
-        from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
+        """手动触发同步任务。优先走调度引擎，降级走按需刷新。"""
         from datetime import datetime, timezone
+        from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
 
-        repo = MetadataRepo()
         task_id = f"sync_{market}_{domain}_{int(datetime.now(timezone.utc).timestamp())}"
+
+        # 优先走调度引擎（支持依赖链和 force_sync）
+        try:
+            from app.worker.scheduler_setup import get_scheduler_engine
+            engine = get_scheduler_engine()
+            if engine:
+                job_id = engine.trigger_job(market, domain)
+                if job_id:
+                    logger.info(f"通过调度引擎触发同步: {job_id}")
+                    return job_id
+        except Exception as e:
+            logger.warning(f"调度引擎触发失败，降级到直接同步: {e}")
+
+        # 降级：只记录事件（实际执行需等调度引擎可用）
+        repo = MetadataRepo()
         await repo.insert_event({
             "market": market,
             "event_type": "SYNC_START",
             "domain": domain,
             "task_id": task_id,
         })
-        logger.info(f"触发同步任务: {task_id}")
+        logger.info(f"记录同步事件（降级模式）: {task_id}")
         return task_id
 
     async def get_sync_status(self, market: str, domain: Optional[str] = None) -> List[Dict]:

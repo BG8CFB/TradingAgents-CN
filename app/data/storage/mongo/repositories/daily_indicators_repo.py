@@ -39,5 +39,5 @@ class DailyIndicatorsRepo:
         cursor = coll.find(
             {"symbol": symbol, "trade_date": {"$gte": start_date, "$lte": end_date}},
             {"_id": 0},
-        ).sort("trade_date", 1)
+        ).sort("trade_date", -1)
         return await cursor.to_list(length=None)

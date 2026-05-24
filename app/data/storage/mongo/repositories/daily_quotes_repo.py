@@ -34,14 +34,15 @@ class DailyQuotesRepo:
         return result.upserted_count + result.modified_count
 
     async def get_by_symbol_and_range(
-        self, symbol: str, market: str, start_date: str, end_date: str
+        self, symbol: str, market: str, start_date: str, end_date: str,
+        period: Optional[str] = None,
     ) -> List[Dict]:
         db = get_motor_db()
         coll = db[get_collection_name("daily_quotes", market)]
-        cursor = coll.find(
-            {"symbol": symbol, "trade_date": {"$gte": start_date, "$lte": end_date}},
-            {"_id": 0},
-        ).sort("trade_date", 1)
+        query = {"symbol": symbol, "trade_date": {"$gte": start_date, "$lte": end_date}}
+        if period:
+            query["period"] = period
+        cursor = coll.find(query, {"_id": 0}).sort("trade_date", 1)
         return await cursor.to_list(length=None)
 
     async def get_latest_date(self, symbol: str, market: str) -> Optional[str]:

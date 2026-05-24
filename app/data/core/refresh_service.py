@@ -87,7 +87,7 @@ class DataRefreshService:
     ) -> DomainRefreshResult:
         """刷新单个域。"""
         start = time.time()
-        dr = DomainRefreshResult(domain=domain)
+        dr = DomainRefreshResult(domain=domain, status="pending")
 
         if domain not in _SUPPORTED_ON_DEMAND_DOMAINS:
             dr.status = "failed"

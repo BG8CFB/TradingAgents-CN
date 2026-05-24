@@ -11,221 +11,186 @@
       </p>
     </div>
 
-    <el-row :gutter="24">
-      <!-- 左侧：设置菜单 -->
-      <el-col :span="6">
-        <el-card class="settings-menu" shadow="never">
-          <el-menu
-            :default-active="activeTab"
-            @select="handleMenuSelect"
-            class="settings-nav"
-          >
-            <el-menu-item index="general">
-              <el-icon><User /></el-icon>
-              <span>通用设置</span>
-            </el-menu-item>
-            <el-menu-item index="appearance">
-              <el-icon><Brush /></el-icon>
-              <span>外观设置</span>
-            </el-menu-item>
-            <el-menu-item index="analysis">
-              <el-icon><TrendCharts /></el-icon>
-              <span>分析偏好</span>
-            </el-menu-item>
-            <el-menu-item index="notifications">
-              <el-icon><Bell /></el-icon>
-              <span>通知设置</span>
-            </el-menu-item>
-            <el-menu-item index="security">
-              <el-icon><Lock /></el-icon>
-              <span>安全设置</span>
-            </el-menu-item>
-          </el-menu>
-        </el-card>
-      </el-col>
+    <!-- 设置内容（导航由全局侧边栏承担） -->
 
-      <!-- 右侧：设置内容 -->
-      <el-col :span="18">
-        <!-- 通用设置 -->
-        <el-card v-show="activeTab === 'general'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>通用设置</h3>
-          </template>
-          
-          <el-form :model="generalSettings" label-width="120px">
-            <el-form-item label="用户名">
-              <el-input v-model="generalSettings.username" disabled />
-            </el-form-item>
-            
-            <el-form-item label="邮箱">
-              <el-input v-model="generalSettings.email" />
-            </el-form-item>
-            
-            <el-form-item label="语言">
-              <el-select v-model="generalSettings.language">
-                <el-option label="简体中文" value="zh-CN" />
-                <el-option label="English" value="en-US" />
-              </el-select>
-            </el-form-item>
-            
-            <el-form-item label="时区">
-              <el-select v-model="generalSettings.timezone">
-                <el-option label="北京时间 (UTC+8)" value="Asia/Shanghai" />
-                <el-option label="纽约时间 (UTC-5)" value="America/New_York" />
-                <el-option label="伦敦时间 (UTC+0)" value="Europe/London" />
-              </el-select>
-            </el-form-item>
-            
-            <el-form-item>
-              <el-button type="primary" @click="saveGeneralSettings">
-                保存设置
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
+    <!-- 通用设置 -->
+    <el-card v-show="activeTab === 'general'" class="settings-content" shadow="never">
+      <template #header>
+        <h3>通用设置</h3>
+      </template>
 
-        <!-- 外观设置 -->
-        <el-card v-show="activeTab === 'appearance'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>外观设置</h3>
-          </template>
-          
-          <el-form :model="appearanceSettings" label-width="120px">
-            <el-form-item label="主题模式">
-              <el-radio-group v-model="appearanceSettings.theme" @change="handleThemeChange">
-                <el-radio label="light">浅色主题</el-radio>
-                <el-radio label="dark">深色主题</el-radio>
-                <el-radio label="auto">跟随系统</el-radio>
-              </el-radio-group>
-            </el-form-item>
+      <el-form :model="generalSettings" label-width="120px">
+        <el-form-item label="用户名">
+          <el-input v-model="generalSettings.username" disabled />
+        </el-form-item>
 
-            <el-form-item label="侧边栏宽度">
-              <el-slider
-                v-model="appearanceSettings.sidebarWidth"
-                :min="200"
-                :max="400"
-                :step="20"
-                show-input
-              />
-            </el-form-item>
+        <el-form-item label="邮箱">
+          <el-input v-model="generalSettings.email" />
+        </el-form-item>
 
-            <el-form-item>
-              <el-button type="primary" @click="saveAppearanceSettings">
-                保存设置
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
+        <el-form-item label="语言">
+          <el-select v-model="generalSettings.language">
+            <el-option label="简体中文" value="zh-CN" />
+            <el-option label="English" value="en-US" />
+          </el-select>
+        </el-form-item>
 
-        <!-- 分析偏好 -->
-        <el-card v-show="activeTab === 'analysis'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>分析偏好</h3>
-          </template>
-          
-          <el-form :model="analysisSettings" label-width="120px">
-            <el-form-item label="默认市场">
-              <el-select v-model="analysisSettings.defaultMarket">
-                <el-option label="A股" value="A股" />
-                <el-option label="美股" value="美股" />
-                <el-option label="港股" value="港股" />
-              </el-select>
-            </el-form-item>
+        <el-form-item label="时区">
+          <el-select v-model="generalSettings.timezone">
+            <el-option label="北京时间 (UTC+8)" value="Asia/Shanghai" />
+            <el-option label="纽约时间 (UTC-5)" value="America/New_York" />
+            <el-option label="伦敦时间 (UTC+0)" value="Europe/London" />
+          </el-select>
+        </el-form-item>
 
-            <el-form-item label="默认辩论轮数">
-              <el-input-number
-                v-model="analysisSettings.defaultDebateRounds"
-                :min="1"
-                :max="4"
-                :step="1"
-                controls-position="right"
-              />
-              <span style="margin-left: 12px; color: var(--el-text-color-placeholder); font-size: 13px;">辩论轮数上限为4，默认2</span>
-            </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="saveGeneralSettings">
+            保存设置
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-            <el-form-item label="默认分析师">
-              <div v-if="loadingAnalysts" class="loading-analysts">
-                <el-icon class="is-loading"><Refresh /></el-icon> 加载分析师列表...
-              </div>
-              <el-checkbox-group v-else v-model="analysisSettings.defaultAnalysts">
-                <el-checkbox 
-                  v-for="analyst in availableAnalysts" 
-                  :key="analyst.id" 
-                  :label="analyst.id"
-                >
-                  {{ analyst.name }}
-                </el-checkbox>
-              </el-checkbox-group>
-            </el-form-item>
+    <!-- 外观设置 -->
+    <el-card v-show="activeTab === 'appearance'" class="settings-content" shadow="never">
+      <template #header>
+        <h3>外观设置</h3>
+      </template>
 
-            <el-form-item label="自动刷新">
-              <el-switch v-model="analysisSettings.autoRefresh" />
-              <span class="setting-description">自动刷新分析结果</span>
-            </el-form-item>
-            
-            <el-form-item label="刷新间隔">
-              <el-input-number
-                v-model="analysisSettings.refreshInterval"
-                :min="10"
-                :max="300"
-                :step="10"
-                :disabled="!analysisSettings.autoRefresh"
-              />
-              <span class="setting-description">秒</span>
-            </el-form-item>
-            
-            <el-form-item>
-              <el-button type="primary" @click="saveAnalysisSettings">
-                保存设置
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
+      <el-form :model="appearanceSettings" label-width="120px">
+        <el-form-item label="主题模式">
+          <el-radio-group v-model="appearanceSettings.theme" @change="handleThemeChange">
+            <el-radio label="light">浅色主题</el-radio>
+            <el-radio label="dark">深色主题</el-radio>
+            <el-radio label="auto">跟随系统</el-radio>
+          </el-radio-group>
+        </el-form-item>
 
-        <!-- 通知设置 -->
-        <el-card v-show="activeTab === 'notifications'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>通知设置</h3>
-          </template>
-          
-          <el-form :model="notificationSettings" label-width="120px">
-            <el-form-item label="桌面通知">
-              <el-switch v-model="notificationSettings.desktop" />
-              <span class="setting-description">显示桌面通知</span>
-            </el-form-item>
+        <el-form-item label="侧边栏宽度">
+          <el-slider
+            v-model="appearanceSettings.sidebarWidth"
+            :min="200"
+            :max="400"
+            :step="20"
+            show-input
+          />
+        </el-form-item>
 
-            <el-form-item label="分析完成通知">
-              <el-switch v-model="notificationSettings.analysisComplete" />
-            </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="saveAppearanceSettings">
+            保存设置
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-            <el-form-item label="系统维护通知">
-              <el-switch v-model="notificationSettings.systemMaintenance" />
-            </el-form-item>
+    <!-- 分析偏好 -->
+    <el-card v-show="activeTab === 'analysis'" class="settings-content" shadow="never">
+      <template #header>
+        <h3>分析偏好</h3>
+      </template>
 
-            <el-form-item>
-              <el-button type="primary" @click="saveNotificationSettings">
-                保存设置
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
+      <el-form :model="analysisSettings" label-width="120px">
+        <el-form-item label="默认市场">
+          <el-select v-model="analysisSettings.defaultMarket">
+            <el-option label="A股" value="A股" />
+            <el-option label="美股" value="美股" />
+            <el-option label="港股" value="港股" />
+          </el-select>
+        </el-form-item>
 
-        <!-- 安全设置 -->
-        <el-card v-show="activeTab === 'security'" class="settings-content" shadow="never">
-          <template #header>
-            <h3>安全设置</h3>
-          </template>
+        <el-form-item label="默认辩论轮数">
+          <el-input-number
+            v-model="analysisSettings.defaultDebateRounds"
+            :min="1"
+            :max="4"
+            :step="1"
+            controls-position="right"
+          />
+          <span style="margin-left: 12px; color: var(--el-text-color-placeholder); font-size: 13px;">辩论轮数上限为4，默认2</span>
+        </el-form-item>
 
-          <el-form label-width="120px">
-            <el-form-item label="修改密码">
-              <el-button type="primary" @click="changePasswordDialogVisible = true">
-                修改密码
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-col>
-    </el-row>
+        <el-form-item label="默认分析师">
+          <div v-if="loadingAnalysts" class="loading-analysts">
+            <el-icon class="is-loading"><Refresh /></el-icon> 加载分析师列表...
+          </div>
+          <el-checkbox-group v-else v-model="analysisSettings.defaultAnalysts">
+            <el-checkbox
+              v-for="analyst in availableAnalysts"
+              :key="analyst.id"
+              :label="analyst.id"
+            >
+              {{ analyst.name }}
+            </el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+
+        <el-form-item label="自动刷新">
+          <el-switch v-model="analysisSettings.autoRefresh" />
+          <span class="setting-description">自动刷新分析结果</span>
+        </el-form-item>
+
+        <el-form-item label="刷新间隔">
+          <el-input-number
+            v-model="analysisSettings.refreshInterval"
+            :min="10"
+            :max="300"
+            :step="10"
+            :disabled="!analysisSettings.autoRefresh"
+          />
+          <span class="setting-description">秒</span>
+        </el-form-item>
+
+        <el-form-item>
+          <el-button type="primary" @click="saveAnalysisSettings">
+            保存设置
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <!-- 通知设置 -->
+    <el-card v-show="activeTab === 'notifications'" class="settings-content" shadow="never">
+      <template #header>
+        <h3>通知设置</h3>
+      </template>
+
+      <el-form :model="notificationSettings" label-width="120px">
+        <el-form-item label="桌面通知">
+          <el-switch v-model="notificationSettings.desktop" />
+          <span class="setting-description">显示桌面通知</span>
+        </el-form-item>
+
+        <el-form-item label="分析完成通知">
+          <el-switch v-model="notificationSettings.analysisComplete" />
+        </el-form-item>
+
+        <el-form-item label="系统维护通知">
+          <el-switch v-model="notificationSettings.systemMaintenance" />
+        </el-form-item>
+
+        <el-form-item>
+          <el-button type="primary" @click="saveNotificationSettings">
+            保存设置
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <!-- 安全设置 -->
+    <el-card v-show="activeTab === 'security'" class="settings-content" shadow="never">
+      <template #header>
+        <h3>安全设置</h3>
+      </template>
+
+      <el-form label-width="120px">
+        <el-form-item label="修改密码">
+          <el-button type="primary" @click="changePasswordDialogVisible = true">
+            修改密码
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
     <!-- 修改密码对话框 -->
     <el-dialog
@@ -288,10 +253,6 @@ import { agentConfigApi } from '@/api/agentConfigs'
 import { normalizeAnalystIds } from '@/constants/analysts'
 import {
   User,
-  Brush,
-  TrendCharts,
-  Bell,
-  Lock,
   Refresh
 } from '@element-plus/icons-vue'
 
@@ -392,10 +353,6 @@ watch(() => authStore.user, (newUser) => {
     notificationSettings.value.systemMaintenance = newUser.preferences?.system_maintenance_notification ?? true
   }
 }, { deep: true })
-
-const handleMenuSelect = (index: string) => {
-  activeTab.value = index
-}
 
 const handleThemeChange = (theme: string | number | boolean | undefined) => {
   appStore.setTheme(theme as any)
@@ -583,12 +540,6 @@ onMounted(async () => {
     .page-description {
       color: var(--el-text-color-regular);
       margin: 0;
-    }
-  }
-
-  .settings-menu {
-    .settings-nav {
-      border: none;
     }
   }
 

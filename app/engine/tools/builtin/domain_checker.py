@@ -156,15 +156,31 @@ class AvailabilityCache:
         )
 
     def is_available(self, tool_id: str) -> bool:
-        """同步查询工具可用性"""
+        """同步查询工具可用性。
+
+        如果 compute() 未被调用（缓存为空），默认返回 True（乐观策略），
+        避免因预计算失败而将所有工具误判为不可用。
+        """
+        if not self._tool_availability:
+            return True
         return self._tool_availability.get(tool_id, False)
 
     def get_unavailable_ids(self, tool_ids: List[str]) -> List[str]:
-        """从指定列表中筛选不可用工具"""
+        """从指定列表中筛选不可用工具。
+
+        缓存为空时返回空列表（乐观策略：未检测则全部视为可用）。
+        """
+        if not self._tool_availability:
+            return []
         return [tid for tid in tool_ids if not self._tool_availability.get(tid, False)]
 
     def get_available_ids(self, tool_ids: List[str]) -> List[str]:
-        """从指定列表中筛选可用工具"""
+        """从指定列表中筛选可用工具。
+
+        缓存为空时返回全部（乐观策略：未检测则全部视为可用）。
+        """
+        if not self._tool_availability:
+            return list(tool_ids)
         return [tid for tid in tool_ids if self._tool_availability.get(tid, False)]
 
     @property

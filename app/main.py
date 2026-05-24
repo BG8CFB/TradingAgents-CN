@@ -325,10 +325,23 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ MCP 初始化失败: {e}", exc_info=True)
         logger.warning("⚠️  应用将在 MCP 功能不可用的情况下继续运行")
 
+    # ==================== 数据源健康监控 ====================
+    from app.data.monitoring.source_health import SourceHealthMonitor
+    health_monitor = SourceHealthMonitor()
+    health_monitor.start()
+    logger.info("✅ 数据源健康监控已启动（每 30s 刷入 MongoDB）")
+
     try:
         yield
     finally:
         # 关闭时清理
+        # 0. 停止数据源健康监控
+        try:
+            health_monitor.stop()
+            logger.info("🛑 数据源健康监控已停止")
+        except Exception as e:
+            logger.warning(f"数据源健康监控停止失败: {e}")
+
         # 1. 停止 MCP 健康检查任务
         if mcp_health_check_task:
             try:

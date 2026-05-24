@@ -33,6 +33,16 @@ CN:
     tushare: full
     akshare: partial
     baostock: none
+  intraday_quotes:
+    akshare: full
+  money_flow:
+    akshare: full
+  margin_trading:
+    akshare: full
+  dragon_tiger:
+    akshare: full
+  block_trade:
+    akshare: full
 
 HK:
   basic_info:

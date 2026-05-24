@@ -20,6 +20,11 @@ _BUSINESS_COLLECTIONS: Dict[str, str] = {
     "connect_status": "stock_connect_status",
     "southbound_holding": "stock_southbound_holding",
     "pre_post_market": "stock_pre_post_market",
+    "intraday_quotes": "stock_intraday_quotes",
+    "money_flow": "stock_money_flow",
+    "margin_trading": "stock_margin_trading",
+    "dragon_tiger": "stock_dragon_tiger",
+    "block_trade": "stock_block_trade",
 }
 
 # 元数据集合: 无市场后缀

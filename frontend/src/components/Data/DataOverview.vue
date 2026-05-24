@@ -134,7 +134,7 @@
             <el-icon :size="18"><component :is="card.icon" /></el-icon>
             {{ card.label }}
           </div>
-          <el-tooltip :content="card.healthText === '异常' ? '部分或全部首选数据源熔断，已降级' : '当前路由链路健康'" placement="top">
+          <el-tooltip :content="card.healthText === '异常' ? '部分或全部首选数据源熔断，已降级' : card.healthText === '未同步' ? '该域尚未执行过同步任务，无健康数据' : '当前路由链路健康'" placement="top">
             <el-tag :type="card.healthTagType" size="small" effect="dark" round class="health-tag">
               {{ card.healthText }}
             </el-tag>
@@ -336,8 +336,14 @@ function getRelativeTime(iso: string | null): { text: string; minutes: number } 
   return { text: new Date(iso).toLocaleDateString('zh-CN'), minutes: diffMin }
 }
 
-function getDomainHealth(sources: SourceHealthItem[]): { tagType: 'success' | 'warning' | 'danger' | 'info'; text: string; cls: string } {
-  if (sources.length === 0) return { tagType: 'info', text: '未知', cls: '' }
+function getDomainHealth(sources: SourceHealthItem[], hasRecords: boolean): { tagType: 'success' | 'warning' | 'danger' | 'info'; text: string; cls: string } {
+  if (sources.length === 0) {
+    // 无健康监控数据时，根据域是否有落库记录推断状态：
+    // 有记录 → 数据源曾经正常工作过，推断为"正常"
+    // 无记录 → 从未同步过，推断为"未同步"
+    if (hasRecords) return { tagType: 'success', text: '正常', cls: 'state-healthy' }
+    return { tagType: 'info', text: '未同步', cls: '' }
+  }
   const hasUnhealthy = sources.some(s => s.circuit_state === 'open')
   const hasHalfOpen = sources.some(s => s.circuit_state === 'half_open')
   if (hasUnhealthy) return { tagType: 'danger', text: '异常', cls: 'state-error' }
@@ -353,7 +359,7 @@ const domainCards = computed<DomainCard[]>(() => {
     const stat = domainStats.value[domain]
     const sources = healthData.value.filter(h => h.domain === domain)
     const quality = (qualityData.value as Record<string, any>)?.[domain]
-    const health = getDomainHealth(sources)
+    const health = getDomainHealth(sources, (stat?.records ?? 0) > 0)
     const freshness = getRelativeTime(stat?.last_updated ?? null)
 
     return {

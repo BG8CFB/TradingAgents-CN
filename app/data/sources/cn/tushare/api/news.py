@@ -1,5 +1,7 @@
 """
 Tushare 新闻 API
+
+多策略获取：news 快讯 → major_news 长篇通讯 → cctv_news 新闻联播
 """
 import asyncio
 import logging
@@ -13,7 +15,7 @@ from .connection import TushareConnection
 logger = logging.getLogger(__name__)
 
 NEWS_SOURCES = [
-    "sina", "eastmoney", "10jqka", "wallstreetcn",
+    "eastmoney", "sina", "10jqka", "wallstreetcn",
     "cls", "yicai", "jinrongjie", "yuncaijing", "fenghuang",
 ]
 
@@ -31,7 +33,14 @@ async def fetch_news(
     hours_back: int = 24,
     src: str = None,
 ) -> Optional[List[Dict[str, Any]]]:
-    """获取股票/市场新闻"""
+    """获取股票/市场新闻（多策略回退）
+
+    策略链：
+    0. 个股公告/定向新闻（东方财富公告 API，按 symbol 精确匹配）
+    1. news 快讯（全市场，支持按 symbol 文本匹配）
+    2. major_news 长篇通讯（带标题和 URL，质量更高）
+    3. cctv_news 新闻联播（权威来源兜底）
+    """
     if not conn.is_available():
         return None
     try:
@@ -40,33 +49,238 @@ async def fetch_news(
         start_date = start_time.strftime("%Y-%m-%d %H:%M:%S")
         end_date = end_time.strftime("%Y-%m-%d %H:%M:%S")
 
-        sources = [src] if src and src in NEWS_SOURCES else NEWS_SOURCES[:3]
         all_news: List[Dict[str, Any]] = []
+        seen_titles: set = set()
 
-        for source in sources:
-            try:
-                df = await asyncio.to_thread(
-                    conn.api.news, src=source, start_date=start_date, end_date=end_date
-                )
-                if df is not None and not df.empty:
-                    items = _process_news(df, source, symbol, limit)
-                    all_news.extend(items)
-                    if len(all_news) >= limit:
-                        break
-            except Exception:
-                continue
-            await asyncio.sleep(0.2)
+        # 策略 0: 个股定向获取（东方财富公告 + 名称搜索）
+        if symbol:
+            targeted = await _fetch_targeted_news(symbol, limit)
+            for item in targeted:
+                if item["title"] not in seen_titles:
+                    seen_titles.add(item["title"])
+                    all_news.append(item)
+
+            if len(all_news) >= limit:
+                return _deduplicate_and_sort(all_news, limit)
+
+        # 策略 1: news 快讯
+        fast_news = await _fetch_news_fast(conn, symbol, start_date, end_date, src, limit)
+        for item in fast_news:
+            if item["title"] not in seen_titles:
+                seen_titles.add(item["title"])
+                all_news.append(item)
+
+        if len(all_news) >= limit:
+            return _deduplicate_and_sort(all_news, limit)
+
+        # 策略 2: major_news 长篇通讯
+        major_items = await _fetch_major_news(conn, start_date, end_date, limit)
+        if major_items:
+            for item in major_items:
+                if item["title"] not in seen_titles:
+                    seen_titles.add(item["title"])
+                    all_news.append(item)
+
+        if len(all_news) >= limit:
+            return _deduplicate_and_sort(all_news, limit)
+
+        # 策略 3: cctv_news 新闻联播
+        cctv_items = await _fetch_cctv_news(conn, limit)
+        if cctv_items:
+            for item in cctv_items:
+                if item["title"] not in seen_titles:
+                    seen_titles.add(item["title"])
+                    all_news.append(item)
 
         if not all_news:
             return []
 
-        seen: set = set()
-        unique = [n for n in all_news if n["title"] not in seen and not seen.add(n["title"])]
-        return sorted(unique, key=lambda x: x.get("publish_time", datetime.min), reverse=True)[:limit]
+        return _deduplicate_and_sort(all_news, limit)
 
     except Exception as e:
         logger.error(f"Tushare 获取新闻失败: {e}")
         return None
+
+
+async def _fetch_targeted_news(
+    symbol: str, limit: int = 10
+) -> List[Dict[str, Any]]:
+    """策略 0: 个股定向新闻（东方财富公告 API）"""
+    import requests as req
+
+    def _fetch():
+        url = "https://np-anotice-stock.eastmoney.com/api/security/ann"
+        params = {
+            "sr": "-1",
+            "page_size": str(min(limit, 20)),
+            "page_index": "1",
+            "ann_type": "A",
+            "client_source": "web",
+            "f_node": "0",
+            "s_node": "0",
+            "stock_list": symbol,
+        }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+            "Referer": "https://data.eastmoney.com/notices/stock.html",
+        }
+        try:
+            resp = req.get(url, params=params, headers=headers, timeout=15)
+            data = resp.json()
+            notices = data.get("data", {}).get("list", [])
+            results = []
+            for notice in notices:
+                art_code = notice.get("art_code", "")
+                title = notice.get("title", "")
+                results.append({
+                    "title": title,
+                    "content": title,
+                    "summary": title[:200],
+                    "url": f"https://data.eastmoney.com/notices/detail/{symbol}/{art_code}.html",
+                    "source": "东方财富公告",
+                    "publish_time": notice.get("notice_date", ""),
+                    "category": "company_announcement",
+                    "sentiment": "neutral",
+                    "importance": "high",
+                    "keywords": [],
+                    "data_source": "tushare",
+                    "original_source": "em_notice",
+                    "symbol": symbol,
+                })
+            return results
+        except Exception as e:
+            logger.debug(f"东方财富公告获取失败: {e}")
+            return []
+
+    results = await asyncio.to_thread(_fetch)
+    if results:
+        logger.info(f"  个股公告 ({symbol}): {len(results)} 条")
+    return results
+
+
+async def _fetch_news_fast(
+    conn: TushareConnection, symbol: str,
+    start_date: str, end_date: str, src: str, limit: int,
+) -> List[Dict[str, Any]]:
+    """策略 1: 快讯接口（eastmoney 源有 title）"""
+    sources = [src] if src and src in NEWS_SOURCES else NEWS_SOURCES[:3]
+    all_news: List[Dict[str, Any]] = []
+
+    for source in sources:
+        try:
+            df = await asyncio.to_thread(
+                conn.api.news, src=source, start_date=start_date, end_date=end_date
+            )
+            if df is not None and not df.empty:
+                items = _process_news(df, source, symbol, limit)
+                all_news.extend(items)
+                if len(all_news) >= limit:
+                    break
+        except Exception:
+            continue
+        await asyncio.sleep(0.2)
+
+    return all_news
+
+
+async def _fetch_major_news(
+    conn: TushareConnection, start_date: str, end_date: str, limit: int,
+) -> List[Dict[str, Any]]:
+    """策略 2: 长篇通讯（带 title/url，质量更高）"""
+    try:
+        df = await asyncio.to_thread(
+            conn.api.major_news, start_date=start_date, end_date=end_date
+        )
+        if df is None or df.empty:
+            return []
+
+        items = []
+        for _, row in df.head(limit).iterrows():
+            title = str(row.get("title", ""))
+            if not title:
+                continue
+            pub_time = _parse_time(row.get("pub_time", ""))
+            items.append({
+                "title": title,
+                "content": title,
+                "summary": title,
+                "url": str(row.get("url", "")),
+                "source": str(row.get("src", "tushare_major")),
+                "publish_time": pub_time,
+                "category": "major_news",
+                "sentiment": "neutral",
+                "importance": "high",
+                "keywords": [],
+                "data_source": "tushare",
+                "original_source": "major_news",
+            })
+        return items
+    except Exception as e:
+        logger.debug(f"Tushare major_news 失败（可能积分不足）: {e}")
+        return []
+
+
+async def _fetch_cctv_news(
+    conn: TushareConnection, limit: int,
+) -> List[Dict[str, Any]]:
+    """策略 3: 新闻联播（权威来源）"""
+    try:
+        today = now_utc().strftime("%Y%m%d")
+        df = await asyncio.to_thread(conn.api.cctv_news, date=today)
+        if df is None or df.empty:
+            return []
+
+        items = []
+        for _, row in df.head(limit).iterrows():
+            title = str(row.get("title", ""))
+            if not title:
+                continue
+            items.append({
+                "title": title,
+                "content": str(row.get("content", "")),
+                "summary": str(row.get("content", ""))[:200],
+                "url": "",
+                "source": "央视新闻联播",
+                "publish_time": _parse_time(row.get("date", "")),
+                "category": "cctv_news",
+                "sentiment": "neutral",
+                "importance": "high",
+                "keywords": [],
+                "data_source": "tushare",
+                "original_source": "cctv_news",
+            })
+        return items
+    except Exception as e:
+        logger.debug(f"Tushare cctv_news 失败: {e}")
+        return []
+
+
+def _deduplicate_and_sort(
+    news_list: List[Dict[str, Any]], limit: int
+) -> List[Dict[str, Any]]:
+    """去重并排序：个股相关的在前（按时间倒序），全市场的在后"""
+    seen: set = set()
+    unique = [n for n in news_list if n["title"] not in seen and not seen.add(n["title"])]
+
+    def _sort_key(item):
+        pt = item.get("publish_time", "")
+        if isinstance(pt, datetime):
+            time_val = pt
+        elif isinstance(pt, str) and pt:
+            try:
+                time_val = datetime.strptime(pt, "%Y-%m-%d %H:%M:%S")
+            except (ValueError, TypeError):
+                try:
+                    time_val = datetime.strptime(pt, "%Y-%m-%d")
+                except (ValueError, TypeError):
+                    time_val = datetime.min
+        else:
+            time_val = datetime.min
+        # 个股定向的排在前面（0），全市场的排在后面（1）
+        is_targeted = 0 if item.get("original_source") in ("em_notice", "em_search", "sina") else 1
+        return (is_targeted, -time_val.timestamp())
+
+    return sorted(unique, key=_sort_key)[:limit]
 
 
 def _process_news(
@@ -75,7 +289,9 @@ def _process_news(
     items = []
     for _, row in df.head(limit * 2).iterrows():
         content = str(row.get("content", ""))
-        title = str(row.get("title", "") or content[:50] + "...")
+        raw_title = row.get("title", "")
+        # eastmoney 源有 title，sina 等源 title 为 None
+        title = str(raw_title) if raw_title else content[:50].rstrip("。") + "..."
         item = {
             "title": title,
             "content": content,
@@ -101,7 +317,11 @@ def _parse_time(time_str) -> Optional[datetime]:
     try:
         return datetime.strptime(str(time_str), "%Y-%m-%d %H:%M:%S")
     except Exception:
-        return now_utc()
+        # 尝试纯日期格式（cctv_news 返回 YYYYMMDD）
+        try:
+            return datetime.strptime(str(time_str), "%Y%m%d")
+        except Exception:
+            return now_utc()
 
 
 def _classify(channels: str, content: str) -> str:
@@ -136,6 +356,16 @@ def _keywords(content: str, title: str) -> List[str]:
 
 
 def _is_relevant(item: Dict, symbol: str) -> bool:
-    clean = symbol.replace(".SH", "").replace(".SZ", "").zfill(6)
-    text = f"{item.get('content', '')} {item.get('title', '')}".lower()
-    return clean in text or symbol in text
+    clean = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "").zfill(6)
+    text = f"{item.get('content', '')} {item.get('title', '')}"
+    if clean in text or symbol in text:
+        return True
+    # 尝试用股票名称匹配
+    try:
+        from app.data.sources.cn.akshare.api.news import _get_stock_name_sync
+        name = _get_stock_name_sync(clean)
+        if name and name in text:
+            return True
+    except Exception:
+        pass
+    return False

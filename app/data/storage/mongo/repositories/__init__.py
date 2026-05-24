@@ -10,3 +10,11 @@ from app.data.storage.mongo.repositories.market_quotes_repo import MarketQuotesR
 from app.data.storage.mongo.repositories.news_repo import NewsRepo as NewsRepo
 from app.data.storage.mongo.repositories.trade_calendar_repo import TradeCalendarRepo as TradeCalendarRepo
 from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo as MetadataRepo
+from app.data.storage.mongo.repositories.intraday_quotes_repo import IntradayQuotesRepo as IntradayQuotesRepo
+from app.data.storage.mongo.repositories.money_flow_repo import MoneyFlowRepo as MoneyFlowRepo
+from app.data.storage.mongo.repositories.margin_trading_repo import MarginTradingRepo as MarginTradingRepo
+from app.data.storage.mongo.repositories.dragon_tiger_repo import DragonTigerRepo as DragonTigerRepo
+from app.data.storage.mongo.repositories.block_trade_repo import BlockTradeRepo as BlockTradeRepo
+from app.data.storage.mongo.repositories.connect_status_repo import ConnectStatusRepo as ConnectStatusRepo
+from app.data.storage.mongo.repositories.southbound_holding_repo import SouthboundHoldingRepo as SouthboundHoldingRepo
+from app.data.storage.mongo.repositories.pre_post_market_repo import PrePostMarketRepo as PrePostMarketRepo

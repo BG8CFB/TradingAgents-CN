@@ -1,18 +1,19 @@
 """
 中国A股市场工具 - 市场概览、龙虎榜、大宗交易
 
-注意：指数、龙虎榜、大宗交易等数据不在新数据平台标准域范围内，
-因此直接通过 AKShare/Tushare API 获取。
+主要数据通过 DataInterface 统一获取，走 FallbackRouter 自动降级。
+板块行情属于高频实时快照，通过东方财富 API 直接获取（不经过 DataInterface）。
 """
 import json
 import logging
-import os
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
-from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
+from app.data.core.interface import DataInterface
+from app.core.async_utils import run_async
 logger = logging.getLogger(__name__)
 
 
@@ -24,7 +25,7 @@ def get_china_market_overview(
     """
     获取中国A股市场整体概览。
 
-    返回市场指数、板块表现、资金流向等宏观市场数据。
+    返回市场指数、板块表现等宏观市场数据。
 
     Args:
         date: 查询日期，格式 YYYY-MM-DD，默认今天
@@ -32,7 +33,7 @@ def get_china_market_overview(
         include_sectors: 是否包含板块表现数据
 
     Returns:
-        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
+        JSON 格式的 ToolResult
     """
     logger.info("[中国市场工具] 获取市场概览")
     start_time = now_utc()
@@ -43,22 +44,27 @@ def get_china_market_overview(
     result_sections = []
 
     if include_indices:
-        indices_data = []
         indices_to_fetch = [
-            ('000001.SH', 'sh000001', '上证指数'),
-            ('399001.SZ', 'sz399001', '深证成指'),
-            ('399006.SZ', 'sz399006', '创业板指'),
+            ('000001', '上证指数'),
+            ('399001', '深证成指'),
+            ('399006', '创业板指'),
         ]
 
+        indices_data = []
         try:
-            import akshare as ak
-            for ts_code, ak_code, name in indices_to_fetch:
+            di = DataInterface.get_instance()
+            for symbol, name in indices_to_fetch:
                 try:
-                    df = ak.stock_zh_index_daily(symbol=ak_code)
-                    if not df.empty:
-                        latest = df.iloc[-1]
-                        close = latest.get('close', 'N/A')
-                        indices_data.append(f"- **{name}**: {close}")
+                    result = run_async(di.read("CN", "market_quotes", symbol=symbol))
+                    data = result.get("data")
+                    if data:
+                        if isinstance(data, dict):
+                            price = data.get("last_price", "N/A")
+                        elif isinstance(data, list) and data:
+                            price = data[0].get("last_price", "N/A")
+                        else:
+                            price = "N/A"
+                        indices_data.append(f"- **{name}**: {price}")
                 except Exception as e:
                     logger.warning(f"获取 {name} 失败: {e}")
         except Exception as e:
@@ -67,15 +73,16 @@ def get_china_market_overview(
         if indices_data:
             result_sections.append("## 主要指数\n\n" + "\n".join(indices_data))
         else:
-            result_sections.append("## 主要指数\n\n指数数据暂时无法获取")
+            result_sections.append("## 主要指数\n\n指数数据暂时无法获取（请先同步 market_quotes 数据）")
 
     if include_sectors:
         try:
-            import akshare as ak
             import concurrent.futures
 
             sector_df = None
 
+            # 板块行情是高频实时快照数据，无法通过"同步→缓存→读取"模式管理
+            # 因此直接调用东方财富 API 获取，不经过 DataInterface
             try:
                 from app.utils.anti_scraping import fetch_em_board_direct
                 board_data = fetch_em_board_direct()
@@ -84,24 +91,9 @@ def get_china_market_overview(
                     sector_df = pd.DataFrame(board_data)
                     sector_df = sector_df.rename(columns={"f14": "板块名称", "f3": "涨跌幅", "f2": "最新价"})
                     sector_df = sector_df.sort_values("涨跌幅", ascending=False)
-                    logger.info(f"直接 API 板块数据获取成功: {len(sector_df)} 条")
+                    logger.info(f"东方财富 API 板块数据获取成功: {len(sector_df)} 条")
             except Exception as e:
-                logger.warning(f"直接 API 板块数据失败，回退 AKShare: {e}")
-
-            if sector_df is None or sector_df.empty:
-                try:
-                    def fetch_sector_data():
-                        return ak.stock_board_industry_name_em()
-
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(fetch_sector_data)
-                        sector_df = future.result(timeout=15)
-                except concurrent.futures.TimeoutError:
-                    logger.warning("AKShare 板块数据获取超时 (15s)")
-                    result_sections.append("## 板块表现\n\n数据获取超时，请稍后重试")
-                except Exception as e:
-                    logger.warning(f"AKShare 板块数据获取异常: {e}")
-                    result_sections.append(f"## 板块表现\n\n数据源异常: {e}")
+                logger.warning(f"东方财富 API 板块数据失败: {e}")
 
             if sector_df is not None and not sector_df.empty:
                 top_sectors = sector_df.head(5)
@@ -138,7 +130,7 @@ def get_china_market_overview(
 {chr(10).join(result_sections)}
 
 ---
-*数据来源: AKShare/Tushare*
+*数据来源: DataInterface（自动降级） + 东方财富实时API（板块行情）*
 """
     logger.info(f"[中国市场工具] 数据获取完成，总长度: {len(combined_result)}")
     return format_tool_result(success_result(combined_result))
@@ -156,65 +148,40 @@ def get_dragon_tiger_inst(
         ts_code: 股票代码，可选
 
     Returns:
-        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
+        JSON 格式的 ToolResult
     """
     try:
         if not trade_date:
             trade_date = get_current_date_compact()
 
-        try:
-            import akshare as ak
-            import pandas as pd
+        logger.info(f"获取龙虎榜数据: 日期{trade_date}, 股票{ts_code}")
 
-            logger.info(f"使用 AkShare 获取龙虎榜数据: 日期{trade_date}")
+        di = DataInterface.get_instance()
 
-            df = None
-            try:
-                df = ak.stock_lhb_detail_em(start_date=trade_date, end_date=trade_date)
-                if df is None:
-                    logger.warning(f"stock_lhb_detail_em 返回 None（{trade_date} 可能没有龙虎榜数据）")
-                else:
-                    logger.info(f"使用 stock_lhb_detail_em 成功获取数据: {len(df)} 条记录")
-            except Exception as em_e:
-                logger.warning(f"stock_lhb_detail_em 失败: {em_e}，尝试其他接口")
-                try:
-                    df = ak.stock_lhb_detail_daily_sina(date=trade_date)
-                    logger.info("使用 stock_lhb_detail_daily_sina 成功获取数据")
-                except Exception as sina_e:
-                    logger.warning(f"stock_lhb_detail_daily_sina 也失败: {sina_e}")
-                    df = None
+        filters = {"limit": 100}
+        symbol = None
+        if ts_code:
+            symbol = ts_code.replace('.SH', '').replace('.SZ', '').replace('.sh', '').replace('.sz', '').zfill(6)
 
-            if df is not None and not df.empty:
-                if ts_code:
-                    code_6digit = ts_code.replace('.SH', '').replace('.SZ', '').replace('.sh', '').replace('.sz', '').zfill(6)
-                    df_filtered = None
-                    for col_name in ['代码', '股票代码', 'symbol', 'stock_code']:
-                        if col_name in df.columns:
-                            df_filtered = df[df[col_name] == code_6digit]
-                            if not df_filtered.empty:
-                                break
+        if symbol:
+            result = run_async(di.read("CN", "dragon_tiger", symbol=symbol, filters=filters))
+        else:
+            result = run_async(di.read("CN", "dragon_tiger", start_date=trade_date, filters=filters))
 
-                    if df_filtered is None or df_filtered.empty:
-                        logger.info(f"AkShare 未找到 {ts_code} 的龙虎榜数据，返回全部数据")
-                        df_filtered = df
-                    else:
-                        logger.info(f"AkShare 找到 {ts_code} 的龙虎榜数据: {len(df_filtered)} 条记录")
-                else:
-                    df_filtered = df
+        data = result.get("data")
 
-                logger.info(f"AkShare 成功获取龙虎榜数据: {len(df_filtered)} 条记录")
-
-                data_dict = df_filtered.head(50).to_dict(orient='records')
-                json_data = json.dumps(data_dict, ensure_ascii=False, default=str)
-                return format_tool_result(success_result(data=json_data))
+        if data:
+            if isinstance(data, list):
+                records = data[:50]
             else:
-                logger.warning("AkShare 龙虎榜接口返回空数据")
-        except Exception as ak_e:
-            logger.warning(f"AkShare 获取龙虎榜数据失败: {ak_e}")
+                records = [data]
+
+            json_data = json.dumps(records, ensure_ascii=False, default=str)
+            return format_tool_result(success_result(data=json_data))
 
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR,
-            f"无法获取龙虎榜数据: {trade_date}"
+            f"无法获取龙虎榜数据: {trade_date}（请先同步 dragon_tiger 数据）"
         ))
     except Exception as e:
         logger.error(f"get_dragon_tiger_inst failed: {e}")
@@ -238,7 +205,7 @@ def get_block_trade(
         code: 股票代码，可选
 
     Returns:
-        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
+        JSON 格式的 ToolResult
     """
     try:
         if not end_date:
@@ -246,46 +213,30 @@ def get_block_trade(
         if not start_date:
             start_date = (now_utc() - timedelta(days=7)).strftime('%Y%m%d')
 
-        try:
-            import akshare as ak
-            import pandas as pd
+        logger.info(f"获取大宗交易数据: 日期范围 {start_date}-{end_date}, 股票{code}")
 
-            logger.info(f"使用 AkShare 获取大宗交易数据: 日期范围 {start_date}-{end_date}")
+        di = DataInterface.get_instance()
 
-            df = ak.stock_dzjy_mrmx(symbol='A股', start_date=start_date, end_date=end_date)
+        if code:
+            symbol = code.replace('.SH', '').replace('.SZ', '').replace('.sh', '').replace('.sz', '').zfill(6)
+            result = run_async(di.read("CN", "block_trade", symbol=symbol))
+        else:
+            result = run_async(di.read("CN", "block_trade", start_date=start_date, end_date=end_date))
 
-            if df is not None and not df.empty:
-                logger.info(f"AkShare 成功获取大宗交易数据: {len(df)} 条记录")
+        data = result.get("data")
 
-                if code:
-                    code_6digit = code.replace('.SH', '').replace('.SZ', '').replace('.sh', '').replace('.sz', '').zfill(6)
-                    for col_name in ['证券代码', '代码', 'symbol', 'stock_code']:
-                        if col_name in df.columns:
-                            df_filtered = df[df[col_name] == code_6digit]
-                            if not df_filtered.empty:
-                                break
-                    else:
-                        df_filtered = df
-
-                    if df_filtered.empty:
-                        logger.info(f"AkShare 未找到 {code} 的大宗交易数据，返回全部数据")
-                        df_filtered = df
-                    else:
-                        logger.info(f"AkShare 找到 {code} 的大宗交易数据: {len(df_filtered)} 条记录")
-                else:
-                    df_filtered = df
-
-                data_dict = df_filtered.head(50).to_dict(orient='records')
-                json_data = json.dumps(data_dict, ensure_ascii=False, default=str)
-                return format_tool_result(success_result(data=json_data))
+        if data:
+            if isinstance(data, list):
+                records = data[:50]
             else:
-                logger.warning("AkShare 大宗交易接口返回空数据")
-        except Exception as ak_e:
-            logger.warning(f"AkShare 获取大宗交易数据失败: {ak_e}")
+                records = [data]
+
+            json_data = json.dumps(records, ensure_ascii=False, default=str)
+            return format_tool_result(success_result(data=json_data))
 
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR,
-            "无法获取大宗交易数据"
+            "无法获取大宗交易数据（请先同步 block_trade 数据）"
         ))
     except Exception as e:
         logger.error(f"get_block_trade failed: {e}")

@@ -231,3 +231,120 @@ class AKShareCNAdapter(BaseAdapter):
                 last_volume=_safe_float(get("volume") or get("成交量")),
             ))
         return results
+
+    def adapt_intraday_quotes(self, raw: Any) -> List[dict]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = str(get("股票代码", "") or get("code", "")).zfill(6)
+            dt = str(get("时间", "") or get("datetime", "") or get("day", ""))
+            results.append({
+                "symbol": symbol,
+                "market": "CN",
+                "data_source": "akshare",
+                "datetime": dt,
+                "freq": str(get("freq", "30min")),
+                "open": _safe_float(get("开盘", "") or get("open")),
+                "close": _safe_float(get("收盘", "") or get("close")),
+                "high": _safe_float(get("最高", "") or get("high")),
+                "low": _safe_float(get("最低", "") or get("low")),
+                "volume": _safe_float(get("成交量", "") or get("volume")),
+                "amount": _safe_float(get("成交额", "") or get("amount")),
+                "pct_chg": _safe_float(get("涨跌幅", "") or get("change")),
+            })
+        return results
+
+    def adapt_money_flow(self, raw: Any) -> List[dict]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = str(get("股票代码", "") or get("代码", "") or get("symbol", "")).zfill(6)
+            td = _parse_date(get("日期", "") or get("trade_date", ""))
+            results.append({
+                "symbol": symbol,
+                "market": "CN",
+                "data_source": "akshare",
+                "trade_date": td,
+                "main_net_inflow": _safe_float(get("主力净流入-净额", "") or get("main_net_inflow")),
+                "main_net_inflow_pct": _safe_float(get("主力净流入-净占比", "") or get("main_net_pct")),
+                "huge_net_inflow": _safe_float(get("超大单净流入-净额", "") or get("huge_net_inflow")),
+                "large_net_inflow": _safe_float(get("大单净流入-净额", "") or get("large_net_inflow")),
+                "medium_net_inflow": _safe_float(get("中单净流入-净额", "") or get("medium_net_inflow")),
+                "small_net_inflow": _safe_float(get("小单净流入-净额", "") or get("small_net_inflow")),
+            })
+        return results
+
+    def adapt_margin_trading(self, raw: Any) -> List[dict]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = str(get("证券代码", "") or get("股票代码", "") or get("symbol", "")).zfill(6)
+            td = _parse_date(get("日期", "") or get("trade_date", ""))
+            results.append({
+                "symbol": symbol,
+                "market": "CN",
+                "data_source": "akshare",
+                "trade_date": td,
+                "rzye": _safe_float(get("融资余额", "") or get("rzye")),
+                "rqye": _safe_float(get("融券余额", "") or get("rqye")),
+                "rz_buy": _safe_float(get("融资买入额", "") or get("rz_buy")),
+                "rq_sell": _safe_float(get("融券卖出量", "") or get("rq_sell")),
+                "rzrqye": _safe_float(get("融资融券余额", "") or get("rzrqye")),
+            })
+        return results
+
+    def adapt_dragon_tiger(self, raw: Any) -> List[dict]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = str(get("代码", "") or get("股票代码", "") or get("symbol", "")).zfill(6)
+            td = _parse_date(get("日期", "") or get("trade_date", ""))
+            results.append({
+                "symbol": symbol,
+                "market": "CN",
+                "data_source": "akshare",
+                "trade_date": td,
+                "name": str(get("名称", "") or get("name", "")),
+                "close": _safe_float(get("收盘价", "") or get("close")),
+                "pct_chg": _safe_float(get("涨跌幅", "") or get("change_pct")),
+                "direction": str(get("解读", "") or get("direction", "")),
+                "buy_amount": _safe_float(get("买入额", "") or get("buy")),
+                "sell_amount": _safe_float(get("卖出额", "") or get("sell")),
+                "net_amount": _safe_float(get("净额", "") or get("net")),
+            })
+        return results
+
+    def adapt_block_trade(self, raw: Any) -> List[dict]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = str(get("证券代码", "") or get("代码", "") or get("symbol", "")).zfill(6)
+            td = _parse_date(get("成交日期", "") or get("trade_date", ""))
+            results.append({
+                "symbol": symbol,
+                "market": "CN",
+                "data_source": "akshare",
+                "trade_date": td,
+                "name": str(get("证券名称", "") or get("名称", "") or get("name", "")),
+                "price": _safe_float(get("成交价", "") or get("price")),
+                "volume": _safe_float(get("成交量", "") or get("volume")),
+                "amount": _safe_float(get("成交额", "") or get("amount")),
+                "buyer": str(get("买方营业部", "") or get("buyer", "")),
+                "seller": str(get("卖方营业部", "") or get("seller", "")),
+            })
+        return results

@@ -42,30 +42,28 @@ def run_async(coro: Awaitable[T]) -> T:
     在正确的异步上下文中执行协程。
 
     策略：
-    1. 如果当前线程有运行中的事件循环 → 直接 await（通过 nest_asyncio 或直接调用）
-    2. 如果有注册的主事件循环（uvicorn）→ run_coroutine_threadsafe 调度到主循环
+    1. 如果当前已在主事件循环的线程中 → 编程错误，应直接 await 而非调用 run_async
+    2. 如果有注册的主事件循环（uvicorn），但当前在 worker thread → run_coroutine_threadsafe 调度到主循环
     3. 如果都没有（纯脚本）→ asyncio.run() 创建新循环
     """
-    # 策略 2：有主事件循环，且当前不在主循环线程中
     main_loop = _main_loop
     if main_loop is not None and main_loop.is_running():
         try:
             current_loop = asyncio.get_running_loop()
-            # 当前线程有事件循环——如果就是主循环，说明我们在主线程
-            if current_loop is main_loop:
-                import concurrent.futures
-                # 在新线程中用 asyncio.run 执行（不阻塞主循环）
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    import asyncio as _aio
-                    future = pool.submit(_aio.run, coro)
-                    return future.result(timeout=60)
         except RuntimeError:
             # 没有运行中的事件循环——我们在 worker thread 中
-            pass
+            current_loop = None
+
+        if current_loop is main_loop:
+            # 主线程中已有事件循环，不能调用 run_async
+            raise RuntimeError(
+                "run_async() 不能在主线程的事件循环中调用。"
+                "请直接 await 协程，或使用 run_in_executor 在 worker thread 中调用 run_async。"
+            )
 
         # worker thread: 通过 run_coroutine_threadsafe 调度到主循环
         future = asyncio.run_coroutine_threadsafe(coro, main_loop)
         return future.result(timeout=60)
 
-    # 策略 3：没有主事件循环（纯脚本、测试）
+    # 没有主事件循环（纯脚本、测试）
     return asyncio.run(coro)

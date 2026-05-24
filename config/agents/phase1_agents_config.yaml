@@ -384,6 +384,8 @@ customModes:
       - dragon_tiger
       - block_trade
       - money_flow
+      - margin_trade
+      - basic_info
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 
@@ -816,6 +818,7 @@ customModes:
       - daily_quotes
       - intraday_quotes
       - market_quotes
+      - daily_indicators
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 
@@ -1226,6 +1229,7 @@ customModes:
     tool_key: "social"
     tools:
       - sentiment
+      - news
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 
@@ -1413,6 +1417,8 @@ customModes:
       - daily_quotes
       - fundamentals
       - financial_data
+      - daily_indicators
+      - basic_info
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 

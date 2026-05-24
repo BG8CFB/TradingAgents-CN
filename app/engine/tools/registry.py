@@ -1,8 +1,8 @@
 """
 统一工具注册中心
 
-管理三类工具：内置工具（Builtin）、MCP 工具（外部）、Skill 工具（渐进式披露）。
-提供统一的工具获取、按名称查询、可用性管理接口。
+管理三类工具：内置工具（Builtin）、外部 MCP 工具、Skill 工具。
+提供统一的工具获取、按名称查询、可用性管理、类型分类接口。
 """
 import asyncio
 import logging
@@ -11,6 +11,11 @@ from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# 工具类型枚举（三类）
+TOOL_TYPE_BUILTIN = "builtin"       # 项目内置工具（含 LangGraph 工具 + MCP Provider 工具）
+TOOL_TYPE_MCP = "mcp"              # 外部 MCP 连接器工具
+TOOL_TYPE_SKILL = "skill"          # Skill 渐进式披露工具
+
 # 全局单例
 _registry = None
 _registry_lock = threading.Lock()
@@ -18,7 +23,7 @@ _registry_lock = threading.Lock()
 
 class ToolRegistry:
     """
-    统一工具注册中心 — 管理内置工具、MCP 工具、Skill
+    统一工具注册中心 — 管理内置工具、外部 MCP、Skill
 
     使用方式：
         registry = ToolRegistry.get_instance()
@@ -26,9 +31,9 @@ class ToolRegistry:
     """
 
     def __init__(self):
-        # 三类工具缓存
+        # 四类工具缓存
         self._builtin_tools: List = []
-        self._mcp_tools: List = []
+        self._mcp_tools: List = []          # 外部 MCP 连接器工具
         self._skill_tools: List = []
 
         # 内置工具元数据（从 builtin/loader 获取）
@@ -195,6 +200,122 @@ class ToolRegistry:
     def get_builtin_tool_metas(self) -> Dict[str, Dict]:
         """获取所有内置工具的元数据"""
         return dict(self._builtin_metas)
+
+    def get_mcp_provider_metas(self) -> List[Dict]:
+        """获取本地 MCP Provider 工具元数据列表。
+
+        MCP Provider 工具是项目内置的金融数据工具，通过 MCP 协议暴露，
+        定义在 app/engine/mcp_provider/finance.py 中。
+        """
+        try:
+            from app.routers.tools import _MCP_TOOLS
+            return list(_MCP_TOOLS)
+        except Exception:
+            return []
+
+    def get_tools_grouped_by_type(self) -> Dict[str, List]:
+        """按类型分组返回工具名称和元数据（三类：builtin / mcp / skill）。
+
+        Returns:
+            {
+                "builtin": [{"name": ..., "display_name": ..., ...}],
+                "mcp": [{"name": ..., "source": ..., ...}],
+                "skill": [{"name": ..., ...}],
+            }
+        """
+        result = {
+            TOOL_TYPE_BUILTIN: [],
+            TOOL_TYPE_MCP: [],
+            TOOL_TYPE_SKILL: [],
+        }
+
+        # 1. 内置工具（LangGraph 分析工具）
+        for name, meta in self._builtin_metas.items():
+            result[TOOL_TYPE_BUILTIN].append({
+                "name": name,
+                "display_name": meta.get("display_name", name),
+                "description": "",
+                **meta,
+            })
+
+        # 2. MCP Provider 工具也归入 builtin（项目自带，只是调用方式不同）
+        result[TOOL_TYPE_BUILTIN].extend(self.get_mcp_provider_metas())
+
+        # 3. 外部 MCP 工具
+        for tool in self._mcp_tools:
+            name = getattr(tool, "name", None)
+            if name and name not in self._disabled_tools:
+                meta = getattr(tool, "metadata", {}) or {}
+                description = getattr(tool, "description", "") or ""
+                source = meta.get("server_name", "mcp")
+                result[TOOL_TYPE_MCP].append({
+                    "name": name,
+                    "description": description,
+                    "source": source,
+                })
+
+        # 4. Skill 工具
+        for tool in self._skill_tools:
+            name = getattr(tool, "name", None)
+            if name and name not in self._disabled_tools:
+                description = getattr(tool, "description", "") or ""
+                result[TOOL_TYPE_SKILL].append({
+                    "name": name,
+                    "description": description,
+                })
+
+        return result
+
+    def classify_tool(self, tool_name: str) -> str:
+        """根据工具名判断其类型（三类：builtin / mcp / skill）。
+
+        Args:
+            tool_name: 工具名称
+
+        Returns:
+            工具类型字符串: builtin | mcp | skill | unknown
+        """
+        # 1. 内置 LangGraph 工具
+        if tool_name in self._builtin_metas:
+            return TOOL_TYPE_BUILTIN
+
+        # 2. MCP Provider 工具（也归为 builtin）
+        try:
+            from app.routers.tools import _MCP_TOOLS
+            mcp_names = {t["name"] for t in _MCP_TOOLS}
+            if tool_name in mcp_names:
+                return TOOL_TYPE_BUILTIN
+        except Exception:
+            pass
+
+        # 3. Skill 工具
+        for tool in self._skill_tools:
+            if getattr(tool, "name", None) == tool_name:
+                return TOOL_TYPE_SKILL
+
+        # 4. 外部 MCP 工具
+        for tool in self._mcp_tools:
+            if getattr(tool, "name", None) == tool_name:
+                return TOOL_TYPE_MCP_EXTERNAL
+
+        return "unknown"
+
+    def get_tool_display_name(self, tool_name: str) -> str:
+        """获取工具的中文显示名。优先用 builtin_metas，其次 MCP Provider。"""
+        # 内置工具
+        if tool_name in self._builtin_metas:
+            return self._builtin_metas[tool_name].get("display_name", tool_name)
+
+        # MCP Provider 工具
+        try:
+            from app.routers.tools import _MCP_TOOLS
+            for t in _MCP_TOOLS:
+                if t["name"] == tool_name:
+                    return t.get("description", tool_name).split("（")[0].split("(")[0]
+        except Exception:
+            pass
+
+        return tool_name
 
     @staticmethod
     def is_builtin_tool(tool) -> bool:

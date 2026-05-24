@@ -224,16 +224,34 @@ async def get_kline(
     # 检测市场类型
     market, normalized_code = _detect_market_and_code(code)
 
-    # 港股和美股：使用新架构 DataInterface
+    # 港股和美股：使用新架构 DataInterface，支持周K/月K聚合
     if market in ['HK', 'US']:
         from app.data.core.interface import DataInterface
-        from datetime import timedelta, time as dtime
 
         di = DataInterface.get_instance()
 
         try:
             result = await di.read(market, "daily_quotes", symbol=normalized_code)
             kline_data = result.get("data", [])
+
+            if kline_data and period in ("week", "month"):
+                from app.data.processor.aggregation import aggregate_period
+                agg_period = "weekly" if period == "week" else "monthly"
+                agg_input = []
+                for row in kline_data:
+                    agg_input.append({
+                        "trade_date": row.get("trade_date", row.get("date", "")),
+                        "open": row.get("open"),
+                        "high": row.get("high"),
+                        "low": row.get("low"),
+                        "close": row.get("close"),
+                        "volume": row.get("volume", row.get("vol")),
+                        "amount": row.get("amount"),
+                    })
+                aggregated = aggregate_period(agg_input, period=agg_period)
+                if aggregated and isinstance(aggregated, list):
+                    kline_data = aggregated
+
             return ok(data={
                 'code': normalized_code,
                 'period': period,
@@ -247,96 +265,98 @@ async def get_kline(
                 detail=safe_error_message(e, "获取K线数据失败")
             )
 
-    # A股：使用现有逻辑
+    # A股：从 MongoDB 获取日线数据，按需聚合周K/月K
     code_padded = normalized_code
     adj_norm = None if adj in (None, "none", "", "null") else adj
-    items = None
+    items = []
     source = None
-
-    # 周期映射：前端 -> MongoDB
-    period_map = {
-        "day": "daily",
-        "week": "weekly",
-        "month": "monthly",
-        "5m": "5min",
-        "15m": "15min",
-        "30m": "30min",
-        "60m": "60min"
-    }
-    mongodb_period = period_map.get(period, "daily")
 
     # 获取当前时间（配置时区）
     now = now_config_tz()
-    today_str_yyyymmdd = format_date_compact(now)  # 格式：20251028（用于查询）
-    today_str_formatted = format_date_short(now)  # 格式：2025-10-28（用于返回）
+    today_str_yyyymmdd = format_date_compact(now)
+    today_str_formatted = format_date_short(now)
 
-    # 1. 优先从 MongoDB 获取（通过新架构 DataInterface）
+    # 查询日线数据（周K/月K 从日线聚合，需要更多数据）
+    query_limit = limit * 5 if period in ("week", "month") else limit * 2
+
     try:
         from app.data.core.interface import DataInterface
 
         di = DataInterface.get_instance()
 
         end_date = now.strftime("%Y-%m-%d")
-        start_date = (now - timedelta(days=limit * 2)).strftime("%Y-%m-%d")
+        start_date = (now - timedelta(days=query_limit)).strftime("%Y-%m-%d")
 
-        logger.info(f"尝试从数据平台获取 K 线数据: {code_padded}, period={period}, limit={limit}")
+        logger.info(f"获取 K 线数据: {code_padded}, period={period}, limit={limit}")
         result = await di.read("CN", "daily_quotes", symbol=code_padded, start_date=start_date, end_date=end_date)
         data = result.get("data")
 
+        # 按需获取回退：当 MongoDB 无数据时，自动从在线数据源拉取并入库
+        if not data or (isinstance(data, list) and len(data) == 0):
+            logger.info(f"MongoDB 无 {code_padded} 日线数据，尝试按需刷新")
+            try:
+                refresh_result = await di.refresh("CN", code_padded, domains=["daily_quotes"], force=True, timeout=60)
+                logger.info(f"按需刷新结果: {refresh_result}")
+                # 刷新后重新读取
+                result = await di.read("CN", "daily_quotes", symbol=code_padded, start_date=start_date, end_date=end_date)
+                data = result.get("data")
+            except Exception as refresh_err:
+                logger.warning(f"按需刷新 {code_padded} 日线数据失败: {refresh_err}")
+
         if data and isinstance(data, list):
-            for row in data[-limit:]:
-                items.append({
-                    "time": row.get("trade_date", row.get("date", "")),
-                    "open": float(row.get("open", 0)) if row.get("open") else None,
-                    "high": float(row.get("high", 0)) if row.get("high") else None,
-                    "low": float(row.get("low", 0)) if row.get("low") else None,
-                    "close": float(row.get("close", 0)) if row.get("close") else None,
-                    "volume": float(row.get("volume", row.get("vol", 0))) if row.get("volume") or row.get("vol") else None,
-                    "amount": float(row.get("amount", 0)) if row.get("amount") else None,
-                })
-            source = "mongodb"
-            logger.info(f"从数据平台获取到 {len(items)} 条 K 线数据")
-    except Exception as e:
-        logger.warning(f"⚠️ MongoDB 获取 K 线失败: {e}")
+            # 构建日线记录（保留全部字段用于聚合）
+            daily_records = data if period in ("week", "month") else data[-limit:]
 
-    # 2. 如果 MongoDB 没有数据，降级到外部 API（带超时保护）
-    if not items:
-        logger.info("MongoDB 无数据，降级到外部 API")
-        try:
-            import asyncio
-            from app.data.core.interface import DataInterface
-            from datetime import datetime, timedelta
+            if period in ("week", "month"):
+                # 周K/月K：先聚合再截取
+                from app.data.processor.aggregation import aggregate_period
+                agg_period = "weekly" if period == "week" else "monthly"
 
-            di = DataInterface.get_instance()
-            end_date = format_date_compact(now_config_tz())
-            start_date = format_date_compact(now_config_tz() - timedelta(days=max(limit * 2, 60)))
-            market = "CN"
-            result = await asyncio.wait_for(
-                di.read(market, "daily_quotes", symbol=code_padded, start_date=start_date, end_date=end_date),
-                timeout=10.0
-            )
-            data = result.get("data")
-            if data and isinstance(data, list):
-                for row in data:
+                # 准备聚合输入（使用 trade_date 字段）
+                agg_input = []
+                for row in daily_records:
+                    agg_input.append({
+                        "trade_date": row.get("trade_date", row.get("date", "")),
+                        "open": row.get("open"),
+                        "high": row.get("high"),
+                        "low": row.get("low"),
+                        "close": row.get("close"),
+                        "volume": row.get("volume", row.get("vol")),
+                        "amount": row.get("amount"),
+                    })
+
+                aggregated = aggregate_period(agg_input, period=agg_period)
+                if aggregated and isinstance(aggregated, list):
+                    for row in aggregated[-limit:]:
+                        items.append({
+                            "time": row.get("trade_date", ""),
+                            "open": float(row.get("open", 0)) if row.get("open") else None,
+                            "high": float(row.get("high", 0)) if row.get("high") else None,
+                            "low": float(row.get("low", 0)) if row.get("low") else None,
+                            "close": float(row.get("close", 0)) if row.get("close") else None,
+                            "volume": float(row.get("volume", 0)) if row.get("volume") else None,
+                            "amount": float(row.get("amount", 0)) if row.get("amount") else None,
+                        })
+                    source = "mongodb_aggregated"
+                    logger.info(f"聚合 {agg_period} K线: {len(items)} 条")
+            else:
+                # 日K：直接转换
+                for row in daily_records:
                     items.append({
-                        "date": row.get("trade_date", ""),
+                        "time": row.get("trade_date", row.get("date", "")),
                         "open": float(row.get("open", 0)) if row.get("open") else None,
-                        "close": float(row.get("close", 0)) if row.get("close") else None,
                         "high": float(row.get("high", 0)) if row.get("high") else None,
                         "low": float(row.get("low", 0)) if row.get("low") else None,
-                        "volume": float(row.get("volume", 0)) if row.get("volume") else None,
+                        "close": float(row.get("close", 0)) if row.get("close") else None,
+                        "volume": float(row.get("volume", row.get("vol", 0))) if row.get("volume") or row.get("vol") else None,
                         "amount": float(row.get("amount", 0)) if row.get("amount") else None,
                     })
-                source = "data_platform"
-                logger.info(f"从数据平台获取到 {len(items)} 条 K 线数据")
-        except asyncio.TimeoutError:
-            logger.error("❌ 外部 API 获取 K 线超时（10秒）")
-            raise HTTPException(status_code=504, detail="获取K线数据超时，请稍后重试")
-        except Exception as e:
-            logger.error(f"❌ 外部 API 获取 K 线失败: {e}")
-            raise HTTPException(status_code=500, detail=safe_error_message(e, "获取K线数据失败"))
+                source = "mongodb"
+                logger.info(f"获取日线 K线: {len(items)} 条")
+    except Exception as e:
+        logger.warning(f"获取 K 线数据失败: {e}")
 
-    # 🔥 3. 检查是否需要添加当天实时数据（仅针对日线）
+    # 添加当天实时数据（仅日线）
     if period == "day" and items:
         try:
             # 检查历史数据中是否已有当天的数据（支持两种日期格式）

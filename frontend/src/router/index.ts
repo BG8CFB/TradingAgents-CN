@@ -317,7 +317,7 @@ const routes: RouteRecordRaw[] = [
         name: 'MCPToolsManagement',
         component: () => import('@/views/Settings/MCPToolsManagement.vue'),
         meta: {
-          title: 'MCP 工具管理',
+          title: '数据工具管理',
           requiresAuth: true
         }
       },

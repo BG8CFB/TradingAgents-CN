@@ -1,17 +1,5 @@
 <template>
   <div class="dashboard">
-    <!-- 维护声明（可关闭，只显示一次） -->
-    <el-alert
-      v-if="showMaintAlert"
-      title="维护声明：本项目现由 BG8CFB 个人维护 (社区版)"
-      type="warning"
-      description="因原作者暂时失联，本版本由社区接手维护。每周定期更新，实时修复问题。本项目永久免费，仅供学习，投资请咨询专业机构。"
-      show-icon
-      closable
-      @close="dismissMaintAlert"
-      style="margin-bottom: 20px;"
-    />
-
     <!-- 搜索栏 -->
     <el-card class="search-card" shadow="hover">
       <div class="search-wrapper">
@@ -268,13 +256,6 @@ import type { AnalysisStatus } from '@/types/analysis'
 
 const router = useRouter()
 const appStore = useAppStore()
-
-// ==================== 维护声明 ====================
-const showMaintAlert = ref(!localStorage.getItem('maint-alert-dismissed'))
-const dismissMaintAlert = () => {
-  localStorage.setItem('maint-alert-dismissed', '1')
-  showMaintAlert.value = false
-}
 
 // ==================== 搜索栏 ====================
 const searchMarket = ref('CN')

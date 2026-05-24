@@ -88,11 +88,14 @@
                         <el-icon><Search /></el-icon>
                       </template>
                     </el-input>
-                    <el-radio-group v-model="toolSourceFilter" size="small">
-                      <el-radio-button label="all">全部</el-radio-button>
-                      <el-radio-button label="project">Project</el-radio-button>
-                      <el-radio-button label="mcp">MCP</el-radio-button>
-                    </el-radio-group>
+                    <div class="tool-type-tabs">
+                      <el-radio-group v-model="toolTypeFilter" size="small">
+                        <el-radio-button label="all">全部</el-radio-button>
+                        <el-radio-button label="builtin">内置</el-radio-button>
+                        <el-radio-button label="mcp">MCP</el-radio-button>
+                        <el-radio-button label="skill">技能</el-radio-button>
+                      </el-radio-group>
+                    </div>
                     <div class="tool-selector__summary">
                       <span>已选 {{ mode.tools?.length || 0 }} / {{ toolOptions.length }}</span>
                       <el-link type="primary" :underline="false" @click="mode.tools = []">清空</el-link>
@@ -115,8 +118,21 @@
                               @change.stop=""
                             />
                             <div class="tool-item__title">
-                              <span class="tool-item__name">{{ tool.value }}</span>
-                              <el-tag size="small" type="info" v-if="tool.source">{{ tool.source }}</el-tag>
+                              <span class="tool-item__name">{{ tool.label }}</span>
+                              <el-tag
+                                size="small"
+                                :type="getToolTypeColor(tool.toolType)"
+                                class="tool-type-tag"
+                              >
+                                {{ getToolTypeLabel(tool.toolType) }}
+                              </el-tag>
+                              <el-tag
+                                v-if="tool.availabilityStatus && tool.availabilityStatus !== 'unknown'"
+                                size="small"
+                                :type="getAvailabilityColor(tool.availabilityStatus)"
+                              >
+                                {{ getAvailabilityLabel(tool.availabilityStatus) }}
+                              </el-tag>
                             </div>
                           </div>
                           <el-tooltip
@@ -151,10 +167,10 @@
                             <span>{{ resolveToolLabel(tool) }}</span>
                             <el-tag
                               size="small"
-                              type="info"
-                              v-if="toolOptions.find((o) => o.value === tool)?.source"
+                              :type="getToolTypeColor(toolOptions.find((o) => o.value === tool)?.toolType)"
+                              v-if="toolOptions.find((o) => o.value === tool)?.toolType"
                             >
-                              {{ toolOptions.find((o) => o.value === tool)?.source }}
+                              {{ getToolTypeLabel(toolOptions.find((o) => o.value === tool)?.toolType) }}
                             </el-tag>
                           </div>
                           <div class="tool-selected-item__desc">
@@ -231,11 +247,24 @@ import { ref, computed, onMounted } from 'vue'
 import { Refresh, Plus, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { agentConfigApi, type PhaseAgentMode } from '@/api/agentConfigs'
-import { toolsApi, type AvailableTool } from '@/api/tools'
+import { toolsApi } from '@/api/tools'
 import { mcpApi, type MCPTool } from '@/api/mcp'
+import type { UnifiedTool, ToolType, AvailabilityStatus } from '@/types/tools'
+import {
+  TOOL_TYPE_LABELS,
+  TOOL_TYPE_COLORS,
+  AVAILABILITY_LABELS,
+  AVAILABILITY_COLORS,
+} from '@/types/tools'
 
 type UiPhaseAgentMode = PhaseAgentMode & { uiKey: string; tools: string[]; isNew?: boolean }
-type ToolOption = { label: string; value: string; description?: string; source?: string }
+type ToolOption = {
+  label: string
+  value: string
+  description?: string
+  toolType?: ToolType
+  availabilityStatus?: AvailabilityStatus
+}
 
 const createUiKey = () => `agent-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
@@ -252,7 +281,7 @@ const openedPanels = ref<string[]>([])
 const toolOptions = ref<ToolOption[]>([])
 const toolsLoading = ref(false)
 const toolSearch = ref('')
-const toolSourceFilter = ref<'all' | 'project' | 'mcp'>('all')
+const toolTypeFilter = ref<'all' | ToolType>('all')
 
 const normalizeMode = (mode?: PhaseAgentMode, isNew = false): UiPhaseAgentMode => ({
   uiKey: (mode as UiPhaseAgentMode)?.uiKey || createUiKey(),
@@ -268,30 +297,73 @@ const normalizeMode = (mode?: PhaseAgentMode, isNew = false): UiPhaseAgentMode =
   isNew
 })
 
+const getToolTypeLabel = (type?: ToolType) => {
+  if (!type) return ''
+  return TOOL_TYPE_LABELS[type] || type
+}
+
+const getToolTypeColor = (type?: ToolType): 'primary' | 'success' | 'warning' | 'danger' | 'info' => {
+  if (!type) return 'info'
+  return (TOOL_TYPE_COLORS[type] as 'primary' | 'success' | 'warning' | 'danger' | 'info') || 'info'
+}
+
+const getAvailabilityLabel = (status?: AvailabilityStatus) => {
+  if (!status) return ''
+  return AVAILABILITY_LABELS[status] || status
+}
+
+const getAvailabilityColor = (status?: AvailabilityStatus): 'primary' | 'success' | 'warning' | 'danger' | 'info' => {
+  if (!status) return 'info'
+  return (AVAILABILITY_COLORS[status] as 'primary' | 'success' | 'warning' | 'danger' | 'info') || 'info'
+}
+
 const fetchToolOptions = async () => {
   toolsLoading.value = true
   const dedup = new Set<string>()
   const options: ToolOption[] = []
 
-  const pushOption = (name?: string | null, source?: string, description?: string) => {
+  const pushOption = (
+    name?: string | null,
+    displayName?: string,
+    description?: string,
+    toolType?: ToolType,
+    availabilityStatus?: AvailabilityStatus,
+  ) => {
     if (!name) return
     if (dedup.has(name)) return
     dedup.add(name)
-    const label = source ? `${name}（${source}）` : name
-    options.push({ label, value: name, description: description || '', source })
+    const label = displayName || name
+    options.push({
+      label,
+      value: name,
+      description: description || '',
+      toolType,
+      availabilityStatus,
+    })
   }
 
   try {
-    // 1) 统一工具清单（含项目工具）
-    const res = await toolsApi.list(true)
-    const list = (res.data as AvailableTool[]) || []
-    list.forEach((tool) => pushOption(tool.name, tool.source, tool.description))
+    // 1) 优先使用统一工具清单（含类型和可用性）
+    const res = await toolsApi.listUnified(true, true)
+    const list = (res.data as UnifiedTool[]) || []
+    list.forEach((tool) => pushOption(
+      tool.name,
+      tool.display_name || tool.name,
+      tool.description,
+      tool.tool_type,
+      tool.availability?.status,
+    ))
 
     // 2) 兜底：如果统一清单为空，再尝试 MCP 列表
     if (!options.length) {
       const mcpRes = await mcpApi.listTools()
       const mcpList = (mcpRes.data as MCPTool[]) || []
-      mcpList.forEach((tool) => pushOption(tool.name || tool.id, tool.serverName, tool.description))
+      mcpList.forEach((tool) => pushOption(
+        tool.name || tool.id,
+        tool.name || tool.id,
+        tool.description,
+        'mcp',
+      ))
     }
 
     toolOptions.value = options
@@ -326,20 +398,11 @@ const filterToolOption = (query: string, option?: ToolOption) => {
   )
 }
 
-// @ts-expect-error
-const _toolFilterMethod = (query: string, option: any) => {
-  // option is el-option instance; we store raw option data on props
-  const opt = option?.raw as ToolOption | undefined
-  return filterToolOption(query, opt)
-}
-
 const filteredTools = computed(() => {
-  const source = toolSourceFilter.value
+  const typeFilter = toolTypeFilter.value
   return toolOptions.value.filter((t) => {
-    if (source !== 'all') {
-      const s = (t.source || '').toLowerCase()
-      if (source === 'project' && s === 'mcp') return false
-      if (source === 'mcp' && s !== 'mcp') return false
+    if (typeFilter !== 'all') {
+      if (t.toolType !== typeFilter) return false
     }
     return filterToolOption(toolSearch.value, t)
   })
@@ -353,7 +416,7 @@ const fetchPhaseConfig = async () => {
     phaseFileExists.value = data?.exists ?? false
     phaseConfigPath.value = data?.path || ''
     phaseModes.value = (data?.customModes || []).map((item) => normalizeMode(item, false))
-    openedPanels.value = [] // 默认收起
+    openedPanels.value = []
     if (data && data.exists === false) {
       ElMessage.info(`phase${activePhase.value} 配置文件不存在，保存后将自动创建`)
     }
@@ -526,17 +589,17 @@ onMounted(() => {
   box-shadow: var(--el-box-shadow-lighter);
 }
 
-.tool-selector {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
 .tool-selector__header {
   display: grid;
   grid-template-columns: 2fr auto auto;
   gap: 8px;
   align-items: center;
+  margin-bottom: 8px;
+}
+
+.tool-type-tabs {
+  display: flex;
+  gap: 0;
 }
 
 .tool-selector__summary {
@@ -583,10 +646,15 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .tool-item__name {
   font-weight: 600;
+}
+
+.tool-type-tag {
+  flex-shrink: 0;
 }
 
 .tool-item__desc {

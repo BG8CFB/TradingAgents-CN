@@ -113,10 +113,10 @@ class SchedulerEngine:
     def _make_job_func(self, market: str, domain: str):
         """创建任务函数 — 从 JobRegistry 查找并执行对应 Job。"""
         async def job():
-            await self._run_job_with_dependencies(market, domain, set())
+            await self._run_job_with_dependencies(market, domain, set(), force=False)
         return job
 
-    async def _run_job_with_dependencies(self, market: str, domain: str, visited: set[str]) -> None:
+    async def _run_job_with_dependencies(self, market: str, domain: str, visited: set[str], force: bool = False) -> None:
         node_key = f"{market}:{domain}"
         if node_key in visited:
             return
@@ -124,7 +124,7 @@ class SchedulerEngine:
 
         job_conf = self._job_configs.get((market, domain), {})
         for dep in job_conf.get("depends_on", []) or []:
-            await self._run_job_with_dependencies(market, dep, visited)
+            await self._run_job_with_dependencies(market, dep, visited, force=force)
 
         logger.info("执行调度: %s/%s", market, domain)
         job_entry = self._registry.get_job(domain, market)
@@ -137,6 +137,7 @@ class SchedulerEngine:
             job_instance.sync_mode = job_conf.get("mode", "incremental")
             job_instance.preferred_source = job_conf.get("source")
             job_instance.dependencies = list(job_conf.get("depends_on", []) or [])
+            job_instance.force_sync = force
             result = await job_instance.execute()
             logger.info("调度完成 %s/%s: %s", market, domain, result)
         except Exception as e:
@@ -148,7 +149,7 @@ class SchedulerEngine:
         job_id = f"{market.lower()}_{domain}"
         if self._registry.get_job(domain, market):
             try:
-                asyncio.create_task(self._run_job_with_dependencies(market, domain, set()))
+                asyncio.create_task(self._run_job_with_dependencies(market, domain, set(), force=True))
                 return job_id
             except Exception as e:
                 logger.error("手动触发失败 %s: %s", job_id, e)

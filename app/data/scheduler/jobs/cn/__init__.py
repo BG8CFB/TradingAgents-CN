@@ -75,6 +75,53 @@ class CNNewsJob(BaseSyncJob):
         return "Asia/Shanghai"
 
 
+class CNIntradayQuotesJob(BaseSyncJob):
+    """分钟级行情同步 — 仅同步热门标的或按需触发。"""
+    def __init__(self):
+        super().__init__("CN", "intraday_quotes")
+        self.force_sync = True
+    def get_cron(self) -> str:
+        return "*/30 9-14 * * 1-5"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
+class CNMoneyFlowJob(BaseSyncJob):
+    def __init__(self):
+        super().__init__("CN", "money_flow")
+    def get_cron(self) -> str:
+        return "30 16 * * 1-5"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
+class CNMarginTradingJob(BaseSyncJob):
+    def __init__(self):
+        super().__init__("CN", "margin_trading")
+    def get_cron(self) -> str:
+        return "0 17 * * 1-5"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
+class CNDragonTigerJob(BaseSyncJob):
+    def __init__(self):
+        super().__init__("CN", "dragon_tiger")
+    def get_cron(self) -> str:
+        return "0 18 * * 1-5"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
+class CNBlockTradeJob(BaseSyncJob):
+    def __init__(self):
+        super().__init__("CN", "block_trade")
+    def get_cron(self) -> str:
+        return "30 18 * * 1-5"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
 _CN_JOBS = [
     CNTradeCalendarJob,
     CNBasicInfoJob,
@@ -84,6 +131,11 @@ _CN_JOBS = [
     CNFinancialDataJob,
     CNMarketQuotesJob,
     CNNewsJob,
+    CNIntradayQuotesJob,
+    CNMoneyFlowJob,
+    CNMarginTradingJob,
+    CNDragonTigerJob,
+    CNBlockTradeJob,
 ]
 
 

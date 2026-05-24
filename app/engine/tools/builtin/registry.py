@@ -70,7 +70,7 @@ def _build_registry() -> List[BuiltinToolSpec]:
         BuiltinToolSpec(
             tool_id="intraday_quotes",
             display_name="分钟级行情",
-            domains=["daily_quotes"],
+            domains=["intraday_quotes"],
             markets=["CN"],
             fn=_lazy_import(f"{_M}.market", "get_stock_data_minutes"),
             inject_args={
@@ -123,10 +123,10 @@ def _build_registry() -> List[BuiltinToolSpec]:
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.sentiment", "get_stock_sentiment"),
             inject_args={"stock_code": "ticker", "current_date": "trade_date"},
-            description="市场情绪分析（基于新闻情感的正/负/中性统计）",
+            description="基于新闻情感标签的市场情绪统计（正面/负面/中性计数与评分）",
         ),
 
-        # ── 非标准数据域（AKShare 直调或未纳入标准域） ──
+        # ── CN 特定数据域（已纳入标准 DataInterface 域） ──
 
         BuiltinToolSpec(
             tool_id="china_market",
@@ -136,52 +136,51 @@ def _build_registry() -> List[BuiltinToolSpec]:
             fn=_lazy_import(f"{_M}.china_market", "get_china_market_overview"),
             inject_args={"date": "trade_date"},
             description="A股市场指数 + 板块涨跌概览",
-            non_standard=True,
-            availability_check="akshare_alive",
         ),
         BuiltinToolSpec(
             tool_id="dragon_tiger",
             display_name="龙虎榜",
-            domains=[],
+            domains=["dragon_tiger"],
             markets=["CN"],
             fn=_lazy_import(f"{_M}.china_market", "get_dragon_tiger_inst"),
             inject_args={"ts_code": "ticker", "trade_date": "trade_date_compact"},
             description="龙虎榜机构明细",
-            non_standard=True,
-            availability_check="akshare_alive",
         ),
         BuiltinToolSpec(
             tool_id="block_trade",
             display_name="大宗交易",
-            domains=[],
+            domains=["block_trade"],
             markets=["CN"],
             fn=_lazy_import(f"{_M}.china_market", "get_block_trade"),
             inject_args={"code": "ticker"},
             description="大宗交易数据",
-            non_standard=True,
-            availability_check="akshare_alive",
         ),
         BuiltinToolSpec(
             tool_id="money_flow",
             display_name="资金流向",
-            domains=[],
+            domains=["money_flow"],
             markets=["CN"],
             fn=_lazy_import(f"{_M}.capital_flow", "get_money_flow"),
             inject_args={"ts_code": "ticker", "query_type": "stock"},
             description="个股资金流向数据",
-            non_standard=True,
-            availability_check="akshare_alive",
         ),
         BuiltinToolSpec(
             tool_id="margin_trade",
             display_name="融资融券",
-            domains=[],
+            domains=["margin_trading"],
             markets=["CN"],
             fn=_lazy_import(f"{_M}.capital_flow", "get_margin_trade"),
             inject_args={"data_type": "margin", "ts_code": "ticker"},
             description="融资融券数据",
-            non_standard=True,
-            availability_check="akshare_alive",
+        ),
+        BuiltinToolSpec(
+            tool_id="daily_indicators",
+            display_name="估值指标",
+            domains=["daily_indicators"],
+            markets=["CN", "HK", "US"],
+            fn=_lazy_import(f"{_M}.market", "get_stock_indicators"),
+            inject_args={"stock_code": "ticker"},
+            description="股票估值指标（PE/PB/PS/市值/换手率等）",
         ),
     ]
 

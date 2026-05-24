@@ -1,64 +1,123 @@
 <template>
-  <div class="learning-article-wrapper">
-    <!-- 页面头部 -->
-    <el-page-header @back="goBack" :content="article.title">
-      <template #extra>
-        <el-button type="primary" :icon="Download" @click="downloadArticle">下载</el-button>
-      </template>
-    </el-page-header>
-
-    <!-- 主容器：文章 + 侧边栏 -->
-    <div class="learning-article">
-      <div class="article-container">
-        <div class="article-meta">
-          <el-tag :type="article.categoryType" size="small">{{ article.category }}</el-tag>
-          <span class="read-time">
-            <el-icon><Clock /></el-icon>
-            {{ article.readTime }}
-          </span>
-          <span class="views">
-            <el-icon><View /></el-icon>
-            {{ article.views }}
-          </span>
-          <span class="update-time">更新于 {{ article.updateTime }}</span>
+  <div class="article-page">
+    <!-- 顶部导航栏 -->
+    <div class="page-nav">
+      <div class="nav-inner">
+        <button class="back-btn" @click="goBack">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+          <span>返回</span>
+        </button>
+        <div class="breadcrumb">
+          <span class="bc-link" @click="goBack">学习中心</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
+          <span class="bc-current">{{ article.title }}</span>
         </div>
+        <div class="nav-actions">
+          <button class="action-btn" @click="toggleToc" title="目录">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/>
+            </svg>
+          </button>
+          <button class="action-btn" @click="downloadArticle" title="下载">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
 
-        <div class="article-content" v-html="article.content"></div>
-
-        <div class="article-footer">
-          <el-divider />
-          <div class="navigation">
-            <el-button v-if="prevArticle" @click="navigateToArticle(prevArticle.id)">
-              <el-icon><ArrowLeft /></el-icon>
-              上一篇：{{ prevArticle.title }}
-            </el-button>
-            <el-button v-if="nextArticle" @click="navigateToArticle(nextArticle.id)">
-              下一篇：{{ nextArticle.title }}
-              <el-icon><ArrowRight /></el-icon>
-            </el-button>
+    <!-- 主内容区 -->
+    <div class="article-body">
+      <!-- 文章容器 -->
+      <div class="article-main">
+        <!-- 文章头部 -->
+        <header class="article-header">
+          <h1 class="article-title">{{ article.title }}</h1>
+          <div class="article-meta">
+            <span class="meta-tag" :style="{ background: categoryColor }">
+              {{ article.category }}
+            </span>
+            <span class="meta-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+              </svg>
+              {{ article.readTime }}
+            </span>
+            <span class="meta-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              {{ article.updateTime }}
+            </span>
           </div>
-        </div>
+          <div class="header-divider"></div>
+        </header>
+
+        <!-- 文章内容 -->
+        <article class="article-content" v-html="article.content"></article>
+
+        <!-- 文章底部导航 -->
+        <footer class="article-footer">
+          <div class="footer-divider"></div>
+          <div class="nav-buttons">
+            <button v-if="prevArticle" class="nav-btn nav-prev" @click="navigateToArticle(prevArticle.id)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+              </svg>
+              <div class="nav-btn-body">
+                <span class="nav-btn-label">上一篇</span>
+                <span class="nav-btn-title">{{ prevArticle.title }}</span>
+              </div>
+            </button>
+            <div v-else></div>
+            <button v-if="nextArticle" class="nav-btn nav-next" @click="navigateToArticle(nextArticle.id)">
+              <div class="nav-btn-body" style="text-align: right">
+                <span class="nav-btn-label">下一篇</span>
+                <span class="nav-btn-title">{{ nextArticle.title }}</span>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </button>
+          </div>
+        </footer>
       </div>
 
       <!-- 侧边栏目录 -->
-      <div class="article-toc">
-        <div class="toc-title">目录</div>
-        <ul class="toc-list">
-          <li v-for="heading in tableOfContents" :key="heading.id"
-              :class="['toc-item', `toc-level-${heading.level}`]"
-              @click="scrollToHeading(heading.id)">
-            {{ heading.text }}
-          </li>
-        </ul>
-      </div>
+      <aside class="article-toc" :class="{ 'toc-visible': tocVisible, 'toc-hidden': !tocVisible }">
+        <div class="toc-sticky">
+          <div class="toc-header">
+            <span class="toc-title">目录</span>
+            <button class="toc-close" @click="toggleToc">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M15 18l-6-6 6-6"/>
+              </svg>
+            </button>
+          </div>
+          <nav class="toc-list">
+            <a
+              v-for="heading in tableOfContents"
+              :key="heading.id"
+              :class="['toc-link', `toc-level-${heading.level}`, { 'toc-active': activeHeading === heading.id }]"
+              @click.prevent="scrollToHeading(heading.id)"
+            >
+              {{ heading.text }}
+            </a>
+          </nav>
+        </div>
+      </aside>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Download, Clock, View, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import { sanitizeHtml } from '@/utils/markdown'
@@ -67,37 +126,34 @@ const route = useRoute()
 const router = useRouter()
 
 const articleId = computed(() => route.params.id as string)
+const tocVisible = ref(true)
+const activeHeading = ref('')
 
-// 回退：不集成 Mermaid
-
-// 文章注册表：支持本地 Markdown 或外链（externalUrl）
 type ArticleInfo = {
   title: string
   category: string
   categoryType: any
+  categoryColor?: string
   readTime: string
   loader?: () => Promise<any>
   externalUrl?: string
 }
 
 const registry: Record<string, ArticleInfo> = {
-  'what-is-llm': { title: '什么是大语言模型（LLM）？', loader: () => import('../../../../frontend/docs/learning/01-ai-basics/what-is-llm.md?raw'), category: 'AI基础知识', categoryType: 'primary', readTime: '10分钟' },
-  'prompt-basics': { title: '提示词基础', loader: () => import('../../../../frontend/docs/learning/02-prompt-engineering/prompt-basics.md?raw'), category: '提示词工程', categoryType: 'success', readTime: '10分钟' },
-  'best-practices': { title: '提示词工程最佳实践', loader: () => import('../../../../frontend/docs/learning/02-prompt-engineering/best-practices.md?raw'), category: '提示词工程', categoryType: 'success', readTime: '12分钟' },
-  'model-comparison': { title: '大语言模型对比与选择', loader: () => import('../../../../frontend/docs/learning/03-model-selection/model-comparison.md?raw'), category: '模型选择指南', categoryType: 'warning', readTime: '15分钟' },
-  'multi-agent-system': { title: '多智能体系统详解', loader: () => import('../../../../frontend/docs/learning/04-analysis-principles/multi-agent-system.md?raw'), category: 'AI分析原理', categoryType: 'info', readTime: '15分钟' },
-  'risk-warnings': { title: 'AI股票分析的风险与局限性', loader: () => import('../../../../frontend/docs/learning/05-risks-limitations/risk-warnings.md?raw'), category: '风险与局限性', categoryType: 'danger', readTime: '12分钟' },
-  'tradingagents-intro': { title: 'TradingAgents项目介绍', loader: () => import('../../../../frontend/docs/learning/06-resources/tradingagents-intro.md?raw'), category: '源项目与论文', categoryType: 'primary', readTime: '15分钟' },
-  'paper-guide': { title: 'TradingAgents论文解读', loader: () => import('../../../../frontend/docs/learning/06-resources/paper-guide.md?raw'), category: '源项目与论文', categoryType: 'primary', readTime: '20分钟' },
-  'TradingAgents_论文中文版': { title: 'TradingAgents 论文中文版', loader: () => import('../../../../frontend/docs/paper/TradingAgents_论文中文版.md?raw'), category: '源项目与论文', categoryType: 'primary', readTime: '40分钟' },
-  // 快速入门改为外链，点击后直接跳转到微信文章
-  'getting-started': { title: '快速入门教程（外链）', externalUrl: 'https://mp.weixin.qq.com/s/uAk4RevdJHMuMvlqpdGUEw', category: '实战教程', categoryType: 'success', readTime: '10分钟' },
-  // 使用指南（试用版）外链
-  'usage-guide-preview': { title: '使用指南（试用版）', externalUrl: 'https://mp.weixin.qq.com/s/ppsYiBncynxlsfKFG8uEbw', category: '实战教程', categoryType: 'success', readTime: '15分钟' },
-  'general-questions': { title: '常见问题解答', loader: () => import('../../../../frontend/docs/learning/08-faq/general-questions.md?raw'), category: '常见问题', categoryType: 'info', readTime: '15分钟' }
+  'what-is-llm': { title: '什么是大语言模型（LLM）？', loader: () => import('../../../../frontend/docs/learning/01-ai-basics/what-is-llm.md?raw'), category: 'AI 基础知识', categoryType: 'primary', categoryColor: 'rgba(197,165,90,0.12)', readTime: '10 分钟' },
+  'prompt-basics': { title: '提示词基础', loader: () => import('../../../../frontend/docs/learning/02-prompt-engineering/prompt-basics.md?raw'), category: '提示词工程', categoryType: 'success', categoryColor: 'rgba(124,179,66,0.12)', readTime: '10 分钟' },
+  'best-practices': { title: '提示词工程最佳实践', loader: () => import('../../../../frontend/docs/learning/02-prompt-engineering/best-practices.md?raw'), category: '提示词工程', categoryType: 'success', categoryColor: 'rgba(124,179,66,0.12)', readTime: '12 分钟' },
+  'model-comparison': { title: '大语言模型对比与选择', loader: () => import('../../../../frontend/docs/learning/03-model-selection/model-comparison.md?raw'), category: '模型选择指南', categoryType: 'warning', categoryColor: 'rgba(212,175,55,0.12)', readTime: '15 分钟' },
+  'multi-agent-system': { title: '多智能体系统详解', loader: () => import('../../../../frontend/docs/learning/04-analysis-principles/multi-agent-system.md?raw'), category: 'AI 分析原理', categoryType: 'info', categoryColor: 'rgba(92,156,230,0.12)', readTime: '15 分钟' },
+  'risk-warnings': { title: 'AI股票分析的风险与局限性', loader: () => import('../../../../frontend/docs/learning/05-risks-limitations/risk-warnings.md?raw'), category: '风险与局限性', categoryType: 'danger', categoryColor: 'rgba(229,115,115,0.12)', readTime: '12 分钟' },
+  'tradingagents-intro': { title: 'TradingAgents项目介绍', loader: () => import('../../../../frontend/docs/learning/06-resources/tradingagents-intro.md?raw'), category: '源项目与论文', categoryType: 'primary', categoryColor: 'rgba(183,110,121,0.12)', readTime: '15 分钟' },
+  'paper-guide': { title: 'TradingAgents论文解读', loader: () => import('../../../../frontend/docs/learning/06-resources/paper-guide.md?raw'), category: '源项目与论文', categoryType: 'primary', categoryColor: 'rgba(183,110,121,0.12)', readTime: '20 分钟' },
+  'TradingAgents_论文中文版': { title: 'TradingAgents 论文中文版', loader: () => import('../../../../frontend/docs/paper/TradingAgents_论文中文版.md?raw'), category: '源项目与论文', categoryType: 'primary', categoryColor: 'rgba(183,110,121,0.12)', readTime: '40 分钟' },
+  'getting-started': { title: '快速入门教程（外链）', externalUrl: 'https://mp.weixin.qq.com/s/uAk4RevdJHMuMvlqpdGUEw', category: '实战教程', categoryType: 'success', categoryColor: 'rgba(156,106,222,0.12)', readTime: '10 分钟' },
+  'usage-guide-preview': { title: '使用指南（试用版）', externalUrl: 'https://mp.weixin.qq.com/s/ppsYiBncynxlsfKFG8uEbw', category: '实战教程', categoryType: 'success', categoryColor: 'rgba(156,106,222,0.12)', readTime: '15 分钟' },
+  'general-questions': { title: '常见问题解答', loader: () => import('../../../../frontend/docs/learning/08-faq/general-questions.md?raw'), category: '常见问题', categoryType: 'info', categoryColor: 'rgba(158,150,136,0.12)', readTime: '15 分钟' }
 }
 
-// 文章顺序用于上一页/下一页
 const articleOrder = [
   'what-is-llm',
   'prompt-basics',
@@ -113,7 +169,6 @@ const articleOrder = [
   'general-questions'
 ]
 
-// 当前文章数据
 const article = ref({
   id: '',
   title: '',
@@ -125,14 +180,21 @@ const article = ref({
   content: ''
 })
 
-// 目录
-const tableOfContents = ref<{ id: string; text: string; level: number }[]>([])
+const categoryColor = computed(() => {
+  const info = registry[article.value.id]
+  return info?.categoryColor || 'rgba(197,165,90,0.12)'
+})
 
+const tableOfContents = ref<{ id: string; text: string; level: number }[]>([])
 const prevArticle = ref<{ id: string; title: string } | null>(null)
 const nextArticle = ref<{ id: string; title: string } | null>(null)
 
 const goBack = () => {
   router.back()
+}
+
+const toggleToc = () => {
+  tocVisible.value = !tocVisible.value
 }
 
 const downloadArticle = async () => {
@@ -142,7 +204,6 @@ const downloadArticle = async () => {
     ElMessage.warning('未找到文章资源')
     return
   }
-  // 外链文章：下载按钮直接在新标签页打开
   if (info.externalUrl) {
     window.open(info.externalUrl, '_blank')
     return
@@ -176,29 +237,37 @@ const scrollToHeading = (id: string) => {
   }
 }
 
-// 将 markdown 中的本地链接转换为应用内路由链接
+// 滚动时高亮当前目录项
+function updateActiveHeading() {
+  for (let i = tableOfContents.value.length - 1; i >= 0; i--) {
+    const heading = tableOfContents.value[i]
+    const el = document.getElementById(heading.id)
+    if (el) {
+      const rect = el.getBoundingClientRect()
+      if (rect.top <= 120) {
+        activeHeading.value = heading.id
+        return
+      }
+    }
+  }
+  activeHeading.value = ''
+}
+
 function convertLocalLinks(html: string): string {
   const div = document.createElement('div')
   div.innerHTML = html
-
-  // 处理所有链接
   const links = div.querySelectorAll('a')
   for (const link of links) {
     const href = link.getAttribute('href')
     if (href && href.endsWith('.md')) {
-      // 提取文件名（不含扩展名）
       const fileName = href.split('/').pop()?.replace('.md', '')
       if (fileName && registry[fileName]) {
-        // 转换为应用内路由链接
         link.setAttribute('href', `/learning/article/${fileName}`)
         link.setAttribute('data-internal', 'true')
       }
-    }
-    // 将 PDF 链接重写为静态资源路径，并在新标签打开
-    else if (href && href.endsWith('.pdf')) {
+    } else if (href && href.endsWith('.pdf')) {
       const fileName = href.split('/').pop() || ''
       if (fileName) {
-        // 如果原始链接在 docs 中指向 paper/，则优先映射到 /paper/
         const target = href.includes('/paper/') ? `/paper/${fileName}` : `/assets/${fileName}`
         link.setAttribute('href', target)
         link.setAttribute('target', '_blank')
@@ -206,28 +275,22 @@ function convertLocalLinks(html: string): string {
       }
     }
   }
-
   return div.innerHTML
 }
 
-// 将 Markdown 中的图片路径重写为打包后的资源 URL（适配仓库根目录下的 assets/）
 function rewriteImageSrc(html: string): string {
   const div = document.createElement('div')
   div.innerHTML = html
-
   const assetMap: Record<string, string> = {
-    // 统一映射到前端 public 静态资源目录，避免 Vite 对跨根目录 new URL 的构建警告
     'assets/schema.png': '/assets/schema.png',
     'assets/analyst.png': '/assets/analyst.png',
     'assets/researcher.png': '/assets/researcher.png',
     'assets/trader.png': '/assets/trader.png',
     'assets/risk.png': '/assets/risk.png'
   }
-
   const imgs = div.querySelectorAll('img')
   for (const img of imgs) {
     const src = img.getAttribute('src') || ''
-    // 对以 / 开头的绝对路径（如 /assets/...）不做改写，交给 public 静态资源处理
     if (src.startsWith('/')) continue
     for (const key in assetMap) {
       if (src.endsWith(key)) {
@@ -236,22 +299,15 @@ function rewriteImageSrc(html: string): string {
       }
     }
   }
-
   return div.innerHTML
 }
 
-// 回退：保留原始 markdown 代码块，不转换为 Mermaid 容器
-
-// 已移除 Mermaid 渲染，保留普通代码块
-
-// 从 markdown 加载文章
 async function loadArticle(id: string) {
   const info = registry[id]
   if (!info) {
     ElMessage.error('未找到文章')
     return
   }
-  // 外链文章：自动在新标签页打开，当前页保留在系统内
   if (info.externalUrl) {
     window.open(info.externalUrl, '_blank')
     article.value = {
@@ -281,7 +337,6 @@ async function loadArticle(id: string) {
   try {
     const mod = info.loader ? await info.loader() : ''
     const md: string = typeof mod === 'string' ? mod : (mod.default || '')
-    // 解析 markdown -> html，并开启标题锚点（兼容中文）
     const renderer = new marked.Renderer()
     renderer.heading = function ({ tokens, depth, text }: any) {
       let htmlText = ''
@@ -293,23 +348,19 @@ async function loadArticle(id: string) {
       const plain = (htmlText || '').replace(/<[^>]+>/g, '')
       const id = plain
         .toLowerCase()
-        .replace(/[^\w\u4e00-\u9fa5]+/g, '-')
+        .replace(/[^\w一-龥]+/g, '-')
         .replace(/^-+|-+$/g, '')
       return `<h${depth} class="article-heading" id="${id}">${htmlText}</h${depth}>`
     }
     marked.setOptions({ renderer })
     let html = marked.parse(md) as string
-    // DOMPurify 消毒：防止 XSS
     html = sanitizeHtml(html)
-    // 转换本地文章链接
     html = convertLocalLinks(html)
-    // 重写图片资源路径，确保从仓库根目录的 assets/ 正确加载
     html = rewriteImageSrc(html)
     article.value.content = html
     await nextTick()
     buildTOCFromHTML(html)
     buildPrevNext(id)
-    // 在 DOM 更新后设置内部链接处理
     setupInternalLinks()
   } catch (e) {
     console.error(e)
@@ -328,12 +379,10 @@ function buildTOCFromHTML(html: string) {
   }))
 }
 
-// 在 DOM 更新后处理内部链接
 function setupInternalLinks() {
   nextTick(() => {
     const container = document.querySelector('.article-content')
     if (!container) return
-
     const links = container.querySelectorAll('a[data-internal="true"]')
     for (const link of links) {
       link.addEventListener('click', (e) => {
@@ -353,8 +402,18 @@ function buildPrevNext(id: string) {
   nextArticle.value = idx >= 0 && idx < articleOrder.length - 1 ? { id: articleOrder[idx + 1], title: registry[articleOrder[idx + 1]].title } : null
 }
 
+let scrollHandler: (() => void) | null = null
+
 onMounted(() => {
   loadArticle(articleId.value)
+  scrollHandler = updateActiveHeading
+  window.addEventListener('scroll', scrollHandler, { passive: true })
+})
+
+onUnmounted(() => {
+  if (scrollHandler) {
+    window.removeEventListener('scroll', scrollHandler)
+  }
 })
 
 watch(articleId, (id) => {
@@ -363,362 +422,597 @@ watch(articleId, (id) => {
 </script>
 
 <style scoped lang="scss">
-.learning-article-wrapper {
-  display: flex;
-  flex-direction: column;
+.article-page {
   min-height: 100vh;
+}
 
-  :deep(.el-page-header) {
-    padding: 16px 24px;
-    background: var(--el-fill-color-blank);
-    border-bottom: 1px solid var(--el-border-color);
-    flex-shrink: 0;
-  }
+/* ── Nav ── */
+.page-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--el-bg-color);
+  border-bottom: 1px solid var(--el-border-color-light);
+  backdrop-filter: blur(12px);
+}
 
-  /* PageHeader 标题颜色提高对比度 */
-  :deep(.el-page-header__content),
-  :deep(.el-page-header__title) {
-    color: var(--el-text-color-primary);
-    font-weight: 600;
+.nav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--el-text-color-regular);
+  padding: 6px 12px;
+  border-radius: 8px;
+  transition: all 0.2s;
+
+  &:hover {
+    background: var(--el-fill-color-light);
+    color: var(--el-color-primary);
   }
 }
 
-  .learning-article {
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  overflow: hidden;
+
+  .bc-link {
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.2s;
+    &:hover { color: var(--el-color-primary); }
+  }
+
+  svg { flex-shrink: 0; }
+
+  .bc-current {
+    color: var(--el-text-color-primary);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.nav-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+  transition: all 0.2s;
+
+  &:hover {
+    background: var(--el-fill-color-light);
+    color: var(--el-color-primary);
+  }
+}
+
+/* ── Article Body ── */
+.article-body {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  gap: 40px;
+}
+
+.article-main {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* ── Article Header ── */
+.article-header {
+  padding-top: 40px;
+
+  .article-title {
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1.3;
+    color: var(--el-text-color-primary);
+    margin: 0 0 20px;
+    letter-spacing: -0.5px;
+  }
+
+  .article-meta {
     display: flex;
-    padding: 24px;
-    max-width: 1400px;
-    margin: 0 auto;
-    gap: 24px;
-    flex: 1;
-    width: 100%;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
 
-    .article-container {
-      flex: 1;
-      min-width: 0;
-      background: var(--el-fill-color-blank);
-      border-radius: 8px;
-      padding: 32px;
-      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+  .meta-tag {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 6px;
+    color: var(--el-color-primary);
+  }
 
-      .article-meta {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        margin-bottom: 32px;
-        padding-bottom: 16px;
-        border-bottom: 1px solid var(--el-border-color);
+  .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+  }
 
-        span {
-          display: flex;
-          align-items: center;
-          font-size: 14px;
-          color: var(--el-text-color-regular);
+  .header-divider {
+    height: 2px;
+    background: linear-gradient(90deg, var(--el-color-primary), var(--el-color-primary-light-7), transparent);
+    border-radius: 1px;
+    margin-bottom: 40px;
+  }
+}
 
-          .el-icon {
-            margin-right: 4px;
-          }
-        }
-      }
+/* ── Article Content ── */
+.article-content {
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--el-text-color-primary);
+  word-break: break-word;
 
-      .article-content {
-        font-size: 16px;
-        line-height: 1.8;
-        color: var(--el-text-color-primary);
+  :deep(h1) {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 48px 0 20px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--el-border-color-light);
+    color: var(--el-text-color-primary);
+    letter-spacing: -0.3px;
+  }
 
-        :deep(h1) {
-          font-size: 28px;
-          margin: 36px 0 18px;
-          padding-bottom: 10px;
-          border-bottom: 2px solid var(--el-border-color);
-          color: var(--el-text-color-primary);
-          font-weight: 700;
-        }
+  :deep(h2) {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 40px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+    color: var(--el-text-color-primary);
+    letter-spacing: -0.2px;
+  }
 
-        :deep(h2) {
-          font-size: 24px;
-          margin: 32px 0 16px;
-          padding-bottom: 8px;
-          border-bottom: 2px solid var(--el-border-color);
-          color: var(--el-text-color-primary);
-          font-weight: 600;
-        }
+  :deep(h3) {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 28px 0 12px;
+    color: var(--el-text-color-primary);
+  }
 
-        :deep(h3) {
-          font-size: 20px;
-          margin: 24px 0 12px;
-          color: var(--el-text-color-regular);
-          font-weight: 600;
-        }
+  :deep(h4) {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 24px 0 10px;
+    color: var(--el-text-color-primary);
+  }
 
-        :deep(h4) {
-          font-size: 18px;
-          margin: 20px 0 10px;
-          color: var(--el-text-color-regular);
-          font-weight: 600;
-        }
+  :deep(p) {
+    margin: 18px 0;
+    text-align: justify;
+  }
 
-        :deep(p) {
-          margin: 16px 0;
-          text-align: justify;
-        }
+  :deep(ul), :deep(ol) {
+    margin: 18px 0;
+    padding-left: 24px;
 
-        :deep(ul), :deep(ol) {
-          margin: 16px 0;
-          padding-left: 24px;
-
-          li {
-            margin: 8px 0;
-          }
-        }
-
-        :deep(code) {
-          background: var(--el-fill-color-light);
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-family: 'Consolas', 'Monaco', monospace;
-          font-size: 14px;
-          color: var(--el-text-color-primary);
-        }
-
-        :deep(pre) {
-          background: var(--el-fill-color-light);
-          color: var(--el-text-color-primary);
-          padding: 16px;
-          border-radius: 8px;
-          overflow-x: auto;
-          margin: 16px 0;
-
-          code {
-            background: none;
-            padding: 0;
-            color: inherit;
-          }
-        }
-
-
-        :deep(blockquote) {
-          border-left: 4px solid var(--el-color-primary);
-          margin: 16px 0;
-          padding: 12px 16px;
-          color: var(--el-text-color-secondary);
-          background: var(--el-fill-color-light);
-          border-radius: 4px;
-        }
-
-        // 图片自适应容器宽度，避免过小或溢出
-        :deep(img) {
-          max-width: 100%;
-          height: auto;
-          display: block;
-          margin: 12px auto;
-        }
-      }
-
-    .article-footer {
-      margin-top: 48px;
-
-      .navigation {
-        display: flex;
-        justify-content: space-between;
-        gap: 16px;
-
-        .el-button {
-          flex: 1;
-          max-width: 400px;
-        }
-      }
+    li {
+      margin: 6px 0;
+      line-height: 1.8;
     }
   }
 
-  .article-toc {
-    width: 240px;
-    position: sticky;
-    top: 80px;
-    height: fit-content;
-    background: var(--el-fill-color-blank);
-    border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+  :deep(strong) {
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
 
-    .toc-title {
-      font-size: 16px;
+  :deep(code) {
+    background: var(--el-fill-color-light);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9em;
+    color: var(--el-color-primary-dark-2);
+  }
+
+  :deep(pre) {
+    background: var(--el-fill-color);
+    padding: 20px 24px;
+    border-radius: 12px;
+    overflow-x: auto;
+    margin: 24px 0;
+    border: 1px solid var(--el-border-color-lighter);
+    line-height: 1.7;
+
+    code {
+      background: none;
+      padding: 0;
+      color: inherit;
+      font-size: 14px;
+    }
+  }
+
+  :deep(blockquote) {
+    border-left: 4px solid var(--el-color-primary);
+    margin: 24px 0;
+    padding: 16px 20px;
+    color: var(--el-text-color-regular);
+    background: var(--el-color-primary-light-9);
+    border-radius: 0 8px 8px 0;
+    font-style: italic;
+  }
+
+  :deep(img) {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 24px auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+
+  :deep(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 24px 0;
+    font-size: 14px;
+
+    th, td {
+      padding: 10px 16px;
+      border: 1px solid var(--el-border-color-light);
+      text-align: left;
+    }
+
+    th {
+      background: var(--el-fill-color-light);
       font-weight: 600;
-      margin-bottom: 16px;
       color: var(--el-text-color-primary);
     }
 
-    .toc-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-
-      .toc-item {
-        padding: 8px 0;
-        cursor: pointer;
-        color: var(--el-text-color-regular);
-        font-size: 14px;
-        transition: all 0.3s;
-        border-left: 2px solid transparent;
-        padding-left: 12px;
-
-        &:hover {
-          color: var(--el-color-primary);
-          border-left-color: var(--el-color-primary);
-        }
-
-        &.toc-level-3 {
-          padding-left: 24px;
-          font-size: 13px;
-        }
-
-        &.toc-level-4 {
-          padding-left: 36px;
-          font-size: 12px;
-        }
-      }
+    tr:hover td {
+      background: var(--el-fill-color-lighter);
     }
+  }
+
+  :deep(a) {
+    color: var(--el-color-primary);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+
+    &:hover {
+      border-bottom-color: var(--el-color-primary);
+    }
+  }
+
+  :deep(hr) {
+    border: none;
+    height: 1px;
+    background: var(--el-border-color-light);
+    margin: 36px 0;
   }
 }
 
-// 暗黑模式样式
+/* ── Article Footer ── */
+.article-footer {
+  padding: 32px 0 64px;
+
+  .footer-divider {
+    height: 1px;
+    background: var(--el-border-color-light);
+    margin-bottom: 32px;
+  }
+
+  .nav-buttons {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+  }
+
+  .nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--el-fill-color-blank);
+    border: 1px solid var(--el-border-color-light);
+    border-radius: 12px;
+    padding: 16px 20px;
+    cursor: pointer;
+    flex: 1;
+    max-width: 380px;
+    transition: all 0.2s;
+
+    &:hover {
+      border-color: var(--el-color-primary-light-5);
+      background: var(--el-color-primary-light-9);
+    }
+
+    &.nav-next {
+      margin-left: auto;
+    }
+
+    svg {
+      flex-shrink: 0;
+      color: var(--el-text-color-secondary);
+    }
+  }
+
+  .nav-btn-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .nav-btn-label {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .nav-btn-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--el-text-color-primary);
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 260px;
+  }
+}
+
+/* ── TOC ── */
+.article-toc {
+  width: 240px;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+
+  &.toc-hidden {
+    width: 0;
+    overflow: hidden;
+    opacity: 0;
+  }
+}
+
+.toc-sticky {
+  position: sticky;
+  top: 72px;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  background: var(--el-fill-color-blank);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.toc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.toc-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.toc-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+  transition: all 0.2s;
+
+  &:hover {
+    background: var(--el-fill-color-light);
+    color: var(--el-color-primary);
+  }
+}
+
+.toc-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.toc-link {
+  display: block;
+  padding: 6px 0 6px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition: all 0.2s;
+
+  &:hover {
+    color: var(--el-color-primary);
+    border-left-color: var(--el-color-primary-light-5);
+  }
+
+  &.toc-active {
+    color: var(--el-color-primary);
+    border-left-color: var(--el-color-primary);
+    font-weight: 500;
+  }
+
+  &.toc-level-3 {
+    padding-left: 24px;
+    font-size: 12px;
+  }
+
+  &.toc-level-4 {
+    padding-left: 36px;
+    font-size: 12px;
+  }
+}
+
+/* ── Dark Mode ── */
 :global(html.dark) {
-  .learning-article-wrapper {
-    background: #000000 !important;
-    :deep(.el-page-header) {
-      background: #000000 !important;
-      border-bottom-color: var(--el-border-color-light);
+  .page-nav {
+    background: rgba(12, 10, 15, 0.85);
+    border-bottom-color: var(--el-border-color);
+  }
+
+  .article-header {
+    .meta-tag {
+      color: var(--el-color-primary) !important;
     }
-    :deep(.el-page-header__content),
-    :deep(.el-page-header__title) {
-      color: var(--el-text-color-primary) !important;
-      opacity: 1;
+
+    .header-divider {
+      background: linear-gradient(90deg, var(--el-color-primary), var(--el-color-primary-light-7), transparent);
     }
   }
 
-  .learning-article {
-    background: #000000 !important;
-    .article-container {
-      background: #000000 !important;
-      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
-
-      .article-meta {
-        border-bottom-color: var(--el-border-color-light);
-
-        span {
-          color: var(--el-text-color-regular);
-        }
-      }
-
-      .article-content {
-        color: var(--el-text-color-primary) !important;
-
-        :deep(.article-heading) {
-          color: var(--el-text-color-primary) !important;
-        }
-
-        :deep(h1) {
-          color: var(--el-text-color-primary) !important;
-          border-bottom-color: var(--el-border-color) !important;
-          font-weight: 800 !important;
-        }
-
-        :deep(h2) {
-          color: var(--el-text-color-primary) !important;
-          border-bottom-color: var(--el-border-color) !important;
-          font-weight: 700 !important;
-        }
-
-        :deep(h3) {
-          color: var(--el-text-color-primary) !important;
-          font-weight: 700 !important;
-        }
-
-        :deep(h4) {
-          color: var(--el-text-color-primary) !important;
-          font-weight: 700 !important;
-        }
-
-        :deep(p) {
-          color: var(--el-text-color-primary) !important;
-        }
-
-        :deep(li) {
-          color: var(--el-text-color-primary) !important;
-        }
-
-        :deep(code) {
-          background: var(--el-fill-color-light) !important;
-          color: var(--el-text-color-primary) !important;
-        }
-
-        :deep(blockquote) {
-          background: var(--el-fill-color-light) !important;
-          color: var(--el-text-color-secondary) !important;
-          border-left-color: var(--el-color-primary) !important;
-        }
-      }
+  .article-content {
+    :deep(h1), :deep(h2), :deep(h3), :deep(h4) {
+      color: var(--el-text-color-primary) !important;
     }
 
-    .article-toc {
-      background: #000000 !important;
-      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+    :deep(h1) { border-bottom-color: var(--el-border-color) !important; }
+    :deep(h2) { border-bottom-color: var(--el-border-color) !important; }
 
-      .toc-title {
-        color: var(--el-text-color-primary) !important;
-      }
-
-      .toc-list {
-        .toc-item {
-          color: var(--el-text-color-regular) !important;
-
-          &:hover {
-            color: var(--el-color-primary) !important;
-            border-left-color: var(--el-color-primary) !important;
-          }
-        }
-      }
+    :deep(pre) {
+      background: var(--el-fill-color) !important;
+      border-color: var(--el-border-color);
     }
+
+    :deep(blockquote) {
+      background: rgba(197, 165, 90, 0.06) !important;
+      border-left-color: var(--el-color-primary) !important;
+    }
+
+    :deep(code) {
+      background: var(--el-fill-color) !important;
+      color: var(--el-color-primary) !important;
+    }
+
+    :deep(table th) {
+      background: var(--el-fill-color);
+    }
+
+    :deep(img) {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  .nav-btn {
+    background: var(--el-fill-color-blank);
+    border-color: var(--el-border-color);
+
+    &:hover {
+      border-color: var(--el-color-primary-dark-2);
+      background: rgba(197, 165, 90, 0.06);
+    }
+  }
+
+  .toc-sticky {
+    background: var(--el-fill-color-blank);
+    border-color: var(--el-border-color);
+  }
+
+  .toc-header {
+    border-bottom-color: var(--el-border-color);
   }
 }
 
+/* ── Responsive ── */
 @media (max-width: 1200px) {
-  .learning-article {
-    .article-toc {
-      display: none;
-    }
+  .article-toc {
+    display: none;
+  }
+  .article-body {
+    justify-content: center;
+  }
+  .article-main {
+    max-width: 780px;
   }
 }
 
 @media (max-width: 768px) {
-  .learning-article {
-    padding: 16px;
+  .nav-inner {
+    padding: 0 16px;
+  }
 
-    .article-container {
-      padding: 20px;
+  .breadcrumb {
+    display: none;
+  }
 
-      .article-content {
-        font-size: 15px;
+  .article-body {
+    padding: 0 16px;
+  }
 
-        :deep(h2) {
-          font-size: 20px;
-        }
+  .article-header {
+    padding-top: 24px;
 
-        :deep(h3) {
-          font-size: 18px;
-        }
-      }
+    .article-title {
+      font-size: 24px;
+    }
 
-      .article-footer {
-        .navigation {
-          flex-direction: column;
+    .header-divider {
+      margin-bottom: 24px;
+    }
+  }
 
-          .el-button {
-            max-width: 100%;
-          }
-        }
-      }
+  .article-content {
+    font-size: 15px;
+
+    :deep(h1) { font-size: 22px; }
+    :deep(h2) { font-size: 20px; }
+    :deep(h3) { font-size: 18px; }
+  }
+
+  .article-footer {
+    .nav-buttons {
+      flex-direction: column;
+    }
+
+    .nav-btn {
+      max-width: 100%;
     }
   }
 }
 </style>
-

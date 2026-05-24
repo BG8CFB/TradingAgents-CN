@@ -16,6 +16,11 @@ DOMAIN_METHOD_MAP = {
     "corporate_actions": "adapt_corporate_actions",
     "news": "adapt_news",
     "market_quotes": "adapt_market_quotes",
+    "intraday_quotes": "adapt_intraday_quotes",
+    "money_flow": "adapt_money_flow",
+    "margin_trading": "adapt_margin_trading",
+    "dragon_tiger": "adapt_dragon_tiger",
+    "block_trade": "adapt_block_trade",
 }
 
 
@@ -47,7 +52,16 @@ class Normalizer:
             schemas = method(raw_data)
             if not schemas:
                 return []
-            return [s.to_db_doc() for s in schemas]
+            # 兼容两种返回类型：Schema 对象（有 to_db_doc）和纯 dict
+            results = []
+            for s in schemas:
+                if isinstance(s, dict):
+                    results.append(s)
+                elif hasattr(s, "to_db_doc"):
+                    results.append(s.to_db_doc())
+                else:
+                    results.append(s)
+            return results
         except NotImplementedError:
             logger.debug(f"Adapter {adapter.source_name} 不支持 {domain}")
             return []

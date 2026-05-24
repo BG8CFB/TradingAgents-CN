@@ -24,6 +24,9 @@ class Reader:
             BasicInfoRepo, DailyQuotesRepo, DailyIndicatorsRepo,
             AdjFactorsRepo, CorporateActionsRepo, FinancialDataRepo,
             MarketQuotesRepo, NewsRepo, TradeCalendarRepo,
+            IntradayQuotesRepo, MoneyFlowRepo, MarginTradingRepo,
+            DragonTigerRepo, BlockTradeRepo,
+            ConnectStatusRepo, SouthboundHoldingRepo, PrePostMarketRepo,
         )
 
         repo_map = {
@@ -36,6 +39,14 @@ class Reader:
             "financial_data": FinancialDataRepo,
             "market_quotes": MarketQuotesRepo,
             "news": NewsRepo,
+            "intraday_quotes": IntradayQuotesRepo,
+            "money_flow": MoneyFlowRepo,
+            "margin_trading": MarginTradingRepo,
+            "dragon_tiger": DragonTigerRepo,
+            "block_trade": BlockTradeRepo,
+            "connect_status": ConnectStatusRepo,
+            "southbound_holding": SouthboundHoldingRepo,
+            "pre_post_market": PrePostMarketRepo,
         }
 
         repo_cls = repo_map.get(domain)
@@ -82,9 +93,15 @@ class Reader:
 
         elif domain in ("daily_quotes", "daily_indicators", "adj_factors", "corporate_actions"):
             if symbol:
+                period_filter = filters.get("period") if filters else None
+                extra_kwargs = {}
+                if period_filter and domain == "daily_quotes":
+                    extra_kwargs["period"] = period_filter
                 data = await repo.get_by_symbol_and_range(
                     symbol, market,
-                    start_date or "1970-01-01", end_date or "2099-12-31")
+                    start_date or "1970-01-01", end_date or "2099-12-31",
+                    **extra_kwargs,
+                )
 
         elif domain == "financial_data":
             if symbol:
@@ -102,6 +119,80 @@ class Reader:
             if symbol:
                 limit = filters.get("limit", 20)
                 data = await repo.get_by_symbol(symbol, market, limit=limit)
+            else:
+                limit = filters.get("limit", 100)
+                data = await repo.get_all(market, limit=limit)
+
+        elif domain == "intraday_quotes":
+            if symbol:
+                freq = filters.get("freq")
+                data = await repo.get_by_symbol_and_range(
+                    symbol, market,
+                    start_date or "1970-01-01 00:00:00",
+                    end_date or "2099-12-31 23:59:59",
+                    freq=freq,
+                )
+
+        elif domain == "money_flow":
+            if symbol:
+                data = await repo.get_by_symbol_and_range(
+                    symbol, market,
+                    start_date or "1970-01-01", end_date or "2099-12-31",
+                )
+
+        elif domain == "margin_trading":
+            if symbol:
+                data = await repo.get_by_symbol_and_range(
+                    symbol, market,
+                    start_date or "1970-01-01", end_date or "2099-12-31",
+                )
+
+        elif domain == "dragon_tiger":
+            if symbol:
+                limit = filters.get("limit", 50)
+                data = await repo.get_by_symbol(symbol, market, limit=limit)
+            elif start_date:
+                limit = filters.get("limit", 100)
+                data = await repo.get_by_date(start_date, market, limit=limit)
+
+        elif domain == "block_trade":
+            if symbol:
+                limit = filters.get("limit", 50)
+                data = await repo.get_by_symbol(symbol, market, limit=limit)
+            else:
+                limit = filters.get("limit", 100)
+                data = await repo.get_by_date_range(
+                    market,
+                    start_date or "1970-01-01", end_date or "2099-12-31",
+                    limit=limit,
+                )
+
+        elif domain == "connect_status":
+            limit = filters.get("limit", 100)
+            data = await repo.get_by_date_range(
+                market,
+                start_date or "1970-01-01", end_date or "2099-12-31",
+                limit=limit,
+            )
+
+        elif domain == "southbound_holding":
+            if symbol:
+                data = await repo.get_by_symbol_and_range(
+                    symbol, market,
+                    start_date or "1970-01-01", end_date or "2099-12-31",
+                )
+
+        elif domain == "pre_post_market":
+            if symbol:
+                session_type = filters.get("session_type")
+                data = await repo.get_by_symbol_and_range(
+                    symbol, market,
+                    start_date or "1970-01-01", end_date or "2099-12-31",
+                    session_type=session_type,
+                )
+            else:
+                limit = filters.get("limit", 100)
+                data = await repo.get_by_symbol(symbol or "", market, limit=limit)
 
         if not data:
             return None, FreshnessState.UNKNOWN

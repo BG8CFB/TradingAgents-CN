@@ -20,6 +20,11 @@ _SUPPORTED_SYNC_DOMAINS = {
     "financial_data",
     "market_quotes",
     "news",
+    "intraday_quotes",
+    "money_flow",
+    "margin_trading",
+    "dragon_tiger",
+    "block_trade",
 }
 
 
@@ -32,6 +37,7 @@ class BaseSyncJob(ABC):
         self.sync_mode = "incremental"
         self.preferred_source = None
         self.dependencies = []
+        self.force_sync = False
         self._checkpoint = CheckpointManager()
         self._metadata = MetadataRepo()
 
@@ -50,8 +56,8 @@ class BaseSyncJob(ABC):
             if self.domain not in _SUPPORTED_SYNC_DOMAINS:
                 raise NotImplementedError(f"同步任务暂未打通该域: {self.market}/{self.domain}")
 
-            # 非交易日跳过行情类数据
-            if DataDomain(self.domain) in MARKET_DATA_DOMAINS:
+            # 非交易日跳过行情类数据（force_sync 时跳过检查）
+            if not self.force_sync and DataDomain(self.domain) in MARKET_DATA_DOMAINS:
                 if not await self._is_trading_day():
                     logger.info(f"非交易日，跳过 {self.market}/{self.domain}")
                     return {"status": "skipped", "reason": "non_trading_day"}
@@ -150,12 +156,15 @@ class BaseSyncJob(ABC):
         basic_info 和 trade_calendar 是全量同步。
         daily_indicators 使用按日期批量模式（trade_date 参数一次获取全市场）。
         market_quotes 使用批量快照模式。
+        dragon_tiger / block_trade 按日期全量获取。
         """
         return self.domain not in (
             DataDomain.BASIC_INFO.value,
             DataDomain.TRADE_CALENDAR.value,
             DataDomain.MARKET_QUOTES.value,
             DataDomain.DAILY_INDICATORS.value,
+            DataDomain.DRAGON_TIGER.value,
+            DataDomain.BLOCK_TRADE.value,
         )
 
     async def _get_symbols(self) -> list:
@@ -163,7 +172,18 @@ class BaseSyncJob(ABC):
         from app.data.storage.mongo.repositories.basic_info_repo import BasicInfoRepo
         repo = BasicInfoRepo()
         stocks = await repo.get_active_symbols(self.market)
-        return [s["symbol"] for s in stocks]
+        symbols = [s["symbol"] for s in stocks]
+        if not symbols:
+            # 降级：list_status 字段可能缺失，改为获取所有记录
+            from app.data.storage.mongo.client import get_motor_db
+            from app.data.storage.mongo.collections import get_collection_name
+            db = get_motor_db()
+            coll = db[get_collection_name("basic_info", self.market)]
+            cursor = coll.find({}, {"symbol": 1, "_id": 0})
+            all_stocks = await cursor.to_list(length=None)
+            symbols = [s["symbol"] for s in all_stocks if s.get("symbol")]
+            logger.warning(f"list_status 字段缺失，降级获取全部股票: {len(symbols)} 只")
+        return symbols
 
     @abstractmethod
     def get_cron(self) -> str:

@@ -17,6 +17,11 @@ class DataDomain(str, Enum):
     SOUTHBOUND_HOLDING = "southbound_holding"
     TUSHARE_UNIVERSE = "tushare_universe"
     PRE_POST_MARKET = "pre_post_market"
+    INTRADAY_QUOTES = "intraday_quotes"
+    MONEY_FLOW = "money_flow"
+    MARGIN_TRADING = "margin_trading"
+    DRAGON_TIGER = "dragon_tiger"
+    BLOCK_TRADE = "block_trade"
 
 
 class SemanticType(str, Enum):
@@ -41,6 +46,11 @@ DOMAIN_SEMANTIC_TYPE = {
     DataDomain.SOUTHBOUND_HOLDING: SemanticType.TIMESERIES,
     DataDomain.TUSHARE_UNIVERSE: SemanticType.ENTITY,
     DataDomain.PRE_POST_MARKET: SemanticType.SNAPSHOT,
+    DataDomain.INTRADAY_QUOTES: SemanticType.TIMESERIES,
+    DataDomain.MONEY_FLOW: SemanticType.TIMESERIES,
+    DataDomain.MARGIN_TRADING: SemanticType.TIMESERIES,
+    DataDomain.DRAGON_TIGER: SemanticType.EVENT,
+    DataDomain.BLOCK_TRADE: SemanticType.EVENT,
 }
 
 # 行情类数据域（非交易日跳过）
@@ -51,4 +61,9 @@ MARKET_DATA_DOMAINS = {
     DataDomain.MARKET_QUOTES,
     DataDomain.SOUTHBOUND_HOLDING,
     DataDomain.PRE_POST_MARKET,
+    DataDomain.INTRADAY_QUOTES,
+    DataDomain.MONEY_FLOW,
+    DataDomain.MARGIN_TRADING,
+    DataDomain.DRAGON_TIGER,
+    DataDomain.BLOCK_TRADE,
 }

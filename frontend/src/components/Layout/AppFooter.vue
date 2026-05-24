@@ -15,7 +15,7 @@
         >
           <template #content>
             <div style="max-width: 400px; line-height: 1.6; font-size: 13px;">
-              TradingAgents-CN 是一个 AI 多智能体股票分析辅助工具，不具备证券投资咨询资质。平台中的所有分析结果、评分、参考意见均由 AI 基于历史数据自动生成，仅供学习、研究与技术交流使用，不构成任何投资建议或决策依据。股票投资存在市场风险，可能导致本金损失。市场有风险，投资需谨慎。
+              TradingAgents-CN 是一款 AI 多智能体股票分析学习研究工具，不具备证券投资咨询资质，不提供证券投资顾问服务。平台中的所有分析结果、评分、参考意见均由 AI 基于历史数据自动生成，仅供学习研究与技术交流，不构成任何投资建议或决策依据。股票投资存在市场风险，可能导致本金损失。市场有风险，投资需谨慎。
             </div>
           </template>
           <div class="disclaimer-brief">
@@ -30,17 +30,13 @@
         <a href="https://github.com/BG8CFB/TradingAgents-CN" target="_blank" rel="noopener noreferrer" class="footer-link">
           <el-icon><Link /></el-icon> GitHub
         </a>
-        <span class="divider">|</span>
-        <a href="https://github.com/TauricResearch/TradingAgents" target="_blank" rel="noopener noreferrer" class="footer-link">
-          <el-icon><Star /></el-icon> Original
-        </a>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Link, Star, InfoFilled } from '@element-plus/icons-vue'
+import { Link, InfoFilled } from '@element-plus/icons-vue'
 </script>
 
 <style lang="scss" scoped>

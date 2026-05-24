@@ -15,18 +15,19 @@ def get_stock_sentiment(
     current_date: str,
 ) -> str:
     """
-    获取股票市场情绪分析数据。
+    获取股票新闻情绪统计。
 
-    基于新闻情感的正/负/中性统计生成情绪评估。
+    统计近期新闻的情感标签分布（正面/负面/中性），计算情绪评分。
+    注意：此工具基于新闻数据中已有的 sentiment 字段进行统计，不执行实时NLP分析。
 
     Args:
         stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
         current_date: 当前日期，格式 YYYY-MM-DD
 
     Returns:
-        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
+        JSON 格式的 ToolResult
     """
-    logger.info(f"[情绪工具] 分析股票: {stock_code}")
+    logger.info(f"[新闻情绪统计] 分析股票: {stock_code}")
     start_time = now_utc()
 
     try:

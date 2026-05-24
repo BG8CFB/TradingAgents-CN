@@ -96,7 +96,9 @@ class FallbackRouter:
                 if raw_data is None or (hasattr(raw_data, 'empty') and raw_data.empty):
                     self._circuit.record_failure(source_name, domain)
                     self._health_monitor.record_call(
-                        market, source_name, domain, success=False, latency_ms=int((time.time() - start) * 1000), error="empty data"
+                        market, source_name, domain, success=False,
+                        latency_ms=int((time.time() - start) * 1000), error="empty data",
+                        circuit_state=self._circuit.get_state(source_name, domain).value,
                     )
                     fallback_chain.append(source_name)
                     continue
@@ -105,7 +107,9 @@ class FallbackRouter:
                 if not records:
                     self._circuit.record_failure(source_name, domain)
                     self._health_monitor.record_call(
-                        market, source_name, domain, success=False, latency_ms=int((time.time() - start) * 1000), error="normalize empty"
+                        market, source_name, domain, success=False,
+                        latency_ms=int((time.time() - start) * 1000), error="normalize empty",
+                        circuit_state=self._circuit.get_state(source_name, domain).value,
                     )
                     fallback_chain.append(source_name)
                     continue
@@ -113,28 +117,34 @@ class FallbackRouter:
                 valid, errors = self._validator.validate(records, domain, market)
 
                 self._circuit.record_success(source_name, domain)
+                result.latency_ms = int((time.time() - start) * 1000)
                 self._health_monitor.record_call(
-                    market, source_name, domain, success=True, latency_ms=result.latency_ms
+                    market, source_name, domain, success=True,
+                    latency_ms=result.latency_ms,
+                    circuit_state="closed",
                 )
                 result.success = True
                 result.records = valid
                 result.source = source_name
                 if fallback_chain:
                     result.fallback_from = " → ".join(fallback_chain)
-                result.latency_ms = int((time.time() - start) * 1000)
                 return result
 
             except DataSourceError as e:
                 self._circuit.record_failure(source_name, domain, e.code)
                 self._health_monitor.record_call(
-                    market, source_name, domain, success=False, latency_ms=int((time.time() - start) * 1000), error=str(e)
+                    market, source_name, domain, success=False,
+                    latency_ms=int((time.time() - start) * 1000), error=str(e),
+                    circuit_state=self._circuit.get_state(source_name, domain).value,
                 )
                 fallback_chain.append(source_name)
                 logger.warning(f"源 {source_name}/{domain} 失败: {e}")
             except Exception as e:
                 self._circuit.record_failure(source_name, domain)
                 self._health_monitor.record_call(
-                    market, source_name, domain, success=False, latency_ms=int((time.time() - start) * 1000), error=str(e)
+                    market, source_name, domain, success=False,
+                    latency_ms=int((time.time() - start) * 1000), error=str(e),
+                    circuit_state=self._circuit.get_state(source_name, domain).value,
                 )
                 fallback_chain.append(source_name)
                 logger.warning(f"源 {source_name}/{domain} 异常: {e}")
@@ -154,6 +164,11 @@ class FallbackRouter:
             "corporate_actions": lambda: provider.get_corporate_actions(symbol, start, end),
             "news": lambda: provider.get_news(symbol, start, end),
             "market_quotes": lambda: provider.get_market_quotes([symbol]),
+            "intraday_quotes": lambda: provider.get_intraday_quotes(symbol, start, end),
+            "money_flow": lambda: provider.get_money_flow(symbol, start, end),
+            "margin_trading": lambda: provider.get_margin_trading(symbol, start, end),
+            "dragon_tiger": lambda: provider.get_dragon_tiger(symbol, start, end),
+            "block_trade": lambda: provider.get_block_trade(symbol, start, end),
         }
         method = method_map.get(domain)
         if method:

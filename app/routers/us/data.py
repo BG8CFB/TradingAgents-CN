@@ -155,25 +155,25 @@ async def update_us_priority_config(domain: str, request: PriorityUpdateRequest)
         from app.data.core.registry.capability import CapabilityRegistry
         registry = CapabilityRegistry()
 
-        available = registry.get_available_sources(domain)
+        available = registry.get_available_sources(domain, market=_MARKET)
         if not available:
             return fail(message=f"不支持的数据域: {domain}")
 
         for source in request.priority:
-            level = registry.get_support_level(domain, source)
+            level = registry.get_support_level(domain, source, market=_MARKET)
             if level.value == "none":
                 return fail(message=f"数据源 {source} 不支持域 {domain}")
 
         di = DataInterface.get_instance()
         saved = await di.update_config(_MARKET, domain, request.priority)
         if not saved:
-            registry.set_user_priority(domain, request.priority)
+            registry.set_user_priority(_MARKET, domain, request.priority)
             return ok(
                 message=f"域 {domain} 优先级已更新（仅内存，持久化失败）",
                 data={"domain": domain, "priority": request.priority},
             )
 
-        registry.set_user_priority(domain, request.priority)
+        registry.set_user_priority(_MARKET, domain, request.priority)
         return ok(
             message=f"域 {domain} 数据源优先级已更新并持久化",
             data={"domain": domain, "priority": request.priority},
@@ -192,7 +192,7 @@ async def get_source_config():
     default_priority = default_config.get("US", {})
 
     registry = CapabilityRegistry()
-    matrix = registry.get_matrix_summary()
+    matrix = registry.get_matrix_summary(market="US")
 
     db_priorities = await _load_priorities_from_db()
 

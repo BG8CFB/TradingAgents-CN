@@ -499,8 +499,8 @@
                         <div class="disclaimer-text">
                           <p style="margin: 0 0 8px 0;"><strong>⚠️ 重要风险提示与免责声明</strong></p>
                           <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
-                            <li><strong>工具性质：</strong>本系统为股票分析辅助工具，使用AI技术对公开市场数据进行分析，不具备证券投资咨询资质。</li>
-                            <li><strong>非投资建议：</strong>所有分析结果、评分、建议仅为技术分析参考，不构成任何买卖建议或投资决策依据。</li>
+                            <li><strong>学习工具：</strong>本系统为股票分析学习研究工具，使用AI技术对公开市场数据进行分析，不具备证券投资咨询资质，不提供证券投资顾问服务。</li>
+                            <li><strong>非投资建议：</strong>所有分析结果、评分、建议均由 AI 自动生成，仅供学习研究与技术交流，不构成任何买卖建议或投资决策依据。</li>
                             <li><strong>数据局限性：</strong>分析基于历史数据和公开信息，可能存在延迟、不完整或不准确的情况，无法预测未来市场走势。</li>
                             <li><strong>投资风险：</strong>股票投资存在市场风险、流动性风险、政策风险等多种风险，可能导致本金损失。</li>
                             <li><strong>独立决策：</strong>投资者应基于自身风险承受能力、投资目标和财务状况独立做出投资决策。</li>
@@ -573,7 +573,7 @@
 
                       <el-alert type="info" :closable="false" style="margin-top: 12px;">
                         <template #default>
-                          <span style="font-size: 13px;">💡 以上分析基于AI模型对历史数据的处理，不构成投资建议，请结合自身情况独立决策。</span>
+                          <span style="font-size: 13px;">💡 以上内容由 AI 基于历史数据自动生成，仅供学习研究，不构成任何投资建议。投资有风险，入市需谨慎。</span>
                         </template>
                       </el-alert>
                     </div>
@@ -677,7 +677,7 @@
                   class="risk-disclaimer"
                 >
                   <template #title>
-                    <span style="font-weight: bold;">报告依据真实交易数据使用AI分析生成，仅供参考，不构成任何投资建议。市场有风险，投资需谨慎。</span>
+                    <span style="font-weight: bold;">报告由 AI 基于历史数据自动生成，仅供学习研究，不构成任何投资建议。市场有风险，投资需谨慎。</span>
                   </template>
                 </el-alert>
               </div>

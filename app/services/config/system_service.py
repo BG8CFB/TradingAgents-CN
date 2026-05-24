@@ -2,8 +2,12 @@
 系统配置与导入导出管理服务
 """
 
+import json
 import logging
+from pathlib import Path
 from typing import List, Optional, Dict, Any
+
+import yaml
 
 from app.core.database import get_mongo_db
 from app.models.config import (
@@ -13,6 +17,26 @@ from app.models.config import (
 from app.utils.timezone import now_tz
 
 logger = logging.getLogger(__name__)
+
+EXPORT_VERSION = "2.0"
+
+SENSITIVE_KEY_PATTERS = ("key", "secret", "password", "token", "client_secret")
+
+# 需要导出的独立 MongoDB 配置集合
+EXPORTABLE_COLLECTIONS = [
+    "llm_providers",
+    "model_catalog",
+    "market_categories",
+    "datasource_groupings",
+    "platform_configs",
+]
+
+# Agent 配置阶段与文件名映射
+AGENT_PHASE_FILES = {
+    1: "phase1_agents_config.yaml",
+    2: "phase2_agents_config.yaml",
+    3: "phase3_agents_config.yaml",
+}
 
 
 class SystemService:
@@ -305,133 +329,363 @@ class SystemService:
 
     # ==================== 配置导入导出 ====================
 
-    async def export_config(self) -> Dict[str, Any]:
-        """导出配置"""
-        try:
-            config = await self.get_system_config()
-            if not config:
-                return {}
+    # ---------- 辅助方法 ----------
 
-            # 转换为可序列化的字典格式
-            # 方案A：导出时对敏感字段脱敏/清空
-            def _llm_sanitize(x: LLMConfig):
-                d = x.model_dump()
-                d["api_key"] = ""
-                # 确保必填字段有默认值（防止导出 None 或空字符串）
-                if not d.get("max_tokens") or d.get("max_tokens") == "":
-                    d["max_tokens"] = 4000
-                if not d.get("temperature") and d.get("temperature") != 0:
-                    d["temperature"] = 0.7
-                if not d.get("timeout") or d.get("timeout") == "":
-                    d["timeout"] = 180
-                if not d.get("retry_times") or d.get("retry_times") == "":
-                    d["retry_times"] = 3
-                return d
-            def _ds_sanitize(x: DataSourceConfig):
-                d = x.model_dump()
-                d["api_key"] = ""
-                d["api_secret"] = ""
-                return d
-            def _db_sanitize(x: DatabaseConfig):
-                d = x.model_dump()
-                d["password"] = ""
-                return d
-            export_data = {
-                "config_name": config.config_name,
-                "config_type": config.config_type,
-                "llm_configs": [_llm_sanitize(llm) for llm in config.llm_configs],
-                "default_llm": config.default_llm,
-                "data_source_configs": [_ds_sanitize(ds) for ds in config.data_source_configs],
-                "default_data_source": config.default_data_source,
-                "database_configs": [_db_sanitize(db) for db in config.database_configs],
-                # 方案A：导出时对 system_settings 中的敏感键做脱敏
-                "system_settings": {k: (None if any(p in k.lower() for p in ("key","secret","password","token","client_secret")) else v) for k, v in (config.system_settings or {}).items()},
+    @staticmethod
+    def _sanitize_dict(d: Dict[str, Any], sensitive_keys: List[str]) -> Dict[str, Any]:
+        """将指定敏感键的值清空"""
+        out = dict(d)
+        for key in sensitive_keys:
+            if key in out:
+                out[key] = ""
+        return out
+
+    @staticmethod
+    def _sanitize_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
+        """脱敏 system_settings 中的敏感键"""
+        return {
+            k: (None if any(p in k.lower() for p in SENSITIVE_KEY_PATTERS) else v)
+            for k, v in settings.items()
+        }
+
+    @staticmethod
+    def _get_agent_config_dir() -> Path:
+        """获取 Agent 配置文件目录"""
+        import os
+        env_dir = os.getenv("AGENT_CONFIG_DIR")
+        if env_dir:
+            path = Path(env_dir)
+            if path.exists():
+                return path
+        project_root = Path(__file__).resolve().parents[3]
+        return project_root / "config" / "agents"
+
+    def _read_agent_yaml(self, phase: int) -> Optional[Dict[str, Any]]:
+        """读取指定阶段的 Agent YAML 配置"""
+        filename = AGENT_PHASE_FILES.get(phase)
+        if not filename:
+            return None
+        config_path = self._get_agent_config_dir() / filename
+        if not config_path.exists():
+            logger.warning(f"Agent 配置文件不存在: {config_path}")
+            return None
+        try:
+            with config_path.open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            return data
+        except Exception as e:
+            logger.error(f"读取 Agent 配置失败 [{config_path}]: {e}")
+            return None
+
+    def _write_agent_yaml(self, phase: int, data: Dict[str, Any]) -> bool:
+        """写入指定阶段的 Agent YAML 配置"""
+        filename = AGENT_PHASE_FILES.get(phase)
+        if not filename:
+            return False
+        config_path = self._get_agent_config_dir() / filename
+        try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = config_path.with_suffix(".tmp")
+            with tmp_path.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+            tmp_path.replace(config_path)
+            logger.info(f"Agent 配置已写入: {config_path}")
+            return True
+        except Exception as e:
+            logger.error(f"写入 Agent 配置失败 [{config_path}]: {e}")
+            return False
+
+    # ---------- 导出 ----------
+
+    async def export_config(self) -> Dict[str, Any]:
+        """导出全部配置（v2.0 格式，覆盖所有集合 + Agent YAML）"""
+        try:
+            db = await self._get_db()
+
+            # 1. 导出 system_configs（核心配置）
+            config = await self.get_system_config()
+            system_configs_data = {}
+            if config:
+                def _llm_sanitize(x: LLMConfig):
+                    d = self._sanitize_dict(x.model_dump(), ["api_key"])
+                    for fld in ("max_tokens", "timeout", "retry_times"):
+                        if not d.get(fld) or d.get(fld) == "":
+                            d[fld] = {"max_tokens": 4000, "timeout": 180, "retry_times": 3}[fld]
+                    if not d.get("temperature") and d.get("temperature") != 0:
+                        d["temperature"] = 0.7
+                    return d
+
+                system_configs_data = {
+                    "config_name": config.config_name,
+                    "config_type": config.config_type,
+                    "llm_configs": [_llm_sanitize(llm) for llm in config.llm_configs],
+                    "default_llm": config.default_llm,
+                    "data_source_configs": [
+                        self._sanitize_dict(ds.model_dump(), ["api_key", "api_secret"])
+                        for ds in config.data_source_configs
+                    ],
+                    "default_data_source": config.default_data_source,
+                    "database_configs": [
+                        self._sanitize_dict(db_item.model_dump(), ["password"])
+                        for db_item in config.database_configs
+                    ],
+                    "system_settings": self._sanitize_settings(config.system_settings or {}),
+                    "version": config.version,
+                }
+
+            # 2. 导出独立集合
+            extra_collections: Dict[str, Any] = {}
+            for col_name in EXPORTABLE_COLLECTIONS:
+                try:
+                    docs = await db[col_name].find().to_list(1000)
+                    # 脱敏：遍历文档中的敏感键
+                    sanitized_docs = []
+                    for doc in docs:
+                        doc.pop("_id", None)
+                        clean = {}
+                        for k, v in doc.items():
+                            if any(p in k.lower() for p in SENSITIVE_KEY_PATTERS):
+                                clean[k] = None
+                            else:
+                                clean[k] = v
+                        sanitized_docs.append(clean)
+                    extra_collections[col_name] = sanitized_docs
+                except Exception as e:
+                    logger.warning(f"导出集合 {col_name} 失败: {e}")
+                    extra_collections[col_name] = []
+
+            # 3. 导出 Agent YAML 配置
+            agent_configs: Dict[str, Any] = {}
+            for phase in AGENT_PHASE_FILES:
+                data = self._read_agent_yaml(phase)
+                if data:
+                    agent_configs[f"phase{phase}"] = data
+
+            # 4. 组装导出数据
+            export_data: Dict[str, Any] = {
+                "export_version": EXPORT_VERSION,
                 "exported_at": now_tz().isoformat(),
-                "version": config.version
+                "system_configs": system_configs_data,
+                **extra_collections,
+                "agent_configs": agent_configs,
             }
 
+            logger.info(
+                f"配置导出完成: system_configs={bool(system_configs_data)}, "
+                f"额外集合=[{', '.join(f'{k}={len(v)}' for k, v in extra_collections.items() if isinstance(v, list))}], "
+                f"agent_configs 阶段=[{', '.join(agent_configs.keys())}]"
+            )
             return export_data
 
         except Exception as e:
-            print(f"导出配置失败: {e}")
+            logger.error(f"导出配置失败: {e}", exc_info=True)
             return {}
 
+    # ---------- 导入 ----------
+
     async def import_config(self, config_data: Dict[str, Any]) -> bool:
-        """导入配置"""
+        """导入全部配置（兼容 v1.0 旧格式和 v2.0 新格式）"""
         try:
-            # 验证配置数据格式
             if not self._validate_config_data(config_data):
                 return False
 
-            # 创建新的系统配置（方案A：导入时忽略敏感字段）
-            def _llm_sanitize_in(llm: Dict[str, Any]):
-                d = dict(llm or {})
-                d.pop("api_key", None)
-                d["api_key"] = ""
-                # 清理空字符串，让 Pydantic 使用默认值
-                if d.get("max_tokens") == "" or d.get("max_tokens") is None:
-                    d.pop("max_tokens", None)
-                if d.get("temperature") == "" or d.get("temperature") is None:
-                    d.pop("temperature", None)
-                if d.get("timeout") == "" or d.get("timeout") is None:
-                    d.pop("timeout", None)
-                if d.get("retry_times") == "" or d.get("retry_times") is None:
-                    d.pop("retry_times", None)
-                return LLMConfig(**d)
-            def _ds_sanitize_in(ds: Dict[str, Any]):
-                d = dict(ds or {})
-                d.pop("api_key", None)
-                d.pop("api_secret", None)
-                d["api_key"] = ""
-                d["api_secret"] = ""
-                return DataSourceConfig(**d)
-            def _db_sanitize_in(db: Dict[str, Any]):
-                d = dict(db or {})
-                d.pop("password", None)
-                d["password"] = ""
-                return DatabaseConfig(**d)
-            new_config = SystemConfig(
-                config_name=config_data.get("config_name", "导入的配置"),
-                config_type="imported",
-                llm_configs=[_llm_sanitize_in(llm) for llm in config_data.get("llm_configs", [])],
-                default_llm=config_data.get("default_llm"),
-                data_source_configs=[_ds_sanitize_in(ds) for ds in config_data.get("data_source_configs", [])],
-                default_data_source=config_data.get("default_data_source"),
-                database_configs=[_db_sanitize_in(db) for db in config_data.get("database_configs", [])],
-                system_settings=config_data.get("system_settings", {})
-            )
+            db = await self._get_db()
+            is_v2 = config_data.get("export_version") == EXPORT_VERSION
 
-            return await self.save_system_config(new_config)
+            # ---- 1. 导入 system_configs ----
+            sc_data = config_data.get("system_configs", config_data) if is_v2 else config_data
+            system_ok = await self._import_system_configs(db, sc_data)
+
+            # ---- 2. 导入独立集合（仅 v2.0） ----
+            collections_ok = True
+            if is_v2:
+                for col_name in EXPORTABLE_COLLECTIONS:
+                    docs = config_data.get(col_name, [])
+                    if docs:
+                        try:
+                            await db[col_name].delete_many({})
+                            await db[col_name].insert_many(docs)
+                            logger.info(f"导入集合 {col_name}: {len(docs)} 条")
+                        except Exception as e:
+                            logger.warning(f"导入集合 {col_name} 失败: {e}")
+                            collections_ok = False
+
+            # ---- 3. 导入 Agent YAML 配置（仅 v2.0） ----
+            agent_ok = True
+            if is_v2:
+                agent_data = config_data.get("agent_configs", {})
+                for phase_str, phase_data in agent_data.items():
+                    try:
+                        phase_num = int(phase_str.replace("phase", ""))
+                        if not self._write_agent_yaml(phase_num, phase_data):
+                            agent_ok = False
+                    except (ValueError, KeyError) as e:
+                        logger.warning(f"导入 Agent 配置 phase={phase_str} 失败: {e}")
+
+            # ---- 4. 刷新缓存与桥接 ----
+            await self._post_import_reload()
+
+            overall = system_ok and collections_ok and agent_ok
+            logger.info(f"配置导入完成: system={system_ok}, collections={collections_ok}, agent={agent_ok}")
+            return overall
 
         except Exception as e:
-            print(f"导入配置失败: {e}")
+            logger.error(f"导入配置失败: {e}", exc_info=True)
             return False
 
-    def _validate_config_data(self, config_data: Dict[str, Any]) -> bool:
-        """验证配置数据格式"""
+    async def _import_system_configs(self, db, sc_data: Dict[str, Any]) -> bool:
+        """将 system_configs 部分写入数据库"""
+        def _llm_sanitize_in(llm: Dict[str, Any]):
+            d = dict(llm or {})
+            d["api_key"] = ""
+            for fld in ("max_tokens", "temperature", "timeout", "retry_times"):
+                if d.get(fld) == "" or d.get(fld) is None:
+                    d.pop(fld, None)
+            return LLMConfig(**d)
+
+        def _ds_sanitize_in(ds: Dict[str, Any]):
+            d = dict(ds or {})
+            d["api_key"] = ""
+            d["api_secret"] = ""
+            return DataSourceConfig(**d)
+
+        def _db_sanitize_in(db_cfg: Dict[str, Any]):
+            d = dict(db_cfg or {})
+            d["password"] = ""
+            return DatabaseConfig(**d)
+
+        new_config = SystemConfig(
+            config_name=sc_data.get("config_name", "导入的配置"),
+            config_type="imported",
+            llm_configs=[_llm_sanitize_in(llm) for llm in sc_data.get("llm_configs", [])],
+            default_llm=sc_data.get("default_llm"),
+            data_source_configs=[_ds_sanitize_in(ds) for ds in sc_data.get("data_source_configs", [])],
+            default_data_source=sc_data.get("default_data_source"),
+            database_configs=[_db_sanitize_in(db_cfg) for db_cfg in sc_data.get("database_configs", [])],
+            system_settings=sc_data.get("system_settings", {}),
+        )
+        return await self.save_system_config(new_config)
+
+    async def _post_import_reload(self):
+        """导入后刷新缓存、桥接环境变量、清除智能体缓存"""
+        # 1. 刷新 ConfigProvider 缓存
         try:
+            from app.services.config_provider import provider as config_provider
+            config_provider.invalidate()
+            logger.info("已刷新 ConfigProvider 缓存")
+        except Exception as e:
+            logger.warning(f"刷新 ConfigProvider 缓存失败: {e}")
+
+        # 2. 重新桥接环境变量
+        try:
+            from app.core.config_bridge import reload_bridged_config
+            await reload_bridged_config()
+            logger.info("已重新桥接环境变量")
+        except Exception as e:
+            logger.warning(f"重新桥接环境变量失败: {e}")
+
+        # 3. 清除智能体配置缓存
+        try:
+            from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+            DynamicAnalystFactory.clear_cache()
+            logger.info("已清除 DynamicAnalystFactory 缓存")
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(f"清除智能体缓存失败: {e}")
+
+    # ---------- 校验 ----------
+
+    def _validate_config_data(self, config_data: Dict[str, Any]) -> bool:
+        """验证配置数据格式（兼容 v1.0 和 v2.0）"""
+        try:
+            version = config_data.get("export_version")
+
+            if version == EXPORT_VERSION:
+                # v2.0 格式：system_configs 为必填
+                sc = config_data.get("system_configs", {})
+                if not sc and not config_data.get("llm_configs"):
+                    print("配置数据缺少 system_configs 或 llm_configs")
+                    return False
+                return True
+
+            # v1.0 格式（向后兼容）：检查原始 4 个必需字段
             required_fields = ["llm_configs", "data_source_configs", "database_configs", "system_settings"]
             for field in required_fields:
                 if field not in config_data:
                     print(f"配置数据缺少必需字段: {field}")
                     return False
-
             return True
 
         except Exception as e:
             print(f"验证配置数据失败: {e}")
             return False
 
-    async def migrate_legacy_config(self) -> bool:
-        """迁移传统配置"""
-        try:
-            # 这里可以调用迁移脚本的逻辑
-            # 或者直接在这里实现迁移逻辑
-            from scripts.migrate_config_to_webapi import ConfigMigrator
+    # ---------- 传统配置迁移 ----------
 
-            migrator = ConfigMigrator()
-            return await migrator.migrate_all_configs()
+    async def migrate_legacy_config(self) -> bool:
+        """从 YAML/JSON 文件迁移配置到数据库（内联实现，不依赖外部脚本）"""
+        try:
+            project_root = Path(__file__).resolve().parents[3]
+            migrated_items: List[str] = []
+            db = await self._get_db()
+
+            # 1. 迁移 config/models.json → llm_configs（追加到 system_configs）
+            models_json = project_root / "config" / "models.json"
+            if models_json.exists():
+                try:
+                    with models_json.open("r", encoding="utf-8") as f:
+                        models_list = json.loads(f.read())
+                    if isinstance(models_list, list) and models_list:
+                        config = await self.get_system_config()
+                        if config:
+                            existing_names = {llm.model_name for llm in config.llm_configs}
+                            added = 0
+                            for m in models_list:
+                                if not isinstance(m, dict):
+                                    continue
+                                name = m.get("model_name", "")
+                                if name and name not in existing_names:
+                                    try:
+                                        config.llm_configs.append(LLMConfig(
+                                            provider=m.get("provider", "openai"),
+                                            model_name=name,
+                                            api_key=m.get("api_key", ""),
+                                            api_base=m.get("base_url"),
+                                            max_tokens=m.get("max_tokens", 4000),
+                                            temperature=m.get("temperature", 0.7),
+                                            enabled=m.get("enabled", False),
+                                        ))
+                                        existing_names.add(name)
+                                        added += 1
+                                    except Exception:
+                                        pass
+                            if added:
+                                await self.save_system_config(config)
+                                migrated_items.append(f"models.json → {added} 个模型")
+                except Exception as e:
+                    logger.warning(f"迁移 models.json 失败: {e}")
+
+            # 2. 迁移 config/agents/*.yaml → 确认文件存在（YAML 本身就是 Agent 的真相来源）
+            agents_dir = project_root / "config" / "agents"
+            if agents_dir.exists():
+                phase_count = 0
+                for phase in AGENT_PHASE_FILES:
+                    yaml_path = agents_dir / AGENT_PHASE_FILES[phase]
+                    if yaml_path.exists():
+                        phase_count += 1
+                if phase_count:
+                    migrated_items.append(f"agent YAML 已就绪 ({phase_count} 个阶段)")
+
+            # 3. 刷新
+            await self._post_import_reload()
+
+            if migrated_items:
+                logger.info(f"传统配置迁移完成: {', '.join(migrated_items)}")
+            else:
+                logger.info("未发现可迁移的传统配置文件")
+            return True
 
         except Exception as e:
-            print(f"迁移传统配置失败: {e}")
+            logger.error(f"迁移传统配置失败: {e}", exc_info=True)
             return False
