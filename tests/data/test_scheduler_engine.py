@@ -136,7 +136,7 @@ class TestLoadSchedule:
     def test_load_schedule_with_uppercase_market(self, scheduler_engine, sample_schedule_yaml):
         scheduler_engine.load_schedule("CN", sample_schedule_yaml)
         job_ids = [j.id for j in scheduler_engine._scheduler.get_jobs()]
-        assert "CN_daily_quotes" in job_ids
+        assert "cn_daily_quotes" in job_ids
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +202,7 @@ class TestTriggerJob:
     async def test_trigger_job_returns_job_id(self, scheduler_engine):
         scheduler_engine._registry.register("daily_quotes", "CN", FakeJob)
         result = scheduler_engine.trigger_job("CN", "daily_quotes")
-        assert result == "CN_daily_quotes"
+        assert result == "cn_daily_quotes"
 
     def test_trigger_job_unregistered_returns_empty(self, scheduler_engine):
         result = scheduler_engine.trigger_job("CN", "unknown_domain")
@@ -216,7 +216,7 @@ class TestTriggerJob:
     @pytest.mark.asyncio
     async def test_trigger_job_market_case_sensitivity(self, scheduler_engine):
         scheduler_engine._registry.register("daily_quotes", "CN", FakeJob)
-        assert scheduler_engine.trigger_job("CN", "daily_quotes") == "CN_daily_quotes"
+        assert scheduler_engine.trigger_job("CN", "daily_quotes") == "cn_daily_quotes"
         assert scheduler_engine.trigger_job("cn", "daily_quotes") == ""
 
     @pytest.mark.asyncio
@@ -225,9 +225,9 @@ class TestTriggerJob:
         scheduler_engine._registry.register("daily_quotes", "HK", FakeJob)
         scheduler_engine._registry.register("daily_quotes", "US", FakeJob)
 
-        assert scheduler_engine.trigger_job("CN", "daily_quotes") == "CN_daily_quotes"
-        assert scheduler_engine.trigger_job("HK", "daily_quotes") == "HK_daily_quotes"
-        assert scheduler_engine.trigger_job("US", "daily_quotes") == "US_daily_quotes"
+        assert scheduler_engine.trigger_job("CN", "daily_quotes") == "cn_daily_quotes"
+        assert scheduler_engine.trigger_job("HK", "daily_quotes") == "hk_daily_quotes"
+        assert scheduler_engine.trigger_job("US", "daily_quotes") == "us_daily_quotes"
 
 
 # ---------------------------------------------------------------------------

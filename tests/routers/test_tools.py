@@ -26,13 +26,13 @@ class TestMCPToolsAPI:
         assert callable(toggle_mcp_tool)
         assert callable(get_mcp_availability_summary)
         assert isinstance(_MCP_TOOLS, list)
-        assert len(_MCP_TOOLS) == 20
+        assert len(_MCP_TOOLS) == 14
 
     def test_mcp_tools_data_structure(self):
         """验证每个 MCP 工具具有完整的数据结构"""
         from app.routers.tools import _MCP_TOOLS
 
-        required_keys = {"name", "description", "category", "tushare_only"}
+        required_keys = {"name", "description", "category", "source"}
         for i, tool in enumerate(_MCP_TOOLS):
             assert required_keys.issubset(tool.keys()), (
                 f"Tool #{i} missing keys: {required_keys - tool.keys()}"
@@ -40,7 +40,7 @@ class TestMCPToolsAPI:
             assert isinstance(tool["name"], str) and len(tool["name"]) > 0
             assert isinstance(tool["description"], str) and len(tool["description"]) > 0
             assert isinstance(tool["category"], str)
-            assert isinstance(tool["tushare_only"], bool)
+            assert isinstance(tool["source"], str)
 
     def test_mcp_tool_names_are_unique(self):
         """验证工具名称唯一"""

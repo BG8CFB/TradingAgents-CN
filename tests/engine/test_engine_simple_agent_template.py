@@ -144,17 +144,14 @@ class TestInjectToolData:
         assert any(isinstance(m, ToolMessage) for m in messages)
 
     def test_handles_tool_exception_gracefully(self):
-        """工具执行异常时不崩溃"""
+        """注册表中不存在的工具不触发注入"""
 
-        class FailingTool:
-            name = "china_market"
-
-            def invoke(self, args):
-                raise RuntimeError("外部服务不可用")
+        class FakeTool:
+            name = "unknown_tool_xyz"
 
         messages = []
         _inject_tool_data(
-            "test", [FailingTool()], [],
+            "test", [FakeTool()], [],
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
         )

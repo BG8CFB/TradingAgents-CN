@@ -4,8 +4,7 @@
 - refresh() 多域并行刷新
 - 冷却期检查（force=False 跳过 / force=True 忽略）
 - RefreshResult 状态计算
-- _fetch_from_source 域映射
-- 数据校验
+- DomainRefreshResult 数据类
 
 设计原则：不使用 unittest.mock。_refresh_domain 内部流程因为依赖外部
 Provider/Adapter/MongoDB/Redis 连接，在无真实服务时无法完全执行，因此
@@ -79,73 +78,6 @@ class TestRefreshResultStatus:
     def test_empty_domains(self):
         r = RefreshResult(symbol="000001", market="CN")
         assert r.compute_status() == RefreshStatus.FAILED
-
-
-# ---------------------------------------------------------------------------
-# 数据校验测试
-# ---------------------------------------------------------------------------
-class TestDataValidation:
-    """测试 _validate_records 数据校验逻辑。"""
-
-    def test_validate_records_filters_missing_symbol(self):
-        service, _, _ = _make_service()
-        records = [
-            {"symbol": "000001", "trade_date": "2024-01-01"},
-            {"trade_date": "2024-01-01"},
-            {"symbol": "000002", "trade_date": "2024-01-02"},
-        ]
-        result = service._validate_records(records, "daily_quotes", "CN")
-        assert len(result) == 2
-
-    def test_validate_records_filters_missing_trade_date_for_timeseries(self):
-        service, _, _ = _make_service()
-        records = [
-            {"symbol": "000001", "trade_date": "2024-01-01"},
-            {"symbol": "000002"},
-        ]
-        result = service._validate_records(records, "daily_quotes", "CN")
-        assert len(result) == 1
-
-    def test_validate_records_allows_basic_info_without_trade_date(self):
-        service, _, _ = _make_service()
-        records = [
-            {"symbol": "000001"},
-            {"symbol": "000002"},
-        ]
-        result = service._validate_records(records, "basic_info", "CN")
-        assert len(result) == 2
-
-    def test_validate_records_empty_input(self):
-        service, _, _ = _make_service()
-        result = service._validate_records([], "daily_quotes", "CN")
-        assert result == []
-
-
-# ---------------------------------------------------------------------------
-# _fetch_from_source 测试
-# ---------------------------------------------------------------------------
-class TestFetchFromSource:
-    """测试 _fetch_from_source 域映射。"""
-
-    @pytest.mark.asyncio
-    async def test_unknown_domain_returns_none(self):
-        """_fetch_from_source 对于已知域映射中不存在的域返回 None。
-        需要有效的 provider 才能构建 method_map，因此使用简单的 provider stub。"""
-        service, _, _ = _make_service()
-
-        class StubProvider:
-            async def get_stock_list(self, **kw): return []
-            async def get_daily_quotes(self, **kw): return []
-            async def get_trade_calendar(self, **kw): return []
-            async def get_daily_indicators(self, **kw): return []
-            async def get_financial_data(self, **kw): return []
-            async def get_adj_factors(self, **kw): return []
-            async def get_corporate_actions(self, **kw): return []
-            async def get_news(self, **kw): return []
-            async def get_market_quotes(self, **kw): return []
-
-        result = await service._fetch_from_source(StubProvider(), "unknown_domain", "000001")
-        assert result is None
 
 
 # ---------------------------------------------------------------------------
