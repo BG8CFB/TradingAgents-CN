@@ -1,7 +1,7 @@
 """
 测试 SimpleAgentTemplate 代理模板
 
-业务逻辑测试：format_tool_result、_INJECT_TOOL_ARGS_MAP 数据验证
+业务逻辑测试：format_tool_result、_inject_tool_data 数据注入
 LLM 集成测试：标记 @pytest.mark.ai，使用真实 API 测试 agent 节点执行
 """
 
@@ -12,9 +12,9 @@ from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from app.engine.agents.analysts.simple_agent_template import (
     format_tool_result,
     _inject_tool_data,
-    _INJECT_TOOL_ARGS_MAP,
     create_simple_agent,
 )
+from app.engine.tools.builtin.registry import BUILTIN_TOOL_REGISTRY
 
 
 class TestFormatToolResult:
@@ -65,19 +65,31 @@ class TestFormatToolResult:
 
 
 class TestInjectToolArgsMap:
-    """工具参数映射数据验证"""
+    """工具参数映射数据验证 — 基于 BUILTIN_TOOL_REGISTRY 的 inject_args"""
 
-    def test_expected_tool_names_present(self):
-        expected = [
-            "get_stock_data", "get_stock_news", "get_stock_fundamentals",
-            "get_stock_sentiment", "get_china_market_overview", "get_finance_news",
+    def test_registry_has_injectable_tools(self):
+        """注册表中应有工具定义了 inject_args"""
+        tools_with_inject = [s for s in BUILTIN_TOOL_REGISTRY if s.inject_args]
+        assert len(tools_with_inject) > 0
+
+    def test_inject_args_values_are_valid_types(self):
+        """inject_args 的值类型应为 str、callable 或 int"""
+        for spec in BUILTIN_TOOL_REGISTRY:
+            for arg_name, source in spec.inject_args.items():
+                assert isinstance(source, (str, int)) or callable(source), (
+                    f"{spec.tool_id}.{arg_name} 类型无效: {type(source)}"
+                )
+
+    def test_expected_tool_ids_have_inject_args(self):
+        """关键工具应有 inject_args"""
+        expected_ids = [
+            "daily_quotes", "news", "fundamentals",
+            "sentiment", "china_market",
         ]
-        for name in expected:
-            assert name in _INJECT_TOOL_ARGS_MAP, f"缺少工具映射: {name}"
-
-    def test_map_values_are_dicts(self):
-        for tool_name, args_map in _INJECT_TOOL_ARGS_MAP.items():
-            assert isinstance(args_map, dict), f"{tool_name} 的映射不是字典"
+        registry_map = {s.tool_id: s for s in BUILTIN_TOOL_REGISTRY}
+        for tid in expected_ids:
+            assert tid in registry_map, f"缺少工具: {tid}"
+            assert registry_map[tid].inject_args, f"{tid} 缺少 inject_args"
 
 
 class TestInjectToolData:
@@ -91,7 +103,7 @@ class TestInjectToolData:
 
         messages = []
         _inject_tool_data(
-            "test", [FakeTool()],
+            "test", [FakeTool()], [],
             {"ticker": "000001", "trade_date": "2024-12-31"},
             messages,
         )
@@ -101,34 +113,32 @@ class TestInjectToolData:
         """ticker 为空且工具需要 ticker 时不注入数据（但可能有 SystemMessage 前导说明）"""
 
         class FakeTool:
-            name = "get_stock_data"
+            name = "daily_quotes"
 
         messages = []
         _inject_tool_data(
-            "test", [FakeTool()],
+            "test", [FakeTool()], [],
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
         )
-        # 工具因缺少 ticker 跳过，不应有 AIMessage + ToolMessage 对
         assert not any(isinstance(m, AIMessage) for m in messages)
         assert not any(isinstance(m, ToolMessage) for m in messages)
 
     def test_injects_tool_result_into_messages(self):
-        """get_finance_news 不需要 ticker，应成功注入数据"""
+        """china_market 不需要 ticker，应成功注入数据"""
 
         class FakeTool:
-            name = "get_finance_news"
+            name = "china_market"
 
             def invoke(self, args):
-                return {"news": "今日要闻"}
+                return {"index": "上证指数"}
 
         messages = []
         _inject_tool_data(
-            "test", [FakeTool()],
+            "test", [FakeTool()], [],
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
         )
-        # SystemMessage 前导说明 + AIMessage + ToolMessage
         assert any(isinstance(m, SystemMessage) for m in messages)
         assert any(isinstance(m, AIMessage) for m in messages)
         assert any(isinstance(m, ToolMessage) for m in messages)
@@ -137,18 +147,17 @@ class TestInjectToolData:
         """工具执行异常时不崩溃"""
 
         class FailingTool:
-            name = "get_finance_news"
+            name = "china_market"
 
             def invoke(self, args):
                 raise RuntimeError("外部服务不可用")
 
         messages = []
         _inject_tool_data(
-            "test", [FailingTool()],
+            "test", [FailingTool()], [],
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
         )
-        # 工具执行失败，不应有 AIMessage + ToolMessage 对（可能有 SystemMessage）
         assert not any(isinstance(m, AIMessage) for m in messages)
         assert not any(isinstance(m, ToolMessage) for m in messages)
 

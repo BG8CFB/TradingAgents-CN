@@ -1,27 +1,42 @@
 """测试 builtin/loader 工具加载器
 
-调用真实的 load_builtin_tools 和 get_builtin_tool_metas 函数，
+调用真实的 load_builtin_tools 和 get_builtin_tool_specs 函数，
 验证内置工具模块的加载行为。
 """
 
 import pytest
 
-from app.engine.tools.builtin.loader import _DOMAIN_MODULES, load_builtin_tools, get_builtin_tool_metas
+from app.engine.tools.builtin.loader import load_builtin_tools, get_builtin_tool_specs
+from app.engine.tools.builtin.registry import BUILTIN_TOOL_REGISTRY
 
 
-class TestDomainModules:
-    def test_contains_expected_modules(self):
-        """应包含所有预期的领域模块"""
+class TestBuiltinToolRegistry:
+    def test_registry_not_empty(self):
+        """注册表不应为空"""
+        assert len(BUILTIN_TOOL_REGISTRY) > 0
+
+    def test_expected_tool_ids_present(self):
+        """应包含所有预期的工具 ID"""
+        tool_ids = {spec.tool_id for spec in BUILTIN_TOOL_REGISTRY}
         expected = [
-            "market", "news", "fundamentals", "sentiment",
-            "china_market", "capital_flow", "macro", "fund", "others",
+            "daily_quotes", "intraday_quotes", "market_quotes",
+            "financial_data", "fundamentals", "news", "sentiment",
+            "china_market", "dragon_tiger", "block_trade",
+            "money_flow", "margin_trade", "daily_indicators", "basic_info",
         ]
-        for mod in expected:
-            assert mod in _DOMAIN_MODULES
+        for tid in expected:
+            assert tid in tool_ids, f"缺少工具: {tid}"
 
-    def test_count_is_nine(self):
-        """领域模块数量应为 9"""
-        assert len(_DOMAIN_MODULES) == 9
+    def test_each_spec_has_required_fields(self):
+        """每个 BuiltinToolSpec 应有必填字段"""
+        for spec in BUILTIN_TOOL_REGISTRY:
+            assert spec.tool_id, "tool_id 不应为空"
+            assert spec.display_name, "display_name 不应为空"
+            assert isinstance(spec.domains, list), "domains 应为列表"
+            assert isinstance(spec.markets, list), "markets 应为列表"
+            assert callable(spec.fn), "fn 应为可调用对象"
+            assert isinstance(spec.inject_args, dict), "inject_args 应为字典"
+            assert spec.description, "description 不应为空"
 
 
 class TestLoadBuiltinTools:
@@ -30,37 +45,21 @@ class TestLoadBuiltinTools:
         result = load_builtin_tools()
         assert isinstance(result, list)
 
-    def test_tool_items_are_callable(self):
+    def test_tool_items_have_name(self):
         """加载的工具对象应具有 name 属性"""
         result = load_builtin_tools()
-        # 在测试环境中可能某些模块不可用
         for tool in result:
             assert hasattr(tool, "name")
             assert isinstance(tool.name, str)
 
 
-class TestGetBuiltinToolMetas:
-    def test_returns_dict(self):
-        """get_builtin_tool_metas 应返回字典"""
-        metas = get_builtin_tool_metas()
-        assert isinstance(metas, dict)
+class TestGetBuiltinToolSpecs:
+    def test_returns_list(self):
+        """get_builtin_tool_specs 应返回列表"""
+        specs = get_builtin_tool_specs()
+        assert isinstance(specs, list)
 
-    def test_meta_values_have_expected_keys(self):
-        """每个工具的元数据应包含预期字段"""
-        metas = get_builtin_tool_metas()
-        # 如果有加载到的工具元数据，验证结构
-        for tool_name, meta in metas.items():
-            assert "data_source_map" in meta, f"工具 {tool_name} 缺少 data_source_map"
-            assert "analyst_map" in meta, f"工具 {tool_name} 缺少 analyst_map"
-            assert "module" in meta, f"工具 {tool_name} 缺少 module"
-            assert isinstance(meta["data_source_map"], list)
-            assert isinstance(meta["analyst_map"], list)
-            assert isinstance(meta["module"], str)
-
-    def test_meta_modules_are_from_domain_list(self):
-        """元数据中的 module 字段应来自 _DOMAIN_MODULES"""
-        metas = get_builtin_tool_metas()
-        for tool_name, meta in metas.items():
-            assert meta["module"] in _DOMAIN_MODULES, (
-                f"工具 {tool_name} 的 module={meta['module']} 不在 _DOMAIN_MODULES 中"
-            )
+    def test_specs_match_registry(self):
+        """返回的规格应与注册表一致"""
+        specs = get_builtin_tool_specs()
+        assert len(specs) == len(BUILTIN_TOOL_REGISTRY)
