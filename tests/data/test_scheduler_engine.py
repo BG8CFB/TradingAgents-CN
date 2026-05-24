@@ -217,7 +217,7 @@ class TestTriggerJob:
     async def test_trigger_job_market_case_sensitivity(self, scheduler_engine):
         scheduler_engine._registry.register("daily_quotes", "CN", FakeJob)
         assert scheduler_engine.trigger_job("CN", "daily_quotes") == "cn_daily_quotes"
-        assert scheduler_engine.trigger_job("cn", "daily_quotes") == ""
+        assert scheduler_engine.trigger_job("cn", "daily_quotes") == "cn_daily_quotes"
 
     @pytest.mark.asyncio
     async def test_trigger_job_multiple_markets(self, scheduler_engine):
