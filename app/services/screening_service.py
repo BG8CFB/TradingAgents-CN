@@ -185,10 +185,10 @@ class ScreeningService:
                             with concurrent.futures.ThreadPoolExecutor() as pool:
                                 fund_data = pool.submit(
                                     asyncio.run,
-                                    _di.read("CN", code, "financial_data")
+                                    _di.read("CN", "financial_data", symbol=code)
                                 ).result()
                         else:
-                            fund_data = asyncio.run(_di.read("CN", code, "financial_data"))
+                            fund_data = asyncio.run(_di.read("CN", "financial_data", symbol=code))
                         snap = fund_data.get("data")
                     except Exception:
                         snap = None

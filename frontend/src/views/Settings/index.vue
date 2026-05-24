@@ -140,7 +140,7 @@
                 :step="1"
                 controls-position="right"
               />
-              <span style="margin-left: 12px; color: #909399; font-size: 13px;">辩论轮数上限为4，默认2</span>
+              <span style="margin-left: 12px; color: var(--el-text-color-placeholder); font-size: 13px;">辩论轮数上限为4，默认2</span>
             </el-form-item>
 
             <el-form-item label="默认分析师">

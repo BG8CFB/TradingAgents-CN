@@ -179,7 +179,7 @@
               <el-checkbox v-model="importOverwrite">
                 覆盖现有数据
               </el-checkbox>
-              <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+              <div style="font-size: 12px; color: var(--el-text-color-placeholder); margin-top: 4px;">
                 ⚠️ 勾选后将删除现有数据再导入
               </div>
             </el-form-item>
@@ -212,15 +212,15 @@
                   <p style="margin: 8px 0;">由于数据量较大，Web 界面备份体验较差，建议使用 MongoDB 原生工具：</p>
                   <div style="background: #f5f7fa; padding: 12px; border-radius: 4px; margin: 8px 0;">
                     <p style="margin: 4px 0; font-weight: bold;">📦 备份命令：</p>
-                    <code style="display: block; margin: 4px 0; color: #409eff;">
+                    <code style="display: block; margin: 4px 0; color: #C5A55A;">
                       mongodump --uri="mongodb://localhost:27017" --db=tradingagents --out=./backup --gzip
                     </code>
                     <p style="margin: 12px 0 4px 0; font-weight: bold;">🔄 还原命令：</p>
-                    <code style="display: block; margin: 4px 0; color: #409eff;">
+                    <code style="display: block; margin: 4px 0; color: #C5A55A;">
                       mongorestore --uri="mongodb://localhost:27017" --db=tradingagents --gzip ./backup/tradingagents
                     </code>
                   </div>
-                  <p style="margin: 8px 0; font-size: 12px; color: #909399;">
+                  <p style="margin: 8px 0; font-size: 12px; color: var(--el-text-color-placeholder);">
                     💡 提示：请根据实际的 MongoDB 连接信息修改命令中的 URI
                   </p>
                 </div>

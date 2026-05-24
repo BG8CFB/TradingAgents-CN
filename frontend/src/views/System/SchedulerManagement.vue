@@ -19,12 +19,12 @@
           </el-statistic>
           <el-statistic title="运行中" :value="stats.running_jobs">
             <template #prefix>
-              <el-icon color="#67C23A"><VideoPlay /></el-icon>
+              <el-icon color="#7CB342"><VideoPlay /></el-icon>
             </template>
           </el-statistic>
           <el-statistic title="已暂停" :value="stats.paused_jobs">
             <template #prefix>
-              <el-icon color="#E6A23C"><VideoPause /></el-icon>
+              <el-icon color="#D4AF37"><VideoPause /></el-icon>
             </template>
           </el-statistic>
         </div>

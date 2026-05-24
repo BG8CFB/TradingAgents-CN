@@ -287,6 +287,21 @@ class MemoryStateManager:
         """获取任务状态（字典格式）"""
         task = await self.get_task(task_id)
         return task.to_dict() if task else None
+
+    def batch_get_task_dicts(self, task_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """批量获取任务状态（一次加锁，避免 N+1 问题）
+
+        Returns:
+            以 task_id 为 key 的字典，值是对应任务的 to_dict() 结果。
+            未找到的 task_id 不会出现在返回值中。
+        """
+        with self._lock:
+            result: Dict[str, Dict[str, Any]] = {}
+            for tid in task_ids:
+                task = self._tasks.get(tid)
+                if task:
+                    result[tid] = task.to_dict()
+            return result
     
     async def list_all_tasks(
         self,

@@ -293,18 +293,3 @@ def get_block_trade(
             ErrorCodes.DATA_FETCH_ERROR,
             str(e)
         ))
-
-
-# --- 元数据 ---
-
-TOOL_FUNCTIONS = [get_china_market_overview, get_dragon_tiger_inst, get_block_trade]
-DATA_SOURCE_MAP = {
-    "get_china_market_overview": ["akshare"],
-    "get_dragon_tiger_inst": ["akshare"],
-    "get_block_trade": ["akshare"],
-}
-ANALYST_MAP = {
-    "get_china_market_overview": ["china-market-analyst", "short-term-capital-analyst"],
-    "get_dragon_tiger_inst": ["china-market-analyst", "short-term-capital-analyst"],
-    "get_block_trade": ["china-market-analyst", "short-term-capital-analyst"],
-}

@@ -28,7 +28,7 @@ def _get_stock_info_sync(market: str, symbol: str):
 
         async def _read():
             di = DataInterface.get_instance()
-            result = await di.read(market, symbol, "basic_info")
+            result = await di.read(market, "basic_info", symbol=symbol)
             data = result.get("data")
             if data:
                 doc = data[0] if isinstance(data, list) and data else data
@@ -59,7 +59,7 @@ def _get_stock_data_sync(market: str, symbol: str, start_date=None, end_date=Non
 
         async def _read():
             di = DataInterface.get_instance()
-            result = await di.read(market, symbol, "daily_quotes", start_date=start_date, end_date=end_date)
+            result = await di.read(market, "daily_quotes", symbol=symbol, start_date=start_date, end_date=end_date)
             data = result.get("data")
             if data and isinstance(data, list) and data:
                 return pd.DataFrame(data).to_string()
@@ -586,7 +586,7 @@ class StockDataPreparer:
             logger.debug(f"📊 [A股数据-异步] 获取{stock_code}基本信息...")
             from app.data.core.interface import DataInterface
             di = DataInterface.get_instance()
-            info_result = await di.read("CN", stock_code, "basic_info")
+            info_result = await di.read("CN", "basic_info", symbol=stock_code)
             info_doc = info_result.get("data")
 
             if info_doc:
@@ -599,7 +599,7 @@ class StockDataPreparer:
 
             # 4. 获取历史数据
             logger.debug(f"📊 [A股数据-异步] 获取{stock_code}历史数据...")
-            quotes_result = await di.read("CN", stock_code, "daily_quotes",
+            quotes_result = await di.read("CN", "daily_quotes", symbol=stock_code,
                                           start_date=extended_start_date_str, end_date=end_date_str)
             quotes_data = quotes_result.get("data")
 
@@ -664,7 +664,7 @@ class StockDataPreparer:
 
             async def _query():
                 di = DataInterface.get_instance()
-                result = await di.read("CN", stock_code, "daily_quotes",
+                result = await di.read("CN", "daily_quotes", symbol=stock_code,
                                        start_date=start_date, end_date=end_date)
                 return result.get("data")
 
@@ -944,7 +944,7 @@ class StockDataPreparer:
 
             async def _get_hk_info():
                 di = DataInterface.get_instance()
-                return await di.read("HK", hk_code, "basic_info")
+                return await di.read("HK", "basic_info", symbol=hk_code)
 
             try:
                 loop = asyncio.get_running_loop()
@@ -987,7 +987,7 @@ class StockDataPreparer:
 
             async def _get_hk_quotes():
                 di = DataInterface.get_instance()
-                return await di.read("HK", hk_code, "daily_quotes",
+                return await di.read("HK", "daily_quotes", symbol=hk_code,
                                      start_date=start_date_str, end_date=end_date_str)
 
             try:

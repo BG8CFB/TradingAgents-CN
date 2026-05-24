@@ -1,11 +1,11 @@
 // SCSS变量定义
 
-// 颜色变量
-$primary-color: #409EFF;
-$success-color: #67C23A;
-$warning-color: #E6A23C;
-$danger-color: #F56C6C;
-$info-color: #909399;
+// 颜色变量（Champagne Gold 主题）
+$primary-color: #C5A55A;
+$success-color: #7CB342;
+$warning-color: #D4AF37;
+$danger-color: #E57373;
+$info-color: #9E9688;
 
 // 间距变量
 $spacing-xs: 4px;
@@ -38,3 +38,61 @@ $breakpoint-sm: 768px;
 $breakpoint-md: 992px;
 $breakpoint-lg: 1200px;
 $breakpoint-xl: 1920px;
+
+// Login page specific — Champagne Gold + Warm White Sci-Fi
+$login-bg-cream: #FFFEF9;
+$login-bg-pearl: #FBF8F2;
+$login-gold-primary: #C5A55A;
+$login-gold-bright: #E8D48B;
+$login-gold-dark: #9E7E3E;
+$login-gold-glow: #D4AF37;
+$login-gold-muted: #B8A070;
+$login-gold-rose: #B76E79;
+$login-gold-champagne: #F7E7CE;
+$login-text-primary: #1A1714;
+$login-text-secondary: #6B6358;
+$login-text-muted: #9E9688;
+$login-dark-bg: #0C0A0F;
+$login-dark-bg-alt: #141018;
+$login-aurora-gold: #C5A55A;
+$login-aurora-warm: #F5E6C8;
+$login-aurora-rose: rgba(183, 110, 121, 0.5);
+$login-glass-bg: rgba(255, 254, 249, 0.65);
+$login-glass-border: rgba(197, 165, 90, 0.3);
+$login-input-bg: rgba(255, 254, 249, 0.5);
+$login-divider: rgba(197, 165, 90, 0.2);
+
+// ================================
+// 全局主题变量 — Champagne Gold
+// ================================
+
+// 主题色
+$theme-gold-primary: #C5A55A;
+$theme-gold-bright: #E8D48B;
+$theme-gold-dark: #9E7E3E;
+$theme-gold-glow: #D4AF37;
+$theme-gold-muted: #B8A070;
+$theme-gold-rose: #B76E79;
+$theme-gold-champagne: #F7E7CE;
+$theme-warm-silver: #B8A070;
+
+// 暗色系
+$theme-dark-bg: #0C0A0F;
+$theme-dark-bg-alt: #141018;
+$theme-dark-surface: #1A1714;
+
+// 文字色
+$theme-text-primary: #1A1714;
+$theme-text-secondary: #6B6358;
+$theme-text-muted: #9E9688;
+
+// 渐变
+$gradient-gold: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
+$gradient-gold-bright: linear-gradient(135deg, #E8D48B 0%, #C5A55A 100%);
+$gradient-dark: linear-gradient(135deg, #0C0A0F 0%, #1A1520 50%, #2A2030 100%);
+$gradient-rose-gold: linear-gradient(135deg, #C5A55A 0%, #B76E79 100%);
+$gradient-warm-silver: linear-gradient(135deg, #B8A070 0%, #9E9688 100%);
+
+// A股涨跌色
+$color-stock-up: #E57373;
+$color-stock-down: #7CB342;

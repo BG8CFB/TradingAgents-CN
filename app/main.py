@@ -295,6 +295,11 @@ async def lifespan(app: FastAPI):
     validate_startup_config()
 
     await _init_database(logger)
+
+    # 注册主事件循环，供 worker thread 中的 async 操作使用
+    from app.core.async_utils import set_main_loop
+    set_main_loop(asyncio.get_event_loop())
+
     await _init_system_defaults(logger)
     await _init_config_bridge(logger)
     await _apply_dynamic_settings(logger)

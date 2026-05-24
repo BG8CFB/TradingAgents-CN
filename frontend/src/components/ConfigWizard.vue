@@ -22,7 +22,7 @@
         <!-- 步骤 0: 欢迎 -->
         <div v-if="currentStep === 0" class="step-content welcome-step">
           <div class="welcome-icon">
-            <el-icon :size="80" color="#409EFF"><Setting /></el-icon>
+            <el-icon :size="80" color="#C5A55A"><Setting /></el-icon>
           </div>
           <h2>欢迎使用 TradingAgents-CN</h2>
           <p class="welcome-text">
@@ -243,7 +243,7 @@
         <!-- 步骤 4: 完成 -->
         <div v-if="currentStep === 4" class="step-content complete-step">
           <div class="complete-icon">
-            <el-icon :size="80" color="#67C23A"><CircleCheck /></el-icon>
+            <el-icon :size="80" color="#7CB342"><CircleCheck /></el-icon>
           </div>
           <h2>配置完成！</h2>
           <p class="complete-text">

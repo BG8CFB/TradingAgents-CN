@@ -39,7 +39,7 @@
                   >
                     ⚡分析师
                   </el-tag>
-                  <span style="font-size: 12px; color: #909399;">{{ model.provider }}</span>
+                  <span style="font-size: 12px; color: var(--el-text-color-placeholder);">{{ model.provider }}</span>
                 </div>
               </div>
             </el-option>
@@ -81,7 +81,7 @@
                   >
                     🧠辩论
                   </el-tag>
-                  <span style="font-size: 12px; color: #909399;">{{ model.provider }}</span>
+                  <span style="font-size: 12px; color: var(--el-text-color-placeholder);">{{ model.provider }}</span>
                 </div>
               </div>
             </el-option>
@@ -295,7 +295,7 @@ onMounted(() => {
     .config-title {
       font-size: 14px;
       font-weight: 600;
-      color: #1a202c;
+      color: var(--el-text-color-primary);
       margin: 0 0 12px 0;
       display: flex;
       align-items: center;
@@ -316,10 +316,10 @@ onMounted(() => {
           justify-content: space-between;
           margin-bottom: 8px;
           font-size: 13px;
-          color: #374151;
+          color: var(--el-text-color-regular);
 
           .help-icon {
-            color: #9ca3af;
+            color: var(--el-text-color-placeholder);
             cursor: help;
           }
         }

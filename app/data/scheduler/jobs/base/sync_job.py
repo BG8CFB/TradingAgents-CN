@@ -10,6 +10,17 @@ from app.data.scheduler.checkpoint import CheckpointManager
 from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
 
 logger = logging.getLogger(__name__)
+_SUPPORTED_SYNC_DOMAINS = {
+    "basic_info",
+    "trade_calendar",
+    "daily_quotes",
+    "daily_indicators",
+    "adj_factors",
+    "corporate_actions",
+    "financial_data",
+    "market_quotes",
+    "news",
+}
 
 
 class BaseSyncJob(ABC):
@@ -18,6 +29,9 @@ class BaseSyncJob(ABC):
     def __init__(self, market: str, domain: str):
         self.market = market
         self.domain = domain
+        self.sync_mode = "incremental"
+        self.preferred_source = None
+        self.dependencies = []
         self._checkpoint = CheckpointManager()
         self._metadata = MetadataRepo()
 
@@ -33,6 +47,9 @@ class BaseSyncJob(ABC):
         await self._metadata.insert_event(event)
 
         try:
+            if self.domain not in _SUPPORTED_SYNC_DOMAINS:
+                raise NotImplementedError(f"同步任务暂未打通该域: {self.market}/{self.domain}")
+
             # 非交易日跳过行情类数据
             if DataDomain(self.domain) in MARKET_DATA_DOMAINS:
                 if not await self._is_trading_day():
@@ -40,10 +57,13 @@ class BaseSyncJob(ABC):
                     return {"status": "skipped", "reason": "non_trading_day"}
 
             # 读取检查点
-            checkpoint = await self._checkpoint.get_checkpoint(
-                self.market, self.domain, "scheduled"
-            )
-            start_date = checkpoint or "1970-01-01"
+            if self.sync_mode == "full":
+                start_date = "1970-01-01"
+            else:
+                checkpoint = await self._checkpoint.get_checkpoint(
+                    self.market, self.domain, "scheduled"
+                )
+                start_date = checkpoint or "1970-01-01"
 
             # 获取符号列表（basic_info/trade_calendar 不需要逐符号）
             symbols = await self._get_symbols() if self._needs_symbol_list() else ["__all__"]
@@ -96,7 +116,14 @@ class BaseSyncJob(ABC):
         priority = PriorityConfig()
         router = FallbackRouter(registry, priority)
 
-        result = await router.fetch(self.market, self.domain, symbol, start_date)
+        preferred_sources = [self.preferred_source] if self.preferred_source else None
+        result = await router.fetch(
+            self.market,
+            self.domain,
+            symbol,
+            start_date,
+            preferred_sources=preferred_sources,
+        )
 
         if result.success and result.records:
             count = await self._write_records(result.records)
@@ -118,11 +145,17 @@ class BaseSyncJob(ABC):
         return await is_trading_day(self.market)
 
     def _needs_symbol_list(self) -> bool:
-        """是否需要逐符号同步。basic_info 和 trade_calendar 是全量同步。"""
+        """是否需要逐符号同步。
+
+        basic_info 和 trade_calendar 是全量同步。
+        daily_indicators 使用按日期批量模式（trade_date 参数一次获取全市场）。
+        market_quotes 使用批量快照模式。
+        """
         return self.domain not in (
             DataDomain.BASIC_INFO.value,
             DataDomain.TRADE_CALENDAR.value,
             DataDomain.MARKET_QUOTES.value,
+            DataDomain.DAILY_INDICATORS.value,
         )
 
     async def _get_symbols(self) -> list:

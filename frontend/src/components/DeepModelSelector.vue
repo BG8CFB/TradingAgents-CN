@@ -32,7 +32,7 @@
           >
             {{ type === 'debate' ? '🧠辩论' : '⚡分析师' }}
           </el-tag>
-          <span style="font-size:12px;color:#909399;">{{ model.provider }}</span>
+          <span style="font-size:12px;color:var(--el-text-color-placeholder);">{{ model.provider }}</span>
         </div>
       </div>
     </el-option>

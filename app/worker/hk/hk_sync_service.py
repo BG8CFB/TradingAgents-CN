@@ -102,7 +102,7 @@ class HKSyncService:
         for idx, symbol in enumerate(symbols, 1):
             if not force_update:
                 try:
-                    result = await di.read("HK", symbol, "basic_info")
+                    result = await di.read("HK", "basic_info", symbol=symbol)
                     data = result.get("data")
                     freshness = result.get("freshness")
                     if data and freshness == "fresh":
@@ -156,7 +156,7 @@ class HKSyncService:
             actual_start = start_date
             if incremental:
                 try:
-                    result = await di.read("HK", symbol, "daily_quotes")
+                    result = await di.read("HK", "daily_quotes", symbol=symbol)
                     data = result.get("data")
                     if data and isinstance(data, list) and data:
                         latest_date = data[0].get("trade_date")

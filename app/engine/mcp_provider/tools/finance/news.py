@@ -27,7 +27,7 @@ async def get_finance_news_logic(_reader_mod, code: str, days: int, limit: int) 
     di = DataInterface.get_instance()
 
     try:
-        result = await di.read(market, symbol, "news")
+        result = await di.read(market, "news", symbol=symbol)
         data = result.get("data")
 
         if not data or not isinstance(data, list) or not data:

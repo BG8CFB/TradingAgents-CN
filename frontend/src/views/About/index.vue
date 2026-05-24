@@ -349,7 +349,7 @@
         <!-- 新增：当前维护仓库 -->
         <div class="origin-card" style="margin-top: 24px;">
           <div class="origin-header">
-            <div class="origin-icon" style="background: linear-gradient(135deg, #07c160, #00d4aa);">
+            <div class="origin-icon" style="background: linear-gradient(135deg, #7CB342, #A8CC5C);">
               <el-icon><Star /></el-icon>
             </div>
             <div class="origin-info">
@@ -554,7 +554,7 @@ const viewDocumentation = () => {
 
   // Hero Section
   .hero-section {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
     border-radius: 16px;
     padding: 60px 40px;
     margin-bottom: 48px;
@@ -660,7 +660,7 @@ const viewDocumentation = () => {
 
           &.el-button--primary {
             background: white;
-            color: #667eea;
+            color: var(--el-color-primary);
             border: none;
 
             &:hover {
@@ -788,7 +788,7 @@ const viewDocumentation = () => {
             color: white;
 
             &.primary {
-              background: linear-gradient(135deg, var(--el-color-primary), #667eea);
+              background: linear-gradient(135deg, var(--el-color-primary), #C5A55A);
             }
 
             &.success {
@@ -812,7 +812,7 @@ const viewDocumentation = () => {
             margin: 0;
             font-size: 20px;
             font-weight: 600;
-            color: #1a202c;
+            color: var(--el-text-color-primary);
           }
         }
 
@@ -861,7 +861,7 @@ const viewDocumentation = () => {
           left: 0;
           right: 0;
           height: 4px;
-          background: linear-gradient(90deg, #667eea, #764ba2);
+          background: linear-gradient(90deg, var(--el-color-primary), #9E7E3E);
         }
 
         .origin-header {
@@ -876,7 +876,7 @@ const viewDocumentation = () => {
             width: 64px;
             height: 64px;
             border-radius: 16px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, var(--el-color-primary), #9E7E3E);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -910,7 +910,7 @@ const viewDocumentation = () => {
               }
 
               &:hover {
-                color: #667eea;
+                color: var(--el-color-primary);
                 text-decoration: underline;
               }
             }
@@ -964,9 +964,9 @@ const viewDocumentation = () => {
             gap: 8px;
             margin-top: 32px;
             padding: 20px;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            background: linear-gradient(135deg, rgba(197, 165, 90, 0.1), rgba(158, 126, 62, 0.1));
             border-radius: 12px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid var(--el-color-primary);
             font-size: 15px;
             color: var(--el-text-color-regular);
 
@@ -1025,15 +1025,15 @@ const viewDocumentation = () => {
             color: white;
 
             &.frontend {
-              background: linear-gradient(135deg, #42b883, #35495e);
+              background: linear-gradient(135deg, #7CB342, #6B6358);
             }
 
             &.backend {
-              background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+              background: linear-gradient(135deg, #E57373, #C5A55A);
             }
 
             &.ai {
-              background: linear-gradient(135deg, #a55eea, #26de81);
+              background: linear-gradient(135deg, #C5A55A, #7CB342);
             }
           }
 
@@ -1041,7 +1041,7 @@ const viewDocumentation = () => {
             margin: 0;
             font-size: 20px;
             font-weight: 600;
-            color: #1a202c;
+            color: var(--el-text-color-primary);
           }
         }
 
@@ -1059,7 +1059,7 @@ const viewDocumentation = () => {
 
             .tech-name {
               font-weight: 500;
-              color: #1a202c;
+              color: var(--el-text-color-primary);
             }
 
             .tech-desc {
@@ -1082,7 +1082,7 @@ const viewDocumentation = () => {
       gap: 32px;
 
       .version-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
         border-radius: 16px;
         padding: 32px;
         color: white;
@@ -1158,7 +1158,7 @@ const viewDocumentation = () => {
           margin: 0 0 24px 0;
           font-size: 20px;
           font-weight: 600;
-          color: #1a202c;
+          color: var(--el-text-color-primary);
         }
 
         .framework-list {
@@ -1175,7 +1175,7 @@ const viewDocumentation = () => {
 
             .name {
               font-weight: 500;
-              color: #1a202c;
+              color: var(--el-text-color-primary);
             }
 
             .version {
@@ -1226,19 +1226,19 @@ const viewDocumentation = () => {
           color: white;
 
           &.email {
-            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            background: linear-gradient(135deg, #E57373, #C5A55A);
           }
 
           &.qq {
-            background: linear-gradient(135deg, #12c2e9, #c471ed);
+            background: linear-gradient(135deg, #B8A070, #C5A55A);
           }
 
           &.wechat {
-            background: linear-gradient(135deg, #07c160, #00d4aa);
+            background: linear-gradient(135deg, #7CB342, #A8CC5C);
           }
 
           &.docs {
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, var(--el-color-primary), #9E7E3E);
           }
         }
 
@@ -1246,14 +1246,14 @@ const viewDocumentation = () => {
           margin: 0 0 12px 0;
           font-size: 18px;
           font-weight: 600;
-          color: #1a202c;
+          color: var(--el-text-color-primary);
         }
 
         p {
           margin: 0 0 8px 0;
           font-size: 16px;
           font-weight: 500;
-          color: #1a202c;
+          color: var(--el-text-color-primary);
 
           .doc-link {
             color: var(--el-color-primary);

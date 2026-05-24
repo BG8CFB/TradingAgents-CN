@@ -46,7 +46,7 @@ _METADATA_INDEXES: Dict[str, List[List[Tuple[str, int]]]] = {
         [("updated_at", -1)],
     ],
     "system_configs": [
-        [("config_type", 1), ("market", 1), ("domain", 1)],  # unique
+        [("config_type", 1), ("market", 1), ("domain", 1), ("config_key", 1)],  # unique
         [("updated_at", -1)],
     ],
 }

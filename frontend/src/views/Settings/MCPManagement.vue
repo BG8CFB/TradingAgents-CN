@@ -428,7 +428,7 @@ onMounted(() => {
 }
 
 .status-check.unknown {
-  color: #9ca3af;
+  color: var(--el-text-color-placeholder);
 }
 
 .status-text {
@@ -507,7 +507,7 @@ onMounted(() => {
 
 .empty-icon {
   font-size: 48px;
-  color: #3b82f6;
+  color: var(--el-color-primary);
   margin-bottom: 16px;
 }
 

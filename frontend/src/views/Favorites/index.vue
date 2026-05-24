@@ -189,7 +189,7 @@
               type="text"
               size="small"
               @click="showSingleSyncDialog(row)"
-              style="color: #409EFF;"
+              style="color: var(--el-color-primary);"
             >
               同步
             </el-button>
@@ -204,7 +204,7 @@
               type="text"
               size="small"
               @click="removeFavorite(row)"
-              style="color: #f56c6c;"
+              style="color: #E57373;"
             >
               移除
             </el-button>
@@ -250,7 +250,7 @@
 
         <el-form-item label="股票名称" prop="stock_name">
           <el-input v-model="addForm.stock_name" placeholder="股票名称" />
-          <div v-if="addForm.market !== 'A股'" style="font-size: 12px; color: #E6A23C; margin-top: 4px;">
+          <div v-if="addForm.market !== 'A股'" style="font-size: 12px; color: var(--el-color-warning); margin-top: 4px;">
             {{ addForm.market }}不支持自动获取，请手动输入股票名称
           </div>
         </el-form-item>
@@ -374,7 +374,7 @@
             </template>
             <template v-else>
               <el-button type="text" size="small" @click="editTag(row)">编辑</el-button>
-              <el-button type="text" size="small" style="color:#f56c6c" @click="deleteTag(row)">删除</el-button>
+              <el-button type="text" size="small" style="color:#E57373" @click="deleteTag(row)">删除</el-button>
             </template>
           </template>
         </el-table-column>
@@ -521,10 +521,10 @@ import { useAuthStore } from '@/stores/auth'
 
 // 颜色可选项（20种预设颜色）
 const COLOR_PALETTE = [
-  '#409EFF', '#1677FF', '#2F88FF', '#52C41A', '#67C23A',
-  '#13C2C2', '#FA8C16', '#E6A23C', '#F56C6C', '#EB2F96',
+  '#C5A55A', '#D4BA7A', '#9E7E3E', '#7CB342', '#96C36A',
+  '#13C2C2', '#D4AF37', '#B76E79', '#E57373', '#EB2F96',
   '#722ED1', '#8E44AD', '#00BFBF', '#1F2D3D', '#606266',
-  '#909399', '#C0C4CC', '#FF7F50', '#A0CFFF', '#2C3E50'
+  '#9E9688', '#C0C4CC', '#FF7F50', '#B8A070', '#2C3E50'
 ]
 
 const router = useRouter()
@@ -760,7 +760,7 @@ const loadUserTags = async () => {
 const tagDialogVisible = ref(false)
 const tagLoading = ref(false)
 const tagList = ref<any[]>([])
-const newTag = ref({ name: '', color: '#409EFF', sort_order: 0 })
+const newTag = ref({ name: '', color: '#C5A55A', sort_order: 0 })
 
 const loadTagList = async () => {
   tagLoading.value = true
@@ -788,7 +788,7 @@ const createTag = async () => {
   try {
     await tagsApi.create({ ...newTag.value })
     ElMessage.success('创建成功')
-    newTag.value = { name: '', color: '#409EFF', sort_order: 0 }
+    newTag.value = { name: '', color: '#C5A55A', sort_order: 0 }
     await loadTagList()
     await loadUserTags()
   } catch (e: any) {
@@ -1258,11 +1258,11 @@ onMounted(() => {
     }
 
     .text-red {
-      color: #f56c6c;
+      color: #E57373;
     }
 
     .text-green {
-      color: #67c23a;
+      color: #7CB342;
     }
   }
 }

@@ -236,8 +236,8 @@ watch(() => route.fullPath, () => {
 
 .main-content {
   flex: 1;
-  padding: 24px;
-  min-height: calc(100vh - 60px - 60px); // 减去header和footer高度
+  padding: 24px 24px 0 24px;
+  min-height: calc(100vh - 60px);
 
   .content-wrapper {
     max-width: 1400px;
@@ -247,11 +247,11 @@ watch(() => route.fullPath, () => {
 
 .footer {
   height: 60px;
-  background-color: var(--el-bg-color);
-  border-top: 1px solid var(--el-border-color-light);
+  background-color: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-top: 1px solid var(--el-border-color-light);
 }
 
 // 响应式设计

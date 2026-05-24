@@ -64,6 +64,10 @@ class TushareCNProvider(BaseProvider):
         ts_code = self._to_ts_code(symbol)
         return await fetch_daily_indicators_by_symbol(self._get_conn(), ts_code, start_date, end_date)
 
+    async def get_daily_indicators_batch(self, trade_date: str, **kwargs) -> Optional[pd.DataFrame]:
+        from .api.daily_indicators import fetch_daily_indicators
+        return await fetch_daily_indicators(self._get_conn(), trade_date)
+
     async def get_financial_data(
         self, symbol: str, start_date: str, end_date: str,
         statement_type: str = "", **kwargs

@@ -28,8 +28,8 @@ class RefreshRequest(BaseModel):
 
 class SyncTriggerRequest(BaseModel):
     domain: str
+    mode: str = "incremental"
     source: Optional[str] = None
-    full_sync: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ async def get_refresh_status(symbol: str):
     statuses = {}
     for domain in domains:
         try:
-            result = await di.read(_MARKET, symbol, domain)
+            result = await di.read(_MARKET, domain, symbol=symbol)
             statuses[domain] = result.get("freshness", "unknown")
         except Exception:
             statuses[domain] = "unknown"

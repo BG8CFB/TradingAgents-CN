@@ -11,7 +11,7 @@ from app.utils.time_utils import now_utc, get_current_date, get_current_date_com
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
 from app.data.core.interface import DataInterface
-import asyncio
+from app.core.async_utils import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def get_stock_fundamentals(
                 recent_start_date = (datetime.strptime(current_date, '%Y-%m-%d') - timedelta(days=2)).strftime('%Y-%m-%d')
 
                 _di = DataInterface.get_instance()
-                _r = asyncio.run(_di.read("CN", "daily_quotes", symbol=stock_code,
+                _r = run_async(_di.read("CN", "daily_quotes", symbol=stock_code,
                                           start_date=recent_start_date, end_date=recent_end_date))
                 _d = _r.get("data")
                 current_price_data = ""
@@ -92,7 +92,7 @@ def get_stock_fundamentals(
             try:
                 from app.services.fundamentals import get_fundamentals_provider
                 _fp = get_fundamentals_provider()
-                fundamentals_raw = asyncio.run(_fp.get_fundamentals(stock_code))
+                fundamentals_raw = run_async(_fp.get_fundamentals(stock_code))
                 if fundamentals_raw:
                     fundamentals_data = str(fundamentals_raw)
                 else:
@@ -110,7 +110,7 @@ def get_stock_fundamentals(
             # 1. 获取基础信息
             try:
                 _di_info = DataInterface.get_instance()
-                _r_info = asyncio.run(_di_info.read("HK", "basic_info", symbol=stock_code))
+                _r_info = run_async(_di_info.read("HK", "basic_info", symbol=stock_code))
                 hk_info = _r_info.get("data")
                 if isinstance(hk_info, list) and hk_info:
                     hk_info = hk_info[0]
@@ -136,9 +136,8 @@ def get_stock_fundamentals(
                 # 使用 yfinance 获取基本面
                 try:
                     from app.data.core.interface import DataInterface
-                    import asyncio as _asyncio
                     _di = DataInterface.get_instance()
-                    _r = _asyncio.run(_di.read("US", "financial_data", symbol=stock_code.upper()))
+                    _r = run_async(_di.read("US", "financial_data", symbol=stock_code.upper()))
                     us_info = _r.get("data")
                     if us_info:
                         result_data.append(f"## 美股基本面信息\n{us_info}")
@@ -282,7 +281,7 @@ def get_company_performance_unified(
         # 3. 通过 DataInterface 获取业绩数据（映射到 financial_data 域）
         try:
             di = DataInterface.get_instance()
-            result = asyncio.run(di.read(market.upper(), "financial_data", symbol=stock_code,
+            result = run_async(di.read(market.upper(), "financial_data", symbol=stock_code,
                                          start_date=start_date, end_date=end_date))
             perf_data = result.get("data")
             if perf_data:
@@ -350,16 +349,3 @@ def get_company_performance_unified(
             ErrorCodes.DATA_FETCH_ERROR,
             str(e)
         ))
-
-
-# --- 元数据 ---
-
-TOOL_FUNCTIONS = [get_stock_fundamentals, get_company_performance_unified]
-DATA_SOURCE_MAP = {
-    "get_stock_fundamentals": ["tushare", "akshare"],
-    "get_company_performance_unified": ["tushare", "akshare"],
-}
-ANALYST_MAP = {
-    "get_stock_fundamentals": ["fundamentals-analyst"],
-    "get_company_performance_unified": ["fundamentals-analyst"],
-}

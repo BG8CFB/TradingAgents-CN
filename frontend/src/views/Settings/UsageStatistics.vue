@@ -323,7 +323,7 @@ const renderModelChart = () => {
         data: data.map(item => item.value),
         type: 'bar',
         itemStyle: {
-          color: '#409EFF'
+          color: '#C5A55A'
         }
       }
     ]
@@ -361,10 +361,10 @@ const renderDailyChart = () => {
         type: 'line',
         smooth: true,
         itemStyle: {
-          color: '#67C23A'
+          color: '#7CB342'
         },
         areaStyle: {
-          color: 'rgba(103, 194, 58, 0.2)'
+          color: 'rgba(124, 179, 66, 0.2)'
         }
       }
     ]
@@ -438,7 +438,7 @@ onMounted(() => {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: #909399;
+    color: var(--el-text-color-placeholder);
     font-size: 14px;
     margin-bottom: 12px;
   }
@@ -456,12 +456,12 @@ onMounted(() => {
       .cost-amount {
         font-size: 24px;
         font-weight: 600;
-        color: #303133;
+        color: var(--el-text-color-primary);
       }
 
       .cost-currency {
         font-size: 14px;
-        color: #909399;
+        color: var(--el-text-color-placeholder);
       }
     }
   }

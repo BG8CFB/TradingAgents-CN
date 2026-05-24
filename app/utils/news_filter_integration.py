@@ -146,7 +146,7 @@ def create_filtered_realtime_news_function():
             elif ticker and ticker.isalpha() and ticker == ticker.upper():
                 market = "US"
             result = asyncio.get_event_loop().run_until_complete(
-                di.read(market, ticker, "news")
+                di.read(market, "news", symbol=ticker)
             )
             news_data = result.get("data", [])
             if not news_data:

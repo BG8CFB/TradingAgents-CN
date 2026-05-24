@@ -80,8 +80,8 @@
               :class="{ 'is-valid': item.valid, 'is-invalid': !item.valid }"
             >
               <div class="item-icon">
-                <el-icon v-if="item.valid" color="#67C23A"><CircleCheck /></el-icon>
-                <el-icon v-else color="#F56C6C"><CircleClose /></el-icon>
+                <el-icon v-if="item.valid" color="#7CB342"><CircleCheck /></el-icon>
+                <el-icon v-else color="#E57373"><CircleClose /></el-icon>
               </div>
               <div class="item-content">
                 <div class="item-name">{{ item.name }}</div>
@@ -113,8 +113,8 @@
               :class="{ 'is-valid': item.valid, 'is-warning': !item.valid }"
             >
               <div class="item-icon">
-                <el-icon v-if="item.valid" color="#67C23A"><CircleCheck /></el-icon>
-                <el-icon v-else color="#E6A23C"><Warning /></el-icon>
+                <el-icon v-if="item.valid" color="#7CB342"><CircleCheck /></el-icon>
+                <el-icon v-else color="#D4AF37"><Warning /></el-icon>
               </div>
               <div class="item-content">
                 <div class="item-name">{{ item.name }}</div>
@@ -153,8 +153,8 @@
                 }"
               >
                 <div class="item-icon">
-                  <el-icon v-if="item.status === '已配置'" color="#67C23A"><CircleCheck /></el-icon>
-                  <el-icon v-else color="#E6A23C"><Warning /></el-icon>
+                  <el-icon v-if="item.status === '已配置'" color="#7CB342"><CircleCheck /></el-icon>
+                  <el-icon v-else color="#D4AF37"><Warning /></el-icon>
                 </div>
                 <div class="item-content">
                   <div class="item-name">{{ item.display_name }}</div>
@@ -187,9 +187,9 @@
                 }"
               >
                 <div class="item-icon">
-                  <el-icon v-if="item.status.includes('已配置')" color="#67C23A"><CircleCheck /></el-icon>
-                  <el-icon v-else-if="item.enabled" color="#E6A23C"><Warning /></el-icon>
-                  <el-icon v-else color="#909399"><CircleClose /></el-icon>
+                  <el-icon v-if="item.status.includes('已配置')" color="#7CB342"><CircleCheck /></el-icon>
+                  <el-icon v-else-if="item.enabled" color="#D4AF37"><Warning /></el-icon>
+                  <el-icon v-else color="#9E9688"><CircleClose /></el-icon>
                 </div>
                 <div class="item-content">
                   <div class="item-name">{{ item.name }}</div>

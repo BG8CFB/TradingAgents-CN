@@ -707,10 +707,10 @@ const normalizeConfidenceScore = (score: number | string): number => {
 }
 
 const getConfidenceColor = (score: number) => {
-  if (score >= 80) return '#67C23A' // 较高 - 绿色
-  if (score >= 60) return '#409EFF' // 中上 - 蓝色
-  if (score >= 40) return '#E6A23C' // 中等 - 橙色
-  return '#F56C6C' // 较低 - 红色
+  if (score >= 80) return '#7CB342' // 较高 - 绿色
+  if (score >= 60) return '#C5A55A' // 中上 - 金色
+  if (score >= 40) return '#D4AF37' // 中等 - 琥珀色
+  return '#E57373' // 较低 - 红色
 }
 
 const getConfidenceLabel = (score: number) => {
@@ -734,20 +734,20 @@ const getRiskStars = (riskLevel: string) => {
 
 const getRiskColor = (riskLevel: string) => {
   const colorMap: Record<string, string> = {
-    '低': '#67C23A',      // 绿色
+    '低': '#7CB342',      // 绿色
     '中低': '#95D475',    // 浅绿色
-    '中等': '#E6A23C',    // 橙色
-    '中高': '#F56C6C',    // 红色
-    '高': '#F56C6C'       // 深红色
+    '中等': '#D4AF37',    // 琥珀色
+    '中高': '#E57373',    // 红色
+    '高': '#E57373'       // 深红色
   }
-  return colorMap[riskLevel] || '#E6A23C'
+  return colorMap[riskLevel] || '#D4AF37'
 }
 
 // 🔥 风险评分进度条颜色
 const getRiskProgressColor = (score: number) => {
-  if (score <= 3) return '#67C23A'  // 低风险 - 绿色
-  if (score <= 5) return '#E6A23C'  // 中等风险 - 橙色
-  if (score <= 7) return '#F56C6C'  // 较高风险 - 红色
+  if (score <= 3) return '#7CB342'  // 低风险 - 绿色
+  if (score <= 5) return '#D4AF37'  // 中等风险 - 琥珀色
+  if (score <= 7) return '#E57373'  // 较高风险 - 红色
   return '#C45656'                   // 高风险 - 深红色
 }
 

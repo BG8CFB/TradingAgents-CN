@@ -99,16 +99,11 @@ class DataInterface:
         logger.info(f"触发同步任务: {task_id}")
         return task_id
 
-    async def get_sync_status(self, market: str, domain: str) -> Dict:
-        """查询同步状态。"""
+    async def get_sync_status(self, market: str, domain: Optional[str] = None) -> List[Dict]:
+        """查询同步检查点列表。"""
         from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
         repo = MetadataRepo()
-        checkpoint = await repo.get_checkpoint(market, domain, "")
-        events = await repo.get_events(market, domain, limit=5)
-        return {
-            "checkpoint": checkpoint,
-            "recent_events": events,
-        }
+        return await repo.get_all_checkpoints(market, domain)
 
     async def get_sync_events(self, market: str, domain: Optional[str] = None, limit: int = 50) -> List[Dict]:
         """查询同步事件。"""

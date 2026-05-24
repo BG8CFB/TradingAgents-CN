@@ -181,7 +181,7 @@ const openArticle = (articleId: string) => {
     text-align: center;
     margin-bottom: 48px;
     padding: 40px 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
     border-radius: 16px;
     color: white;
 
@@ -292,10 +292,10 @@ const openArticle = (articleId: string) => {
 // 暗黑模式样式
 :global(html.dark) {
   .learning-center {
-    background: #000000 !important;
+    background: var(--el-bg-color) !important;
 
     .learning-header {
-      background: #000000 !important;
+      background: var(--el-bg-color) !important;
       border: 1px solid var(--el-border-color-light);
       color: var(--el-text-color-primary);
       h1 { color: var(--el-text-color-primary); }
@@ -304,7 +304,7 @@ const openArticle = (articleId: string) => {
 
     .learning-categories .category-card,
     .recommended-section .article-card {
-      background: #000000 !important;
+      background: var(--el-bg-color) !important;
       border-color: var(--el-border-color) !important;
     }
 

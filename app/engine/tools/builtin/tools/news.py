@@ -1,5 +1,5 @@
 """
-新闻工具 - 股票新闻、财经新闻、7x24快讯、时间戳
+新闻工具 - 股票新闻数据获取
 """
 import logging
 from datetime import datetime
@@ -8,6 +8,7 @@ from typing import Optional
 from app.utils.time_utils import now_utc, get_current_date
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
+from app.core.async_utils import run_async
 logger = logging.getLogger(__name__)
 
 
@@ -38,10 +39,9 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
     clean_code = _clean_symbol(stock_code)
 
     try:
-        import asyncio
         from app.data.core.interface import DataInterface
         di = DataInterface.get_instance()
-        result = asyncio.run(di.read(market, "news", symbol=clean_code))
+        result = run_async(di.read(market, "news", symbol=clean_code))
         data = result.get("data")
 
         if data and isinstance(data, list):
@@ -62,12 +62,11 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
 
     # 回退：尝试 refresh 并重新读取
     try:
-        import asyncio
         from app.data.core.interface import DataInterface
         di = DataInterface.get_instance()
-        refresh_result = asyncio.run(di.refresh(market, clean_code, domains=["news"], force=True, timeout=30))
+        refresh_result = run_async(di.refresh(market, clean_code, domains=["news"], force=True, timeout=30))
         if refresh_result and refresh_result.domains.get("news"):
-            result = asyncio.run(di.read(market, "news", symbol=clean_code))
+            result = run_async(di.read(market, "news", symbol=clean_code))
             data = result.get("data")
             if data and isinstance(data, list):
                 for item in data[:max_results]:
@@ -172,81 +171,3 @@ def get_stock_news(
             ErrorCodes.DATA_FETCH_ERROR,
             str(e)
         ))
-
-
-def get_finance_news(
-    query: str
-) -> str:
-    """
-    搜索财经新闻。
-
-    Args:
-        query: 搜索关键词
-
-    Returns:
-        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
-    """
-    try:
-        data = None
-        return format_tool_result(success_result(format_result(data, f"News: {query}")))
-    except Exception as e:
-        logger.error(f"get_finance_news failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            str(e)
-        ))
-
-
-def get_hot_news_7x24(
-    limit: int = 100
-) -> str:
-    """
-    获取 7x24 小时全球财经快讯。
-
-    Args:
-        limit: 获取条数，默认 100
-
-    Returns:
-        JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
-    """
-    try:
-        data = None
-        return format_tool_result(success_result(format_result(data, "Hot News 7x24")))
-    except Exception as e:
-        logger.error(f"get_hot_news_7x24 failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            str(e)
-        ))
-
-
-def get_current_timestamp(
-    format: str = "%Y-%m-%d %H:%M:%S"
-) -> str:
-    """
-    获取当前时间戳。
-
-    Args:
-        format: 格式字符串，默认 "%Y-%m-%d %H:%M:%S"
-
-    Returns:
-        当前时间戳字符串
-    """
-    return format_tool_result(success_result(now_utc().strftime(format)))
-
-
-# --- 元数据 ---
-
-TOOL_FUNCTIONS = [get_stock_news, get_finance_news, get_hot_news_7x24, get_current_timestamp]
-DATA_SOURCE_MAP = {
-    "get_stock_news": ["tushare", "akshare", "finnhub"],
-    "get_finance_news": ["tushare", "akshare"],
-    "get_hot_news_7x24": ["tushare", "akshare"],
-    "get_current_timestamp": [],
-}
-ANALYST_MAP = {
-    "get_stock_news": ["financial-news-analyst"],
-    "get_finance_news": ["financial-news-analyst"],
-    "get_hot_news_7x24": ["financial-news-analyst"],
-    "get_current_timestamp": ["market-analyst", "financial-news-analyst", "china-market-analyst", "social-media-analyst", "fundamentals-analyst", "short-term-capital-analyst"],
-}

@@ -38,6 +38,18 @@ class MetadataRepo:
             upsert=True,
         )
 
+    async def get_all_checkpoints(
+        self, market: str, domain: Optional[str] = None,
+    ) -> List[Dict]:
+        """查询指定市场的所有同步检查点。"""
+        db = get_motor_db()
+        coll = db["sync_checkpoints"]
+        query: Dict = {"market": market}
+        if domain:
+            query["domain"] = domain
+        cursor = coll.find(query, {"_id": 0}).sort("last_sync_time", -1)
+        return await cursor.to_list(length=None)
+
     # ── sync_events ──
 
     async def insert_event(self, event: Dict) -> None:
@@ -86,22 +98,44 @@ class MetadataRepo:
 
     # ── system_configs ──
 
-    async def get_config(self, config_type: str, market: str, domain: Optional[str] = None) -> Optional[Dict]:
+    async def get_config(
+        self,
+        config_type: str,
+        market: str,
+        domain: Optional[str] = None,
+        config_key: Optional[str] = None,
+    ) -> Optional[Dict]:
         db = get_motor_db()
         coll = db["system_configs"]
         query = {"config_type": config_type, "market": market}
         if domain:
             query["domain"] = domain
+        if config_key:
+            query["config_key"] = config_key
         return await coll.find_one(query, {"_id": 0})
 
-    async def upsert_config(self, config_type: str, market: str, domain: str, value: Dict, updated_by: str = "system") -> None:
+    async def upsert_config(
+        self,
+        config_type: str,
+        market: str,
+        domain: str,
+        value: Dict,
+        updated_by: str = "system",
+        config_key: str = "default",
+    ) -> None:
         db = get_motor_db()
         coll = db["system_configs"]
         await coll.update_one(
-            {"config_type": config_type, "market": market, "domain": domain},
+            {
+                "config_type": config_type,
+                "market": market,
+                "domain": domain,
+                "config_key": config_key,
+            },
             {
                 "$set": {
                     "value": value,
+                    "config_key": config_key,
                     "updated_by": updated_by,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }

@@ -110,7 +110,7 @@
             <el-button v-if="row.status==='failed'" type="text" size="small" @click="showErrorDetail(row)">查看错误</el-button>
             <el-button v-if="row.status==='failed'" type="text" size="small" @click="retryTask(row)">重试</el-button>
             <el-button v-if="row.status==='processing' || row.status==='running' || row.status==='pending'" type="text" size="small" @click="markAsFailed(row)">标记失败</el-button>
-            <el-button type="text" size="small" @click="deleteTask(row)" style="color: #f56c6c;">删除</el-button>
+            <el-button type="text" size="small" @click="deleteTask(row)" style="color: #E57373;">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -197,11 +197,14 @@ const connectTaskWebSocket = (taskId: string) => {
   }
 
   try {
-    // @ts-expect-error
-    const _token = localStorage.getItem('auth-token') || ''
+    const token = localStorage.getItem('auth-token') || ''
+    if (!token) {
+      console.warn(`WebSocket 跳过: 无 token, taskId=${taskId}`)
+      return
+    }
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    const wsUrl = `${wsProtocol}//${host}/api/ws/task/${taskId}`
+    const wsUrl = `${wsProtocol}//${host}/api/ws/task/${taskId}?token=${encodeURIComponent(token)}`
 
     const ws = new WebSocket(wsUrl)
 
@@ -263,7 +266,6 @@ const statusParam = computed(() => {
 const loadList = async () => {
   loading.value = true
   try {
-    // 根据筛选与标签页构造参数
     const params: any = {
       page: currentPage.value,
       page_size: pageSize.value,
@@ -278,24 +280,8 @@ const loadList = async () => {
 
     const res = await analysisApi.getHistory(params)
     const body = (res as any)?.data?.data || (res as any)?.data || {}
-    let tasks = body.tasks || body.analyses || []
-
-    // 当无筛选条件且历史接口为空时，兜底用任务列表接口（保证能看到数据）
-    const noExtraFilters = !filters.value.market && !filters.value.stock && (!filters.value.dateRange || filters.value.dateRange.length === 0)
-    if (tasks.length === 0 && noExtraFilters) {
-      try {
-        const res2 = await analysisApi.getTaskList({
-          status: statusParam.value,
-          limit: pageSize.value,
-          offset: (currentPage.value - 1) * pageSize.value
-        })
-        const body2 = (res2 as any)?.data?.data || {}
-        tasks = body2.tasks || []
-        total.value = body2.total ?? tasks.length
-      } catch {}
-    } else {
-      total.value = body.total ?? tasks.length
-    }
+    const tasks = body.tasks || body.analyses || []
+    total.value = body.total ?? tasks.length
 
     list.value = tasks
 
@@ -306,11 +292,11 @@ const loadList = async () => {
       }
     })
 
-    // 统计
+    // 统计：total 使用后端返回的全局总数
     const completed = tasks.filter((x:any) => x.status === 'completed').length
     const failed = tasks.filter((x:any) => x.status === 'failed').length
     const uniqueStocks = new Set(tasks.map((x:any) => x.stock_code || x.stock_symbol)).size
-    stats.value = { total: tasks.length, completed, failed, uniqueStocks }
+    stats.value = { total: total.value, completed, failed, uniqueStocks }
   } catch (e:any) {
     ElMessage.error(e?.message || '加载失败')
   } finally {

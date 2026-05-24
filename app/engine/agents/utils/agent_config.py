@@ -24,7 +24,7 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
                 from app.data.core.interface import DataInterface
                 import asyncio
                 _di = DataInterface.get_instance()
-                _r = asyncio.run(_di.read("CN", ticker, "basic_info"))
+                _r = asyncio.run(_di.read("CN", "basic_info", symbol=ticker))
                 data = _r.get("data")
                 if data and isinstance(data, dict) and data.get("name"):
                     return data["name"]
@@ -41,7 +41,7 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
                 clean_ticker = ticker.replace(".HK", "").replace(".hk", "").zfill(5)
                 di = DataInterface.get_instance()
                 result = asyncio.get_event_loop().run_until_complete(
-                    di.read("HK", clean_ticker, "basic_info")
+                    di.read("HK", "basic_info", symbol=clean_ticker)
                 )
                 data = result.get("data")
                 if data:
@@ -62,7 +62,7 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
                 from app.data.core.interface import DataInterface
                 import asyncio
                 di = DataInterface.get_instance()
-                result = asyncio.run(di.read("US", ticker.upper(), "basic_info"))
+                result = asyncio.run(di.read("US", "basic_info", symbol=ticker.upper()))
                 data = result.get("data")
                 if data:
                     doc = data[0] if isinstance(data, list) and data else data

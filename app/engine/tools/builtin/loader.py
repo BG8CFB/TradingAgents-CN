@@ -1,47 +1,27 @@
 """
 内置工具加载器
 
-从 builtin/tools/ 各领域模块加载所有内置工具。
+从 BUILTIN_TOOL_REGISTRY 加载所有内置工具，包装为 LangChain StructuredTool。
 """
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional
+
+from app.engine.tools.builtin.registry import (
+    BUILTIN_TOOL_REGISTRY,
+    BuiltinToolSpec,
+    get_spec_by_id,
+    get_specs_by_ids,
+)
 
 logger = logging.getLogger(__name__)
-
-# 领域模块列表
-_DOMAIN_MODULES = [
-    "market",
-    "news",
-    "fundamentals",
-    "sentiment",
-    "china_market",
-    "capital_flow",
-    "macro",
-    "fund",
-    "others",
-]
-
-
-def _import_domain_module(module_name: str):
-    """动态导入领域模块"""
-    try:
-        import importlib
-        module_path = f"app.engine.tools.builtin.tools.{module_name}"
-        return importlib.import_module(module_path)
-    except ImportError:
-        logger.error(f"❌ 无法加载领域模块: {module_name}")
-        return None
-    except Exception as e:
-        logger.error(f"❌ 加载领域模块 {module_name} 失败: {e}")
-        return None
 
 
 def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
     """
     加载所有内置工具
 
-    遍历 builtin/tools/ 下的 9 个领域模块，
-    收集 TOOL_FUNCTIONS 并包装为 LangChain Tool。
+    从 BUILTIN_TOOL_REGISTRY 遍历，包装为 LangChain StructuredTool。
+    可用性过滤在 simple_agent_factory 中完成（基于 AvailabilityCache）。
 
     Args:
         toolkit_config: 工具配置字典（当前未使用，保留接口）
@@ -49,111 +29,72 @@ def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
     Returns:
         LangChain Tool 列表
     """
-    import importlib
-
-    from langchain_core.tools import tool as lc_tool
-    from app.engine.tools.builtin.availability import (
-        get_availability_summary,
-        check_all_tools_availability,
-    )
+    import inspect
+    from langchain_core.tools import StructuredTool
 
     all_tools = []
-    all_tool_metas = {}  # {tool_name: {"data_source_map": [...], "analyst_map": [...]}}
 
-    for module_name in _DOMAIN_MODULES:
-        module = _import_domain_module(module_name)
-        if module is None:
-            continue
+    for spec in BUILTIN_TOOL_REGISTRY:
+        try:
+            # 先触发延迟导入，获取真正的函数对象
+            fn = spec.fn
 
-        tool_functions = getattr(module, "TOOL_FUNCTIONS", [])
-        data_source_map = getattr(module, "DATA_SOURCE_MAP", {})
-        analyst_map = getattr(module, "ANALYST_MAP", {})
-
-        if not tool_functions:
-            logger.warning(f"⚠️ 模块 {module_name} 没有暴露 TOOL_FUNCTIONS")
-            continue
-
-        for func in tool_functions:
-            try:
-                # 使用 langchain_core.tools.tool 装饰器包装
-                langchain_tool = lc_tool(func)
-
-                # 附加元数据到工具
-                tool_name = getattr(langchain_tool, "name", func.__name__)
-
-                all_tool_metas[tool_name] = {
-                    "data_source_map": data_source_map.get(tool_name, []),
-                    "analyst_map": analyst_map.get(tool_name, []),
-                    "module": module_name,
+            # 如果 fn 是 lazy wrapper，先调用一次获取真实函数
+            real_fn = fn
+            if fn.__doc__ in ("", None):
+                # 尝试直接导入真实模块
+                import importlib
+                _M = "app.engine.tools.builtin.tools"
+                module_map = {
+                    "daily_quotes": ("market", "get_stock_data"),
+                    "intraday_quotes": ("market", "get_stock_data_minutes"),
+                    "market_quotes": ("market", "get_index_data"),
+                    "financial_data": ("fundamentals", "get_company_performance_unified"),
+                    "fundamentals": ("fundamentals", "get_stock_fundamentals"),
+                    "news": ("news", "get_stock_news"),
+                    "sentiment": ("sentiment", "get_stock_sentiment"),
+                    "china_market": ("china_market", "get_china_market_overview"),
+                    "dragon_tiger": ("china_market", "get_dragon_tiger_inst"),
+                    "block_trade": ("china_market", "get_block_trade"),
+                    "money_flow": ("capital_flow", "get_money_flow"),
+                    "margin_trade": ("capital_flow", "get_margin_trade"),
                 }
 
-                # 标记为内置工具（LangChain Tool 的 metadata 可能是不可变 pydantic 字段）
-                existing_meta = getattr(langchain_tool, "metadata", None) or {}
-                new_meta = {
+                mapping = module_map.get(spec.tool_id)
+                if mapping:
+                    mod = importlib.import_module(f"{_M}.{mapping[0]}")
+                    real_fn = getattr(mod, mapping[1])
+
+            # 用 StructuredTool 显式包装，不依赖函数 docstring
+            sig = inspect.signature(real_fn)
+
+            tool = StructuredTool.from_function(
+                func=real_fn,
+                name=spec.tool_id,
+                description=spec.description,
+            )
+
+            # 附加元数据
+            try:
+                existing_meta = getattr(tool, "metadata", None) or {}
+                tool.metadata = {
                     **existing_meta,
                     "tool_category": "builtin",
-                    "builtin_module": module_name,
+                    "tool_id": spec.tool_id,
+                    "builtin_domains": spec.domains,
                 }
-                try:
-                    langchain_tool.metadata = new_meta
-                except Exception:
-                    # pydantic v2 的 Tool 某些版本不允许直接赋值，忽略即可
-                    pass
+            except Exception:
+                pass
 
-                all_tools.append(langchain_tool)
+            all_tools.append(tool)
 
-            except Exception as e:
-                logger.error(f"❌ 包装工具 {func.__name__} 失败: {e}")
-
-    # 打印可用性摘要
-    if all_tool_metas:
-        # 收集所有 data_source_map
-        combined_data_source_map = {}
-        for tool_name, meta in all_tool_metas.items():
-            if meta["data_source_map"]:
-                combined_data_source_map[tool_name] = meta["data_source_map"]
-
-        if combined_data_source_map:
-            summary = get_availability_summary(combined_data_source_map)
-            logger.info(f"📊 内置工具可用性摘要:")
-            logger.info(f"   总工具数: {summary['total']}")
-            logger.info(f"   可用: {summary['available']}")
-            logger.info(f"   不可用: {summary['unavailable']}")
-            logger.info(f"   可用数据源: {summary['available_sources']}")
-            if summary['unavailable'] > 0:
-                unavailable_names = [
-                    name for name, detail in summary['details'].items()
-                    if not detail['available']
-                ]
-                logger.debug(f"   不可用工具: {', '.join(unavailable_names)}")
+        except Exception as e:
+            logger.error(f"❌ 包装工具 {spec.tool_id} 失败: {e}")
 
     logger.info(f"✅ 内置工具加载完成: {len(all_tools)} 个")
     return all_tools
 
 
-def get_builtin_tool_metas() -> Dict[str, Dict]:
-    """
-    获取所有内置工具的元数据
-
-    Returns:
-        {tool_name: {"data_source_map": [...], "analyst_map": [...], "module": "..."}}
-    """
-    metas = {}
-
-    for module_name in _DOMAIN_MODULES:
-        module = _import_domain_module(module_name)
-        if module is None:
-            continue
-
-        data_source_map = getattr(module, "DATA_SOURCE_MAP", {})
-        analyst_map = getattr(module, "ANALYST_MAP", {})
-
-        tool_functions = getattr(module, "TOOL_FUNCTIONS", [])
-        for func in tool_functions:
-            metas[func.__name__] = {
-                "data_source_map": data_source_map.get(func.__name__, []),
-                "analyst_map": analyst_map.get(func.__name__, []),
-                "module": module_name,
-            }
-
-    return metas
+def get_builtin_tool_specs() -> List[BuiltinToolSpec]:
+    """获取所有内置工具的规格"""
+    return list(BUILTIN_TOOL_REGISTRY)

@@ -10,6 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.data.scheduler.job_registry import JobRegistry
 from app.data.scheduler.checkpoint import CheckpointManager
+from app.data.scheduler.dependencies import DependencyGraph
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,8 @@ class SchedulerEngine:
         self._scheduler = scheduler or AsyncIOScheduler(timezone="UTC")
         self._registry = JobRegistry()
         self._checkpoint = CheckpointManager()
+        self._dependency_graph = DependencyGraph()
+        self._job_configs: Dict[tuple[str, str], Dict] = {}
         self._jobs_registered = False
         SchedulerEngine._instance = self
 
@@ -58,9 +61,9 @@ class SchedulerEngine:
 
     def _load_all_schedules(self) -> None:
         base = os.path.dirname(__file__)
-        for market in ["cn", "hk", "us"]:
-            yaml_path = os.path.join(base, "jobs", market, "schedule.yaml")
-            self.load_schedule(market, yaml_path)
+        for market_code, folder in [("CN", "cn"), ("HK", "hk"), ("US", "us")]:
+            yaml_path = os.path.join(base, "jobs", folder, "schedule.yaml")
+            self.load_schedule(market_code, yaml_path)
 
     def load_schedule(self, market: str, yaml_path: str) -> None:
         """加载市场调度配置并注册任务。"""
@@ -80,8 +83,12 @@ class SchedulerEngine:
             if not cron_expr:
                 continue
 
+            self._job_configs[(market, domain)] = job_conf
+            for dep in job_conf.get("depends_on", []) or []:
+                self._dependency_graph.add_dependency(f"{market}:{domain}", f"{market}:{dep}")
+
             timezone = job_conf.get("timezone", "UTC")
-            job_id = f"{market}_{domain}"
+            job_id = f"{market.lower()}_{domain}"
 
             try:
                 parts = cron_expr.split()
@@ -106,27 +113,42 @@ class SchedulerEngine:
     def _make_job_func(self, market: str, domain: str):
         """创建任务函数 — 从 JobRegistry 查找并执行对应 Job。"""
         async def job():
-            logger.info("执行调度: %s/%s", market, domain)
-            job_entry = self._registry.get_job(domain, market)
-            if job_entry and job_entry.get("class"):
-                try:
-                    job_instance = job_entry["class"]()
-                    result = await job_instance.execute()
-                    logger.info("调度完成 %s/%s: %s", market, domain, result)
-                except Exception as e:
-                    logger.error("调度执行失败 %s/%s: %s", market, domain, e)
-            else:
-                logger.warning("未注册任务: %s/%s", market, domain)
+            await self._run_job_with_dependencies(market, domain, set())
         return job
+
+    async def _run_job_with_dependencies(self, market: str, domain: str, visited: set[str]) -> None:
+        node_key = f"{market}:{domain}"
+        if node_key in visited:
+            return
+        visited.add(node_key)
+
+        job_conf = self._job_configs.get((market, domain), {})
+        for dep in job_conf.get("depends_on", []) or []:
+            await self._run_job_with_dependencies(market, dep, visited)
+
+        logger.info("执行调度: %s/%s", market, domain)
+        job_entry = self._registry.get_job(domain, market)
+        if not job_entry or not job_entry.get("class"):
+            logger.warning("未注册任务: %s/%s", market, domain)
+            return
+
+        try:
+            job_instance = job_entry["class"]()
+            job_instance.sync_mode = job_conf.get("mode", "incremental")
+            job_instance.preferred_source = job_conf.get("source")
+            job_instance.dependencies = list(job_conf.get("depends_on", []) or [])
+            result = await job_instance.execute()
+            logger.info("调度完成 %s/%s: %s", market, domain, result)
+        except Exception as e:
+            logger.error("调度执行失败 %s/%s: %s", market, domain, e)
 
     def trigger_job(self, market: str, domain: str) -> str:
         """手动触发任务。"""
-        job_id = f"{market}_{domain}"
-        job_entry = self._registry.get_job(domain, market)
-        if job_entry and job_entry.get("class"):
+        market = market.upper()
+        job_id = f"{market.lower()}_{domain}"
+        if self._registry.get_job(domain, market):
             try:
-                job_instance = job_entry["class"]()
-                asyncio.create_task(job_instance.execute())
+                asyncio.create_task(self._run_job_with_dependencies(market, domain, set()))
                 return job_id
             except Exception as e:
                 logger.error("手动触发失败 %s: %s", job_id, e)

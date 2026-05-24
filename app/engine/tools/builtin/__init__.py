@@ -1,7 +1,7 @@
 """
 内置工具包
 
-项目自带的 20 个金融数据工具，按领域分类。
+按数据域组织的金融数据工具，通过 BUILTIN_TOOL_REGISTRY 统一管理。
 """
 from .loader import load_builtin_tools
 

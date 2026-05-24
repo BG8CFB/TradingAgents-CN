@@ -73,9 +73,6 @@ async def add_favorite(
     current_user: dict = Depends(get_current_user)
 ):
     """添加股票到自选股"""
-    import logging
-    logger = logging.getLogger("webapi")
-
     try:
         logger.info(f"📝 添加自选股请求: user_id={current_user['id']}, stock_code={request.stock_code}, stock_name={request.stock_name}")
 
@@ -184,6 +181,21 @@ async def remove_favorite(
         )
 
 
+@router.get("/tags", response_model=dict)
+async def get_user_tags(
+    current_user: dict = Depends(get_current_user)
+):
+    """获取用户使用的所有标签"""
+    try:
+        tags = await favorites_service.get_user_tags(current_user["id"])
+        return ok(tags)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=safe_error_message(e, "获取标签失败")
+        )
+
+
 @router.get("/check/{stock_code}", response_model=dict)
 async def check_favorite(
     stock_code: str,
@@ -197,21 +209,6 @@ async def check_favorite(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "检查自选股状态失败")
-        )
-
-
-@router.get("/tags", response_model=dict)
-async def get_user_tags(
-    current_user: dict = Depends(get_current_user)
-):
-    """获取用户使用的所有标签"""
-    try:
-        tags = await favorites_service.get_user_tags(current_user["id"])
-        return ok(tags)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=safe_error_message(e, "获取标签失败")
         )
 
 

@@ -65,7 +65,7 @@ class QuotesIngestionService:
 
             async def _fetch():
                 di = DataInterface.get_instance()
-                result = await di.read("CN", "__all__", "market_quotes")
+                result = await di.read("CN", "market_quotes", symbol="__all__")
                 return result.get("data")
 
             loop = asyncio.get_event_loop()
@@ -586,7 +586,7 @@ class QuotesIngestionService:
 
                 async def _fetch_tushare():
                     di = DataInterface.get_instance()
-                    result = await di.read("CN", "__all__", "market_quotes")
+                    result = await di.read("CN", "market_quotes", symbol="__all__")
                     return result.get("data")
 
                 loop = asyncio.get_event_loop()
@@ -611,7 +611,7 @@ class QuotesIngestionService:
 
                 async def _fetch_akshare():
                     di = DataInterface.get_instance()
-                    result = await di.read("CN", "__all__", "market_quotes")
+                    result = await di.read("CN", "market_quotes", symbol="__all__")
                     return result.get("data")
 
                 loop = asyncio.get_event_loop()

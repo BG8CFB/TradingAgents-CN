@@ -27,7 +27,7 @@ async def get_company_metrics_logic(_reader_mod, code: str, date: str) -> str:
     di = DataInterface.get_instance()
 
     try:
-        result = await di.read(market, symbol, "daily_indicators", start_date=date, end_date=date)
+        result = await di.read(market, "daily_indicators", symbol=symbol, start_date=date, end_date=date)
         data = result.get("data")
 
         if not data or not isinstance(data, list) or not data:

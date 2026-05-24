@@ -9,7 +9,7 @@ from app.utils.time_utils import now_utc, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
 from app.data.core.interface import DataInterface
-import asyncio
+from app.core.async_utils import run_async
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def get_money_flow(
         symbol = ts_code or "market"
         try:
             di = DataInterface.get_instance()
-            result = asyncio.run(di.read("CN", "money_flow", symbol=symbol,
+            result = run_async(di.read("CN", "money_flow", symbol=symbol,
                                          start_date=start_date, end_date=end_date))
             data = result.get("data")
             if data:
@@ -98,7 +98,7 @@ def get_margin_trade(
         symbol = ts_code or "market"
         try:
             di = DataInterface.get_instance()
-            result = asyncio.run(di.read("CN", "margin_trading", symbol=symbol,
+            result = run_async(di.read("CN", "margin_trading", symbol=symbol,
                                          start_date=start_date, end_date=end_date))
             data = result.get("data")
             if data:
@@ -118,16 +118,3 @@ def get_margin_trade(
             ErrorCodes.DATA_FETCH_ERROR,
             str(e)
         ))
-
-
-# --- 元数据 ---
-
-TOOL_FUNCTIONS = [get_money_flow, get_margin_trade]
-DATA_SOURCE_MAP = {
-    "get_money_flow": ["tushare"],
-    "get_margin_trade": ["tushare"],
-}
-ANALYST_MAP = {
-    "get_money_flow": ["short-term-capital-analyst", "china-market-analyst"],
-    "get_margin_trade": ["short-term-capital-analyst"],
-}

@@ -129,8 +129,8 @@ class FavoritesService:
                         quotes_online = {}
                         for code in missing:
                             try:
-                                await di.refresh(code, "CN", ["market_quotes"])
-                                r = await di.read("CN", code, "market_quotes")
+                                await di.refresh("CN", code, ["market_quotes"])
+                                r = await di.read("CN", "market_quotes", symbol=code)
                                 d = r.get("data")
                                 if d:
                                     doc = d[0] if isinstance(d, list) and d else d

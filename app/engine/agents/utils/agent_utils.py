@@ -26,7 +26,7 @@ def _get_stock_data_sync(market, symbol, start_date=None, end_date=None):
     """同步获取股票日线数据，返回格式化的字符串。"""
     try:
         di = DataInterface.get_instance()
-        result = asyncio.run(di.read(market, symbol, "daily_quotes", start_date=start_date, end_date=end_date))
+        result = asyncio.run(di.read(market, "daily_quotes", symbol=symbol, start_date=start_date, end_date=end_date))
         data = result.get("data")
         if data:
             return pd.DataFrame(data).to_string()
@@ -39,7 +39,7 @@ def _get_stock_info_sync(market, symbol):
     """同步获取股票基础信息，返回格式化的字符串。"""
     try:
         di = DataInterface.get_instance()
-        result = asyncio.run(di.read(market, symbol, "basic_info"))
+        result = asyncio.run(di.read(market, "basic_info", symbol=symbol))
         data = result.get("data")
         if data:
             doc = data[0] if isinstance(data, list) and data else data
@@ -60,7 +60,7 @@ def _get_us_news_sync(symbol):
     """同步获取美股新闻数据，返回格式化的字符串。"""
     try:
         di = DataInterface.get_instance()
-        result = asyncio.run(di.read("US", symbol.upper(), "news"))
+        result = asyncio.run(di.read("US", "news", symbol=symbol.upper()))
         data = result.get("data")
         if data:
             return str(data)
@@ -73,7 +73,7 @@ def _get_us_daily_quotes_sync(symbol, start_date=None, end_date=None):
     """同步获取美股日线数据，返回 DataFrame 字符串。"""
     try:
         di = DataInterface.get_instance()
-        result = asyncio.run(di.read("US", symbol.upper(), "daily_quotes", start_date=start_date, end_date=end_date))
+        result = asyncio.run(di.read("US", "daily_quotes", symbol=symbol.upper(), start_date=start_date, end_date=end_date))
         data = result.get("data")
         if data:
             return pd.DataFrame(data).to_string()
@@ -234,7 +234,7 @@ class Toolkit:
             indices_map = {}
             for idx_code, idx_name in [("000001", "上证指数"), ("399001", "深证成指"), ("399006", "创业板指")]:
                 try:
-                    r = loop.run_until_complete(di.read("CN", idx_code, "market_quotes"))
+                    r = loop.run_until_complete(di.read("CN", "market_quotes", symbol=idx_code))
                     d = r.get("data")
                     if d:
                         doc = d[0] if isinstance(d, list) and d else d
@@ -519,7 +519,7 @@ class Toolkit:
             elif ticker and ticker.isalpha() and ticker == ticker.upper():
                 market = "US"
             result = asyncio.get_event_loop().run_until_complete(
-                di.read(market, ticker, "news")
+                di.read(market, "news", symbol=ticker)
             )
             news_data = result.get("data", [])
             if not news_data:
@@ -795,7 +795,7 @@ class Toolkit:
                     from app.data.core.interface import DataInterface
                     import asyncio as _asyncio
                     _di = DataInterface.get_instance()
-                    _r = _asyncio.run(_di.read("US", ticker.upper(), "financial_data"))
+                    _r = _asyncio.run(_di.read("US", "financial_data", symbol=ticker.upper()))
                     us_data = _r.get("data")
                     result_data.append(f"## 美股基本面数据\n{us_data}")
                     logger.debug(f"✅ [统一基本面工具] 美股数据获取成功")
@@ -941,7 +941,7 @@ class Toolkit:
                     from app.data.core.interface import DataInterface
                     import asyncio as _asyncio
                     _di = DataInterface.get_instance()
-                    _r = _asyncio.run(_di.read("US", ticker.upper(), "daily_quotes", start_date=start_date, end_date=end_date))
+                    _r = _asyncio.run(_di.read("US", "daily_quotes", symbol=ticker.upper(), start_date=start_date, end_date=end_date))
                     us_data = _r.get("data")
                     result_data.append(f"## 美股市场数据\n{us_data}")
                 except Exception as e:
@@ -1025,7 +1025,7 @@ class Toolkit:
                         import asyncio as _asyncio
                         _di = DataInterface.get_instance()
                         market_code = "CN" if market_info.get("is_china") else "HK"
-                        _r = _asyncio.run(_di.read(market_code, clean_ticker, "news"))
+                        _r = _asyncio.run(_di.read(market_code, "news", symbol=clean_ticker))
                         news_data = _r.get("data", [])
                         if news_data:
                             if isinstance(news_data, list):
@@ -1070,7 +1070,7 @@ class Toolkit:
                     import asyncio as _asyncio
                     _di = DataInterface.get_instance()
                     market_code = "CN" if market_info.get("is_china") else "HK"
-                    _r = _asyncio.run(_di.read(market_code, ticker, "news"))
+                    _r = _asyncio.run(_di.read(market_code, "news", symbol=ticker))
                     news_data = _r.get("data")
                     result_data.append(f"## Google新闻\n{news_data}")
                     logger.debug(f"🇨🇳🇭🇰 [统一新闻工具] 成功获取Google新闻")
@@ -1086,7 +1086,7 @@ class Toolkit:
                     from app.data.core.interface import DataInterface
                     import asyncio as _asyncio
                     _di = DataInterface.get_instance()
-                    _r = _asyncio.run(_di.read("US", ticker.upper(), "news"))
+                    _r = _asyncio.run(_di.read("US", "news", symbol=ticker.upper()))
                     news_data = _r.get("data")
                     result_data.append(f"## 美股新闻\n{news_data}")
                 except Exception as e:

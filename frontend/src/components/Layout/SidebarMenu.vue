@@ -45,6 +45,12 @@
       <template #title>学习中心</template>
     </el-menu-item>
 
+    <!-- 数据源管理 (移出3级菜单，作为顶级菜单) -->
+    <el-menu-item index="/data">
+      <el-icon><Coin /></el-icon>
+      <template #title>数据源管理</template>
+    </el-menu-item>
+
     <!-- 系统设置 -->
     <el-sub-menu index="/settings">
       <template #title>
@@ -60,12 +66,6 @@
         <el-menu-item index="/settings?tab=analysis">分析偏好</el-menu-item>
         <el-menu-item index="/settings?tab=notifications">通知设置</el-menu-item>
         <el-menu-item index="/settings?tab=security">安全设置</el-menu-item>
-      </el-sub-menu>
-
-      <!-- 数据管理 -->
-      <el-sub-menu index="/settings-data">
-        <template #title>数据管理</template>
-        <el-menu-item index="/data">数据中心</el-menu-item>
       </el-sub-menu>
 
       <!-- 系统配置 -->
@@ -135,6 +135,7 @@ const activeMenu = computed(() => {
   :deep(.el-menu-item.is-active) {
     background-color: var(--el-color-primary-light-9);
     color: var(--el-color-primary);
+    font-weight: 600;
   }
 }
 </style>

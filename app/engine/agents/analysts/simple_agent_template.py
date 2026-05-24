@@ -1,18 +1,15 @@
 """
 第一阶段智能体模板
 
-重构版本：核心工具调用循环委托给 AgentExecutor，修复所有 P0-P2 问题：
-- P0: bind_tools 只在循环外调用一次
-- P0: 集成 LoopDetector 的 6 维循环检测
-- P1: Token 预算控制 + 自动上下文压缩
-- P1: 工具结果截断 + 结构化错误处理
-- P1: 白名单无效时严格报错而非静默回退
-- P2: 速率限制异常优雅降级
-- P2: 预注入数据保留但优化
-- P2: max_tool_calls 从 20 降到 12
+核心工具调用循环委托给 AgentExecutor：
+- bind_tools 只在循环外调用一次
+- 集成 LoopDetector 的 6 维循环检测
+- Token 预算控制 + 自动上下文压缩
+- 内置工具预注入（基于 BuiltinToolSpec）+ 不可用工具通知
 """
 
 import json
+from datetime import timedelta
 from typing import Any, Optional
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from typing import Dict, List
@@ -49,45 +46,58 @@ def _get_us_company_name(ticker: str) -> str:
     return StockUtils.US_STOCK_NAMES.get(ticker.upper(), f"美股{ticker}")
 
 
-# === 自动数据注入：工具参数映射 ===
-# 格式: tool_name → {参数名: inject_context 字段名 或 Callable[[dict], str]}
-# inject_context 提供: ticker, trade_date, company_name
-# 值为字符串时从 context_values 查找；值为 callable 时动态计算
+def _resolve_inject_args(
+    spec, context: Dict[str, str],
+) -> Dict[str, Any]:
+    """
+    从 BuiltinToolSpec.inject_args 解析出实际调用参数。
 
+    inject_args 值类型：
+    - "ticker" / "trade_date" → context 查找
+    - "trade_date_compact" → 去横线的日期
+    - "start_date_30d" / "start_date_90d" → 自动计算
+    - callable → 动态调用
+    - 其他字面量 → 直接使用
+    """
+    from app.utils.time_utils import now_utc
 
-def _resolve_market_type(ctx: dict) -> str:
-    """根据 ticker 动态推导 market_type"""
-    from app.utils.stock_utils import StockUtils, StockMarket
-    market = StockUtils.identify_stock_market(ctx.get("ticker", ""))
-    if market == StockMarket.HONG_KONG:
-        return "hk"
-    elif market == StockMarket.US:
-        return "us"
-    return "cn"
-
-
-_INJECT_TOOL_ARGS_MAP: Dict[str, Dict[str, Any]] = {
-    "get_stock_data": {"stock_code": "ticker"},
-    "get_stock_data_minutes": {"stock_code": "ticker", "market_type": _resolve_market_type},
-    "get_index_data": {"stock_code": "ticker"},
-    "get_stock_news": {"stock_code": "ticker"},
-    "get_stock_fundamentals": {"stock_code": "ticker", "current_date": "trade_date"},
-    "get_company_performance_unified": {"stock_code": "ticker"},
-    "get_stock_sentiment": {"stock_code": "ticker", "current_date": "trade_date"},
-    "get_dragon_tiger_inst": {"ts_code": "ticker", "trade_date": "trade_date_compact"},
-    "get_block_trade": {"code": "ticker"},
-    "get_money_flow": {"ts_code": "ticker", "query_type": "stock"},
-    "get_margin_trade": {"data_type": "margin", "ts_code": "ticker"},
-    "get_china_market_overview": {"date": "trade_date"},
-    "get_finance_news": {"query": "company_name"},
-    "get_hot_news_7x24": {},
-    "get_current_timestamp": {},
-}
+    args = {}
+    for arg_name, source in spec.inject_args.items():
+        if callable(source):
+            val = source(context)
+            if val:
+                args[arg_name] = val
+        elif isinstance(source, str):
+            if source.startswith("start_date_"):
+                days = int(source.replace("start_date_", "").replace("d", ""))
+                args[arg_name] = (now_utc() - timedelta(days=days)).strftime('%Y-%m-%d')
+            elif source == "trade_date_compact":
+                val = context.get("trade_date", "").replace("-", "")
+                if val:
+                    args[arg_name] = val
+            elif source in ("ticker",):
+                val = context.get("ticker", "")
+                if val:
+                    args[arg_name] = val
+            elif source == "trade_date":
+                val = context.get("trade_date", "")
+                if val:
+                    args[arg_name] = val
+            elif source == "company_name":
+                val = context.get("company_name", "")
+                if val:
+                    args[arg_name] = val
+            else:
+                args[arg_name] = source
+        elif isinstance(source, int):
+            args[arg_name] = source
+    return args
 
 
 def _inject_tool_data(
     agent_name: str,
     inject_tools: List[Any],
+    unavailable_tool_ids: List[str],
     inject_context: Dict[str, str],
     messages: List,
 ) -> None:
@@ -96,66 +106,77 @@ def _inject_tool_data(
 
     通过在 messages 列表中插入 AIMessage(tool_calls) + ToolMessage(content) 对，
     模拟工具已执行的结果，使 LLM 在第一轮就能看到预加载数据。
+
+    不可用工具注入"未就绪"通知。
     """
+    from app.engine.tools.builtin.registry import get_spec_by_id
+
     ticker = inject_context.get("ticker", "")
     trade_date = inject_context.get("trade_date", "")
-    trade_date_compact = trade_date.replace("-", "") if trade_date and "-" in trade_date else trade_date
 
     context_values = {
         "ticker": ticker,
         "trade_date": trade_date,
-        "trade_date_compact": trade_date_compact,
         "company_name": inject_context.get("company_name", ""),
     }
 
     injected_count = 0
     total_chars = 0
 
-    # 注入前导说明：告知 LLM 数据已预加载
+    # 收集可用工具的中文名
     injectable_names = []
     for tool in inject_tools:
         tool_name = getattr(tool, "name", None)
-        if tool_name and _INJECT_TOOL_ARGS_MAP.get(tool_name) is not None:
-            injectable_names.append(tool_name)
+        if tool_name:
+            spec = get_spec_by_id(tool_name)
+            if spec:
+                injectable_names.append(spec.display_name)
 
+    # 收集不可用工具的中文名
+    unavailable_names = []
+    for tid in unavailable_tool_ids:
+        spec = get_spec_by_id(tid)
+        if spec:
+            unavailable_names.append(spec.display_name)
+
+    # ── 注入前导说明（合并可用和不可用状态） ──
+
+    status_parts = []
     if injectable_names:
+        status_parts.append(f"已就绪（{len(injectable_names)}个）：{', '.join(injectable_names)}")
+    if unavailable_names:
+        status_parts.append(
+            f"未就绪（{len(unavailable_names)}个）：{', '.join(unavailable_names)}\n"
+            "→ 这些数据当前不可用，禁止编造或推测其内容。"
+            "若分析依赖这些数据，请在报告中标注「XX数据未就绪」。"
+        )
+
+    if status_parts:
         messages.append(SystemMessage(
             content=(
-                f"以下 {len(injectable_names)} 个数据源已预加载到上下文中"
-                f"（{', '.join(injectable_names)}），"
-                "你无需也无法重新获取这些数据，请直接基于下方数据进行分析。"
+                f"【数据预加载状态】\n\n"
+                + "\n\n".join(status_parts) + "\n\n"
+                "已就绪的数据已在上下文中，直接使用即可，无需重新获取。"
             )
         ))
+
+    # ── 注入可用工具数据 ──
 
     for tool in inject_tools:
         tool_name = getattr(tool, "name", None)
         if not tool_name:
             continue
 
-        args_map = _INJECT_TOOL_ARGS_MAP.get(tool_name)
-        if args_map is None:
+        spec = get_spec_by_id(tool_name)
+        if not spec:
             logger.debug(f"🔄 [{agent_name}] 跳过未注册的注入工具: {tool_name}")
             continue
 
-        tool_args = {}
-        for arg_name, source in args_map.items():
-            if isinstance(source, str) and not source:
-                continue
-            if callable(source):
-                val = source(context_values)
-                if val:
-                    tool_args[arg_name] = val
-            elif isinstance(source, str) and not source.startswith("ticker") and not source.startswith("trade_date") and source != "date":
-                tool_args[arg_name] = source
-            else:
-                val = context_values.get(source, "")
-                if val:
-                    tool_args[arg_name] = val
+        tool_args = _resolve_inject_args(spec, context_values)
 
         needs_ticker = any(
-            v in ("ticker",)
-            for v in args_map.values()
-            if isinstance(v, str) and v.startswith("ticker")
+            isinstance(v, str) and v == "ticker"
+            for v in spec.inject_args.values()
         )
         if needs_ticker and not ticker:
             logger.debug(f"🔄 [{agent_name}] 跳过 {tool_name}: 缺少 ticker")
@@ -164,7 +185,7 @@ def _inject_tool_data(
         try:
             import uuid
             call_id = f"pre_{uuid.uuid4().hex[:8]}_{tool_name}"
-            logger.info(f"💉 [{agent_name}] 预加载数据: {tool_name}({tool_args})")
+            logger.info(f"💉 [{agent_name}] 预加载数据: {spec.display_name}({tool_args})")
 
             result = tool.invoke(tool_args)
             result_str = format_tool_result(result)
@@ -181,13 +202,13 @@ def _inject_tool_data(
 
             injected_count += 1
             total_chars += len(result_str)
-            logger.info(f"✅ [{agent_name}] 预加载成功: {tool_name} ({len(result_str)} 字符)")
+            logger.info(f"✅ [{agent_name}] 预加载成功: {spec.display_name} ({len(result_str)} 字符)")
         except Exception as e:
-            logger.warning(f"⚠️ [{agent_name}] 预加载失败: {tool_name}, 错误: {e}")
+            logger.warning(f"⚠️ [{agent_name}] 预加载失败: {spec.display_name}, 错误: {e}")
             continue
 
     if injected_count > 0:
-        logger.info(f"💉 [{agent_name}] 共预加载 {injected_count} 个工具数据到上下文, 总计 {total_chars} 字符")
+        logger.info(f"💉 [{agent_name}] 共预加载 {injected_count} 个工具数据, 总计 {total_chars} 字符")
 
 
 def create_simple_agent(
@@ -199,39 +220,29 @@ def create_simple_agent(
     max_tool_calls: int = 12,
     llm_provider: str = "default",
     inject_tools: Optional[List[Any]] = None,
+    unavailable_tools: Optional[List[str]] = None,
 ):
     """
     创建简单智能体节点函数
-
-    重构版本：核心循环委托给 AgentExecutor，修复所有已知问题。
 
     Args:
         name: 智能体名称
         slug: 智能体标识符
         llm: LLM 实例
-        tools: 工具列表
+        tools: 可调用工具列表（MCP/Skill）
         system_prompt: 系统提示词
-        max_tool_calls: 最大工具调用次数（默认 12，从 20 降低）
-        llm_provider: LLM 提供商名称（用于速率限制）
-        inject_tools: 需要自动预加载数据的内置工具列表
+        max_tool_calls: 最大工具调用次数
+        llm_provider: LLM 提供商名称
+        inject_tools: 需要预加载数据的内置工具列表
+        unavailable_tools: 不可用工具的 tool_id 列表（注入"未就绪"通知）
 
     Returns:
-        节点函数（可以直接添加到 LangGraph）
+        节点函数
     """
 
     def simple_agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        简单智能体节点函数
-
-        流程：
-        1. 获取上下文信息
-        2. 构建系统提示词和消息列表
-        3. 委托给 AgentExecutor 执行
-        4. 返回更新后的 state
-        """
         logger.info(f"🤖 [{name}] 开始分析")
 
-        # === 进度追踪 ===
         from app.engine.agents.analysts.dynamic_analyst import ProgressManager, DynamicAnalystFactory
 
         icon = DynamicAnalystFactory._get_analyst_icon(
@@ -242,11 +253,12 @@ def create_simple_agent(
         ProgressManager.node_start(display_name, task_id=task_id)
 
         try:
-            # === 步骤1：获取上下文信息 ===
+            # === 获取上下文信息 ===
             ticker = state.get("company_of_interest", "")
             trade_date = state.get("trade_date", "")
 
             from app.utils.stock_utils import StockUtils
+            from app.utils.time_utils import now_utc
             market_info = StockUtils.get_market_info(ticker)
 
             company_name = ticker
@@ -255,7 +267,7 @@ def create_simple_agent(
                     import asyncio
                     from app.data.core.interface import DataInterface
                     di = DataInterface.get_instance()
-                    result = asyncio.run(di.read("CN", ticker, "basic_info"))
+                    result = asyncio.run(di.read("CN", "basic_info", symbol=ticker))
                     data = result.get("data")
                     if data:
                         doc = data[0] if isinstance(data, list) and data else data
@@ -266,13 +278,13 @@ def create_simple_agent(
                     from app.data.core.interface import DataInterface
                     clean_ticker = ticker.replace(".HK", "").replace(".hk", "").zfill(5)
                     di = DataInterface.get_instance()
-                    result = asyncio.run(di.read("HK", clean_ticker, "basic_info"))
+                    result = asyncio.run(di.read("HK", "basic_info", symbol=clean_ticker))
                     data = result.get("data")
                     if data:
                         doc = data[0] if isinstance(data, list) and data else data
-                        name = doc.get("name_zh") or doc.get("name_en") or doc.get("name")
-                        if name:
-                            company_name = name
+                        n = doc.get("name_zh") or doc.get("name_en") or doc.get("name")
+                        if n:
+                            company_name = n
                     else:
                         company_name = f"港股{clean_ticker}"
                 elif market_info["is_us"]:
@@ -280,20 +292,22 @@ def create_simple_agent(
             except Exception as e:
                 logger.warning(f"⚠️ [{name}] 获取公司名称失败: {e}")
 
-            # === 步骤2：构建系统提示词 ===
+            # === 构建系统提示词 ===
+            current_time = now_utc().strftime('%Y-%m-%d %H:%M:%S UTC')
             context_prefix = f"""
 股票代码：{ticker}
 公司名称：{company_name}
 分析日期：{trade_date}
+当前时间：{current_time}
 """
             full_system_prompt = context_prefix + "\n\n" + system_prompt
 
-            # === 步骤3：构建初始消息并委托给 AgentExecutor ===
+            # === 构建初始消息 ===
             messages = [SystemMessage(content=full_system_prompt)]
             task_message = f"请对股票 {company_name} ({ticker}) 进行全面分析，交易日期：{trade_date}"
             messages.append(HumanMessage(content=task_message))
 
-            # 获取速率限制器（可选）
+            # 获取速率限制器
             rate_limiter = None
             try:
                 from app.utils.llm_rate_limiter import get_rate_limiter
@@ -316,6 +330,7 @@ def create_simple_agent(
                     "trade_date": trade_date,
                     "company_name": company_name,
                 },
+                unavailable_tools=unavailable_tools or [],
             )
 
             result = executor.execute(messages)
@@ -337,7 +352,6 @@ def create_simple_agent(
                     f"{result.tool_calls_executed} 工具调用"
                 )
 
-            # === 步骤4：更新 state 并返回 ===
             internal_key = slug.replace("-analyst", "").replace("-", "_")
             report_key = f"{internal_key}_report"
 
@@ -350,7 +364,6 @@ def create_simple_agent(
             return {
                 "messages": [final_message] if final_message else [],
                 report_key: final_report,
-                # 只返回当前报告，让 LangGraph reducer 负责合并，避免指数级膨胀
                 "reports": {
                     report_key: final_report,
                 }
@@ -367,7 +380,6 @@ def create_simple_agent(
             return {
                 report_key: error_report,
                 "messages": [AIMessage(content=error_report)],
-                # 只返回当前报告，让 LangGraph reducer 负责合并，避免指数级膨胀
                 "reports": {
                     report_key: error_report,
                 }

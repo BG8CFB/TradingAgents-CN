@@ -134,7 +134,7 @@
               <div class="form-section">
                 <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                   <h4 class="section-title" style="margin: 0;">🚀 深度分析阶段</h4>
-                  <div class="time-estimate" style="display: flex; align-items: center; gap: 6px; font-size: 14px; color: #666; background: #f0f9eb; padding: 4px 12px; border-radius: 12px; color: #67c23a;">
+                  <div class="time-estimate" style="display: flex; align-items: center; gap: 6px; font-size: 14px; background: var(--el-color-success-light-9); padding: 4px 12px; border-radius: 12px; color: var(--el-color-success);">
                     <el-icon><Timer /></el-icon>
                     <span>预计总耗时: <strong>{{ estimatedTotalTime }}</strong> 分钟</span>
                   </div>
@@ -2038,12 +2038,12 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
         align-items: center;
         font-size: 32px;
         font-weight: 700;
-        color: #1a202c;
+        color: var(--el-text-color-primary);
         margin: 0 0 8px 0;
 
         .title-icon {
           margin-right: 12px;
-          color: #3b82f6;
+          color: var(--el-color-primary);
         }
       }
 
@@ -2062,7 +2062,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 
       :deep(.el-card__header) {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
         color: white;
         border-radius: 16px 16px 0 0;
         padding: 20px 24px;
@@ -2095,7 +2095,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
         .section-title {
           font-size: 16px;
           font-weight: 600;
-          color: #1a202c;
+          color: var(--el-text-color-primary);
           margin: 0 0 16px 0;
           padding-bottom: 8px;
           border-bottom: 2px solid #e2e8f0;
@@ -2110,7 +2110,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
 
         &.is-error {
           :deep(.el-input__inner) {
-            border-color: #f56c6c;
+            border-color: #E57373;
           }
         }
       }
@@ -2121,7 +2121,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
         gap: 4px;
         margin-top: 8px;
         font-size: 12px;
-        color: #f56c6c;
+        color: #E57373;
 
         .el-icon {
           font-size: 14px;
@@ -2134,7 +2134,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
         gap: 4px;
         margin-top: 8px;
         font-size: 12px;
-        color: #67c23a;
+        color: #7CB342;
 
         .el-icon {
           font-size: 14px;
@@ -2162,17 +2162,17 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
           transition: all 0.3s ease;
 
           &:hover {
-            border-color: #3b82f6;
+            border-color: var(--el-color-primary);
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+            box-shadow: 0 4px 12px rgba(197, 165, 90, 0.15);
           }
 
           &.active {
-            border-color: #3b82f6;
-            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-            color: #1e40af;
+            border-color: var(--el-color-primary);
+            background: linear-gradient(135deg, var(--el-color-primary-light-9) 0%, #f5edd6 100%);
+            color: #7a6530;
             transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.15);
+            box-shadow: 0 8px 25px rgba(197, 165, 90, 0.15);
           }
 
           &.disabled {
@@ -2215,12 +2215,12 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
           .analyst-check {
             .check-icon {
               font-size: 20px;
-              color: #3b82f6;
+              color: var(--el-color-primary);
             }
           }
 
           &.active .analyst-check .check-icon {
-            color: #1e40af;
+            color: #7a6530;
           }
         }
       }
@@ -2234,7 +2234,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
           .config-title {
             font-size: 14px;
             font-weight: 600;
-            color: #1a202c;
+            color: var(--el-text-color-primary);
             margin: 0 0 12px 0;
             display: flex;
             align-items: center;
@@ -2296,8 +2296,8 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
               border: 1px solid #d1d5db;
 
               &:focus {
-                border-color: #3b82f6;
-                box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+                border-color: #C5A55A;
+                box-shadow: 0 0 0 3px rgba(197, 165, 90, 0.1);
               }
             }
           }
@@ -2321,24 +2321,24 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
               height: 56px !important;
               font-size: 18px !important;
               font-weight: 700 !important;
-              background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+              background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%) !important;
               border: none !important;
               border-radius: 16px !important;
               transition: all 0.3s ease !important;
-              box-shadow: 0 4px 15px rgba(59, 130, 246, 0.2) !important;
+              box-shadow: 0 4px 15px rgba(197, 165, 90, 0.2) !important;
               min-width: 280px !important;
               max-width: 280px !important;
 
               &:hover {
                 transform: translateY(-3px) !important;
-                box-shadow: 0 12px 30px rgba(59, 130, 246, 0.4) !important;
-                background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+                box-shadow: 0 12px 30px rgba(197, 165, 90, 0.4) !important;
+                background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%) !important;
               }
 
               &:disabled {
                 opacity: 0.6 !important;
                 transform: none !important;
-                box-shadow: 0 4px 15px rgba(59, 130, 246, 0.1) !important;
+                box-shadow: 0 4px 15px rgba(197, 165, 90, 0.1) !important;
               }
 
               .el-icon {
@@ -2366,14 +2366,14 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
         height: 48px;
         font-size: 16px;
         font-weight: 600;
-        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+        background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
         border: none;
         border-radius: 12px;
         transition: all 0.3s ease;
 
         &:hover {
           transform: translateY(-2px);
-          box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);
+          box-shadow: 0 8px 25px rgba(197, 165, 90, 0.3);
         }
 
         &:disabled {
@@ -2421,11 +2421,11 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
 
     &.enabled {
       background: #fff;
-      border-color: #3b82f6;
-      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+      border-color: #C5A55A;
+      box-shadow: 0 4px 12px rgba(197, 165, 90, 0.1);
 
       .phase-header .phase-title {
-        color: #3b82f6;
+        color: #C5A55A;
       }
     }
 
@@ -2441,7 +2441,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
         .phase-title {
           font-weight: 600;
           font-size: 15px;
-          color: #1a202c;
+          color: var(--el-text-color-primary);
         }
       }
 
@@ -2524,22 +2524,22 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
   }
 
   &.step-current {
-    border-left-color: #3b82f6;
-    background: linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, transparent 100%);
+    border-left-color: #C5A55A;
+    background: linear-gradient(90deg, rgba(197, 165, 90, 0.05) 0%, transparent 100%);
 
     .step-icon {
-      background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+      background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
       color: white;
-      box-shadow: 0 2px 12px rgba(59, 130, 246, 0.4);
+      box-shadow: 0 2px 12px rgba(197, 165, 90, 0.4);
     }
 
     .step-title {
-      color: #3b82f6;
+      color: #C5A55A;
       font-weight: 700;
     }
 
     .step-description {
-      color: #1d4ed8;
+      color: #9E7E3E;
       font-weight: 500;
     }
   }
@@ -2640,25 +2640,25 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
   height: 56px !important;
   font-size: 18px !important;
   font-weight: 700 !important;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%) !important;
   border: none !important;
   border-radius: 16px !important;
   transition: all 0.3s ease !important;
-  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.2) !important;
+  box-shadow: 0 4px 15px rgba(197, 165, 90, 0.2) !important;
   min-width: 280px !important;
   max-width: 280px !important;
 }
 
 .large-analysis-btn.el-button:hover {
   transform: translateY(-3px) !important;
-  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.4) !important;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  box-shadow: 0 12px 30px rgba(197, 165, 90, 0.4) !important;
+  background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%) !important;
 }
 
 .large-analysis-btn.el-button:disabled {
   opacity: 0.6 !important;
   transform: none !important;
-  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 4px 15px rgba(197, 165, 90, 0.1) !important;
 }
 
 .large-analysis-btn.el-button .el-icon {
@@ -2749,7 +2749,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
   }
 
   :deep(.el-progress-bar__inner) {
-    background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
+    background: linear-gradient(90deg, #C5A55A 0%, #9E7E3E 100%);
     border-radius: 8px;
     transition: width 0.6s ease;
   }
@@ -2763,7 +2763,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
 /* 当前任务信息 */
 .current-task-info {
   background: var(--el-fill-color-light);
-  border: 1px solid #3b82f6;
+  border: 1px solid #C5A55A;
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 24px;
@@ -2775,17 +2775,17 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
   gap: 8px;
   font-size: 16px;
   font-weight: 600;
-  color: #1e40af;
+  color: #9E7E3E;
   margin-bottom: 8px;
 }
 
 .task-icon {
-  color: #3b82f6;
+  color: #C5A55A;
 }
 
 .task-description {
   font-size: 14px;
-  color: #1e40af;
+  color: #9E7E3E;
   line-height: 1.5;
 }
 
@@ -3041,17 +3041,17 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
 
     &:hover {
       background: var(--el-fill-color-light) !important;
-      border-color: #2196f3 !important;
+      border-color: #C5A55A !important;
       transform: translateY(-2px) scale(1.02) !important;
-      box-shadow: 0 4px 15px rgba(33,150,243,0.3) !important;
-      color: #1976d2 !important;
+      box-shadow: 0 4px 15px rgba(197,165,90,0.3) !important;
+      color: #9E7E3E !important;
     }
 
     &.is-active {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+      background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%) !important;
       color: white !important;
-      border-color: #667eea !important;
-      box-shadow: 0 6px 20px rgba(102,126,234,0.4) !important;
+      border-color: #C5A55A !important;
+      box-shadow: 0 6px 20px rgba(197,165,90,0.4) !important;
       transform: translateY(-3px) scale(1.05) !important;
 
       &::before {
@@ -3089,7 +3089,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
   padding: 20px;
   background: var(--el-fill-color-light);
   border-radius: 15px;
-  border-left: 5px solid #667eea;
+  border-left: 5px solid #C5A55A;
   box-shadow: 0 2px 10px rgba(0,0,0,0.1);
 
   .report-title {
@@ -3185,7 +3185,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
 
   /* 引用样式 */
   blockquote {
-    border-left: 4px solid #3b82f6 !important;
+    border-left: 4px solid #C5A55A !important;
     padding-left: 16px !important;
     margin: 16px 0 !important;
     background: var(--el-fill-color-light) !important;

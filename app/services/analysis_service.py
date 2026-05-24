@@ -64,10 +64,10 @@ try:
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     result = pool.submit(
                         asyncio.run,
-                        _di.read("CN", stock_code, "basic_info")
+                        _di.read("CN", "basic_info", symbol=stock_code)
                     ).result()
             else:
-                result = asyncio.run(_di.read("CN", stock_code, "basic_info"))
+                result = asyncio.run(_di.read("CN", "basic_info", symbol=stock_code))
             return result.get("data")
         except Exception:
             return None
@@ -448,13 +448,17 @@ class AnalysisService:
         return name
 
     def _enrich_stock_names(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """为任务列表补齐股票名称(就地更新)"""
+        """为任务列表补齐股票名称(就地更新)
+
+        仅查询内存缓存，不触发同步 DB/IO 操作，避免阻塞事件循环。
+        未命中缓存时使用 stock_code 作为兜底名称。
+        """
         try:
             for t in tasks:
                 code = t.get("stock_code") or t.get("stock_symbol")
                 name = t.get("stock_name")
                 if not name and code:
-                    t["stock_name"] = self._resolve_stock_name(code)
+                    t["stock_name"] = self._stock_name_cache.get(code, f"股票{code}")
         except Exception as e:
             logger.warning(f"⚠️ 补齐股票名称时出现异常: {e}")
         return tasks
@@ -1086,6 +1090,20 @@ class AnalysisService:
 
             update_progress_sync(9, "🚀 初始化AI分析引擎", "engine_initialization")
 
+            # 预计算内置工具可用性（基于数据域状态）
+            try:
+                from app.engine.tools.builtin.domain_checker import AvailabilityCache
+                from app.engine.tools.builtin.registry import BUILTIN_TOOL_REGISTRY
+
+                _market_map = {"A股": "CN", "港股": "HK", "美股": "US"}
+                _market = _market_map.get(market_type, "CN")
+                _cache = AvailabilityCache.get_instance()
+                from app.core.async_utils import run_async
+                run_async(_cache.compute(_market, BUILTIN_TOOL_REGISTRY))
+                logger.info(f"📊 [工具可用性] 市场={_market}, 结果={_cache.all_results}")
+            except Exception as _e:
+                logger.warning(f"⚠️ [工具可用性] 预计算失败（不影响分析）: {_e}")
+
             # 🔥 添加时间戳日志，精确定位耗时
             import time
             graph_init_start = time.time()
@@ -1380,25 +1398,23 @@ class AnalysisService:
             cursor = db.analysis_tasks.find(query).sort("created_at", -1).skip(offset).limit(limit)
             db_tasks = await cursor.to_list(length=limit)
             
-            # 转换为前端友好的格式，并合并内存中的实时状态
+            # 批量获取内存中的实时状态（一次加锁，替代逐条查询）
+            task_ids = [t.get("task_id") for t in db_tasks if t.get("task_id")]
+            memory_map = self.memory_manager.batch_get_task_dicts(task_ids)
+
             results = []
             for task in db_tasks:
-                # 转换 ObjectId 等
                 if "_id" in task:
                     task["_id"] = str(task["_id"])
-                
-                # 尝试从内存获取最新状态
+
                 task_id = task.get("task_id")
-                if task_id:
-                    memory_task = await self.memory_manager.get_task_dict(task_id)
-                    if memory_task:
-                        # 内存中的状态通常更新（尤其是进度和消息）
-                        # 我们主要关心 status, progress, message, current_step
-                        task["status"] = memory_task.get("status", task.get("status"))
-                        task["progress"] = memory_task.get("progress", task.get("progress"))
-                        task["message"] = memory_task.get("message", task.get("message"))
-                        task["current_step"] = memory_task.get("current_step", task.get("current_step"))
-                
+                if task_id and task_id in memory_map:
+                    memory_task = memory_map[task_id]
+                    task["status"] = memory_task.get("status", task.get("status"))
+                    task["progress"] = memory_task.get("progress", task.get("progress"))
+                    task["message"] = memory_task.get("message", task.get("message"))
+                    task["current_step"] = memory_task.get("current_step", task.get("current_step"))
+
                 results.append(task)
             
             # 如果数据库返回为空，可能是因为所有数据都在内存中（极少见情况，例如DB写入失败但内存成功）
@@ -1498,23 +1514,25 @@ class AnalysisService:
             cursor = db.analysis_tasks.find(query).sort("created_at", -1).skip(skip).limit(page_size)
             db_tasks = await cursor.to_list(length=page_size)
             
-            # 转换为前端友好的格式，并合并内存中的实时状态
+            # 批量获取内存中的实时状态（一次加锁，替代逐条查询）
+            task_ids = [t.get("task_id") for t in db_tasks if t.get("task_id")]
+            memory_map = self.memory_manager.batch_get_task_dicts(task_ids)
+
             results = []
             for task in db_tasks:
                 if "_id" in task:
                     task["_id"] = str(task["_id"])
-                
+
                 task_id = task.get("task_id")
-                if task_id:
-                    memory_task = await self.memory_manager.get_task_dict(task_id)
-                    if memory_task:
-                        task["status"] = memory_task.get("status", task.get("status"))
-                        task["progress"] = memory_task.get("progress", task.get("progress"))
-                        task["message"] = memory_task.get("message", task.get("message"))
-                        task["current_step"] = memory_task.get("current_step", task.get("current_step"))
-                
+                if task_id and task_id in memory_map:
+                    memory_task = memory_map[task_id]
+                    task["status"] = memory_task.get("status", task.get("status"))
+                    task["progress"] = memory_task.get("progress", task.get("progress"))
+                    task["message"] = memory_task.get("message", task.get("message"))
+                    task["current_step"] = memory_task.get("current_step", task.get("current_step"))
+
                 results.append(task)
-                
+
             enriched_tasks = self._enrich_stock_names(results)
             
             return self._serialize_for_response({

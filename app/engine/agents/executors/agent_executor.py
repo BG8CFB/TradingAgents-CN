@@ -86,6 +86,7 @@ class AgentExecutor:
         llm_provider: str = "default",
         inject_tools: Optional[List[Any]] = None,
         inject_context: Optional[Dict[str, str]] = None,
+        unavailable_tools: Optional[List[str]] = None,
     ):
         self.llm = llm
         self.tools = tools
@@ -95,6 +96,7 @@ class AgentExecutor:
         self.llm_provider = llm_provider
         self.inject_tools = inject_tools
         self.inject_context = inject_context or {}
+        self.unavailable_tools = unavailable_tools or []
 
         # 可插拔组件（有默认值）
         self.loop_detector = loop_detector or LoopDetector()
@@ -298,10 +300,10 @@ class AgentExecutor:
                         )
                 else:
                     # 工具未找到 — 检查是否为已预注入的内置工具
-                    from app.engine.tools.registry import ToolRegistry
-                    if ToolRegistry.is_builtin_tool_by_name(tool_name):
+                    from app.engine.tools.builtin.registry import get_spec_by_id
+                    if get_spec_by_id(tool_name):
                         messages.append(ToolMessage(
-                            content=f"工具 '{tool_name}' 的数据已在上下文中预加载，请直接使用已有的数据进行分析。",
+                            content=f"该数据已在上下文中预加载，请直接使用已有的数据进行分析。",
                             tool_call_id=tool_call_id,
                             name=tool_name,
                         ))
@@ -418,12 +420,13 @@ class AgentExecutor:
         return result
 
     def _inject_tool_data(self, messages: List[BaseMessage]) -> None:
-        """自动注入预加载数据（委托给 simple_agent_template）"""
+        """自动注入预加载数据 + 不可用工具通知（委托给 simple_agent_template）"""
         try:
             from app.engine.agents.analysts.simple_agent_template import _inject_tool_data
             _inject_tool_data(
                 agent_name="AgentExecutor",
                 inject_tools=self.inject_tools,
+                unavailable_tool_ids=self.unavailable_tools,
                 inject_context=self.inject_context,
                 messages=messages,
             )

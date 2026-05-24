@@ -1455,16 +1455,16 @@ function exportReport() {
 
 /* 投资建议盒子 - 重点突出 */
 .recommendation-box {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
   border-radius: 12px;
   padding: 20px 24px;
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.25);
+  box-shadow: 0 4px 16px rgba(197, 165, 90, 0.25);
   transition: all 0.3s ease;
   margin: 16px 0;
 }
 
 .recommendation-box:hover {
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35);
+  box-shadow: 0 6px 20px rgba(197, 165, 90, 0.35);
   transform: translateY(-2px);
 }
 
@@ -1504,7 +1504,7 @@ function exportReport() {
   padding: 18px 20px;
   background: #f8fafc;
   border-radius: 8px;
-  border-left: 4px solid #3b82f6;
+  border-left: 4px solid #C5A55A;
   margin-top: 16px;
 }
 
@@ -1514,13 +1514,13 @@ function exportReport() {
   gap: 8px;
   font-size: 15px;
   font-weight: 600;
-  color: #1e40af;
+  color: #9E7E3E;
   margin-bottom: 12px;
 }
 
 .summary-title .el-icon {
   font-size: 18px;
-  color: #3b82f6;
+  color: #C5A55A;
 }
 
 .summary-text {

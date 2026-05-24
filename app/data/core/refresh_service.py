@@ -15,6 +15,17 @@ from app.data.storage.cache.memory_cache import TTLCache
 logger = logging.getLogger(__name__)
 
 _cooldown_cache = TTLCache(default_ttl=300)  # 5 分钟冷却
+_SUPPORTED_ON_DEMAND_DOMAINS = {
+    "basic_info",
+    "trade_calendar",
+    "daily_quotes",
+    "daily_indicators",
+    "adj_factors",
+    "corporate_actions",
+    "financial_data",
+    "news",
+    "market_quotes",
+}
 
 
 class DataRefreshService:
@@ -48,7 +59,9 @@ class DataRefreshService:
         start_time = time.time()
 
         if domains is None:
-            domains = [d.value for d in DataDomain]
+            domains = [d.value for d in DataDomain if d.value in _SUPPORTED_ON_DEMAND_DOMAINS]
+        else:
+            domains = list(domains)
 
         # 并行刷新各域
         tasks = []
@@ -76,6 +89,12 @@ class DataRefreshService:
         start = time.time()
         dr = DomainRefreshResult(domain=domain)
 
+        if domain not in _SUPPORTED_ON_DEMAND_DOMAINS:
+            dr.status = "failed"
+            dr.error = f"按需刷新暂不支持该域: {domain}"
+            dr.latency_ms = int((time.time() - start) * 1000)
+            return dr
+
         # 冷却期检查
         cooldown_key = f"cooldown:{market}:{symbol}:{domain}"
         if not force and _cooldown_cache.get(cooldown_key):
@@ -92,142 +111,46 @@ class DataRefreshService:
             return dr
 
         try:
-            # 获取优先级列表
-            priority = await self._priority.get_priority(market, domain)
+            from app.data.processor.fallback_router import FallbackRouter
 
-            # 获取候选源
-            sources = self._registry.get_ordered_sources(market, domain, user_priority=priority)
-            if not sources:
+            router = FallbackRouter(self._registry, self._priority)
+            fetch_result = await asyncio.wait_for(
+                router.fetch(market, domain, symbol),
+                timeout=timeout,
+            )
+
+            if not fetch_result.success or not fetch_result.records:
                 dr.status = "failed"
-                dr.error = "无可用数据源"
+                dr.error = fetch_result.error or "所有数据源失败"
+                dr.fallback_from = fetch_result.fallback_from
+                dr.latency_ms = int((time.time() - start) * 1000)
                 return dr
 
-            # 逐源尝试
-            for source_name in sources:
-                try:
-                    provider, adapter = await self._get_provider_adapter(market, source_name)
-                    if not provider or not adapter:
-                        continue
+            count = await self._write_to_mongo(fetch_result.records, domain, market)
 
-                    raw_data = await asyncio.wait_for(
-                        self._fetch_from_source(provider, domain, symbol),
-                        timeout=timeout,
-                    )
+            dr.status = "refreshed"
+            dr.source = fetch_result.source
+            dr.fallback_from = fetch_result.fallback_from
+            dr.record_count = count
+            dr.latency_ms = int((time.time() - start) * 1000)
 
-                    if raw_data is None:
-                        continue
+            _cooldown_cache.set(cooldown_key, True, ttl=300)
+            return dr
 
-                    # 标准化
-                    records = self._adapt_data(adapter, domain, raw_data)
-                    if not records:
-                        continue
-
-                    # 校验
-                    records = self._validate_records(records, domain, market)
-
-                    # 写入 MongoDB
-                    count = await self._write_to_mongo(records, domain, market)
-
-                    dr.status = "refreshed"
-                    dr.source = source_name
-                    dr.record_count = count
-                    dr.latency_ms = int((time.time() - start) * 1000)
-
-                    # 设置冷却
-                    _cooldown_cache.set(cooldown_key, True, ttl=300)
-                    return dr
-
-                except asyncio.TimeoutError:
-                    dr.error = f"超时 ({timeout}s)"
-                    continue
-                except Exception as e:
-                    logger.warning(f"刷新 {market}/{symbol}/{domain} 源 {source_name} 失败: {e}")
-                    dr.fallback_from = source_name
-                    dr.error = str(e)
-                    continue
-
+        except asyncio.TimeoutError:
+            dr.status = "timeout"
+            dr.error = f"超时 ({timeout}s)"
+            dr.latency_ms = int((time.time() - start) * 1000)
+            return dr
+        except Exception as e:
+            logger.warning(f"刷新 {market}/{symbol}/{domain} 失败: {e}")
             dr.status = "failed"
-            dr.error = dr.error or "所有数据源失败"
+            dr.error = str(e)
             dr.latency_ms = int((time.time() - start) * 1000)
             return dr
 
         finally:
             await lock.release()
-
-    async def _get_provider_adapter(self, market: str, source_name: str):
-        """获取数据源的 Provider 和 Adapter 实例。"""
-        try:
-            if market == "CN":
-                from app.data.sources.cn import get_cn_provider, get_cn_adapter
-                return get_cn_provider(source_name), get_cn_adapter(source_name)
-            elif market == "HK":
-                from app.data.sources.hk import get_hk_provider, get_hk_adapter
-                return get_hk_provider(source_name), get_hk_adapter(source_name)
-            elif market == "US":
-                from app.data.sources.us import get_us_provider, get_us_adapter
-                return get_us_provider(source_name), get_us_adapter(source_name)
-        except Exception as e:
-            logger.debug(f"获取 Provider/Adapter 失败 {market}/{source_name}: {e}")
-        return None, None
-
-    async def _fetch_from_source(self, provider, domain: str, symbol: str):
-        """从 Provider 拉取原始数据。"""
-        method_map = {
-            "basic_info": provider.get_stock_list,
-            "trade_calendar": provider.get_trade_calendar,
-            "daily_quotes": provider.get_daily_quotes,
-            "daily_indicators": provider.get_daily_indicators,
-            "financial_data": provider.get_financial_data,
-            "adj_factors": provider.get_adj_factors,
-            "corporate_actions": provider.get_corporate_actions,
-            "news": provider.get_news,
-            "market_quotes": provider.get_market_quotes,
-        }
-        method = method_map.get(domain)
-        if not method:
-            return None
-
-        if domain == "basic_info":
-            return await method()
-        elif domain == "market_quotes":
-            return await method(symbols=[symbol])
-        else:
-            return await method(symbol=symbol, start_date="1970-01-01", end_date="2099-12-31")
-
-    def _adapt_data(self, adapter, domain: str, raw_data) -> list:
-        """调用 Adapter 标准化数据。"""
-        method_map = {
-            "basic_info": adapter.adapt_basic_info,
-            "trade_calendar": adapter.adapt_trade_calendar,
-            "daily_quotes": adapter.adapt_daily_quotes,
-            "daily_indicators": adapter.adapt_daily_indicators,
-            "financial_data": adapter.adapt_financial_data,
-            "adj_factors": adapter.adapt_adj_factors,
-            "corporate_actions": adapter.adapt_corporate_actions,
-            "news": adapter.adapt_news,
-            "market_quotes": adapter.adapt_market_quotes,
-        }
-        method = method_map.get(domain)
-        if not method:
-            return []
-
-        try:
-            records = method(raw_data)
-            return [r.to_db_doc() for r in records]
-        except Exception as e:
-            logger.warning(f"标准化 {domain} 失败: {e}")
-            return []
-
-    def _validate_records(self, records: list, domain: str, market: str) -> list:
-        """简单校验。"""
-        valid = []
-        for rec in records:
-            if "symbol" not in rec:
-                continue
-            if domain not in ("basic_info", "trade_calendar") and "trade_date" not in rec:
-                continue
-            valid.append(rec)
-        return valid
 
     async def _write_to_mongo(self, records: list, domain: str, market: str) -> int:
         """写入 MongoDB。"""

@@ -177,7 +177,9 @@ class UnifiedStockService:
             logger.warning(f"获取实时PE/PB失败: {e}")
 
         realtime_market_cap = realtime_metrics.get("market_cap")
-        total_mv = realtime_market_cap if realtime_market_cap else b.get("total_mv")
+        # total_mv 单位统一为亿元（数据库存储为元，前端期望亿元）
+        raw_total_mv = realtime_market_cap if realtime_market_cap else b.get("total_mv")
+        total_mv = round(raw_total_mv / 1e8, 2) if isinstance(raw_total_mv, (int, float)) else None
 
         result_data = {
             "symbol": code6,

@@ -1,0 +1,234 @@
+// Champagne Gold + Warm White 主题
+// 覆盖 Element Plus CSS 自定义属性 + 自定义主题变量
+
+// ========================
+// 浅色模式（默认）
+// ========================
+:root {
+  // --- Primary（香槟金）---
+  --el-color-primary: #C5A55A;
+  --el-color-primary-light-3: #D4BA7A;
+  --el-color-primary-light-5: #DCD0A0;
+  --el-color-primary-light-7: #E8DFC0;
+  --el-color-primary-light-8: #F0EAD5;
+  --el-color-primary-light-9: #F5F0E5;
+  --el-color-primary-dark-2: #9E7E3E;
+
+  // --- Success（暖绿）---
+  --el-color-success: #7CB342;
+  --el-color-success-light-3: #96C36A;
+  --el-color-success-light-5: #AFCE90;
+  --el-color-success-light-7: #C8DBB5;
+  --el-color-success-light-8: #D6E5CA;
+  --el-color-success-light-9: #E4EFDF;
+  --el-color-success-dark-2: #638F35;
+
+  // --- Warning（亮金）---
+  --el-color-warning: #D4AF37;
+  --el-color-warning-light-3: #DEC468;
+  --el-color-warning-light-5: #E8D495;
+  --el-color-warning-light-7: #F0E2BC;
+  --el-color-warning-light-8: #F4EACF;
+  --el-color-warning-light-9: #F9F2E3;
+  --el-color-warning-dark-2: #AA8C2C;
+
+  // --- Danger（暖红）---
+  --el-color-danger: #E57373;
+  --el-color-danger-light-3: #EC9696;
+  --el-color-danger-light-5: #F1B5B5;
+  --el-color-danger-light-7: #F6D0D0;
+  --el-color-danger-light-8: #F8DCDC;
+  --el-color-danger-light-9: #FBE8E8;
+  --el-color-danger-dark-2: #B75C5C;
+
+  // --- Info（暖灰）---
+  --el-color-info: #9E9688;
+  --el-color-info-light-3: #B5AEA4;
+  --el-color-info-light-5: #C9C4BC;
+  --el-color-info-light-7: #DDD9D3;
+  --el-color-info-light-8: #E6E3DE;
+  --el-color-info-light-9: #F0EEEB;
+  --el-color-info-dark-2: #7E786D;
+
+  // --- 背景色 ---
+  --el-bg-color: #FFFEF9;
+  --el-bg-color-page: #F8F6F0;
+  --el-bg-color-overlay: #FFFFFF;
+
+  // --- 文字色 ---
+  --el-text-color-primary: #1A1714;
+  --el-text-color-regular: #4A4540;
+  --el-text-color-secondary: #6B6358;
+  --el-text-color-placeholder: #9E9688;
+  --el-text-color-disabled: #C0B8A8;
+
+  // --- 边框色 ---
+  --el-border-color: #E8E0D5;
+  --el-border-color-light: #F0E8DD;
+  --el-border-color-lighter: #F5F0E8;
+  --el-border-color-extra-light: #FAF5EE;
+
+  // --- 填充色 ---
+  --el-fill-color: #F5F0E8;
+  --el-fill-color-light: #FAF5EE;
+  --el-fill-color-lighter: #FDF9F3;
+  --el-fill-color-extra-light: #FFFEF9;
+  --el-fill-color-dark: #E8E0D5;
+  --el-fill-color-darker: #D4CCBF;
+  --el-fill-color-blank: #FFFEF9;
+
+  // --- 阴影（金色调）---
+  --el-box-shadow: 0 2px 8px rgba(197, 165, 90, 0.08);
+  --el-box-shadow-light: 0 1px 4px rgba(197, 165, 90, 0.06);
+  --el-box-shadow-lighter: 0 1px 2px rgba(197, 165, 90, 0.04);
+  --el-box-shadow-dark: 0 4px 16px rgba(197, 165, 90, 0.12);
+
+  // --- 蒙层 ---
+  --el-mask-color: rgba(12, 10, 15, 0.5);
+}
+
+// ========================
+// 暗色模式
+// ========================
+html.dark {
+  // --- Primary（暗色下略微提亮）---
+  --el-color-primary: #D4BA7A;
+  --el-color-primary-light-3: #DCC68F;
+  --el-color-primary-light-5: #E4D2A5;
+  --el-color-primary-light-7: #ECDEBA;
+  --el-color-primary-light-8: #F0E6CA;
+  --el-color-primary-light-9: #F5EEDE;
+  --el-color-primary-dark-2: #B89A5F;
+
+  // --- Success ---
+  --el-color-success: #8CC152;
+  --el-color-success-light-3: #7AB045;
+  --el-color-success-light-5: #A3CC6E;
+  --el-color-success-light-7: #BAD891;
+  --el-color-success-light-8: #C8DEA6;
+  --el-color-success-light-9: #D6E4BC;
+  --el-color-success-dark-2: #6B9A3A;
+
+  // --- Warning ---
+  --el-color-warning: #DEC468;
+  --el-color-warning-light-3: #C9AD4D;
+  --el-color-warning-light-5: #E4CF82;
+  --el-color-warning-light-7: #EAD89E;
+  --el-color-warning-light-8: #F0E0B0;
+  --el-color-warning-light-9: #F5E8C3;
+  --el-color-warning-dark-2: #B09830;
+
+  // --- Danger ---
+  --el-color-danger: #EF8080;
+  --el-color-danger-light-3: #D06A6A;
+  --el-color-danger-light-5: #F29C9C;
+  --el-color-danger-light-7: #F5B5B5;
+  --el-color-danger-light-8: #F8C5C5;
+  --el-color-danger-light-9: #FBD5D5;
+  --el-color-danger-dark-2: #C86464;
+
+  // --- Info ---
+  --el-color-info: #B0A898;
+  --el-color-info-light-3: #9E9688;
+  --el-color-info-light-5: #C2BAAE;
+  --el-color-info-light-7: #D4CEC4;
+  --el-color-info-light-8: #E0DAD2;
+  --el-color-info-light-9: #ECE6DF;
+  --el-color-info-dark-2: #8A8275;
+
+  // --- 背景色（暖暗色系）---
+  --el-bg-color: #0C0A0F;
+  --el-bg-color-page: #080710;
+  --el-bg-color-overlay: #141218;
+
+  // --- 文字色 ---
+  --el-text-color-primary: #F5F0E5;
+  --el-text-color-regular: #DCD0A0;
+  --el-text-color-secondary: #B8A070;
+  --el-text-color-placeholder: #9E9688;
+  --el-text-color-disabled: #5A5550;
+
+  // --- 边框色 ---
+  --el-border-color: #2A2520;
+  --el-border-color-light: #352F28;
+  --el-border-color-lighter: #3F382F;
+  --el-border-color-extra-light: #4A4238;
+
+  // --- 填充色 ---
+  --el-fill-color: #1A1714;
+  --el-fill-color-light: #201C18;
+  --el-fill-color-lighter: #282220;
+  --el-fill-color-extra-light: #302820;
+  --el-fill-color-dark: #121010;
+  --el-fill-color-darker: #0A0908;
+  --el-fill-color-blank: #141218;
+
+  // --- 阴影 ---
+  --el-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --el-box-shadow-light: 0 1px 4px rgba(0, 0, 0, 0.3);
+  --el-box-shadow-lighter: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --el-box-shadow-dark: 0 4px 16px rgba(0, 0, 0, 0.5);
+
+  // --- 蒙层 ---
+  --el-mask-color: rgba(12, 10, 15, 0.7);
+}
+
+// ========================
+// 自定义主题变量（不覆盖 Element Plus）
+// ========================
+:root {
+  // 渐变
+  --gradient-gold: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
+  --gradient-gold-bright: linear-gradient(135deg, #E8D48B 0%, #C5A55A 100%);
+  --gradient-dark: linear-gradient(135deg, #0C0A0F 0%, #1A1520 50%, #2A2030 100%);
+  --gradient-rose-gold: linear-gradient(135deg, #C5A55A 0%, #B76E79 100%);
+  --gradient-warm-silver: linear-gradient(135deg, #B8A070 0%, #9E9688 100%);
+
+  // 特殊色
+  --color-rose-gold: #B76E79;
+  --color-champagne: #F7E7CE;
+  --color-warm-silver: #B8A070;
+  --color-gold-glow: #D4AF37;
+
+  // A股涨跌色（红涨绿跌，保持传统）
+  --color-stock-up: #E57373;
+  --color-stock-down: #7CB342;
+}
+
+html.dark {
+  --gradient-gold: linear-gradient(135deg, #D4BA7A 0%, #B89A5F 100%);
+  --gradient-gold-bright: linear-gradient(135deg, #ECDEBA 0%, #D4BA7A 100%);
+  --gradient-dark: linear-gradient(135deg, #0C0A0F 0%, #141018 50%, #1E1825 100%);
+  --gradient-rose-gold: linear-gradient(135deg, #D4BA7A 0%, #C88A92 100%);
+  --gradient-warm-silver: linear-gradient(135deg, #C2BAAE 0%, #B0A898 100%);
+}
+
+// ========================
+// 全局组件微调
+// ========================
+
+// 卡片统一风格
+.el-card {
+  border-radius: 12px;
+  border-color: var(--el-border-color-light);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+
+  &:hover {
+    border-color: var(--el-color-primary-light-5);
+  }
+}
+
+// 按钮圆角统一
+.el-button {
+  border-radius: 8px;
+}
+
+// 输入框聚焦时金色光晕
+.el-input .el-input__wrapper:focus-within {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset, 0 0 0 3px var(--el-color-primary-light-7) !important;
+}
+
+// 标签圆角
+.el-tag {
+  border-radius: 6px;
+}

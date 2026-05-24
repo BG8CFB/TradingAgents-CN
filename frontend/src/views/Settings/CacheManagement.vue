@@ -263,9 +263,9 @@ const formatDate = (dateString: string): string => {
 }
 
 const getProgressColor = (percentage: number): string => {
-  if (percentage < 50) return '#67c23a'
-  if (percentage < 80) return '#e6a23c'
-  return '#f56c6c'
+  if (percentage < 50) return '#7CB342'
+  if (percentage < 80) return '#D4AF37'
+  return '#E57373'
 }
 
 const getCacheTypeTag = (type: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' => {

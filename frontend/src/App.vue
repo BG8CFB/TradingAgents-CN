@@ -177,7 +177,7 @@ onMounted(() => {
   left: 0;
   right: 0;
   z-index: 9999;
-  background: linear-gradient(90deg, #409EFF 0%, #67C23A 100%);
+  background: linear-gradient(90deg, #C5A55A 0%, #7CB342 100%);
   height: 2px;
 }
 

@@ -487,11 +487,11 @@ onUnmounted(() => {
           }
 
           &.completed {
-            background: linear-gradient(135deg, #67c23a, #85ce61);
+            background: linear-gradient(135deg, #7CB342, #96C36A);
           }
 
           &.failed {
-            background: linear-gradient(135deg, #f56c6c, #f78989);
+            background: linear-gradient(135deg, #E57373, #EC9696);
           }
         }
 

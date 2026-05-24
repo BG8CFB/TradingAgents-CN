@@ -115,13 +115,13 @@ const routes: RouteRecordRaw[] = [
     ]
   },
 
-  // ==================== 数据中心（系统设置下的二级功能） ====================
+  // ==================== 数据源管理 ====================
   {
     path: '/data',
     name: 'DataCenter',
     component: () => import('@/layouts/BasicLayout.vue'),
     meta: {
-      title: '数据中心',
+      title: '数据源管理',
       icon: 'Coin',
       requiresAuth: true,
       transition: 'fade'
@@ -132,7 +132,7 @@ const routes: RouteRecordRaw[] = [
         name: 'DataCenterHome',
         component: () => import('@/views/Data/index.vue'),
         meta: {
-          title: '数据中心',
+          title: '数据源管理',
           requiresAuth: true
         }
       }

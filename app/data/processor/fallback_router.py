@@ -54,6 +54,7 @@ class FallbackRouter:
     async def fetch(
         self, market: str, domain: str, symbol: str,
         start_date: str = "1970-01-01", end_date: str = "2099-12-31",
+        preferred_sources: Optional[List[str]] = None,
     ) -> FetchResult:
         """从最优数据源获取并处理数据。"""
         result = FetchResult()
@@ -61,6 +62,10 @@ class FallbackRouter:
 
         priority_list = await self._priority.get_priority(market, domain)
         sources = self._registry.get_ordered_sources(market, domain, user_priority=priority_list)
+        if preferred_sources:
+            preferred_order = {name: i for i, name in enumerate(preferred_sources)}
+            original_order = {name: i for i, name in enumerate(sources)}
+            sources.sort(key=lambda name: (preferred_order.get(name, 999), original_order[name]))
 
         if not sources:
             result.error = f"无可用数据源: {market}/{domain}"
@@ -143,7 +148,7 @@ class FallbackRouter:
             "basic_info": lambda: provider.get_stock_list(),
             "trade_calendar": lambda: provider.get_trade_calendar(exchange, start, end),
             "daily_quotes": lambda: provider.get_daily_quotes(symbol, start, end),
-            "daily_indicators": lambda: provider.get_daily_indicators(symbol, start, end),
+            "daily_indicators": lambda: self._fetch_daily_indicators(provider, symbol, start, end),
             "financial_data": lambda: provider.get_financial_data(symbol, start, end),
             "adj_factors": lambda: provider.get_adj_factors(symbol, start, end),
             "corporate_actions": lambda: provider.get_corporate_actions(symbol, start, end),
@@ -154,6 +159,16 @@ class FallbackRouter:
         if method:
             return await method()
         return None
+
+    async def _fetch_daily_indicators(self, provider, symbol: str, start: str, end: str):
+        """获取每日指标：per-symbol 模式或按日期批量模式。"""
+        if symbol == "__all__":
+            # 批量同步模式：使用 trade_date 参数一次获取全市场
+            # 如果 end 是默认值（2099），使用今天日期
+            from datetime import date
+            trade_date = end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")
+            return await provider.get_daily_indicators_batch(trade_date)
+        return await provider.get_daily_indicators(symbol, start, end)
 
     async def _get_provider_adapter(self, market: str, source_name: str):
         try:

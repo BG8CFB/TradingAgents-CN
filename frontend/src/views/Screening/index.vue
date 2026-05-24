@@ -680,6 +680,7 @@ const getChangeClass = (changePercent: number) => {
 }
 
 const formatMarketCap = (marketCap: number) => {
+  if (!marketCap) return '-'
   if (marketCap >= 10000) {
     return `${(marketCap / 10000).toFixed(2)}万亿`
   } else {
@@ -834,11 +835,11 @@ onMounted(() => {
   }
 
   .text-red {
-    color: #f56c6c;
+    color: #E57373;
   }
 
   .text-green {
-    color: #67c23a;
+    color: #7CB342;
   }
 }
 </style>

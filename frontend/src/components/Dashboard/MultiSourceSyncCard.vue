@@ -248,7 +248,7 @@ const quickSync = async () => {
   }
 }
 
-// 跳转到数据中心页面
+// 跳转到数据源管理页面
 const goToSyncPage = () => {
   router.push('/data')
 }

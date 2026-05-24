@@ -8,18 +8,19 @@
 from typing import Dict, Any, List, Callable
 
 from app.engine.tools.registry import get_all_tools, ToolRegistry
+from app.engine.tools.builtin.registry import (
+    BUILTIN_TOOL_REGISTRY,
+    get_specs_by_ids,
+    get_spec_by_id,
+)
+from app.engine.tools.builtin.domain_checker import AvailabilityCache
 from app.utils.logging_init import get_logger
 
 logger = get_logger("simple_agent_factory")
 
 
 class SimpleAgentFactory:
-    """
-    简单智能体工厂
-
-    仅负责创建第一阶段智能体节点函数。
-    配置加载、查找、进度映射等工具方法委托给 DynamicAnalystFactory。
-    """
+    """简单智能体工厂"""
 
     @staticmethod
     def create_analysts(
@@ -35,7 +36,7 @@ class SimpleAgentFactory:
             selected_analysts: 前端选择的分析师列表（slug 或 name）
             llm: LLM 实例
             toolkit: 工具配置
-            max_tool_calls: 最大工具调用次数（默认12，由 config 控制）
+            max_tool_calls: 最大工具调用次数
 
         Returns:
             {internal_key: node_function}
@@ -44,6 +45,9 @@ class SimpleAgentFactory:
 
         node_functions = {}
         seen_internal_keys = set()
+
+        # 获取可用性缓存
+        cache = AvailabilityCache.get_instance()
 
         for input_key in selected_analysts:
             agent_config = DynamicAnalystFactory.get_agent_config(input_key)
@@ -64,45 +68,78 @@ class SimpleAgentFactory:
 
             logger.info(f"🤖 [工厂] 创建智能体: {name} ({slug})")
 
+            # ── 1. 解析分析师配置的工具列表（现在是 tool_id） ──
+
+            config_tool_ids = agent_config.get("tools") or []
+
+            # ── 2. 按可用性拆分内置工具 ──
+
+            config_specs = get_specs_by_ids(config_tool_ids)
+
+            available_specs = []
+            unavailable_ids = []
+            for spec in config_specs:
+                if cache.is_available(spec.tool_id):
+                    available_specs.append(spec)
+                else:
+                    unavailable_ids.append(spec.tool_id)
+
+            # 报告未在注册表中找到的 tool_id
+            unknown_ids = set(config_tool_ids) - {s.tool_id for s in config_specs}
+            if unknown_ids:
+                logger.debug(f"🔄 [{name}] 未知工具ID（忽略）: {unknown_ids}")
+
+            # ── 3. 包装可用内置工具为 LangChain Tool ──
+
+            from langchain_core.tools import tool as lc_tool
+
+            builtin_tools = []
+            for spec in available_specs:
+                try:
+                    langchain_tool = lc_tool(spec.fn)
+                    try:
+                        langchain_tool.name = spec.tool_id
+                    except Exception:
+                        pass
+
+                    existing_meta = getattr(langchain_tool, "metadata", None) or {}
+                    try:
+                        langchain_tool.metadata = {
+                            **existing_meta,
+                            "tool_category": "builtin",
+                            "tool_id": spec.tool_id,
+                        }
+                    except Exception:
+                        pass
+
+                    builtin_tools.append(langchain_tool)
+                except Exception as e:
+                    logger.error(f"❌ 包装内置工具 {spec.tool_id} 失败: {e}")
+
+            # ── 4. 获取可调用工具（MCP + Skill） ──
+
             enable_mcp, mcp_loader = DynamicAnalystFactory._mcp_settings_from_toolkit(toolkit)
-            tools = get_all_tools(
+            all_tools = get_all_tools(
                 toolkit=toolkit,
                 enable_mcp=enable_mcp,
                 mcp_tool_loader=mcp_loader
             )
 
-            allowed_tool_names = agent_config.get("tools") or []
-            if allowed_tool_names:
-                allowed_set = {str(name).strip() for name in allowed_tool_names if str(name).strip()}
-                filtered_tools = [
-                    tool for tool in tools
-                    if getattr(tool, "name", None) in allowed_set
-                ]
-                if filtered_tools:
-                    tools = filtered_tools
-                    logger.info(f"🔧 [工厂] 工具已按配置裁剪: {len(tools)}/{len(allowed_set)} 个匹配")
-                else:
-                    logger.warning(
-                        f"⚠️ [工厂] 智能体 {name} 的工具白名单配置无效！"
-                        f"配置的工具 {allowed_set} 均未找到，回退到全量工具。"
-                        f"请检查配置文件中的 tools 字段是否正确。"
-                    )
-
-            # 拆分：内置工具（仅注入数据）vs 可调用工具（MCP + Skill）
             registry = ToolRegistry.get_instance()
             if not registry._initialized:
                 registry.initialize()
 
-            builtin_tools = [t for t in tools if registry.is_builtin_tool(t)]
-            callable_tools = [t for t in tools if not registry.is_builtin_tool(t)]
+            # 只保留非内置工具（MCP + Skill）
+            callable_tools = [t for t in all_tools if not registry.is_builtin_tool(t)]
 
-            # 只对 MCP/Skill 工具应用断路器包装（内置工具不再进入 ReAct 循环）
+            # 断路器包装
             callable_tools = [DynamicAnalystFactory._wrap_tool_safe(t, toolkit) for t in callable_tools]
 
             if builtin_tools:
                 logger.info(
                     f"💉 [工厂] {name}: {len(builtin_tools)} 个内置工具将预注入, "
-                    f"{len(callable_tools)} 个工具可调用"
+                    f"{len(unavailable_ids)} 个未就绪, "
+                    f"{len(callable_tools)} 个外部工具可调用"
                 )
 
             from app.engine.agents.analysts.simple_agent_template import create_simple_agent
@@ -115,6 +152,7 @@ class SimpleAgentFactory:
                 system_prompt=system_prompt,
                 max_tool_calls=max_tool_calls,
                 inject_tools=builtin_tools if builtin_tools else None,
+                unavailable_tools=unavailable_ids if unavailable_ids else None,
             )
 
             node_functions[internal_key] = node_function

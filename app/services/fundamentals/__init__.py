@@ -28,14 +28,14 @@ class FundamentalsProvider:
         return self._di
 
     async def get_stock_data(self, symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
-        result = await self.di.read("CN", symbol, "daily_quotes", start_date=start_date, end_date=end_date)
+        result = await self.di.read("CN", "daily_quotes", symbol=symbol, start_date=start_date, end_date=end_date)
         data = result.get("data")
         if data and isinstance(data, list):
             return pd.DataFrame(data)
         return None
 
     async def get_fundamentals(self, symbol: str) -> Optional[Dict]:
-        result = await self.di.read("CN", symbol, "financial_data")
+        result = await self.di.read("CN", "financial_data", symbol=symbol)
         return result.get("data")
 
 

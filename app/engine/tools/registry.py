@@ -88,10 +88,21 @@ class ToolRegistry:
         """加载内置工具"""
         try:
             from app.engine.tools.builtin import load_builtin_tools
-            from app.engine.tools.builtin.loader import get_builtin_tool_metas
+            from app.engine.tools.builtin.loader import get_builtin_tool_specs
+            from app.engine.tools.builtin.registry import BUILTIN_TOOL_REGISTRY
 
             self._builtin_tools = load_builtin_tools(toolkit_config)
-            self._builtin_metas = get_builtin_tool_metas()
+
+            # 从 spec 构建 metas（兼容旧接口）
+            self._builtin_metas = {}
+            for spec in BUILTIN_TOOL_REGISTRY:
+                self._builtin_metas[spec.tool_id] = {
+                    "tool_id": spec.tool_id,
+                    "display_name": spec.display_name,
+                    "domains": spec.domains,
+                    "markets": spec.markets,
+                    "non_standard": spec.non_standard,
+                }
 
             logger.info(f"[ToolRegistry] 内置工具加载完成: {len(self._builtin_tools)} 个")
         except Exception as e:
@@ -218,21 +229,24 @@ class ToolRegistry:
 
         Returns:
             {
-                "builtin": {"total": N, "available": N, "unavailable": N},
+                "builtin": {"total": N, "available": N, "unavailable": N, ...},
                 "mcp": {"total": N},
                 "skill": {"total": N},
                 "disabled": ["tool_name", ...]
             }
         """
         try:
-            from app.engine.tools.builtin.availability import get_availability_summary
+            from app.engine.tools.builtin.domain_checker import AvailabilityCache
 
-            combined_dsm = {}
-            for tool_name, meta in self._builtin_metas.items():
-                if meta.get("data_source_map"):
-                    combined_dsm[tool_name] = meta["data_source_map"]
-
-            builtin_summary = get_availability_summary(combined_dsm) if combined_dsm else {}
+            cache = AvailabilityCache.get_instance()
+            results = cache.all_results
+            available = sum(1 for v in results.values() if v)
+            builtin_summary = {
+                "total": len(results),
+                "available": available,
+                "unavailable": len(results) - available,
+                "market": cache.market,
+            }
         except Exception as e:
             logger.warning(f"[ToolRegistry] 获取可用性摘要失败: {e}")
             builtin_summary = {}

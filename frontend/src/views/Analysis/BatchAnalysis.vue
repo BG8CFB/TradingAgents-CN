@@ -164,7 +164,7 @@
               <div class="form-section">
                 <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                   <h4 class="section-title" style="margin: 0;">🚀 深度分析阶段</h4>
-                  <div class="time-estimate" style="display: flex; align-items: center; gap: 6px; font-size: 14px; color: #666; background: #f0f9eb; padding: 4px 12px; border-radius: 12px; color: #67c23a;">
+                  <div class="time-estimate" style="display: flex; align-items: center; gap: 6px; font-size: 14px; background: var(--el-color-success-light-9); padding: 4px 12px; border-radius: 12px; color: var(--el-color-success);">
                     <el-icon><Timer /></el-icon>
                     <span>预计总耗时: <strong>{{ estimatedTotalTime }}</strong> 分钟</span>
                   </div>
@@ -779,12 +779,12 @@ const _resetForm = () => {
         align-items: center;
         font-size: 32px;
         font-weight: 700;
-        color: #1a202c;
+        color: var(--el-text-color-primary);
         margin: 0 0 8px 0;
 
         .title-icon {
           margin-right: 12px;
-          color: #3b82f6;
+          color: #C5A55A;
         }
       }
 
@@ -803,7 +803,7 @@ const _resetForm = () => {
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 
       :deep(.el-card__header) {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%);
         color: white;
         border-radius: 16px 16px 0 0;
         padding: 20px 24px;
@@ -833,7 +833,7 @@ const _resetForm = () => {
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 
       :deep(.el-card__header) {
-        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        background: linear-gradient(135deg, #D4AF37 0%, #9E7E3E 100%);
         color: white;
         border-radius: 16px 16px 0 0;
         padding: 20px 24px;
@@ -910,8 +910,8 @@ const _resetForm = () => {
             line-height: 1.6;
 
             &:focus {
-              border-color: #3b82f6;
-              box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+              border-color: #C5A55A;
+              box-shadow: 0 0 0 3px rgba(197, 165, 90, 0.1);
             }
           }
         }
@@ -927,7 +927,7 @@ const _resetForm = () => {
         h4 {
           font-size: 16px;
           font-weight: 600;
-          color: #1a202c;
+          color: var(--el-text-color-primary);
           margin: 0 0 12px 0;
         }
 
@@ -962,7 +962,7 @@ const _resetForm = () => {
         .section-title {
           font-size: 16px;
           font-weight: 600;
-          color: #1a202c;
+          color: var(--el-text-color-primary);
           margin: 0 0 16px 0;
           padding-bottom: 8px;
           border-bottom: 2px solid #e2e8f0;
@@ -984,12 +984,12 @@ const _resetForm = () => {
               }
 
               :deep(.el-checkbox__input.is-checked .el-checkbox__inner) {
-                background-color: #3b82f6;
-                border-color: #3b82f6;
+                background-color: #C5A55A;
+                border-color: #C5A55A;
               }
 
               :deep(.el-checkbox__input.is-checked + .el-checkbox__label) {
-                color: #3b82f6;
+                color: #C5A55A;
               }
 
               .analyst-info {
@@ -1026,24 +1026,24 @@ const _resetForm = () => {
         height: 56px !important;
         font-size: 18px !important;
         font-weight: 700 !important;
-        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+        background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%) !important;
         border: none !important;
         border-radius: 16px !important;
         transition: all 0.3s ease !important;
-        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.2) !important;
+        box-shadow: 0 4px 15px rgba(197, 165, 90, 0.2) !important;
         min-width: 320px !important;
         max-width: 320px !important;
 
         &:hover {
           transform: translateY(-3px) !important;
-          box-shadow: 0 12px 30px rgba(59, 130, 246, 0.4) !important;
-          background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+          box-shadow: 0 12px 30px rgba(197, 165, 90, 0.4) !important;
+          background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%) !important;
         }
 
         &:disabled {
           opacity: 0.6 !important;
           transform: none !important;
-          box-shadow: 0 4px 15px rgba(59, 130, 246, 0.1) !important;
+          box-shadow: 0 4px 15px rgba(197, 165, 90, 0.1) !important;
         }
 
         .el-icon {
@@ -1078,11 +1078,11 @@ const _resetForm = () => {
 
       &.enabled {
         background: #fff;
-        border-color: #3b82f6;
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+        border-color: #C5A55A;
+        box-shadow: 0 4px 12px rgba(197, 165, 90, 0.1);
 
         .phase-header .phase-title {
-          color: #3b82f6;
+          color: #C5A55A;
         }
       }
 
@@ -1098,7 +1098,7 @@ const _resetForm = () => {
           .phase-title {
             font-weight: 600;
             font-size: 15px;
-            color: #1a202c;
+            color: var(--el-text-color-primary);
           }
         }
 
@@ -1168,25 +1168,25 @@ const _resetForm = () => {
   height: 56px !important;
   font-size: 18px !important;
   font-weight: 700 !important;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%) !important;
   border: none !important;
   border-radius: 16px !important;
   transition: all 0.3s ease !important;
-  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.2) !important;
+  box-shadow: 0 4px 15px rgba(197, 165, 90, 0.2) !important;
   min-width: 320px !important;
   max-width: 320px !important;
 }
 
 .large-batch-btn.el-button:hover {
   transform: translateY(-3px) !important;
-  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.4) !important;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  box-shadow: 0 12px 30px rgba(197, 165, 90, 0.4) !important;
+  background: linear-gradient(135deg, #C5A55A 0%, #9E7E3E 100%) !important;
 }
 
 .large-batch-btn.el-button:disabled {
   opacity: 0.6 !important;
   transform: none !important;
-  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 4px 15px rgba(197, 165, 90, 0.1) !important;
 }
 
 .large-batch-btn.el-button .el-icon {

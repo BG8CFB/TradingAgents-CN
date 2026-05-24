@@ -99,7 +99,7 @@ async def get_quote(
         di = DataInterface.get_instance()
 
         try:
-            result = await di.read(market, normalized_code, "market_quotes")
+            result = await di.read(market, "market_quotes", symbol=normalized_code)
             quote = result.get("data")
             if not quote:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到行情数据")
@@ -154,7 +154,7 @@ async def get_fundamentals(
         di = DataInterface.get_instance()
 
         try:
-            result = await di.read(market, normalized_code, "basic_info")
+            result = await di.read(market, "basic_info", symbol=normalized_code)
             info = result.get("data")
             if isinstance(info, list):
                 info = info[0] if info else None
@@ -232,7 +232,7 @@ async def get_kline(
         di = DataInterface.get_instance()
 
         try:
-            result = await di.read(market, normalized_code, "daily_quotes")
+            result = await di.read(market, "daily_quotes", symbol=normalized_code)
             kline_data = result.get("data", [])
             return ok(data={
                 'code': normalized_code,
@@ -280,7 +280,7 @@ async def get_kline(
         start_date = (now - timedelta(days=limit * 2)).strftime("%Y-%m-%d")
 
         logger.info(f"尝试从数据平台获取 K 线数据: {code_padded}, period={period}, limit={limit}")
-        result = await di.read("CN", code_padded, "daily_quotes", start_date=start_date, end_date=end_date)
+        result = await di.read("CN", "daily_quotes", symbol=code_padded, start_date=start_date, end_date=end_date)
         data = result.get("data")
 
         if data and isinstance(data, list):
@@ -312,7 +312,7 @@ async def get_kline(
             start_date = format_date_compact(now_config_tz() - timedelta(days=max(limit * 2, 60)))
             market = "CN"
             result = await asyncio.wait_for(
-                di.read(market, code_padded, "daily_quotes", start_date=start_date, end_date=end_date),
+                di.read(market, "daily_quotes", symbol=code_padded, start_date=start_date, end_date=end_date),
                 timeout=10.0
             )
             data = result.get("data")
@@ -423,7 +423,7 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
     if market == 'US':
         # 美股：使用 DataInterface
         di = DataInterface.get_instance()
-        result = await di.read("US", normalized_code, "news")
+        result = await di.read("US", "news", symbol=normalized_code)
         news_items = result.get("data", [])
         return ok(data={"symbol": normalized_code, "items": news_items or [], "supported": True})
     elif market == 'HK':
@@ -574,7 +574,7 @@ async def get_basic_info(
     try:
         from app.data.core.interface import DataInterface
         di = DataInterface.get_instance()
-        result = await di.read("CN", str(code).zfill(6), "basic_info")
+        result = await di.read("CN", "basic_info", symbol=str(code).zfill(6))
         stock_info = result.get("data")
 
         if not stock_info:

@@ -33,7 +33,7 @@ async def get_stock_kline_logic(_reader_mod, code: str, period: str, limit: int)
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=max(limit * 2, 60))).strftime("%Y-%m-%d")
 
-        result = await di.read(market, symbol, "daily_quotes", start_date=start_date, end_date=end_date)
+        result = await di.read(market, "daily_quotes", symbol=symbol, start_date=start_date, end_date=end_date)
         data = result.get("data")
 
         if not data or not isinstance(data, list):

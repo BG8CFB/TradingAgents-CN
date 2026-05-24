@@ -41,7 +41,11 @@ class BaseProvider(ABC):
         return None
 
     async def get_daily_indicators(self, symbol: str, start_date: str, end_date: str, **kwargs) -> Optional[pd.DataFrame]:
-        """获取每日指标。"""
+        """获取每日指标（per-symbol 模式）。"""
+        return None
+
+    async def get_daily_indicators_batch(self, trade_date: str, **kwargs) -> Optional[pd.DataFrame]:
+        """获取每日指标（按日期批量模式，一次获取全市场）。"""
         return None
 
     async def get_financial_data(self, symbol: str, start_date: str, end_date: str,

@@ -334,7 +334,7 @@ class EnhancedScreeningService:
             def _build_pipeline(source: str) -> list:
                 return [
                     {"$match": {
-                        "source": source,
+                        "data_source": source,
                         "industry": {"$nin": [None, "", float("nan")]},
                     }},
                     {"$group": {"_id": "$industry", "count": {"$sum": 1}}},
