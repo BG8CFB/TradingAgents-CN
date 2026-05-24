@@ -69,7 +69,7 @@ frontend/components.d.ts
 frontend/.eslintrc-auto-import.json
 frontend/auto-imports.d.ts
 frontend/tsconfig.tsbuildinfo
-frontend/package-lock.json
+# frontend/package-lock.json - 已纳入版本控制，确保 CI 构建一致性
 
 # ==================== 数据缓存 / 运行时产物 ====================
 /data/
