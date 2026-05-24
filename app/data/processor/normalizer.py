@@ -60,7 +60,10 @@ class Normalizer:
                 elif hasattr(s, "to_db_doc"):
                     results.append(s.to_db_doc())
                 else:
-                    results.append(s)
+                    logger.warning(
+                        f"标准化 {domain} 时跳过无效对象 (type={type(s).__name__})，"
+                        f"期望 dict 或含 to_db_doc() 的 Schema 对象"
+                    )
             return results
         except NotImplementedError:
             logger.debug(f"Adapter {adapter.source_name} 不支持 {domain}")

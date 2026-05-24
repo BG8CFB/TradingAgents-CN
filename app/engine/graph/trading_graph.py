@@ -288,33 +288,9 @@ class TradingAgentsGraph:
         self.ticker = company_name
         logger.debug(f"🔍 [GRAPH DEBUG] 设置self.ticker: '{self.ticker}'")
 
-        # 分析前刷新核心数据域（非阻塞，刷新失败不中断分析）
-        try:
-            import asyncio
-            from app.data.core.interface import DataInterface
-
-            symbol = company_name
-            di = DataInterface.get_instance()
-
-            async def _do_refresh():
-                return await di.refresh("CN", symbol, domains=["daily_quotes", "daily_indicators"], force=False, timeout=30)
-
-            try:
-                loop = asyncio.get_running_loop()
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    refresh_result = loop.run_in_executor(
-                        pool, lambda: asyncio.run(_do_refresh())
-                    )
-                logger.info("📊 [数据刷新] %s 后台刷新已提交", symbol)
-            except RuntimeError:
-                refresh_result = asyncio.run(_do_refresh())
-                logger.info(
-                    "📊 [数据刷新] %s 刷新结果: %s (%dms)",
-                    symbol, refresh_result.status, refresh_result.total_latency_ms,
-                )
-        except Exception as refresh_err:
-            logger.warning(f"⚠️ [数据刷新] 刷新失败，使用现有数据: {refresh_err}")
+        # 数据预拉取已由 analysis_service._prefetch_stock_data 在 propagate 之前完成，
+        # 此处不再执行局部刷新，避免重复网络请求。
+        logger.debug("📊 [数据刷新] 跳过局部刷新，数据已由预拉取阶段完成")
 
         # Initialize state
         logger.debug(f"🔍 [GRAPH DEBUG] 创建初始状态，传递参数: company_name='{company_name}', trade_date='{trade_date}'")

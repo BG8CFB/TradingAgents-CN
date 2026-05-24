@@ -561,13 +561,25 @@
                       </p>
                       
                       <!-- 关键指标展示 -->
-                      <div v-if="analysisResults.structured_summary && analysisResults.structured_summary.key_indicators" class="key-indicators" style="margin-top: 12px; background: #f8fafc; padding: 12px; border-radius: 8px;">
-                        <h5 style="margin: 0 0 8px 0; font-size: 13px; color: #64748b;">🔑 关键点位参考:</h5>
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px;">
-                          <div><span style="color: #64748b;">入场:</span> <strong>{{ analysisResults.structured_summary.key_indicators.entry_price }}</strong></div>
-                          <div><span style="color: #64748b;">止损:</span> <strong>{{ analysisResults.structured_summary.key_indicators.stop_loss }}</strong></div>
-                          <div><span style="color: #64748b;">支撑:</span> <strong>{{ analysisResults.structured_summary.key_indicators.support_level }}</strong></div>
-                          <div><span style="color: #64748b;">阻力:</span> <strong>{{ analysisResults.structured_summary.key_indicators.resistance_level }}</strong></div>
+                      <div v-if="analysisResults.structured_summary && analysisResults.structured_summary.key_indicators" class="key-indicators">
+                        <h5 class="key-indicators-title">🔑 关键点位参考:</h5>
+                        <div class="key-indicators-grid">
+                          <div class="key-indicator-item">
+                            <span class="key-indicator-label">入场:</span>
+                            <strong class="key-indicator-value">{{ analysisResults.structured_summary.key_indicators.entry_price }}</strong>
+                          </div>
+                          <div class="key-indicator-item">
+                            <span class="key-indicator-label">止损:</span>
+                            <strong class="key-indicator-value">{{ analysisResults.structured_summary.key_indicators.stop_loss }}</strong>
+                          </div>
+                          <div class="key-indicator-item">
+                            <span class="key-indicator-label">支撑:</span>
+                            <strong class="key-indicator-value">{{ analysisResults.structured_summary.key_indicators.support_level }}</strong>
+                          </div>
+                          <div class="key-indicator-item">
+                            <span class="key-indicator-label">阻力:</span>
+                            <strong class="key-indicator-value">{{ analysisResults.structured_summary.key_indicators.resistance_level }}</strong>
+                          </div>
                         </div>
                       </div>
 
@@ -2917,6 +2929,8 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
   margin-bottom: 16px;
 }
 
@@ -2924,6 +2938,7 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .decision-action .label {
@@ -2933,25 +2948,34 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
 
 .decision-metrics {
   display: flex;
-  gap: 24px;
+  gap: 32px;
+  align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .metric-item {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 80px;
 }
 
 .metric-item .label {
   font-size: 12px;
   color: #6b7280;
-  margin-bottom: 4px;
+  white-space: nowrap;
+  line-height: 1.4;
 }
 
 .metric-item .value {
   font-size: 16px;
   font-weight: 600;
   color: #1f2937;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.4;
 }
 
 .decision-reasoning h5 {
@@ -2964,6 +2988,52 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
   margin: 0;
   color: #6b7280;
   line-height: 1.6;
+}
+
+/* 关键点位参考 */
+.key-indicators {
+  margin-top: 16px;
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.key-indicators-title {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.key-indicators-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.key-indicator-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.key-indicator-label {
+  color: #64748b;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.key-indicator-value {
+  color: #1f2937;
+  font-weight: 600;
 }
 
 .reports-section {

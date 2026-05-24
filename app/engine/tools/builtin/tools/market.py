@@ -216,6 +216,8 @@ def get_index_data(
             ErrorCodes.DATA_FETCH_ERROR,
             f"指数行情数据暂不可用: {stock_code}（请先同步 market_quotes 数据）"
         ))
+    except Exception as e:
+        logger.error(f"get_index_data failed: {e}")
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR,
             str(e)

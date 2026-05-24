@@ -123,32 +123,30 @@ def _inject_tool_data(
     injected_count = 0
     total_chars = 0
 
-    # 收集可用工具的中文名
-    injectable_names = []
+    # 收集预注入工具的中文名（分为缓存命中和缓存未命中两组）
+    cache_miss_set = set(unavailable_tool_ids)
+    cache_hit_names = []
+    cache_miss_names = []
     for tool in inject_tools:
         tool_name = getattr(tool, "name", None)
         if tool_name:
             spec = get_spec_by_id(tool_name)
             if spec:
-                injectable_names.append(spec.display_name)
+                if tool_name in cache_miss_set:
+                    cache_miss_names.append(spec.display_name)
+                else:
+                    cache_hit_names.append(spec.display_name)
 
-    # 收集不可用工具的中文名
-    unavailable_names = []
-    for tid in unavailable_tool_ids:
-        spec = get_spec_by_id(tid)
-        if spec:
-            unavailable_names.append(spec.display_name)
-
-    # ── 注入前导说明（合并可用和不可用状态） ──
+    # ── 注入前导说明（区分缓存命中和缓存未命中） ──
 
     status_parts = []
-    if injectable_names:
-        status_parts.append(f"已就绪（{len(injectable_names)}个）：{', '.join(injectable_names)}")
-    if unavailable_names:
+    if cache_hit_names:
+        status_parts.append(f"缓存数据可用（{len(cache_hit_names)}个）：{', '.join(cache_hit_names)}")
+    if cache_miss_names:
         status_parts.append(
-            f"未就绪（{len(unavailable_names)}个）：{', '.join(unavailable_names)}\n"
-            "→ 这些数据当前不可用，禁止编造或推测其内容。"
-            "若分析依赖这些数据，请在报告中标注「XX数据未就绪」。"
+            f"缓存无数据，已尝试实时获取（{len(cache_miss_names)}个）：{', '.join(cache_miss_names)}\n"
+            "→ 这些数据的数据库缓存为空，已通过工具函数尝试获取，结果在下方展示。"
+            "请根据实际返回的内容判断数据是否可用。"
         )
 
     if status_parts:
@@ -156,7 +154,8 @@ def _inject_tool_data(
             content=(
                 f"【数据预加载状态】\n\n"
                 + "\n\n".join(status_parts) + "\n\n"
-                "已就绪的数据已在上下文中，直接使用即可，无需重新获取。"
+                "已预加载的数据已在上下文中，直接使用即可，无需重新获取。"
+                "若预加载结果显示\"暂无数据\"或\"获取失败\"，请在报告中标注「XX数据获取失败」。"
             )
         ))
 
@@ -187,7 +186,7 @@ def _inject_tool_data(
             call_id = f"pre_{uuid.uuid4().hex[:8]}_{tool_name}"
             logger.info(f"💉 [{agent_name}] 预加载数据: {spec.display_name}({tool_args})")
 
-            result = tool.invoke(tool_args)
+            result = spec.fn(**tool_args)
             result_str = format_tool_result(result)
 
             messages.append(AIMessage(
@@ -263,22 +262,21 @@ def create_simple_agent(
 
             company_name = ticker
             try:
+                from app.core.async_utils import run_async
                 if market_info["is_china"]:
-                    import asyncio
                     from app.data.core.interface import DataInterface
                     di = DataInterface.get_instance()
-                    result = asyncio.run(di.read("CN", "basic_info", symbol=ticker))
+                    result = run_async(di.read("CN", "basic_info", symbol=ticker))
                     data = result.get("data")
                     if data:
                         doc = data[0] if isinstance(data, list) and data else data
                         if doc.get("name"):
                             company_name = doc["name"]
                 elif market_info["is_hk"]:
-                    import asyncio
                     from app.data.core.interface import DataInterface
                     clean_ticker = ticker.replace(".HK", "").replace(".hk", "").zfill(5)
                     di = DataInterface.get_instance()
-                    result = asyncio.run(di.read("HK", "basic_info", symbol=clean_ticker))
+                    result = run_async(di.read("HK", "basic_info", symbol=clean_ticker))
                     data = result.get("data")
                     if data:
                         doc = data[0] if isinstance(data, list) and data else data

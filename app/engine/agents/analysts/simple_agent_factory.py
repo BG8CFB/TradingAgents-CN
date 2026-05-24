@@ -72,35 +72,32 @@ class SimpleAgentFactory:
 
             config_tool_ids = agent_config.get("tools") or []
 
-            # ── 2. 按可用性拆分内置工具 ──
+            # ── 2. 从配置中解析内置工具 ──
 
             config_specs = get_specs_by_ids(config_tool_ids)
 
-            available_specs = []
-            unavailable_ids = []
-            for spec in config_specs:
-                if cache.is_available(spec.tool_id):
-                    available_specs.append(spec)
-                else:
-                    unavailable_ids.append(spec.tool_id)
-
-            # 报告未在注册表中找到的 tool_id
+            # 报告未在注册表中找到的 tool_id（可能是 MCP/Skill 工具）
             unknown_ids = set(config_tool_ids) - {s.tool_id for s in config_specs}
             if unknown_ids:
-                logger.debug(f"🔄 [{name}] 未知工具ID（忽略）: {unknown_ids}")
+                logger.debug(f"🔄 [{name}] 非 builtin 工具ID: {unknown_ids}")
 
-            # ── 3. 包装可用内置工具为 LangChain Tool ──
+            # ── 3. 将所有内置工具包装为 LangChain Tool 用于预注入 ──
+            # 不再按 AvailabilityCache 过滤：所有内置工具都尝试预注入，
+            # 工具函数内部有回退机制处理无数据场景。
+            # AvailabilityCache 仅用于标记"数据域是否有缓存"状态，
+            # 传递给 _inject_tool_data 用于生成前缀说明。
 
-            from langchain_core.tools import tool as lc_tool
+            from langchain_core.tools import StructuredTool
 
             builtin_tools = []
-            for spec in available_specs:
+            cache_unavailable_ids = []
+            for spec in config_specs:
                 try:
-                    langchain_tool = lc_tool(spec.fn)
-                    try:
-                        langchain_tool.name = spec.tool_id
-                    except Exception:
-                        pass
+                    langchain_tool = StructuredTool.from_function(
+                        func=spec.fn,
+                        name=spec.tool_id,
+                        description=spec.description,
+                    )
 
                     existing_meta = getattr(langchain_tool, "metadata", None) or {}
                     try:
@@ -115,6 +112,10 @@ class SimpleAgentFactory:
                     builtin_tools.append(langchain_tool)
                 except Exception as e:
                     logger.error(f"❌ 包装内置工具 {spec.tool_id} 失败: {e}")
+
+                # 记录缓存中标记为不可用的工具（仅用于显示，不阻止注入）
+                if not cache.is_available(spec.tool_id):
+                    cache_unavailable_ids.append(spec.tool_id)
 
             # ── 4. 获取可调用工具（MCP + Skill） ──
 
@@ -137,8 +138,8 @@ class SimpleAgentFactory:
 
             if builtin_tools:
                 logger.info(
-                    f"💉 [工厂] {name}: {len(builtin_tools)} 个内置工具将预注入, "
-                    f"{len(unavailable_ids)} 个未就绪, "
+                    f"💉 [工厂] {name}: {len(builtin_tools)} 个内置工具将预注入"
+                    f"{f' ({len(cache_unavailable_ids)} 个无缓存数据，仍尝试注入)' if cache_unavailable_ids else ''}, "
                     f"{len(callable_tools)} 个外部工具可调用"
                 )
 
@@ -152,7 +153,7 @@ class SimpleAgentFactory:
                 system_prompt=system_prompt,
                 max_tool_calls=max_tool_calls,
                 inject_tools=builtin_tools if builtin_tools else None,
-                unavailable_tools=unavailable_ids if unavailable_ids else None,
+                unavailable_tools=cache_unavailable_ids if cache_unavailable_ids else None,
             )
 
             node_functions[internal_key] = node_function

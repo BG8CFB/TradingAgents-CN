@@ -192,7 +192,7 @@ class Reader:
                 )
             else:
                 limit = filters.get("limit", 100)
-                data = await repo.get_by_symbol(symbol or "", market, limit=limit)
+                data = await repo.get_by_symbol("", market, limit=limit)
 
         if not data:
             return None, FreshnessState.UNKNOWN

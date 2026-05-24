@@ -45,8 +45,7 @@ class AKShareCNProvider(BaseProvider):
     async def get_daily_indicators(
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> Optional[pd.DataFrame]:
-        from .api.financial import fetch_financial_data
-        return await fetch_financial_data(symbol)
+        return None
 
     async def get_adj_factors(
         self, symbol: str, start_date: str, end_date: str, **kwargs

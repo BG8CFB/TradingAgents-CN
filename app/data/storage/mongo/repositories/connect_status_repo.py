@@ -39,7 +39,7 @@ class ConnectStatusRepo:
             {"trade_date": {"$gte": start_date, "$lte": end_date}},
             {"_id": 0},
         ).sort("trade_date", -1).limit(limit)
-        return await cursor.to_list(length=limit)
+        return await cursor.to_list(length=None)
 
     async def get_latest(self, market: str) -> Optional[Dict]:
         db = get_motor_db()

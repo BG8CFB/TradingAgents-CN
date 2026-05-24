@@ -237,10 +237,10 @@
               <div class="risk-score-display">
                 <span class="risk-score-label">风险评分:</span>
                 <el-progress
+                  class="risk-progress-bar"
                   :percentage="(report.structured_summary.risk_assessment.score || 0) * 10"
                   :stroke-width="12"
                   :color="getRiskProgressColor(report.structured_summary.risk_assessment.score || 0)"
-                  style="width: 200px; display: inline-block; margin-left: 12px;"
                 />
                 <span class="risk-score-value">{{ report.structured_summary.risk_assessment.score || 0 }}/10</span>
               </div>
@@ -894,6 +894,16 @@ onMounted(() => {
     }
 
     .metrics-content {
+      .el-row:first-child {
+        display: flex;
+        flex-wrap: wrap;
+
+        .el-col {
+          display: flex;
+          margin-bottom: 16px;
+        }
+      }
+
       .metric-item {
         text-align: center;
         padding: 24px;
@@ -901,6 +911,10 @@ onMounted(() => {
         border-radius: 12px;
         background: var(--el-fill-color-blank);
         transition: all 0.3s ease;
+        height: 100%;
+        min-height: 240px;
+        display: flex;
+        flex-direction: column;
 
         &:hover {
           box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
@@ -916,6 +930,7 @@ onMounted(() => {
           font-weight: 500;
           color: var(--el-text-color-regular);
           margin-bottom: 16px;
+          flex-shrink: 0;
 
           .el-icon {
             font-size: 18px;
@@ -932,6 +947,8 @@ onMounted(() => {
           font-size: 16px;
           line-height: 1.6;
           color: var(--el-text-color-primary);
+          flex: 1;
+          text-align: left;
         }
       }
 
@@ -941,7 +958,9 @@ onMounted(() => {
           display: flex;
           flex-direction: column;
           align-items: center;
+          justify-content: center;
           gap: 12px;
+          flex: 1;
 
           .el-progress {
             margin-bottom: 8px;
@@ -979,7 +998,9 @@ onMounted(() => {
           display: flex;
           flex-direction: column;
           align-items: center;
+          justify-content: center;
           gap: 12px;
+          flex: 1;
 
           .risk-stars {
             display: flex;
@@ -1086,19 +1107,22 @@ onMounted(() => {
 
         .key-indicators-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 16px;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 12px;
           margin-bottom: 12px;
 
           .indicator-item {
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
             align-items: center;
-            padding: 12px 16px;
+            justify-content: center;
+            gap: 6px;
+            padding: 14px 8px;
             background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-            border-radius: 8px;
+            border-radius: 10px;
             border: 1px solid var(--el-border-color-lighter);
             transition: all 0.2s ease;
+            text-align: center;
 
             &:hover {
               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -1106,15 +1130,29 @@ onMounted(() => {
             }
 
             .indicator-label {
-              font-size: 13px;
+              font-size: 12px;
               color: var(--el-text-color-secondary);
+              white-space: nowrap;
             }
 
             .indicator-value {
               font-size: 15px;
               font-weight: 600;
               color: var(--el-color-primary);
+              white-space: nowrap;
             }
+          }
+        }
+
+        @media (max-width: 1024px) {
+          .key-indicators-grid {
+            grid-template-columns: repeat(3, 1fr);
+          }
+        }
+
+        @media (max-width: 768px) {
+          .key-indicators-grid {
+            grid-template-columns: repeat(2, 1fr);
           }
         }
       }
@@ -1141,35 +1179,47 @@ onMounted(() => {
         }
 
         .risk-assessment-content {
-          padding: 16px;
+          padding: 20px 24px;
           background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-          border-radius: 8px;
+          border-radius: 12px;
           border: 1px solid #fcd34d;
 
           .risk-score-display {
             display: flex;
             align-items: center;
-            gap: 12px;
-            margin-bottom: 12px;
+            gap: 16px;
+            margin-bottom: 16px;
 
             .risk-score-label {
               font-size: 14px;
               color: var(--el-text-color-secondary);
+              white-space: nowrap;
+              flex-shrink: 0;
+            }
+
+            .risk-progress-bar {
+              flex: 1;
+              max-width: 300px;
+              min-width: 120px;
             }
 
             .risk-score-value {
-              font-size: 16px;
-              font-weight: 600;
+              font-size: 18px;
+              font-weight: 700;
               color: var(--el-text-color-primary);
-              margin-left: 12px;
+              white-space: nowrap;
+              flex-shrink: 0;
             }
           }
 
           .risk-description {
+            padding-top: 12px;
+            border-top: 1px dashed rgba(252, 211, 77, 0.6);
+
             p {
               margin: 0;
               font-size: 14px;
-              line-height: 1.6;
+              line-height: 1.7;
               color: var(--el-text-color-regular);
             }
           }

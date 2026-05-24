@@ -182,6 +182,15 @@ def _build_registry() -> List[BuiltinToolSpec]:
             inject_args={"stock_code": "ticker"},
             description="股票估值指标（PE/PB/PS/市值/换手率等）",
         ),
+        BuiltinToolSpec(
+            tool_id="basic_info",
+            display_name="基本信息",
+            domains=["basic_info"],
+            markets=["CN", "HK", "US"],
+            fn=_lazy_import(f"{_M}.fundamentals", "get_stock_basic_info"),
+            inject_args={"stock_code": "ticker"},
+            description="股票基本信息（名称、行业、上市日期等）",
+        ),
     ]
 
 

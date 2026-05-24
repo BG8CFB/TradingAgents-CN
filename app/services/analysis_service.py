@@ -906,6 +906,51 @@ class AnalysisService:
         )
         return result
 
+    def _prefetch_stock_data(
+        self,
+        market: str,
+        symbol: str,
+    ) -> Dict[str, str]:
+        """预拉取该股票在该市场的所有支持数据域到 MongoDB。
+
+        拉取 DataRefreshService 支持的全部按需刷新域（不依赖分析师选择），
+        确保分析过程中所有数据都从 MongoDB 命中。
+
+        Args:
+            market: 市场标识 (CN/HK/US)
+            symbol: 股票代码
+
+        Returns:
+            各域的刷新状态 {domain: status}
+        """
+        from app.core.async_utils import run_async
+        from app.data.core.interface import DataInterface
+
+        # 传入 domains=None，由 DataRefreshService 拉取全部支持的域
+        di = DataInterface.get_instance()
+        result = run_async(di.refresh(
+            market, symbol,
+            domains=None,   # None = 全部支持的域
+            force=False,    # 有缓存就跳过
+            timeout=60,
+        ))
+
+        # 记录结果摘要
+        domain_statuses = {}
+        for domain, dr in result.domains.items():
+            domain_statuses[domain] = dr.status
+            if dr.status == "failed":
+                logger.warning(f"📊 [数据预拉取] {domain} 失败: {dr.error}")
+            else:
+                logger.info(f"📊 [数据预拉取] {domain}: {dr.status} ({dr.record_count} 条, {dr.latency_ms}ms)")
+
+        refreshed = sum(1 for s in domain_statuses.values() if s == "refreshed")
+        fresh = sum(1 for s in domain_statuses.values() if s == "fresh")
+        failed = sum(1 for s in domain_statuses.values() if s in ("failed", "timeout"))
+        logger.info(f"📊 [数据预拉取] 完成: {refreshed} 个域刷新, {fresh} 个域已是最新, {failed} 个域失败")
+
+        return domain_statuses
+
     def _run_analysis_sync(
         self,
         task_id: str,
@@ -919,10 +964,10 @@ class AnalysisService:
         task_mcp_manager = None
 
         try:
-            from app.utils.logging_init import init_logging
+            from app.utils.logging_init import setup_logging
             from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
             from app.engine.tools.mcp.task_manager import get_task_mcp_manager, remove_task_mcp_manager
-            init_logging()
+            setup_logging()
 
             # 创建任务级 MCP 管理器
             task_mcp_manager = get_task_mcp_manager(task_id)
@@ -1103,6 +1148,20 @@ class AnalysisService:
                 logger.info(f"📊 [工具可用性] 市场={_market}, 结果={_cache.all_results}")
             except Exception as _e:
                 logger.warning(f"⚠️ [工具可用性] 预计算失败（不影响分析）: {_e}")
+
+            # ── 预拉取阶段：拉取该股票在该市场的全部数据域到 MongoDB ──
+            update_progress_sync(10, "📊 预拉取股票数据...", "data_prefetch")
+            try:
+                prefetch_result = self._prefetch_stock_data(
+                    _market, request.get_symbol()
+                )
+                logger.info(f"📊 [数据预拉取] 结果: {prefetch_result}")
+                # 预拉取后重新计算工具可用性
+                run_async(_cache.compute(_market, BUILTIN_TOOL_REGISTRY))
+                logger.info(f"📊 [工具可用性] 预拉取后重新计算: {_cache.all_results}")
+            except Exception as _prefetch_err:
+                logger.warning(f"⚠️ [数据预拉取] 失败（不影响分析，使用现有数据）: {_prefetch_err}")
+            update_progress_sync(20, "📊 数据预拉取完成", "data_prefetch_done")
 
             # 🔥 添加时间戳日志，精确定位耗时
             import time

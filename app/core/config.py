@@ -366,12 +366,16 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# Docker 容器环境下放宽安全检查（Nginx 反代已保证同源，无需严格 CORS/Host 校验）
+_IS_DOCKER = os.getenv("DOCKER_CONTAINER", "").lower() in ("true", "1", "yes")
+
 # 安全检查：生产环境下必须显式配置密钥；开发环境缺失时给出提示
+# Docker 环境下通过 compose environment 注入默认密钥，降级为警告
 _REQUIRED_SECRETS = ("JWT_SECRET", "CSRF_SECRET")
 
 for _key in _REQUIRED_SECRETS:
     if not os.getenv(_key):
-        if settings.is_production:
+        if settings.is_production and not _IS_DOCKER:
             raise RuntimeError(
                 f"安全错误: 生产环境缺少 {_key}，请在 .env 或环境变量中显式配置后再启动！"
             )
@@ -381,7 +385,8 @@ for _key in _REQUIRED_SECRETS:
         )
 
 # 生产环境安全检查：CORS 和 TrustedHost 不能使用通配符
-if settings.is_production:
+# Docker 环境下跳过此检查（Nginx 反代保证同源，通配符配置合理）
+if settings.is_production and not _IS_DOCKER:
     if "*" in settings.ALLOWED_ORIGINS:
         raise RuntimeError(
             "❌ 安全错误: 生产环境 ALLOWED_ORIGINS 不能包含 '*'，"

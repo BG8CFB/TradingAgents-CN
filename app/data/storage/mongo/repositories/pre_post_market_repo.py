@@ -49,8 +49,8 @@ class PrePostMarketRepo:
     ) -> List[Dict]:
         db = get_motor_db()
         coll = db[get_collection_name("pre_post_market", market)]
-        cursor = coll.find(
-            {"symbol": symbol},
-            {"_id": 0},
-        ).sort("trade_date", -1).limit(limit)
-        return await cursor.to_list(length=limit)
+        query: Dict = {}
+        if symbol:
+            query["symbol"] = symbol
+        cursor = coll.find(query, {"_id": 0}).sort("trade_date", -1).limit(limit)
+        return await cursor.to_list(length=None)

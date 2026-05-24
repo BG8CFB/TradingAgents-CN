@@ -1,32 +1,26 @@
-version: '3.8'
-
-# TradingAgents-CN Docker Compose配置（带 Nginx 反向代理）
-# 使用Docker Hub镜像 + Nginx 反向代理
+# TradingAgents-CN Docker Compose (Nginx Reverse Proxy)
+# 纯镜像拉取部署 — 用户无需克隆代码仓库，只需此文件即可一键启动
 #
 # 使用方法：
-# 1. 复制.env.example为.env并配置环境变量
-# 2. 运行: docker compose up -d
-# 3. 访问: http://your-server (前端和后端API都通过80端口访问)
+#   1. 下载此文件到任意目录
+#   2. (可选) 在同目录创建 .env 文件覆盖默认值（见下方"可选配置"）
+#   3. 启动: docker compose -f docker-compose.hub.nginx.yml up -d
+#   4. 访问: http://localhost:3000
+#   5. 默认管理员: admin / admin123（首次登录后请修改密码）
 #
-# 优势：
-# - 前端和后端通过同一端口访问，无跨域问题
-# - 统一入口，便于配置 HTTPS
-# - 可以添加负载均衡、缓存等功能
+# 镜像来源: GitHub Container Registry (ghcr.io)
+# 推送 tag 时由 GitHub Actions 自动构建发布
 
 services:
-  # MongoDB数据库
+  # ── MongoDB 数据库 ──
   mongodb:
-    # 升级到 7.0 以匹配现代技术栈 (Python 3.10+, Debian 12)
     image: docker.1ms.run/mongo:7.0
     container_name: tradingagents-mongodb
     restart: unless-stopped
-    # 仅在容器网络内部暴露端口，不对宿主机开放
     expose:
       - "27017"
     volumes:
       - tradingagents_mongodb_data:/data/db
-      # 注意：不挂载初始化脚本，使用 MongoDB 自动创建的 root 用户
-      # 应用会在首次运行时自动创建所需的集合和索引
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:-tradingagents123}
@@ -41,12 +35,11 @@ services:
       retries: 5
       start_period: 10s
 
-  # Redis 缓存
+  # ── Redis 缓存 ──
   redis:
     image: docker.1ms.run/redis:7-alpine
     container_name: tradingagents-redis
     restart: unless-stopped
-    # 仅在容器网络内部暴露端口，不对宿主机开放
     expose:
       - "6379"
     volumes:
@@ -63,82 +56,68 @@ services:
       retries: 5
       start_period: 5s
 
-  # FastAPI后端服务
+  # ── FastAPI 后端服务 ──
   backend:
-    # 支持本地构建或从Docker Hub拉取
-    # 本地构建: docker compose build backend
-    # 拉取镜像: docker compose pull backend
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
-    # 使用 latest 标签以获取最新版本
-    image: ghcr.1ms.run/bg8cfb/tradingagents-backend:latest
+    image: ghcr.1ms.run/bg8cfb/tradingagents-backend:${TA_VERSION:-latest}
     container_name: tradingagents-backend
     restart: unless-stopped
     expose:
       - "8000"
     volumes:
-      # 运行时产物持久化（日志、数据、缓存、结果）
-      - ./runtime:/app/runtime
-      # 用户配置持久化挂载
-      - ./config:/app/config
-    env_file:
-      - .env
+      # 运行时产物持久化（日志等）
+      - tradingagents_runtime:/app/runtime
+      # 用户配置持久化（MCP、Agent 配置等）
+      - tradingagents_config:/app/config
     environment:
       TZ: "Asia/Shanghai"
+      DOCKER_CONTAINER: "true"
       TRADINGAGENTS_LOG_LEVEL: "INFO"
       TRADINGAGENTS_LOG_DIR: "/app/runtime/logs"
       TRADINGAGENTS_LOG_FILE: "/app/runtime/logs/tradingagents.log"
-      # MongoDB配置（使用 root 用户）
+      MCP_CONFIG_PATH: "/app/config/mcp.json"
+      AGENT_CONFIG_DIR: "/app/config/agents"
+      # MongoDB（使用 root 用户）
       MONGODB_HOST: "mongodb"
       MONGODB_PORT: "27017"
       MONGODB_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
       MONGODB_PASSWORD: ${MONGODB_PASSWORD:-tradingagents123}
       MONGODB_DATABASE: "tradingagents"
       MONGODB_AUTH_SOURCE: "admin"
-      # 注意：authSource=admin 表示在 admin 数据库中验证用户
       MONGODB_URL: "mongodb://${MONGO_ROOT_USERNAME:-admin}:${MONGODB_PASSWORD:-tradingagents123}@mongodb:27017/tradingagents?authSource=admin"
       MONGODB_CONNECTION_STRING: "mongodb://${MONGO_ROOT_USERNAME:-admin}:${MONGODB_PASSWORD:-tradingagents123}@mongodb:27017/tradingagents?authSource=admin"
-      # Redis配置
+      # Redis
       REDIS_HOST: "redis"
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-tradingagents123}
       REDIS_URL: "redis://:${REDIS_PASSWORD:-tradingagents123}@redis:6379/0"
-      DOCKER_CONTAINER: "true"
-      # MCP 持久化配置
-      MCP_CONFIG_PATH: "/app/config/mcp.json"
-      # Agent 配置持久化
-      AGENT_CONFIG_DIR: "/app/config/agents"
-      
-      # 安全配置
+      # 安全配置（生产环境请通过 .env 覆盖）
       JWT_SECRET: ${JWT_SECRET:-docker-jwt-secret-key-change-in-production-2024}
       JWT_ALGORITHM: "HS256"
       ACCESS_TOKEN_EXPIRE_MINUTES: "480"
       REFRESH_TOKEN_EXPIRE_DAYS: "30"
       CSRF_SECRET: ${CSRF_SECRET:-docker-csrf-secret-key-change-in-production-2024}
       BCRYPT_ROUNDS: "12"
-      # CORS配置（允许 Nginx 代理）
       CORS_ORIGINS: "*"
-      # AI模型API密钥（从.env文件读取，environment部分需要显式声明才能覆盖镜像内的占位符）
-      DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY}"
+      # ── AI 模型 API 密钥（可选，通过 .env 或环境变量配置） ──
+      DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
       DASHSCOPE_ENABLED: "${DASHSCOPE_ENABLED:-false}"
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPSEEK_ENABLED: "${DEEPSEEK_ENABLED:-false}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_ENABLED: "${OPENAI_ENABLED:-false}"
-      GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
       GOOGLE_ENABLED: "${GOOGLE_ENABLED:-false}"
-      BAIDU_API_KEY: "${BAIDU_API_KEY}"
-      BAIDU_SECRET_KEY: "${BAIDU_SECRET_KEY}"
+      BAIDU_API_KEY: "${BAIDU_API_KEY:-}"
+      BAIDU_SECRET_KEY: "${BAIDU_SECRET_KEY:-}"
       BAIDU_ENABLED: "${BAIDU_ENABLED:-false}"
-      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       OPENROUTER_ENABLED: "${OPENROUTER_ENABLED:-false}"
-      # 数据源API密钥
-      TUSHARE_TOKEN: "${TUSHARE_TOKEN}"
+      # ── 数据源 API 密钥（可选） ──
+      TUSHARE_TOKEN: "${TUSHARE_TOKEN:-}"
       TUSHARE_ENABLED: "${TUSHARE_ENABLED:-false}"
       AKSHARE_ENABLED: "${AKSHARE_ENABLED:-true}"
       BAOSTOCK_ENABLED: "${BAOSTOCK_ENABLED:-true}"
-      FINNHUB_API_KEY: "${FINNHUB_API_KEY}"
+      FINNHUB_API_KEY: "${FINNHUB_API_KEY:-}"
       FINNHUB_ENABLED: "${FINNHUB_ENABLED:-false}"
     depends_on:
       mongodb:
@@ -154,22 +133,15 @@ services:
       retries: 3
       start_period: 40s
 
-  # Vue 3前端服务
+  # ── Vue 3 前端服务 ──
   frontend:
-    # 支持本地构建或从Docker Hub拉取
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.frontend
-    # 使用 latest 标签
-    image: ghcr.1ms.run/bg8cfb/tradingagents-frontend:latest
+    image: ghcr.1ms.run/bg8cfb/tradingagents-frontend:${TA_VERSION:-latest}
     container_name: tradingagents-frontend
     restart: unless-stopped
     expose:
       - "80"
     environment:
       TZ: "Asia/Shanghai"
-      # 前端通过 Nginx 代理访问后端，使用相对路径
-      VITE_API_BASE_URL: "/api"
     depends_on:
       - backend
     networks:
@@ -181,17 +153,94 @@ services:
       retries: 3
       start_period: 10s
 
-  # Nginx 反向代理
-  # ports可以改为8080:80,或者其它的端口映射，前面一个是外部的端口，后面一个是容器内的端口
+  # ── Nginx 反向代理 ──
+  # 对外端口: 3000（可改为 80:80 或 8080:80）
   nginx:
     image: docker.1ms.run/nginx:alpine
     container_name: tradingagents-nginx
     restart: unless-stopped
     ports:
-      - "3000:80" 
-    volumes:
-      # 路径相对于 compose 文件所在目录（项目根目录）
-      - ./docker/nginx/reverse-proxy.conf:/etc/nginx/nginx.conf:ro
+      - "${NGINX_PORT:-3000}:80"
+    # Nginx 配置通过 tmpfs 内联生成，无需外部文件
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cat > /etc/nginx/nginx.conf <<'NGINX_EOF'
+        user  nginx;
+        worker_processes  auto;
+        error_log  /var/log/nginx/error.log notice;
+        pid        /var/run/nginx.pid;
+        events { worker_connections 1024; }
+        http {
+            include       /etc/nginx/mime.types;
+            default_type  application/octet-stream;
+            log_format  main  '$$remote_addr - $$remote_user [$$time_local] "$$request" '
+                              '$$status $$body_bytes_sent "$$http_referer" '
+                              '"$$http_user_agent" "$$http_x_forwarded_for"';
+            access_log  /var/log/nginx/access.log  main;
+            sendfile        on;
+            tcp_nopush      on;
+            tcp_nodelay     on;
+            keepalive_timeout  65;
+            client_max_body_size 100M;
+            gzip  on;
+            gzip_vary on;
+            gzip_min_length 1024;
+            gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json application/javascript;
+            map $$http_upgrade $$connection_upgrade { default upgrade; '' close; }
+            upstream backend { server backend:8000; }
+            server {
+                listen 80;
+                server_name _;
+                location / {
+                    proxy_pass http://frontend:80;
+                    proxy_set_header Host $$host;
+                    proxy_set_header X-Real-IP $$remote_addr;
+                    proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $$scheme;
+                    location = /index.html {
+                        proxy_pass http://frontend:80/index.html;
+                        proxy_set_header Host $$host;
+                        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+                        add_header Pragma "no-cache";
+                        add_header Expires "0";
+                    }
+                }
+                location /api/ {
+                    proxy_pass http://backend/api/;
+                    proxy_set_header Host $$host;
+                    proxy_set_header X-Real-IP $$remote_addr;
+                    proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $$scheme;
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $$http_upgrade;
+                    proxy_set_header Connection $$connection_upgrade;
+                    proxy_buffering off;
+                    proxy_cache off;
+                    proxy_no_cache 1;
+                    proxy_cache_bypass 1;
+                    add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+                    add_header Pragma "no-cache";
+                    add_header Expires "0";
+                    proxy_connect_timeout 120s;
+                    proxy_send_timeout 3600s;
+                    proxy_read_timeout 3600s;
+                    proxy_buffer_size 128k;
+                    proxy_buffers 4 256k;
+                    proxy_busy_buffers_size 256k;
+                }
+                location /health {
+                    access_log off;
+                    return 200 "healthy\n";
+                    add_header Content-Type text/plain;
+                }
+                error_page 500 502 503 504 /50x.html;
+                location = /50x.html { root /usr/share/nginx/html; }
+            }
+        }
+        NGINX_EOF
+        exec nginx -g 'daemon off;'
     depends_on:
       - frontend
       - backend
@@ -209,8 +258,11 @@ volumes:
     driver: local
   tradingagents_redis_data:
     driver: local
+  tradingagents_runtime:
+    driver: local
+  tradingagents_config:
+    driver: local
 
 networks:
   tradingagents-network:
     driver: bridge
-

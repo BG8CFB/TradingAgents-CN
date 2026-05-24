@@ -14,6 +14,7 @@ from app.data.core.registry.capability import CapabilityRegistry
 from app.data.core.registry.priority import PriorityConfig
 from app.data.monitoring.source_health import SourceHealthMonitor
 from app.data.sources.base.exceptions import DataSourceError
+from app.data.sources.base.provider import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,11 @@ class FallbackRouter:
                 raw_data = await retry_policy.execute_with_retry(
                     self._fetch_raw, provider, domain, symbol, start_date, end_date, default_exchange
                 )
+
+                # 批量模式不支持 → 静默跳过，不记录失败
+                if raw_data is self._BATCH_NOT_SUPPORTED:
+                    logger.debug(f"源 {source_name}/{domain} 不支持批量模式，跳过")
+                    continue
 
                 if raw_data is None or (hasattr(raw_data, 'empty') and raw_data.empty):
                     self._circuit.record_failure(source_name, domain)
@@ -175,10 +181,20 @@ class FallbackRouter:
             return await method()
         return None
 
+    # 批量模式不支持时返回此 sentinel，调用链应跳过而非记录失败
+    _BATCH_NOT_SUPPORTED = object()
+
     async def _fetch_daily_indicators(self, provider, symbol: str, start: str, end: str):
         """获取每日指标：per-symbol 模式或按日期批量模式。"""
         if symbol == "__all__":
             # 批量同步模式：使用 trade_date 参数一次获取全市场
+            # 仅当 provider 真正覆写了 get_daily_indicators_batch 才调用
+            base_method = BaseProvider.get_daily_indicators_batch
+            provider_method = type(provider).get_daily_indicators_batch
+            if provider_method is base_method:
+                # 未覆写 → 不支持批量模式
+                return self._BATCH_NOT_SUPPORTED
+
             # 如果 end 是默认值（2099），使用今天日期
             from datetime import date
             trade_date = end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")

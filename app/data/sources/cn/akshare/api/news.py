@@ -13,60 +13,14 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from app.data.sources.cn.stock_name_utils import get_stock_name_sync
 
-# 股票名称缓存（避免频繁请求）
-_name_cache: Dict[str, str] = {}
+logger = logging.getLogger(__name__)
 
 
 def _get_stock_name_sync(symbol: str) -> Optional[str]:
-    """通过腾讯行情接口快速获取股票名称"""
-    if symbol in _name_cache:
-        return _name_cache[symbol]
-
-    import requests as req
-
-    if symbol.startswith(("6", "9")):
-        code = f"sh{symbol}"
-    elif symbol.startswith(("4", "8")):
-        code = f"bj{symbol}"
-    else:
-        code = f"sz{symbol}"
-
-    try:
-        resp = req.get(f"http://qt.gtimg.cn/q={code}", timeout=5)
-        parts = resp.text.split("~")
-        if len(parts) > 1 and parts[1]:
-            name = parts[1].strip()
-            _name_cache[symbol] = name
-            return name
-    except Exception:
-        pass
-
-    # 备选: 从 DataInterface 获取
-    try:
-        from app.data.core.interface import DataInterface
-
-        async def _read():
-            di = DataInterface.get_instance()
-            result = await di.read("CN", "basic_info", symbol=symbol)
-            data = result.get("data")
-            if data:
-                doc = data[0] if isinstance(data, list) and data else data
-                return doc.get("name")
-            return None
-
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            return None
-        name = loop.run_until_complete(_read())
-        if name:
-            _name_cache[symbol] = name
-            return name
-    except Exception:
-        pass
-
-    return None
+    """兼容层 — 委托给共享工具函数。"""
+    return get_stock_name_sync(symbol)
 
 
 async def _get_stock_name(symbol: str) -> Optional[str]:

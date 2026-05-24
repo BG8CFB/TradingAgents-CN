@@ -25,6 +25,12 @@ _SUPPORTED_ON_DEMAND_DOMAINS = {
     "financial_data",
     "news",
     "market_quotes",
+    # 分析前预拉取扩展域
+    "intraday_quotes",
+    "money_flow",
+    "margin_trading",
+    "dragon_tiger",
+    "block_trade",
 }
 
 

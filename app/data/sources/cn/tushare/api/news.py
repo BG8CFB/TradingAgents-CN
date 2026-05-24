@@ -362,8 +362,8 @@ def _is_relevant(item: Dict, symbol: str) -> bool:
         return True
     # 尝试用股票名称匹配
     try:
-        from app.data.sources.cn.akshare.api.news import _get_stock_name_sync
-        name = _get_stock_name_sync(clean)
+        from app.data.sources.cn.stock_name_utils import get_stock_name_sync
+        name = get_stock_name_sync(clean)
         if name and name in text:
             return True
     except Exception:
