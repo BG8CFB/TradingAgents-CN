@@ -58,6 +58,8 @@ jobs:
       MONGODB_DATABASE: tradingagents_test
       REDIS_HOST: localhost
       REDIS_PORT: 6379
+      # 修复 protobuf 与 google-generativeai 等包的版本兼容性
+      PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
 
     steps:
       - uses: actions/checkout@v4
