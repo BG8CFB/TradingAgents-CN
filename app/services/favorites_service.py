@@ -13,6 +13,24 @@ from app.utils.timezone import now_utc
 class FavoritesService:
     """自选股服务类"""
     
+    @staticmethod
+    def _infer_board(code: str) -> str:
+        """根据股票代码前缀推断板块。"""
+        if not code:
+            return "-"
+        c = str(code).zfill(6)
+        if c.startswith("60"):
+            return "主板"
+        elif c.startswith("00"):
+            return "主板"
+        elif c.startswith("30"):
+            return "创业板"
+        elif c.startswith("68"):
+            return "科创板"
+        elif c.startswith(("4", "8")):
+            return "北交所"
+        return "主板"
+    
     def __init__(self):
         self.db = None
     
@@ -94,12 +112,17 @@ class FavoritesService:
                     code = it.get("stock_code")
                     basic = basic_map.get(code)
                     if basic:
-                        # market 字段表示板块（主板、创业板、科创板等）
-                        it["board"] = basic.get("market", "-")
-                        # sse 字段表示交易所（上海证券交易所、深圳证券交易所等）
+                        # board 优先取 basic_info 中的 market 字段（Tushare 存的是板块名）
+                        # 如果值为市场代码（如 CN/HK/US），则根据代码前缀推断
+                        raw_market = basic.get("market", "-")
+                        if raw_market in ("CN", "HK", "US", ""):
+                            it["board"] = self._infer_board(code)
+                        else:
+                            it["board"] = raw_market
+                        # sse 字段表示交易所
                         it["exchange"] = basic.get("sse", "-")
                     else:
-                        it["board"] = "-"
+                        it["board"] = self._infer_board(code)
                         it["exchange"] = "-"
             except Exception:
                 # 查询失败时设置默认值
@@ -110,18 +133,50 @@ class FavoritesService:
         # 批量获取行情（优先使用入库的 market_quotes，30秒更新）
         if codes:
             try:
-                coll = db["market_quotes"]
-                cursor = coll.find({"symbol": {"$in": codes}}, {"symbol": 1, "close": 1, "pct_chg": 1, "amount": 1})
-                docs = await cursor.to_list(length=None)
-                quotes_map = {str(d.get("symbol")).zfill(6): d for d in (docs or [])}
+                # 1) 从 market_quotes 获取最新价格
+                mq_coll = db["market_quotes"]
+                mq_cursor = mq_coll.find(
+                    {"symbol": {"$in": codes}},
+                    {"symbol": 1, "last_price": 1, "last_volume": 1, "last_updated": 1},
+                )
+                mq_docs = await mq_cursor.to_list(length=None)
+                mq_map = {str(d.get("symbol")).zfill(6): d for d in (mq_docs or [])}
+
+                # 2) 从 daily_quotes 获取最新交易日的收盘价和涨跌幅
+                from app.data.storage.mongo.collections import get_collection_name
+                dq_coll_name = get_collection_name("daily_quotes", "CN")
+                dq_coll = db[dq_coll_name]
+
+                # 获取每只股票最新一条行情（包含 pct_chg）
+                pct_map = {}
+                for code in codes:
+                    try:
+                        latest = await dq_coll.find_one(
+                            {"symbol": code},
+                            {"symbol": 1, "close": 1, "pct_chg": 1, "trade_date": 1},
+                            sort=[("trade_date", -1)],
+                        )
+                        if latest:
+                            pct_map[code] = latest
+                    except Exception:
+                        pass
+
                 for it in items:
                     code = it.get("stock_code")
-                    q = quotes_map.get(code)
-                    if q:
-                        it["current_price"] = q.get("close")
-                        it["change_percent"] = q.get("pct_chg")
-                # 兜底：对未命中的代码通过 DataInterface 刷新再读取
-                missing = [c for c in codes if c not in quotes_map]
+                    # 价格：优先 market_quotes 的实时价，其次 daily_quotes 最新收盘价
+                    mq = mq_map.get(code)
+                    dq = pct_map.get(code)
+                    if mq and mq.get("last_price") is not None:
+                        it["current_price"] = mq["last_price"]
+                    elif dq and dq.get("close") is not None:
+                        it["current_price"] = dq["close"]
+
+                    # 涨跌幅：从 daily_quotes 获取
+                    if dq and dq.get("pct_chg") is not None:
+                        it["change_percent"] = dq["pct_chg"]
+
+                # 3) 兜底：对未命中的代码通过 DataInterface 刷新
+                missing = [c for c in codes if c not in mq_map and c not in pct_map]
                 if missing:
                     try:
                         from app.data.core.interface import DataInterface
@@ -135,7 +190,7 @@ class FavoritesService:
                                 if d:
                                     doc = d[0] if isinstance(d, list) and d else d
                                     quotes_online[code] = {
-                                        "close": doc.get("close"),
+                                        "close": doc.get("last_price") or doc.get("close"),
                                         "pct_chg": doc.get("pct_chg"),
                                     }
                             except Exception:
@@ -149,7 +204,6 @@ class FavoritesService:
                     except Exception:
                         pass
             except Exception:
-                # 查询失败时保持占位 None，避免影响基础功能
                 pass
 
         return items

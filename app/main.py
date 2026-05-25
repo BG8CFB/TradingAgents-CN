@@ -21,18 +21,15 @@ import uvicorn
 import logging
 import re
 import time
-from datetime import datetime
-
 import asyncio
 from pathlib import Path
 
 from app.core.config import settings
-from app.utils.timezone import now_utc
 from app.core.database import init_db, close_db
 from app.core.logging_config import setup_logging
 from app.core.response import safe_error_message
 import jwt as _jwt
-from app.routers import auth_db as auth, analysis, screening, sse, health, favorites, config, reports, database, operation_logs, tags, news_data, usage_statistics, model_capabilities, cache, logs
+from app.routers import auth_db as auth, analysis, screening, health, favorites, config, reports, database, operation_logs, tags, news_data, usage_statistics, model_capabilities, cache, logs
 from app.routers import mcp, tools
 from app.routers import agent_configs
 from app.routers import stocks as stocks_router
@@ -94,7 +91,7 @@ async def _print_config_summary(logger):
                 try:
                     with open(env_file, 'r', encoding='utf-8') as f:
                         lines = f.readlines()[:5]  # 只读前5行
-                        logger.info(f"     Preview (first 5 lines):")
+                        logger.info("     Preview (first 5 lines):")
                         for i, line in enumerate(lines, 1):
                             # 隐藏包含密码、密钥等敏感信息的行
                             if any(keyword in line.upper() for keyword in ['PASSWORD', 'SECRET', 'KEY', 'TOKEN']):
@@ -150,7 +147,7 @@ async def _print_config_summary(logger):
                     logger.info(f"  NO_PROXY: {settings.NO_PROXY}")
                 else:
                     logger.info(f"  NO_PROXY: {','.join(no_proxy_list[:3])}... ({len(no_proxy_list)} domains)")
-            logger.info(f"  ✅ Proxy environment variables set successfully")
+            logger.info("  ✅ Proxy environment variables set successfully")
         else:
             logger.info("Proxy: Not configured (direct connection)")
 
@@ -371,7 +368,16 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning(f"Scheduler shutdown error: {e}")
 
-        # 4. 关闭数据库连接
+        # 4. 关闭分析服务线程池
+        try:
+            from app.services.analysis_service import get_analysis_service
+            svc = get_analysis_service()
+            svc._shutdown_pool(wait=True)
+            logger.info("🛑 Analysis service thread pool stopped")
+        except Exception as e:
+            logger.warning(f"Analysis service thread pool shutdown error: {e}")
+
+        # 5. 关闭数据库连接
         await close_db()
         logger.info("TradingAgents FastAPI backend stopped")
 
@@ -407,38 +413,13 @@ app.add_middleware(
 app.add_middleware(OperationLogMiddleware)
 
 # 速率限制中间件（在操作日志之后注册 = 在操作日志之前执行）
-from app.middleware.rate_limit import RateLimitMiddleware, QuotaMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware, QuotaMiddleware  # noqa: E402
 app.add_middleware(QuotaMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 
-# 请求日志中间件
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start_time = time.time()
-
-    # 跳过健康检查和静态文件请求的日志
-    if request.url.path in ["/health", "/favicon.ico"] or request.url.path.startswith("/static"):
-        response = await call_next(request)
-        return response
-
-    # 使用webapi logger记录请求
-    logger = logging.getLogger("webapi")
-    logger.info(f"[REQ] {request.method} {request.url.path}")
-
-    response = await call_next(request)
-    process_time = time.time() - start_time
-
-    # 记录请求完成
-    status_tag = "OK" if response.status_code < 400 else "ERR"
-    logger.info(f"[{status_tag}] {request.method} {request.url.path} - {response.status_code} - {process_time:.3f}s")
-
-    return response
-
-
-# 全局异常处理
 # 请求ID/Trace-ID 中间件（需作为最外层，放在函数式中间件之后）
-from app.middleware.request_id import RequestIDMiddleware
+from app.middleware.request_id import RequestIDMiddleware  # noqa: E402
 app.add_middleware(RequestIDMiddleware)
 
 @app.exception_handler(Exception)
@@ -572,10 +553,10 @@ app.include_router(cache.router)
 app.include_router(operation_logs.router)
 app.include_router(logs.router)
 # 新增：智能体管理
-from app.routers import agents
+from app.routers import agents  # noqa: E402
 app.include_router(agents.router)
 # 系统配置只读摘要
-from app.routers import system_config as system_config_router
+from app.routers import system_config as system_config_router  # noqa: E402
 app.include_router(system_config_router.router)
 app.include_router(mcp.router)
 # 统一工具清单
@@ -583,22 +564,21 @@ app.include_router(tools.router)
 # 按阶段编辑智能体配置
 app.include_router(agent_configs.router)
 
-# 通知模块（REST + SSE）
+# 通知模块（REST）
 app.include_router(notifications_router.router)
 
-# 🔥 WebSocket 通知模块（替代 SSE + Redis PubSub）
+# WebSocket 通知模块
 app.include_router(websocket_notifications_router.router)
 
 # 定时任务管理
 app.include_router(scheduler_router.router)
 
-app.include_router(sse.router)
 app.include_router(news_data.router)
 
 # 三市场标准化数据路由（CN / HK / US 各 3 个文件）
-from app.routers.cn import data as cn_data, stocks as cn_stocks, sync as cn_sync
-from app.routers.hk import data as hk_data, stocks as hk_stocks, sync as hk_sync
-from app.routers.us import data as us_data, stocks as us_stocks, sync as us_sync
+from app.routers.cn import data as cn_data, stocks as cn_stocks, sync as cn_sync  # noqa: E402
+from app.routers.hk import data as hk_data, stocks as hk_stocks, sync as hk_sync  # noqa: E402
+from app.routers.us import data as us_data, stocks as us_stocks, sync as us_sync  # noqa: E402
 
 app.include_router(cn_data.router)
 app.include_router(cn_stocks.router)

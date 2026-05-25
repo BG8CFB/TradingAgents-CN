@@ -77,8 +77,16 @@ class BaseSyncJob(ABC):
             total_count = 0
             last_source = None
 
+            from app.data.processor.fallback_router import FallbackRouter
+            from app.data.core.registry.capability import CapabilityRegistry
+            from app.data.core.registry.priority import PriorityConfig
+
+            registry = CapabilityRegistry()
+            priority = PriorityConfig()
+            router = FallbackRouter(registry, priority)
+
             for symbol in symbols:
-                result = await self._fetch_and_write(symbol, start_date)
+                result = await self._fetch_and_write(router, symbol, start_date)
                 total_count += result.get("count", 0)
                 last_source = result.get("source")
 
@@ -112,15 +120,8 @@ class BaseSyncJob(ABC):
             })
             return {"status": "failed", "error": str(e)}
 
-    async def _fetch_and_write(self, symbol: str, start_date: str) -> dict:
+    async def _fetch_and_write(self, router, symbol: str, start_date: str) -> dict:
         """通过 FallbackRouter 获取数据并写入。"""
-        from app.data.processor.fallback_router import FallbackRouter
-        from app.data.core.registry.capability import CapabilityRegistry
-        from app.data.core.registry.priority import PriorityConfig
-
-        registry = CapabilityRegistry()
-        priority = PriorityConfig()
-        router = FallbackRouter(registry, priority)
 
         preferred_sources = [self.preferred_source] if self.preferred_source else None
         result = await router.fetch(

@@ -65,7 +65,7 @@ class TestRefreshResultStatus:
             "news": DomainRefreshResult(domain="news", status="failed", error="timeout"),
         }
         status = r.compute_status()
-        assert status == RefreshStatus.FAILED
+        assert status == RefreshStatus.PARTIAL
 
     def test_all_failed(self):
         r = RefreshResult(symbol="000001", market="CN")

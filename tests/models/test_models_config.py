@@ -9,6 +9,12 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from pydantic import ValidationError
 
+from app.constants.llm_defaults import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TIMEOUT,
+    DEFAULT_RETRY_TIMES,
+)
 from app.models.config import (
     ModelProvider,
     LLMProvider,
@@ -277,10 +283,10 @@ class TestLLMConfig:
         config = LLMConfig(model_name="gpt-4")
         assert config.provider == "openai"
         assert config.model_name == "gpt-4"
-        assert config.max_tokens == 4000
-        assert config.temperature == 0.7
-        assert config.timeout == 180
-        assert config.retry_times == 3
+        assert config.max_tokens == DEFAULT_MAX_TOKENS
+        assert config.temperature == DEFAULT_TEMPERATURE
+        assert config.timeout == DEFAULT_TIMEOUT
+        assert config.retry_times == DEFAULT_RETRY_TIMES
         assert config.enabled is True
         assert config.currency == "CNY"
         assert config.suitable_roles == ["both"]
@@ -292,15 +298,15 @@ class TestLLMConfig:
         """max_tokens 边界值"""
         config = LLMConfig(model_name="test", max_tokens=1)
         assert config.max_tokens == 1
-        config = LLMConfig(model_name="test", max_tokens=200000)
-        assert config.max_tokens == 200000
+        config = LLMConfig(model_name="test", max_tokens=DEFAULT_MAX_TOKENS)
+        assert config.max_tokens == DEFAULT_MAX_TOKENS
 
     def test_max_tokens_out_of_range(self):
         """max_tokens 超范围应报错"""
         with pytest.raises(ValidationError):
             LLMConfig(model_name="test", max_tokens=0)
         with pytest.raises(ValidationError):
-            LLMConfig(model_name="test", max_tokens=200001)
+            LLMConfig(model_name="test", max_tokens=DEFAULT_MAX_TOKENS + 1)
 
     def test_temperature_boundary(self):
         """temperature 边界值"""

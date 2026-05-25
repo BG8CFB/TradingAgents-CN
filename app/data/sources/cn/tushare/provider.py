@@ -74,7 +74,13 @@ class TushareCNProvider(BaseProvider):
     ) -> Optional[pd.DataFrame]:
         from .api.financial import fetch_financial_data
         ts_code = self._to_ts_code(symbol)
-        return await fetch_financial_data(self._get_conn(), ts_code)
+        result = await fetch_financial_data(self._get_conn(), ts_code)
+        if result is None:
+            return None
+        if isinstance(result, dict):
+            import pandas as pd
+            return pd.DataFrame([result])
+        return result
 
     async def get_adj_factors(
         self, symbol: str, start_date: str, end_date: str, **kwargs

@@ -16,6 +16,9 @@ from app.data.core.interface import DataInterface
 def _create_router_app(router):
     app = FastAPI()
     app.include_router(router)
+    # 覆盖认证依赖，测试中不需要真实登录
+    from app.routers.auth_db import get_current_user
+    app.dependency_overrides[get_current_user] = lambda: {"username": "testuser", "role": "admin"}
     return app
 
 

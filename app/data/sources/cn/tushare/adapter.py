@@ -227,8 +227,10 @@ class TushareCNAdapter(BaseAdapter):
         results = []
         for _, row in df.iterrows():
             get = row.get
-            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "")))
-            report_period = _parse_date(get("end_date") or get("ann_date"))
+            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "") or get("symbol", "")))
+            report_period = _parse_date(
+                get("report_period") or get("end_date") or get("ann_date")
+            )
 
             # 判断报表类型
             stmt_type = get("statement_type") or self._detect_stmt_type(row)
@@ -304,12 +306,36 @@ class TushareCNAdapter(BaseAdapter):
         for _, row in df.iterrows():
             get = row.get
             symbol = _parse_symbol_from_ts_code(str(get("ts_code", get("symbol", ""))))
+            close = _safe_float(get("price") or get("close"))
+            pre_close = _safe_float(get("pre_close") or get("pre_close"))
+            pct_chg = _safe_float(get("pct_chg") or get("change_percent"))
+
+            # 成交量单位转换: 手 → 股（×100）
+            volume = _safe_float(get("volume") or get("vol"))
+            if volume is not None:
+                volume = volume * 100
+
+            # 成交额单位转换: 千元 → 元（×1000）
+            amount = _safe_float(get("amount") or get("turnover"))
+            if amount is not None:
+                amount = amount * 1000
+
             results.append(MarketQuotesSchema(
                 symbol=symbol,
                 market="CN",
                 data_source="tushare",
-                last_price=_safe_float(get("price") or get("close")),
-                last_volume=_safe_float(get("volume") or get("vol")),
+                open=_safe_float(get("open")),
+                high=_safe_float(get("high")),
+                low=_safe_float(get("low")),
+                close=close,
+                pre_close=pre_close,
+                pct_chg=pct_chg,
+                volume=volume,
+                amount=amount,
+                turnover_rate=_safe_float(get("turn") or get("turnover_rate")),
+                last_price=close,
+                last_volume=volume,
                 last_updated=get("update_time"),
+                trade_date=get("trade_date"),
             ))
         return results

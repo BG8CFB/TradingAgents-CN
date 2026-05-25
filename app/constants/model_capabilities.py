@@ -134,12 +134,33 @@ DEFAULT_MODEL_CAPABILITIES: Dict[str, Dict[str, Any]] = {
     },
     
     # ==================== DeepSeek ====================
+    "deepseek-v4-flash": {
+        "capability_level": 4,
+        "suitable_roles": [ModelRole.BOTH],
+        "features": [ModelFeature.TOOL_CALLING, ModelFeature.LONG_CONTEXT, ModelFeature.COST_EFFECTIVE, ModelFeature.FAST_RESPONSE],
+        "performance_metrics": {"speed": 5, "cost": 5, "quality": 4},
+        "description": "DeepSeek V4 Flash，高速推理，性价比极高"
+    },
+    "deepseek-v4-pro": {
+        "capability_level": 5,
+        "suitable_roles": [ModelRole.DEBATE],
+        "features": [ModelFeature.REASONING, ModelFeature.TOOL_CALLING, ModelFeature.LONG_CONTEXT],
+        "performance_metrics": {"speed": 3, "cost": 3, "quality": 5},
+        "description": "DeepSeek V4 Pro，深度推理，适合辩论与风控"
+    },
     "deepseek-chat": {
         "capability_level": 3,
         "suitable_roles": [ModelRole.BOTH],
         "features": [ModelFeature.TOOL_CALLING, ModelFeature.LONG_CONTEXT, ModelFeature.COST_EFFECTIVE],
         "performance_metrics": {"speed": 4, "cost": 5, "quality": 4},
-        "description": "DeepSeek Chat，性价比高"
+        "description": "DeepSeek Chat（将于 2026/07/24 弃用，请迁移至 deepseek-v4-flash）"
+    },
+    "deepseek-reasoner": {
+        "capability_level": 4,
+        "suitable_roles": [ModelRole.DEBATE],
+        "features": [ModelFeature.REASONING, ModelFeature.LONG_CONTEXT],
+        "performance_metrics": {"speed": 3, "cost": 4, "quality": 4},
+        "description": "DeepSeek Reasoner（将于 2026/07/24 弃用，请迁移至 deepseek-v4-pro）"
     },
     
     # ==================== 百度文心 (Qianfan) ====================

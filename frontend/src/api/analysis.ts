@@ -122,12 +122,12 @@ export const analysisApi = {
   },
 
   // 开始单股分析（使用后端期望的格式）
-  startSingleAnalysis(analysisRequest: SingleAnalysisRequest): Promise<ApiResponse<any>> {
+  startSingleAnalysis(analysisRequest: SingleAnalysisRequest): Promise<ApiResponse<{ task_id: string; message: string }>> {
     return request.post('/api/analysis/single', analysisRequest)
   },
 
   // 获取任务状态
-  getTaskStatus(taskId: string): Promise<ApiResponse<any>> {
+  getTaskStatus(taskId: string): Promise<ApiResponse<{ status: string; progress?: number; result_data?: any; error_message?: string }>> {
     return request.get(`/api/analysis/tasks/${taskId}/status`)
   },
 
@@ -156,7 +156,7 @@ export const analysisApi = {
     start_date?: string
     end_date?: string
     status?: string
-  }): Promise<any> {
+  }): Promise<ApiResponse<{ items: AnalysisResult[]; total: number }>> {
     return request.get('/api/analysis/user/history', { params })
   },
 
@@ -186,12 +186,12 @@ export const analysisApi = {
   },
 
   // 获取批次详情（兼容原有队列接口，若后续需要）
-  getBatch(batchId: string): Promise<any> {
+  getBatch(batchId: string): Promise<ApiResponse<{ batch_id: string; status: string; tasks: any[] }>> {
     return request.get(`/api/analysis/batches/${batchId}`)
   },
 
   // 获取任务详情（兼容原有队列接口，若后续需要）
-  getTaskDetails(taskId: string): Promise<any> {
+  getTaskDetails(taskId: string): Promise<ApiResponse<{ task_id: string; status: string; result?: any }>> {
     return request.get(`/api/analysis/tasks/${taskId}/details`)
   },
 

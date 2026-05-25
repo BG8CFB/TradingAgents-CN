@@ -58,7 +58,11 @@ class LLMService:
             return None
 
     async def _save_system_config(self, config) -> bool:
-        """保存系统配置（内部使用）"""
+        """保存系统配置（内部使用）
+
+        使用原子操作替代先禁用再插入的两步操作，避免中间状态导致配置丢失。
+        策略：将新配置作为唯一活跃文档插入，同时标记旧配置为非活跃。
+        """
         try:
             db = await self._get_db()
             config_collection = db.system_configs
@@ -66,19 +70,36 @@ class LLMService:
             config.updated_at = now_tz()
             config.version += 1
 
-            await config_collection.update_many(
-                {"is_active": True},
-                {"$set": {"is_active": False}}
-            )
-
             config_dict = config.model_dump(by_alias=True)
             if '_id' in config_dict:
                 del config_dict['_id']
+            config_dict['is_active'] = True
 
-            await config_collection.insert_one(config_dict)
-            return True
+            # 尝试使用事务（需要 MongoDB 副本集）
+            try:
+                async with await db.client.start_session() as session:
+                    async with session.start_transaction():
+                        # 先将所有活跃配置标记为非活跃
+                        await config_collection.update_many(
+                            {"is_active": True},
+                            {"$set": {"is_active": False}},
+                            session=session,
+                        )
+                        # 插入新配置
+                        await config_collection.insert_one(config_dict, session=session)
+                return True
+            except Exception as txn_err:
+                # 事务不支持（单机 MongoDB）时，使用 fallback:
+                # 先插入新配置，再删除旧配置（新配置优先）
+                logger.debug(f"事务不可用，使用 fallback 策略: {txn_err}")
+                await config_collection.insert_one(config_dict)
+                await config_collection.update_many(
+                    {"is_active": True, "_id": {"$ne": config_dict.get("_id")}},
+                    {"$set": {"is_active": False}},
+                )
+                return True
         except Exception as e:
-            logger.error(f"❌ 保存系统配置失败: {e}")
+            logger.error(f"保存系统配置失败: {e}")
             return False
 
     # ==================== LLM 配置管理 ====================
@@ -232,7 +253,7 @@ class LLMService:
             elif provider_str == "deepseek":
                 # DeepSeek 使用专门的测试方法
                 logger.info(f"🔍 使用 DeepSeek 专用测试方法")
-                result = self._test_deepseek_api(api_key, f"{provider_str} {llm_config.model_name}", llm_config.model_name)
+                result = self._test_deepseek_api(api_key, f"{provider_str} {llm_config.model_name}", llm_config.model_name, api_base)
                 result["response_time"] = time.time() - start_time
                 return result
             elif provider_str == "dashscope":
@@ -242,154 +263,18 @@ class LLMService:
                 result["response_time"] = time.time() - start_time
                 return result
             else:
-                # 其他厂家使用 OpenAI 兼容的测试方法
-                logger.info(f"🔍 使用 OpenAI 兼容测试方法")
+                # 其他厂家使用 OpenAI 兼容的测试方法（通过线程池避免阻塞事件循环）
+                logger.info(f"使用 OpenAI 兼容测试方法")
+                result = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    self._test_openai_compatible_config,
+                    api_base, api_key, provider_str, llm_config.model_name, start_time,
+                )
+                return result
 
-                # 构建测试请求
-                api_base_normalized = api_base.rstrip("/")
-
-                # 🔧 智能版本号处理：只有在没有版本号的情况下才添加 /v1
-                if not re.search(r'/v\d+$', api_base_normalized):
-                    # URL末尾没有版本号，添加 /v1（OpenAI标准）
-                    api_base_normalized = api_base_normalized + "/v1"
-                    logger.info(f"   添加 /v1 版本号: {api_base_normalized}")
-                else:
-                    # URL已包含版本号（如 /v4），不添加
-                    logger.info(f"   检测到已有版本号，保持原样: {api_base_normalized}")
-
-                url = f"{api_base_normalized}/chat/completions"
-
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}"
-                }
-
-                data = {
-                    "model": llm_config.model_name,
-                    "messages": [
-                        {"role": "user", "content": "Hello, please respond with 'OK' if you can read this."}
-                    ],
-                    "max_tokens": 200,  # 增加到200，给推理模型（如o1/gpt-5）足够空间
-                    "temperature": 0.1
-                }
-
-                logger.info(f"🌐 发送测试请求到: {url}")
-                logger.info(f"📦 使用模型: {llm_config.model_name}")
-                logger.info(f"📦 请求数据: {data}")
-
-                # 发送测试请求
-                response = requests.post(url, json=data, headers=headers, timeout=15)
-                response_time = time.time() - start_time
-
-                logger.info(f"📡 收到响应: HTTP {response.status_code}")
-
-                # 处理响应（仅用于 OpenAI 兼容的厂家）
-                if response.status_code == 200:
-                    try:
-                        result = response.json()
-                        logger.info(f"📦 响应JSON: {result}")
-
-                        if "choices" in result and len(result["choices"]) > 0:
-                            content = result["choices"][0]["message"]["content"]
-                            logger.info(f"📝 响应内容: {content}")
-
-                            if content and len(content.strip()) > 0:
-                                logger.info(f"✅ 测试成功: {content[:50]}")
-                                return {
-                                    "success": True,
-                                    "message": f"成功连接到 {provider_str} {llm_config.model_name}",
-                                    "response_time": response_time,
-                                    "details": {
-                                        "provider": provider_str,
-                                        "model": llm_config.model_name,
-                                        "api_base": api_base,
-                                        "response_preview": content[:100]
-                                    }
-                                }
-                            else:
-                                logger.warning(f"⚠️ API响应内容为空")
-                                return {
-                                    "success": False,
-                                    "message": "API响应内容为空",
-                                    "response_time": response_time,
-                                    "details": None
-                                }
-                        else:
-                            logger.warning(f"⚠️ API响应格式异常，缺少 choices 字段")
-                            logger.warning(f"   响应内容: {result}")
-                            return {
-                                "success": False,
-                                "message": "API响应格式异常",
-                                "response_time": response_time,
-                                "details": None
-                            }
-                    except Exception as e:
-                        logger.error(f"❌ 解析响应失败: {e}")
-                        logger.error(f"   响应文本: {response.text[:500]}")
-                        return {
-                            "success": False,
-                            "message": f"解析响应失败: {str(e)}",
-                            "response_time": response_time,
-                            "details": None
-                        }
-                elif response.status_code == 401:
-                    return {
-                        "success": False,
-                        "message": "API密钥无效或已过期",
-                        "response_time": response_time,
-                        "details": None
-                    }
-                elif response.status_code == 403:
-                    return {
-                        "success": False,
-                        "message": "API权限不足或配额已用完",
-                        "response_time": response_time,
-                        "details": None
-                    }
-                elif response.status_code == 404:
-                    return {
-                        "success": False,
-                        "message": f"API端点不存在，请检查API基础URL是否正确: {url}",
-                        "response_time": response_time,
-                        "details": None
-                    }
-                else:
-                    try:
-                        error_detail = response.json()
-                        error_msg = error_detail.get("error", {}).get("message", f"HTTP {response.status_code}")
-                        return {
-                            "success": False,
-                            "message": f"API测试失败: {error_msg}",
-                            "response_time": response_time,
-                            "details": None
-                        }
-                    except Exception:
-                        return {
-                            "success": False,
-                            "message": f"API测试失败: HTTP {response.status_code}",
-                            "response_time": response_time,
-                            "details": None
-                        }
-
-        except requests.exceptions.Timeout:
-            response_time = time.time() - start_time
-            return {
-                "success": False,
-                "message": "连接超时，请检查API基础URL是否正确或网络是否可达",
-                "response_time": response_time,
-                "details": None
-            }
-        except requests.exceptions.ConnectionError as e:
-            response_time = time.time() - start_time
-            return {
-                "success": False,
-                "message": f"连接失败，请检查API基础URL是否正确: {str(e)}",
-                "response_time": response_time,
-                "details": None
-            }
         except Exception as e:
             response_time = time.time() - start_time
-            logger.error(f"❌ 测试大模型配置失败: {e}")
+            logger.error(f"测试大模型配置失败: {e}")
             return {
                 "success": False,
                 "message": f"连接失败: {str(e)}",
@@ -413,6 +298,76 @@ class LLMService:
             return api_key
 
         return f"{api_key[:prefix_len]}...{api_key[-suffix_len:]}"
+
+    def _test_openai_compatible_config(
+        self, api_base: str, api_key: str, provider_str: str, model_name: str, start_time: float
+    ) -> Dict[str, Any]:
+        """同步测试 OpenAI 兼容 API 配置（在 run_in_executor 中调用）"""
+        try:
+            import requests
+
+            api_base_normalized = api_base.rstrip("/")
+            if not re.search(r'/v\d+$', api_base_normalized):
+                api_base_normalized = api_base_normalized + "/v1"
+
+            url = f"{api_base_normalized}/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+            data = {
+                "model": model_name,
+                "messages": [
+                    {"role": "user", "content": "Hello, please respond with 'OK' if you can read this."}
+                ],
+                "max_tokens": 200,
+                "temperature": 0.1
+            }
+
+            logger.info(f"发送测试请求到: {url}, 模型: {model_name}")
+            response = requests.post(url, json=data, headers=headers, timeout=15)
+            response_time = time.time() - start_time
+
+            if response.status_code == 200:
+                result = response.json()
+                if "choices" in result and len(result["choices"]) > 0:
+                    content = result["choices"][0]["message"]["content"]
+                    if content and len(content.strip()) > 0:
+                        return {
+                            "success": True,
+                            "message": f"成功连接到 {provider_str} {model_name}",
+                            "response_time": response_time,
+                            "details": {
+                                "provider": provider_str,
+                                "model": model_name,
+                                "api_base": api_base,
+                                "response_preview": content[:100]
+                            }
+                        }
+                    else:
+                        return {"success": False, "message": "API响应内容为空", "response_time": response_time, "details": None}
+                else:
+                    return {"success": False, "message": "API响应格式异常", "response_time": response_time, "details": None}
+            elif response.status_code == 401:
+                return {"success": False, "message": "API密钥无效或已过期", "response_time": response_time, "details": None}
+            elif response.status_code == 403:
+                return {"success": False, "message": "API权限不足或配额已用完", "response_time": response_time, "details": None}
+            elif response.status_code == 404:
+                return {"success": False, "message": f"API端点不存在，请检查API基础URL是否正确: {url}", "response_time": response_time, "details": None}
+            else:
+                try:
+                    error_detail = response.json()
+                    error_msg = error_detail.get("error", {}).get("message", f"HTTP {response.status_code}")
+                    return {"success": False, "message": f"API测试失败: {error_msg}", "response_time": response_time, "details": None}
+                except Exception:
+                    return {"success": False, "message": f"API测试失败: HTTP {response.status_code}", "response_time": response_time, "details": None}
+
+        except requests.exceptions.Timeout:
+            return {"success": False, "message": "连接超时，请检查API基础URL是否正确或网络是否可达", "response_time": time.time() - start_time, "details": None}
+        except requests.exceptions.ConnectionError as e:
+            return {"success": False, "message": f"连接失败，请检查API基础URL是否正确: {str(e)}", "response_time": time.time() - start_time, "details": None}
+        except Exception as e:
+            return {"success": False, "message": f"连接失败: {str(e)}", "response_time": time.time() - start_time, "details": None}
 
     # ==================== LLM 厂家管理 ====================
 
@@ -922,7 +877,12 @@ class LLMService:
                 base_url = provider_data.get("default_base_url") if provider_data else None
                 return await asyncio.get_running_loop().run_in_executor(None, self._test_google_api, api_key, display_name, base_url)
             elif provider_name == "deepseek":
-                return await asyncio.get_running_loop().run_in_executor(None, self._test_deepseek_api, api_key, display_name)
+                # 获取厂家的 base_url
+                db = await self._get_db()
+                providers_collection = db.llm_providers
+                provider_data = await providers_collection.find_one({"name": provider_name})
+                base_url = provider_data.get("default_base_url") if provider_data else None
+                return await asyncio.get_running_loop().run_in_executor(None, self._test_deepseek_api, api_key, display_name, None, base_url)
             elif provider_name == "dashscope":
                 return await asyncio.get_running_loop().run_in_executor(None, self._test_dashscope_api, api_key, display_name)
             elif provider_name == "openrouter":
@@ -1136,19 +1096,21 @@ class LLMService:
                 "message": f"{display_name} API测试异常: {str(e)}"
             }
 
-    def _test_deepseek_api(self, api_key: str, display_name: str, model_name: str = None) -> dict:
+    def _test_deepseek_api(self, api_key: str, display_name: str, model_name: str = None, base_url: str = None) -> dict:
         """测试DeepSeek API"""
         try:
             import requests
 
             # 如果没有指定模型，使用默认模型
             if not model_name:
-                model_name = "deepseek-chat"
-                logger.info(f"⚠️ 未指定模型，使用默认模型: {model_name}")
+                model_name = "deepseek-v4-flash"
+                logger.info(f"未指定模型，使用默认模型: {model_name}")
 
-            logger.info(f"🔍 [DeepSeek 测试] 使用模型: {model_name}")
+            resolved_base = base_url or "https://api.deepseek.com"
+            url = f"{resolved_base.rstrip('/')}/chat/completions"
 
-            url = "https://api.deepseek.com/chat/completions"
+            logger.info(f"[DeepSeek 测试] 使用模型: {model_name}, URL: {url}")
+
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}"
@@ -1159,7 +1121,7 @@ class LLMService:
                 "messages": [
                     {"role": "user", "content": "你好，请简单介绍一下你自己。"}
                 ],
-                "max_tokens": 50,
+                "max_tokens": 500,
                 "temperature": 0.1
             }
 
@@ -1168,7 +1130,16 @@ class LLMService:
             if response.status_code == 200:
                 result = response.json()
                 if "choices" in result and len(result["choices"]) > 0:
-                    content = result["choices"][0]["message"]["content"]
+                    msg = result["choices"][0]["message"]
+                    content = msg.get("content", "")
+                    # DeepSeek 推理模型可能返回空 content 但非空 reasoning_content
+                    if not content or len(content.strip()) == 0:
+                        reasoning = msg.get("reasoning_content", "") or msg.get("reasoning", "")
+                        if reasoning and len(reasoning.strip()) > 0:
+                            return {
+                                "success": True,
+                                "message": f"{display_name} API连接测试成功（推理模式）"
+                            }
                     if content and len(content.strip()) > 0:
                         return {
                             "success": True,

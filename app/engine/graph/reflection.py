@@ -16,7 +16,7 @@ class Reflector:
         self.llm = llm
         self.reflection_system_prompt = self._get_reflection_prompt()
         self._cached_situation = ""
-        self._situation_state_id = None
+        self._situation_hash = None
 
     def _get_reflection_prompt(self) -> str:
         """Get the system prompt for reflection."""
@@ -139,8 +139,13 @@ Adhere strictly to these instructions, and ensure your output is detailed, accur
             risk_manager_memory.add_situations([(situation, result)])
 
     def _get_situation(self, current_state: Dict[str, Any]) -> str:
-        """提取并缓存当前市场状况"""
-        if not hasattr(self, '_cached_situation') or self._situation_state_id != id(current_state):
+        """提取并缓存当前市场状况（基于内容哈希判断是否变化）"""
+        report_keys = sorted(k for k in current_state if k.endswith("_report"))
+        content_hash = hash(tuple(
+            (k, current_state[k][:200] if isinstance(current_state.get(k), str) else "")
+            for k in report_keys
+        ))
+        if not hasattr(self, '_cached_situation') or self._situation_hash != content_hash:
             self._cached_situation = self._extract_current_situation(current_state)
-            self._situation_state_id = id(current_state)
+            self._situation_hash = content_hash
         return self._cached_situation

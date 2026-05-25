@@ -549,25 +549,6 @@
               </el-tooltip>
             </el-form-item>
 
-            <!-- SSE 设置 -->
-            <el-divider content-position="left">SSE</el-divider>
-
-            <el-form-item label="SSE 轮询超时">
-              <el-input-number v-model="systemSettings.sse_poll_timeout_seconds" :min="0.1" :step="0.1" :disabled="!isEditable('sse_poll_timeout_seconds')" />
-              <span class="setting-description">秒</span>
-              <el-tooltip effect="dark" content="任务进度SSE每次等待超时时间；过小会产生更多请求" placement="top">
-                <i class="el-icon-info" style="margin-left:8px; color:var(--el-text-color-placeholder);" />
-              </el-tooltip>
-            </el-form-item>
-
-            <el-form-item label="SSE 心跳间隔">
-              <el-input-number v-model="systemSettings.sse_heartbeat_interval_seconds" :min="1" :step="1" :disabled="!isEditable('sse_heartbeat_interval_seconds')" />
-              <span class="setting-description">秒</span>
-              <el-tooltip effect="dark" content="SSE维持长连接的心跳事件发送周期" placement="top">
-                <i class="el-icon-info" style="margin-left:8px; color:var(--el-text-color-placeholder);" />
-              </el-tooltip>
-            </el-form-item>
-
             <!-- TradingAgents（可选） -->
             <el-divider content-position="left">TradingAgents（可选）</el-divider>
             <el-form-item label="使用 App 缓存优先">
@@ -621,28 +602,6 @@
             <el-form-item label="GoogleNews最大延时">
               <el-input-number v-model="systemSettings.ta_google_news_sleep_max_seconds" :min="0.1" :step="0.1" :disabled="!isEditable('ta_google_news_sleep_max_seconds')" />
               <span class="setting-description">秒</span>
-            </el-form-item>
-
-
-            <el-form-item label="任务流最大空闲">
-              <el-input-number v-model="systemSettings.sse_task_max_idle_seconds" :min="10" :step="10" :disabled="!isEditable('sse_task_max_idle_seconds')" />
-              <span class="setting-description">秒</span>
-            </el-form-item>
-
-            <el-form-item label="批次流轮询间隔">
-              <el-input-number v-model="systemSettings.sse_batch_poll_interval_seconds" :min="0.5" :step="0.5" :disabled="!isEditable('sse_batch_poll_interval_seconds')" />
-              <span class="setting-description">秒</span>
-              <el-tooltip effect="dark" content="批次进度刷新频率；过小将增加服务器负载" placement="top">
-                <i class="el-icon-info" style="margin-left:8px; color:var(--el-text-color-placeholder);" />
-              </el-tooltip>
-            </el-form-item>
-
-            <el-form-item label="批次流最大空闲">
-              <el-input-number v-model="systemSettings.sse_batch_max_idle_seconds" :min="10" :step="10" :disabled="!isEditable('sse_batch_max_idle_seconds')" />
-              <span class="setting-description">秒</span>
-              <el-tooltip effect="dark" content="批次流在无事件情况下允许的最长空闲时间，超时将关闭连接" placement="top">
-                <i class="el-icon-info" style="margin-left:8px; color:var(--el-text-color-placeholder);" />
-              </el-tooltip>
             </el-form-item>
 
             <!-- 日志和监控 -->
@@ -1028,6 +987,12 @@ import DataSourceConfigDialog from './components/DataSourceConfigDialog.vue'
 import MarketCategoryManagement from './components/MarketCategoryManagement.vue'
 import DataSourceGroupingDialog from './components/DataSourceGroupingDialog.vue'
 import SortableDataSourceList from './components/SortableDataSourceList.vue'
+import {
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_TEMPERATURE,
+  DEFAULT_TIMEOUT,
+  DEFAULT_RETRY_TIMES,
+} from '@/constants/llmDefaults'
 
 // 响应式数据
 const activeTab = ref('providers')
@@ -1355,12 +1320,6 @@ const loadSystemSettings = async () => {
       worker_heartbeat_interval_seconds: 30,
       queue_poll_interval_seconds: 1.0,
       queue_cleanup_interval_seconds: 60.0,
-      // SSE 默认
-      sse_poll_timeout_seconds: 1.0,
-      sse_heartbeat_interval_seconds: 10,
-      sse_task_max_idle_seconds: 300,
-      sse_batch_poll_interval_seconds: 2.0,
-      sse_batch_max_idle_seconds: 600,
       // TradingAgents（可选）默认
       ta_use_app_cache: false,
       ta_hk_min_request_interval_seconds: 2.0,
@@ -1505,10 +1464,10 @@ const addModelToProvider = (providerRow: any) => {
     model_display_name: '',
     description: '',
     enabled: true,
-    max_tokens: 4000,
-    temperature: 0.7,
-    timeout: 60,
-    retry_times: 3,
+    max_tokens: DEFAULT_MAX_TOKENS,
+    temperature: DEFAULT_TEMPERATURE,
+    timeout: DEFAULT_TIMEOUT,
+    retry_times: DEFAULT_RETRY_TIMES,
     priority: 0,
     api_base: '',
     model_category: '',
@@ -1893,11 +1852,6 @@ const saveSystemSettings = async () => {
       { key: 'worker_heartbeat_interval_seconds', min: 1 },
       { key: 'queue_poll_interval_seconds', min: 0.000001 },
       { key: 'queue_cleanup_interval_seconds', min: 1 },
-      { key: 'sse_poll_timeout_seconds', min: 0.000001 },
-      { key: 'sse_heartbeat_interval_seconds', min: 1 },
-      { key: 'sse_task_max_idle_seconds', min: 1 },
-      { key: 'sse_batch_poll_interval_seconds', min: 0.000001 },
-      { key: 'sse_batch_max_idle_seconds', min: 1 },
       // TradingAgents（可选）
       { key: 'ta_hk_min_request_interval_seconds', min: 0.000001 },
       { key: 'ta_hk_timeout_seconds', min: 1 },
@@ -1958,7 +1912,7 @@ const exportConfig = async () => {
     URL.revokeObjectURL(url)
 
     // 统计导出项
-    const data = result.data || {}
+    const data = (result.data as Record<string, any>) || {}
     const items: string[] = []
     if (data.system_configs) items.push('系统配置')
     if (data.llm_providers?.length) items.push(`厂家(${data.llm_providers.length})`)

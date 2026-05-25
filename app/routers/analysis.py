@@ -6,7 +6,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks, WebSocket, WebSocketDisconnect
 from typing import List, Optional, Dict, Any
 import logging
-import time
 import uuid
 import asyncio
 
@@ -17,7 +16,6 @@ from app.models.analysis import SingleAnalysisRequest, BatchAnalysisRequest
 from app.core.config import settings
 from app.core.response import safe_error_message
 from app.utils.runtime_paths import get_analysis_results_dir, resolve_path
-from app.utils.timezone import now_utc
 
 router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 logger = logging.getLogger("webapi")
@@ -56,13 +54,13 @@ async def submit_single_analysis(
                 logger.info(f"📝 [BackgroundTask] request={request}")
 
                 # 重新获取服务实例，确保在正确的上下文中
-                logger.info(f"🔧 [BackgroundTask] 正在获取服务实例...")
+                logger.info("🔧 [BackgroundTask] 正在获取服务实例...")
                 # 延迟导入，避免循环引用
                 from app.services.analysis_service import get_analysis_service
                 service = get_analysis_service()
                 logger.info(f"✅ [BackgroundTask] 服务实例获取成功: {id(service)}")
 
-                logger.info(f"🚀 [BackgroundTask] 准备调用 execute_analysis_background...")
+                logger.info("🚀 [BackgroundTask] 准备调用 execute_analysis_background...")
                 await service.execute_analysis_background(
                     task_id,
                     user_id,
@@ -144,7 +142,6 @@ async def get_task_result(
         # 处理reports字段 - 如果没有reports字段，优先尝试从文件系统加载，其次从state中提取
         if 'reports' not in result_data or not result_data['reports']:
             import os
-            from pathlib import Path
 
             stock_symbol = result_data.get('stock_symbol') or result_data.get('stock_code')
             # analysis_date 可能是日期或时间戳字符串，这里只取日期部分
@@ -189,7 +186,7 @@ async def get_task_result(
                 logger.warning(f"⚠️ [RESULT] 从文件系统加载报告失败: {fs_err}")
 
             if 'reports' not in result_data or not result_data['reports']:
-                logger.info(f"📊 [RESULT] reports字段缺失，尝试从state中提取")
+                logger.info("📊 [RESULT] reports字段缺失，尝试从state中提取")
 
                 # 从state中提取报告内容
                 reports = {}
@@ -281,7 +278,7 @@ async def get_task_result(
 
                 # 如果清理后没有有效报告，设置为空字典
                 if not cleaned_reports:
-                    logger.warning(f"⚠️ [RESULT] 清理后没有有效报告")
+                    logger.warning("⚠️ [RESULT] 清理后没有有效报告")
                     result_data['reports'] = {}
             else:
                 logger.warning(f"⚠️ [RESULT] reports字段不是字典类型: {type(reports)}")
@@ -518,7 +515,7 @@ async def list_all_tasks(
     """获取所有任务列表（不限用户）"""
     try:
         from app.services.analysis_service import get_analysis_service
-        logger.info(f"📋 查询所有任务列表")
+        logger.info("📋 查询所有任务列表")
 
         tasks = await get_analysis_service().list_all_tasks(
             status=status,
@@ -694,38 +691,6 @@ async def get_batch(batch_id: str, user: dict = Depends(get_current_user), svc: 
         raise HTTPException(status_code=404, detail="batch not found")
     return b
 
-# 任务和批次查询端点
-# 注意：这个路由被移到了 /tasks/{task_id}/status 之后，避免路由冲突
-# @router.get("/tasks/{task_id}")
-# async def get_task(
-#     task_id: str,
-#     user: dict = Depends(get_current_user),
-#     svc: QueueService = Depends(get_queue_service)
-# ):
-#     """获取任务详情"""
-#     t = await svc.get_task(task_id)
-#     if not t or t.get("user") != user["id"]:
-#         raise HTTPException(status_code=404, detail="任务不存在")
-#     return t
-
-# 原有的路由已被新的异步实现替代
-# @router.get("/tasks/{task_id}/status")
-# async def get_task_status_old(
-#     task_id: str,
-#     user: dict = Depends(get_current_user)
-# ):
-#     """获取任务状态和进度（旧版实现）"""
-#     try:
-#         status = await get_analysis_service().get_task_status(task_id)
-#         if not status:
-#             raise HTTPException(status_code=404, detail="任务不存在")
-#         return {
-#             "success": True,
-#             "data": status
-#         }
-#     except Exception as e:
-#         raise HTTPException(status_code=400, detail=str(e))
-
 @router.post("/tasks/{task_id}/cancel")
 async def cancel_task(
     task_id: str,
@@ -826,6 +791,7 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
     logger.info(f"🔌 [WS] 认证成功: user={user_id}, task_id={task_id}")
 
     try:
+        from app.services.analysis_service import get_analysis_service
         analysis_service = get_analysis_service()
         task = await analysis_service.get_task_with_status_fallback(task_id)
         if task and str(task.get("user_id", "")) != str(user_id):
@@ -894,16 +860,12 @@ async def get_task_details(
 @router.get("/admin/zombie-tasks")
 async def get_zombie_tasks(
     max_running_hours: int = Query(default=2, ge=1, le=72, description="最大运行时长（小时）"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_admin)
 ):
     """获取僵尸任务列表（仅管理员）
 
     僵尸任务：长时间处于 processing/running/pending 状态的任务
     """
-    # 检查管理员权限
-    if not user.get("is_admin", False):
-        raise HTTPException(status_code=403, detail="仅管理员可访问")
-
     try:
         from app.services.analysis_service import get_analysis_service
         svc = get_analysis_service()
@@ -923,16 +885,12 @@ async def get_zombie_tasks(
 @router.post("/admin/cleanup-zombie-tasks")
 async def cleanup_zombie_tasks(
     max_running_hours: int = Query(default=2, ge=1, le=72, description="最大运行时长（小时）"),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_admin)
 ):
     """清理僵尸任务（仅管理员）
 
     将长时间处于 processing/running/pending 状态的任务标记为失败
     """
-    # 检查管理员权限
-    if not user.get("is_admin", False):
-        raise HTTPException(status_code=403, detail="仅管理员可访问")
-
     try:
         from app.services.analysis_service import get_analysis_service
         svc = get_analysis_service()

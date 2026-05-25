@@ -28,6 +28,17 @@ except ImportError:
 
 logger = get_logger('auth_db')
 
+
+def validate_password_strength(password: str) -> None:
+    """验证密码强度，不符合则抛出 HTTPException。"""
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="密码长度不能少于8位")
+    has_letter = any(c.isalpha() for c in password)
+    has_digit = any(c.isdigit() for c in password)
+    if not (has_letter and has_digit):
+        raise HTTPException(status_code=400, detail="密码必须同时包含字母和数字")
+
+
 # 统一响应格式
 class ApiResponse(BaseModel):
     success: bool = True
@@ -395,13 +406,7 @@ async def change_password(
     """修改密码"""
     try:
         # 新密码强度验证
-        password = payload.new_password
-        if len(password) < 8:
-            raise HTTPException(status_code=400, detail="密码长度不能少于8位")
-        has_letter = any(c.isalpha() for c in password)
-        has_digit = any(c.isdigit() for c in password)
-        if not (has_letter and has_digit):
-            raise HTTPException(status_code=400, detail="密码必须同时包含字母和数字")
+        validate_password_strength(payload.new_password)
 
         # 使用数据库服务修改密码
         success = await user_service.change_password(
@@ -437,13 +442,7 @@ async def reset_password(
             raise HTTPException(status_code=403, detail="权限不足")
 
         # 密码强度验证
-        password = payload.new_password
-        if len(password) < 8:
-            raise HTTPException(status_code=400, detail="密码长度不能少于8位")
-        has_letter = any(c.isalpha() for c in password)
-        has_digit = any(c.isdigit() for c in password)
-        if not (has_letter and has_digit):
-            raise HTTPException(status_code=400, detail="密码必须同时包含字母和数字")
+        validate_password_strength(payload.new_password)
 
         # 重置密码
         success = await user_service.reset_password(payload.username, payload.new_password)
@@ -485,13 +484,7 @@ async def register(payload: RegisterRequest, request: Request):
         if not payload.username or not payload.email or not payload.password:
             raise HTTPException(status_code=400, detail="用户名、邮箱和密码不能为空")
 
-        password = payload.password
-        if len(password) < 8:
-            raise HTTPException(status_code=400, detail="密码长度不能少于8位")
-        has_letter = any(c.isalpha() for c in password)
-        has_digit = any(c.isdigit() for c in password)
-        if not (has_letter and has_digit):
-            raise HTTPException(status_code=400, detail="密码必须同时包含字母和数字")
+        validate_password_strength(payload.password)
 
         user_create = UserCreate(
             username=payload.username,
@@ -556,13 +549,7 @@ async def create_user(
             raise HTTPException(status_code=403, detail="权限不足")
 
         # 密码强度验证
-        password = payload.password
-        if len(password) < 8:
-            raise HTTPException(status_code=400, detail="密码长度不能少于8位")
-        has_letter = any(c.isalpha() for c in password)
-        has_digit = any(c.isdigit() for c in password)
-        if not (has_letter and has_digit):
-            raise HTTPException(status_code=400, detail="密码必须同时包含字母和数字")
+        validate_password_strength(payload.password)
 
         # 创建用户
         user_create = UserCreate(

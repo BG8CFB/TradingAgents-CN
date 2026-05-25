@@ -116,9 +116,14 @@ class AKShareCNAdapter(BaseAdapter):
             total_mv = _safe_float(
                 get("total_mv") or get("总市值")
             )
+            # 百度股市通返回的市值单位是"亿元"，需转换为"元"
+            if total_mv is not None and total_mv < 1e12:
+                total_mv = total_mv * 1e8
             circ_mv = _safe_float(
                 get("circ_mv") or get("流通市值")
             )
+            if circ_mv is not None and circ_mv < 1e12:
+                circ_mv = circ_mv * 1e8
 
             results.append(DailyIndicatorsSchema(
                 symbol=symbol,
@@ -175,20 +180,24 @@ class AKShareCNAdapter(BaseAdapter):
         for _, row in df.iterrows():
             get = row.get
             symbol = str(get("symbol", "") or get("code", "")).zfill(6)
+            report_period = _parse_date(
+                get("report_period") or get("report_date") or get("end_date")
+            )
             results.append(FinancialDataSchema(
                 symbol=symbol,
                 market="CN",
                 data_source="akshare",
-                report_period=_parse_date(get("report_date") or get("end_date")),
+                report_period=report_period,
                 revenue=_safe_float(get("revenue") or get("营业收入")),
                 net_profit=_safe_float(get("net_profit") or get("净利润")),
                 total_assets=_safe_float(get("total_assets")),
                 total_equity=_safe_float(get("total_equity") or get("所有者权益合计")),
                 roe=_safe_float(get("roe")),
-                gross_margin=_safe_float(get("gross_margin")),
-                net_margin=_safe_float(get("net_margin")),
+                gross_margin=_safe_float(get("gross_margin") or get("grossprofit_margin")),
+                net_margin=_safe_float(get("net_margin") or get("netprofit_margin")),
                 eps=_safe_float(get("eps") or get("basic_eps")),
                 bps=_safe_float(get("bps")),
+                operating_cashflow=_safe_float(get("operating_cashflow")),
             ))
         return results
 
@@ -222,13 +231,27 @@ class AKShareCNAdapter(BaseAdapter):
         results = []
         for _, row in df.iterrows():
             get = row.get
-            symbol = str(get("symbol", "") or get("code", "")).zfill(6)
+            symbol = str(get("symbol", "") or get("code", "") or get("股票代码", "")).zfill(6)
+            close = _safe_float(get("price") or get("最新价") or get("close"))
+            pre_close = _safe_float(get("昨收") or get("pre_close"))
+            pct_chg = _safe_float(get("涨跌幅") or get("pct_chg") or get("change_percent"))
+            volume = _safe_float(get("volume") or get("成交量"))
+            amount = _safe_float(get("amount") or get("成交额") or get("turnover"))
             results.append(MarketQuotesSchema(
                 symbol=symbol,
                 market="CN",
                 data_source="akshare",
-                last_price=_safe_float(get("price") or get("最新价") or get("close")),
-                last_volume=_safe_float(get("volume") or get("成交量")),
+                open=_safe_float(get("开盘") or get("open")),
+                high=_safe_float(get("最高") or get("high")),
+                low=_safe_float(get("最低") or get("low")),
+                close=close,
+                pre_close=pre_close,
+                pct_chg=pct_chg,
+                volume=volume,
+                amount=amount,
+                turnover_rate=_safe_float(get("换手率") or get("turnover_rate")),
+                last_price=close,
+                last_volume=volume,
             ))
         return results
 

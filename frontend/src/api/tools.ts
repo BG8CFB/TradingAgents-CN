@@ -54,4 +54,4 @@ export const toolsApi = {
 }
 
 export type { UnifiedTool, UnifiedToolsResponse } from '@/types/tools'
-export type { MCPTool, MCPToolsResponse, ToolAvailabilitySummary, ToolToggleResponse } from '@/types/tools'
+export type { LegacyMCPTool as MCPTool, MCPToolsResponse, ToolAvailabilitySummary, ToolToggleResponse } from '@/types/tools'

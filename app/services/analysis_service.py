@@ -113,10 +113,24 @@ def get_provider_by_model_name_sync(model_name: str) -> str:
     return provider_info["provider"]
 
 
+# 同步查询缓存：减少对 MongoDB 的直接查询频率
+_model_config_cache: Dict[str, dict] = {}
+_model_config_cache_time: float = 0
+_MODEL_CONFIG_CACHE_TTL: float = 60.0  # 60 秒 TTL
+
+
 def get_provider_and_url_by_model_sync(model_name: str) -> dict:
     """
-    根据模型名称从数据库配置中查找对应的供应商和 API URL（同步版本）
+    根据模型名称从数据库配置中查找对应的供应商和 API URL（同步版本，带缓存）
     """
+    import time as _time
+    global _model_config_cache, _model_config_cache_time
+
+    # 缓存命中检查
+    now = _time.time()
+    if model_name in _model_config_cache and (now - _model_config_cache_time) < _MODEL_CONFIG_CACHE_TTL:
+        return _model_config_cache[model_name]
+
     try:
         db = get_mongo_db_sync()
         # 查询最新的活跃配置
@@ -167,13 +181,14 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
                         backend_url = _get_default_backend_url(provider)
                         logger.warning(f"⚠️ [同步查询] 厂家 {provider} 没有配置 default_base_url，使用硬编码默认值")
 
-                    return {
+                    result = {
                         "provider": provider,
                         "backend_url": backend_url,
                         "api_key": api_key
                     }
-
-        # 如果数据库中没有找到模型配置，使用默认映射
+                    _model_config_cache[model_name] = result
+                    _model_config_cache_time = _time.time()
+                    return result
         logger.warning(f"⚠️ [同步查询] 数据库中未找到模型 {model_name}，使用默认映射")
         provider = _get_default_provider_by_model(model_name)
 
@@ -202,28 +217,37 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
                 if api_key:
                     logger.info("✅ [同步查询] 使用环境变量的 API Key")
 
-            return {
+            result = {
                 "provider": provider,
                 "backend_url": backend_url,
                 "api_key": api_key
             }
+            _model_config_cache[model_name] = result
+            _model_config_cache_time = _time.time()
+            return result
         except Exception as e:
             logger.warning(f"⚠️ [同步查询] 无法查询厂家配置: {e}")
 
         # 最后回退到硬编码的默认 URL 和环境变量 API Key
-        return {
+        result = {
             "provider": provider,
             "backend_url": _get_default_backend_url(provider),
             "api_key": _get_env_api_key_for_provider(provider)
         }
+        _model_config_cache[model_name] = result
+        _model_config_cache_time = _time.time()
+        return result
     except Exception as e:
         logger.error(f"❌ [同步查询] 查找模型供应商失败: {e}")
         provider = _get_default_provider_by_model(model_name)
-        return {
+        fallback_result = {
             "provider": provider,
             "backend_url": _get_default_backend_url(provider),
             "api_key": _get_env_api_key_for_provider(provider)
         }
+        _model_config_cache[model_name] = fallback_result
+        _model_config_cache_time = _time.time()
+        return fallback_result
 
 
 def _get_env_api_key_for_provider(provider: str) -> str:
@@ -284,6 +308,9 @@ def _get_default_provider_by_model(model_name: str) -> str:
         'gemini-2.0-flash-thinking-exp': 'google',
         'deepseek-chat': 'deepseek',
         'deepseek-coder': 'deepseek',
+        'deepseek-v4-flash': 'deepseek',
+        'deepseek-v4-pro': 'deepseek',
+        'deepseek-reasoner': 'deepseek',
         'glm-4': 'zhipu',
         'glm-3-turbo': 'zhipu',
         'chatglm3-6b': 'zhipu'
@@ -392,12 +419,14 @@ class AnalysisService:
 
         logger.info(f"🔧 [服务初始化] AnalysisService 实例ID: {id(self)}")
 
-    def _shutdown_pool(self):
+    def _shutdown_pool(self, wait: bool = False):
+        """关闭线程池。可在 lifespan 关闭时显式调用（wait=True）或由 atexit 触发。"""
         try:
             if self._thread_pool:
-                self._thread_pool.shutdown(wait=False)
-        except Exception:
-            pass
+                self._thread_pool.shutdown(wait=wait)
+                logger.info("🔧 线程池已关闭")
+        except Exception as e:
+            logger.warning(f"⚠️ 关闭线程池失败: {e}")
 
     # -------------------------------------------------------------------------
     # Private Methods
@@ -464,7 +493,11 @@ class AnalysisService:
         return tasks
 
     def _convert_user_id(self, user_id: str) -> PyObjectId:
-        """将字符串用户ID转换为PyObjectId"""
+        """将字符串用户ID转换为PyObjectId（已废弃，保留兼容）
+
+        .. deprecated::
+            请使用 `_convert_user_id_async` 替代，避免在异步事件循环中执行同步数据库查询。
+        """
         try:
             if user_id == "admin":
                 # 从数据库查询 admin 用户的真实 ObjectId
@@ -2300,15 +2333,23 @@ class AnalysisService:
                     continue
                 code6 = str(symbol).zfill(6)
                 b = await db.stock_basic_info.find_one({"symbol": code6}, {"_id": 0, "name": 1, "market": 1})
-                q = await db.market_quotes.find_one({"symbol": code6}, {"_id": 0, "close": 1, "pct_chg": 1, "volume": 1})
+
+                # 从 daily_quotes 获取最新收盘价和涨跌幅
+                from app.data.storage.mongo.collections import get_collection_name
+                dq_coll = db[get_collection_name("daily_quotes", "CN")]
+                dq = await dq_coll.find_one(
+                    {"symbol": code6},
+                    {"_id": 0, "close": 1, "pct_chg": 1, "volume": 1},
+                    sort=[("trade_date", -1)],
+                )
 
                 results.append({
                     "symbol": symbol,
                     "name": (b or {}).get("name", ""),
                     "market": (b or {}).get("market", "A股"),
-                    "current_price": (q or {}).get("close"),
-                    "change_percent": (q or {}).get("pct_chg"),
-                    "volume": (q or {}).get("volume"),
+                    "current_price": (dq or {}).get("close"),
+                    "change_percent": (dq or {}).get("pct_chg"),
+                    "volume": (dq or {}).get("volume"),
                     "analysis_count": doc["count"],
                 })
 

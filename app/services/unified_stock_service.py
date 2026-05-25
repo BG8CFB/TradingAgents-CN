@@ -69,37 +69,65 @@ class UnifiedStockService:
         return [data]
 
     async def get_cn_quote_with_basic_info(self, code6: str) -> Optional[Dict]:
-        """获取 A 股实时行情（合并 market_quotes + basic_info）。"""
+        """获取 A 股实时行情（合并 market_quotes + daily_quotes + basic_info）。"""
         di = self._di()
 
+        # 1) market_quotes：获取最新价格（字段：last_price, last_volume, last_updated）
         q_result = await di.read("CN", "market_quotes", symbol=code6)
         q = q_result.get("data")
 
+        # 2) daily_quotes 最新一条：获取 open/high/low/close/pct_chg/volume/amount/turnover_rate
+        dq = {}
+        try:
+            from app.data.storage.mongo.client import get_motor_db
+            from app.data.storage.mongo.collections import get_collection_name
+            db = get_motor_db()
+            dq_coll = db[get_collection_name("daily_quotes", "CN")]
+            latest_dq = await dq_coll.find_one(
+                {"symbol": code6},
+                sort=[("trade_date", -1)],
+            )
+            if latest_dq:
+                latest_dq.pop("_id", None)
+                dq = latest_dq
+        except Exception as e:
+            logger.warning(f"获取 daily_quotes 最新记录失败: {e}")
+
+        # 3) basic_info：获取名称等
         b_result = await di.read("CN", "basic_info", symbol=code6)
         b = b_result.get("data")
 
-        if not q and not b:
+        if not q and not dq and not b:
             return None
 
-        close = (q or {}).get("close")
-        pct = (q or {}).get("pct_chg")
-        pre_close_saved = (q or {}).get("pre_close")
-        prev_close = pre_close_saved
-        if prev_close is None:
+        # 价格：优先 market_quotes 的实时价，其次 daily_quotes 收盘价
+        close = (q or {}).get("last_price") or dq.get("close")
+        pct = dq.get("pct_chg")
+        prev_close = dq.get("pre_close")
+        if prev_close is None and close is not None and pct is not None:
             try:
-                if close is not None and pct is not None:
-                    prev_close = round(float(close) / (1.0 + float(pct) / 100.0), 4)
+                prev_close = round(float(close) / (1.0 + float(pct) / 100.0), 4)
             except Exception:
                 prev_close = None
 
-        turnover_rate = (q or {}).get("turnover_rate")
+        turnover_rate = dq.get("turnover_rate")
         if turnover_rate is None:
             turnover_rate = (b or {}).get("turnover_rate")
+        # daily_quotes 和 basic_info 可能都没有 turnover_rate，尝试从 daily_indicators 获取
+        if turnover_rate is None:
+            try:
+                ind_result = await di.read("CN", "daily_indicators", symbol=code6)
+                ind_data = ind_result.get("data")
+                if ind_data:
+                    ind = ind_data[0] if isinstance(ind_data, list) and ind_data else ind_data
+                    turnover_rate = ind.get("turnover_rate")
+            except Exception:
+                pass
 
         amplitude = None
         try:
-            high = (q or {}).get("high")
-            low = (q or {}).get("low")
+            high = dq.get("high")
+            low = dq.get("low")
             if high is not None and low is not None and prev_close is not None and prev_close > 0:
                 amplitude = round((float(high) - float(low)) / float(prev_close) * 100, 2)
         except Exception:
@@ -111,17 +139,17 @@ class UnifiedStockService:
             "market": (b or {}).get("market"),
             "price": close,
             "change_percent": pct,
-            "amount": (q or {}).get("amount"),
-            "volume": (q or {}).get("volume"),
-            "open": (q or {}).get("open"),
-            "high": (q or {}).get("high"),
-            "low": (q or {}).get("low"),
+            "amount": dq.get("amount"),
+            "volume": dq.get("volume"),
+            "open": dq.get("open"),
+            "high": dq.get("high"),
+            "low": dq.get("low"),
             "prev_close": prev_close,
             "turnover_rate": turnover_rate,
             "amplitude": amplitude,
-            "trade_date": (q or {}).get("trade_date"),
-            "updated_at": (q or {}).get("updated_at"),
-            "data_source": (q or {}).get("data_source") or (b or {}).get("data_source"),
+            "trade_date": dq.get("trade_date"),
+            "updated_at": (q or {}).get("updated_at") or dq.get("updated_at"),
+            "data_source": (q or {}).get("data_source") or dq.get("data_source") or (b or {}).get("data_source"),
         }
 
     async def get_cn_fundamentals(
@@ -160,6 +188,7 @@ class UnifiedStockService:
                     "pe_ttm": latest.get("pe_ttm"),
                     "ps_ttm": latest.get("ps_ttm"),
                     "market_cap": latest.get("total_mv"),
+                    "turnover_rate": latest.get("turnover_rate"),
                     "source": "daily_indicators",
                     "is_realtime": False,
                     "updated_at": latest.get("updated_at"),
@@ -171,6 +200,7 @@ class UnifiedStockService:
                     "pe_ttm": ind_data.get("pe_ttm"),
                     "ps_ttm": ind_data.get("ps_ttm"),
                     "market_cap": ind_data.get("total_mv"),
+                    "turnover_rate": ind_data.get("turnover_rate"),
                     "source": "daily_indicators",
                     "is_realtime": False,
                     "updated_at": ind_data.get("updated_at"),
@@ -203,7 +233,7 @@ class UnifiedStockService:
             "total_mv": total_mv,
             "circ_mv": b.get("circ_mv"),
             "mv_is_realtime": bool(realtime_market_cap),
-            "turnover_rate": b.get("turnover_rate"),
+            "turnover_rate": realtime_metrics.get("turnover_rate") or b.get("turnover_rate"),
             "volume_ratio": b.get("volume_ratio"),
             "updated_at": b.get("updated_at"),
             "data_source": b.get("data_source"),

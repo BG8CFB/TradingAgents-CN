@@ -20,7 +20,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     """请求ID和日志中间件（trace_id）"""
 
     # 不记录日志的路径（健康检查等高频请求）
-    SKIP_LOG_PATHS = {"/api/health", "/health", "/api/ws/notifications"}
+    SKIP_LOG_PATHS = {"/api/health", "/health", "/api/ws/notifications", "/favicon.ico"}
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # 生成请求ID/trace_id

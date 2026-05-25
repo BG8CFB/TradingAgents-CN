@@ -38,11 +38,10 @@ class PeriodAggregator:
 
             aggregated = dict(group[-1])  # 复制最后一天的数据
             aggregated["open"] = group[0].get("open")
-            aggregated["high"] = max(r.get("high", 0) or 0 for r in group)
-            aggregated["low"] = min(
-                r.get("low", float("inf")) for r in group
-                if r.get("low") is not None
-            )
+            valid_highs = [r.get("high") for r in group if r.get("high") is not None]
+            aggregated["high"] = max(valid_highs) if valid_highs else None
+            valid_lows = [r.get("low") for r in group if r.get("low") is not None]
+            aggregated["low"] = min(valid_lows) if valid_lows else None
             aggregated["volume"] = sum(r.get("volume", 0) or 0 for r in group)
             aggregated["amount"] = sum(r.get("amount", 0) or 0 for r in group)
             aggregated["period"] = period

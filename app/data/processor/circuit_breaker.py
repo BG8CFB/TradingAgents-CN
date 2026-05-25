@@ -1,6 +1,7 @@
 """熔断器 — 按 source × domain 粒度隔离故障。"""
 
 import logging
+import threading
 import time
 from typing import Dict, Optional, Tuple
 
@@ -30,6 +31,7 @@ class CircuitBreaker:
 
     def __init__(self):
         self._states: Dict[Tuple[str, str], dict] = {}
+        self._lock = threading.Lock()
 
     def _get_state(self, source: str, domain: str) -> dict:
         key = (source, domain)
@@ -46,44 +48,48 @@ class CircuitBreaker:
 
     def is_open(self, source: str, domain: str) -> bool:
         """判断熔断器是否打开（请求应被拒绝）。"""
-        state = self._get_state(source, domain)
+        with self._lock:
+            state = self._get_state(source, domain)
 
-        if state["state"] == CircuitState.CLOSED:
-            return False
-
-        if state["state"] == CircuitState.OPEN:
-            elapsed = time.time() - state["opened_at"]
-            if elapsed >= state["cooldown"]:
-                state["state"] = CircuitState.HALF_OPEN
-                logger.info(f"熔断器半开: {source}/{domain}")
+            if state["state"] == CircuitState.CLOSED:
                 return False
-            return True
 
-        return False  # HALF_OPEN 允许探测
+            if state["state"] == CircuitState.OPEN:
+                elapsed = time.time() - state["opened_at"]
+                if elapsed >= state["cooldown"]:
+                    state["state"] = CircuitState.HALF_OPEN
+                    logger.info(f"熔断器半开: {source}/{domain}")
+                    return False
+                return True
+
+            return False  # HALF_OPEN 允许探测
 
     def get_state(self, source: str, domain: str) -> CircuitState:
-        return self._get_state(source, domain)["state"]
+        with self._lock:
+            return self._get_state(source, domain)["state"]
 
     def record_success(self, source: str, domain: str) -> None:
-        state = self._get_state(source, domain)
-        state["state"] = CircuitState.CLOSED
-        state["failures"] = []
-        state["last_success"] = time.time()
-        state["trip_count"] = max(0, state["trip_count"] - 1)
+        with self._lock:
+            state = self._get_state(source, domain)
+            state["state"] = CircuitState.CLOSED
+            state["failures"] = []
+            state["last_success"] = time.time()
+            state["trip_count"] = max(0, state["trip_count"] - 1)
 
     def record_failure(self, source: str, domain: str, error_code: Optional[DataErrorCode] = None) -> None:
-        state = self._get_state(source, domain)
-        now = time.time()
+        with self._lock:
+            state = self._get_state(source, domain)
+            now = time.time()
 
-        state["failures"] = [t for t in state["failures"] if now - t < WINDOW_SECONDS]
-        state["failures"].append(now)
+            state["failures"] = [t for t in state["failures"] if now - t < WINDOW_SECONDS]
+            state["failures"].append(now)
 
-        if state["state"] == CircuitState.HALF_OPEN:
-            self._trip(source, domain, error_code)
-            return
+            if state["state"] == CircuitState.HALF_OPEN:
+                self._trip(source, domain, error_code)
+                return
 
-        if len(state["failures"]) >= FAILURE_THRESHOLD:
-            self._trip(source, domain, error_code)
+            if len(state["failures"]) >= FAILURE_THRESHOLD:
+                self._trip(source, domain, error_code)
 
     def _trip(self, source: str, domain: str, error_code: Optional[DataErrorCode] = None) -> None:
         state = self._get_state(source, domain)
@@ -100,10 +106,11 @@ class CircuitBreaker:
 
     def reset(self, source: str, domain: str) -> None:
         """手动重置熔断器到 Closed 状态。"""
-        state = self._get_state(source, domain)
-        state["state"] = CircuitState.CLOSED
-        state["failures"] = []
-        state["trip_count"] = 0
-        state["opened_at"] = 0
-        state["cooldown"] = COOLDOWN_STEPS[0]
-        logger.info(f"熔断器已重置: {source}/{domain}")
+        with self._lock:
+            state = self._get_state(source, domain)
+            state["state"] = CircuitState.CLOSED
+            state["failures"] = []
+            state["trip_count"] = 0
+            state["opened_at"] = 0
+            state["cooldown"] = COOLDOWN_STEPS[0]
+            logger.info(f"熔断器已重置: {source}/{domain}")

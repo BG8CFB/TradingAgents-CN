@@ -67,11 +67,14 @@ def scheduler_engine():
     from app.data.scheduler.engine import SchedulerEngine
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+    # 重置单例，确保每个测试获得独立实例
+    SchedulerEngine._instance = None
     scheduler = AsyncIOScheduler(timezone="UTC")
     engine = SchedulerEngine(scheduler=scheduler)
     yield engine
     if engine._scheduler.running:
         engine._scheduler.shutdown(wait=False)
+    SchedulerEngine._instance = None
 
 
 # ============================================================

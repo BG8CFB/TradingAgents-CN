@@ -104,10 +104,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         normalized_endpoint = endpoint.rstrip("/")
         rate_limit = self.endpoint_limits.get(normalized_endpoint, self.default_rate_limit)
         
-        # 构建Redis键
+        # 构建Redis键（使用标准化路径，确保尾部斜杠不影响计数）
         rate_key = RedisKeys.USER_RATE_LIMIT.format(
             user_id=user_id,
-            endpoint=endpoint.replace("/", "_")
+            endpoint=normalized_endpoint.replace("/", "_")
         )
         
         # 获取当前计数

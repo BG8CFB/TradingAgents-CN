@@ -38,15 +38,13 @@ class CompletenessChecker:
         )
         active_stocks = await basic_cursor.to_list(length=None)
 
-        # 检查每只活跃股票是否都有当日行情
-        missing_quotes = []
-        for stock in active_stocks:
-            exists = await db[quotes_coll].find_one(
-                {"symbol": stock["symbol"], "trade_date": check_date},
-                {"_id": 1}
-            )
-            if not exists:
-                missing_quotes.append({"symbol": stock["symbol"], "missing_date": check_date})
+        # 批量查询当日有行情的股票，然后在内存中做差集
+        existing_symbols = await db[quotes_coll].distinct("symbol", {"trade_date": check_date})
+        active_symbols = {s["symbol"] for s in active_stocks}
+        missing_quotes = [
+            {"symbol": s, "missing_date": check_date}
+            for s in active_symbols - set(existing_symbols)
+        ]
 
         if missing_quotes:
             results["daily_quotes"] = missing_quotes

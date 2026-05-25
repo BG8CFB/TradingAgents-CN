@@ -226,8 +226,9 @@ def get_baostock_rate_limiter() -> BaoStockRateLimiter:
 def reset_all_limiters():
     """重置所有速率限制器"""
     global _tushare_limiter, _akshare_limiter, _baostock_limiter
-    _tushare_limiter = None
-    _akshare_limiter = None
-    _baostock_limiter = None
+    with _rate_limiter_lock:
+        _tushare_limiter = None
+        _akshare_limiter = None
+        _baostock_limiter = None
     logger.info("🔄 所有速率限制器已重置")
 

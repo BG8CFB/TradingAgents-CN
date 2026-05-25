@@ -12,7 +12,7 @@ export const useNotificationStore = defineStore('notifications', () => {
   // 🔥 WebSocket 连接状态
   const ws = ref<WebSocket | null>(null)
   const wsConnected = ref(false)
-  let wsReconnectTimer: any = null
+  let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
   let wsReconnectAttempts = 0
   const maxReconnectAttempts = 10  // 增加重连次数
 

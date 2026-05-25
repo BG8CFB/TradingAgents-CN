@@ -84,7 +84,7 @@
 provider: dashscope
 model: qwen-plus          # 标准级，工具调用可靠，数字准确
 temperature: 0.2
-max_tokens: 4000
+max_tokens: 200000
 ```
 
 ### 4.2 辩论推理模型（二至四阶段）
@@ -109,7 +109,7 @@ max_tokens: 4000
 provider: dashscope
 model: qwen-max           # 专业级，强推理，长上下文
 temperature: 0.1
-max_tokens: 8000
+max_tokens: 200000
 ```
 
 ### 4.3 一句话总结

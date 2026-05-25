@@ -2,10 +2,16 @@
 """
 使用记录数据模型
 用于 Token 使用统计和成本跟踪
+
+注意：ModelConfig 已合并到 app.models.config.LLMConfig，保留别名以保持向后兼容。
 """
 
 from dataclasses import dataclass
 from typing import Optional
+
+# ModelConfig 已从 app.models.config 导入别名，不再在此定义
+# 避免与 Pydantic LLMConfig 重复维护默认值
+from app.models.config import LLMConfig as ModelConfig  # noqa: F401
 
 
 @dataclass
@@ -20,18 +26,6 @@ class UsageRecord:
     currency: str = "CNY"  # 货币单位
     session_id: str = ""  # 会话ID
     analysis_type: str = "stock_analysis"  # 分析类型
-
-
-@dataclass
-class ModelConfig:
-    """模型配置"""
-    provider: str  # 供应商：dashscope, openai, google, etc.
-    model_name: str  # 模型名称
-    api_key: str  # API密钥
-    base_url: Optional[str] = None  # 自定义API地址
-    max_tokens: int = 4000  # 最大token数
-    temperature: float = 0.7  # 温度参数
-    enabled: bool = True  # 是否启用
 
 
 @dataclass

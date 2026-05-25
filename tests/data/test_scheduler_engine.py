@@ -201,23 +201,26 @@ class TestTriggerJob:
     @pytest.mark.asyncio
     async def test_trigger_job_returns_job_id(self, scheduler_engine):
         scheduler_engine._registry.register("daily_quotes", "CN", FakeJob)
-        result = scheduler_engine.trigger_job("CN", "daily_quotes")
+        result = await scheduler_engine.trigger_job("CN", "daily_quotes")
         assert result == "cn_daily_quotes"
 
-    def test_trigger_job_unregistered_returns_empty(self, scheduler_engine):
-        result = scheduler_engine.trigger_job("CN", "unknown_domain")
+    @pytest.mark.asyncio
+    async def test_trigger_job_unregistered_returns_empty(self, scheduler_engine):
+        result = await scheduler_engine.trigger_job("CN", "unknown_domain")
         assert result == ""
 
-    def test_trigger_job_instantiation_error_returns_empty(self, scheduler_engine):
+    @pytest.mark.asyncio
+    async def test_trigger_job_instantiation_error_returns_job_id(self, scheduler_engine):
+        """任务实例化错误被内部捕获并记录日志，trigger_job 仍返回 job_id。"""
         scheduler_engine._registry.register("daily_quotes", "CN", BrokenJob)
-        result = scheduler_engine.trigger_job("CN", "daily_quotes")
-        assert result == ""
+        result = await scheduler_engine.trigger_job("CN", "daily_quotes")
+        assert result == "cn_daily_quotes"
 
     @pytest.mark.asyncio
     async def test_trigger_job_market_case_sensitivity(self, scheduler_engine):
         scheduler_engine._registry.register("daily_quotes", "CN", FakeJob)
-        assert scheduler_engine.trigger_job("CN", "daily_quotes") == "cn_daily_quotes"
-        assert scheduler_engine.trigger_job("cn", "daily_quotes") == "cn_daily_quotes"
+        assert await scheduler_engine.trigger_job("CN", "daily_quotes") == "cn_daily_quotes"
+        assert await scheduler_engine.trigger_job("cn", "daily_quotes") == "cn_daily_quotes"
 
     @pytest.mark.asyncio
     async def test_trigger_job_multiple_markets(self, scheduler_engine):
@@ -225,9 +228,9 @@ class TestTriggerJob:
         scheduler_engine._registry.register("daily_quotes", "HK", FakeJob)
         scheduler_engine._registry.register("daily_quotes", "US", FakeJob)
 
-        assert scheduler_engine.trigger_job("CN", "daily_quotes") == "cn_daily_quotes"
-        assert scheduler_engine.trigger_job("HK", "daily_quotes") == "hk_daily_quotes"
-        assert scheduler_engine.trigger_job("US", "daily_quotes") == "us_daily_quotes"
+        assert await scheduler_engine.trigger_job("CN", "daily_quotes") == "cn_daily_quotes"
+        assert await scheduler_engine.trigger_job("HK", "daily_quotes") == "hk_daily_quotes"
+        assert await scheduler_engine.trigger_job("US", "daily_quotes") == "us_daily_quotes"
 
 
 # ---------------------------------------------------------------------------

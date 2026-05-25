@@ -22,8 +22,9 @@ export const notificationsApi = {
   async getUnreadCount(): Promise<{ success: boolean; data: { count: number } }> {
     try {
       return await ApiClient.get('/api/notifications/unread_count')
-    } catch {
-      return { success: true, data: { count: 0 } }
+    } catch (e) {
+      console.warn('[Notifications] 获取未读计数失败:', e)
+      return { success: false, data: { count: 0 } }
     }
   },
 
@@ -36,24 +37,27 @@ export const notificationsApi = {
     const url = query.toString() ? `/api/notifications?${query.toString()}` : '/api/notifications'
     try {
       return await ApiClient.get(url)
-    } catch {
-      return { success: true, data: { items: [], total: 0, page: params?.page ?? 1, page_size: params?.page_size ?? 20 } }
+    } catch (e) {
+      console.warn('[Notifications] 获取通知列表失败:', e)
+      return { success: false, data: { items: [], total: 0, page: params?.page ?? 1, page_size: params?.page_size ?? 20 } }
     }
   },
 
   async markRead(id: string): Promise<{ success: boolean }> {
     try {
       return await ApiClient.post(`/api/notifications/${id}/read`)
-    } catch {
-      return { success: true }
+    } catch (e) {
+      console.warn('[Notifications] 标记已读失败:', e)
+      return { success: false }
     }
   },
 
   async markAllRead(): Promise<{ success: boolean }> {
     try {
       return await ApiClient.post('/api/notifications/read_all')
-    } catch {
-      return { success: true }
+    } catch (e) {
+      console.warn('[Notifications] 全部标记已读失败:', e)
+      return { success: false }
     }
   }
 }

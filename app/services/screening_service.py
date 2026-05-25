@@ -284,12 +284,10 @@ class ScreeningService:
                 logger.info(f"📊 从 MongoDB 获取到 {len(codes)} 只A股股票")
                 return codes
             else:
-                # 如果数据库为空，返回常见股票代码作为兜底
-                logger.warning("⚠️ MongoDB 中未找到股票数据，使用兜底股票列表")
-                return ["000001", "000002", "000858", "600519", "600036", "601318", "300750"]
+                logger.warning("⚠️ MongoDB 中未找到股票数据，请先执行数据同步")
+                return []
 
         except Exception as e:
             logger.error(f"❌ 从 MongoDB 获取股票列表失败: {e}")
-            # 异常时返回常见股票代码作为兜底
-            return ["000001", "000002", "000858", "600519", "600036", "601318", "300750"]
+            return []
 

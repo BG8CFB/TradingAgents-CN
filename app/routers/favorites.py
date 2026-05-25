@@ -260,7 +260,7 @@ async def sync_favorites_realtime(
         for symbol in symbols:
             try:
                 result = await di.refresh("CN", symbol, domains=["market_quotes"], force=True)
-                if result.status == "success":
+                if result.status in ("refreshed", "fresh", "success"):
                     success_count += 1
                 else:
                     failed_count += 1

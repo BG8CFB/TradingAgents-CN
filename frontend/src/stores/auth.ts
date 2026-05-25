@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import { useStorage } from '@vueuse/core'
 import { ElMessage } from 'element-plus'
 import { authApi } from '@/api/auth'
 import type { User, LoginForm, RegisterForm } from '@/types/auth'
@@ -26,8 +25,11 @@ export interface AuthState {
 
 export const useAuthStore = defineStore('auth', {
   state: (): AuthState => {
-    const token = useStorage('auth-token', null).value || null
-    const refreshToken = useStorage('refresh-token', null).value || null
+    // TODO(安全): JWT Token 当前存储在 localStorage 中，存在 XSS 攻击窃取风险。
+    // 长期方案：改为 HttpOnly Cookie + SameSite=Strict，需后端配合实现。
+    // 参考：https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
+    const token = localStorage.getItem('auth-token') || null
+    const refreshToken = localStorage.getItem('refresh-token') || null
 
     // 验证token格式
     const isValidToken = (token: string | null): boolean => {
@@ -57,7 +59,7 @@ export const useAuthStore = defineStore('auth', {
       token: validToken,
       refreshToken: validRefreshToken,
 
-      user: validToken ? (useStorage('user-info', null).value || null) : null,
+      user: validToken ? (() => { try { const raw = localStorage.getItem('user-info'); return raw ? JSON.parse(raw) : null } catch { return null } })() : null,
 
       permissions: [],
       roles: [],

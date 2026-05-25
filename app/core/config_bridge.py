@@ -37,7 +37,7 @@ async def bridge_config_to_env() -> bool:
         bridged_count = 0
 
         # ── Step 1：MongoDB 存储环境变量 ──────────────────────────────
-        use_mongodb_storage = os.getenv("USE_MONGODB_STORAGE") or "true"
+        use_mongodb_storage = os.getenv("USE_MONGODB_STORAGE", "true")
         os.environ["USE_MONGODB_STORAGE"] = use_mongodb_storage
         logger.info(f"  USE_MONGODB_STORAGE={use_mongodb_storage}")
         bridged_count += 1

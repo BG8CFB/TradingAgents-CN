@@ -55,14 +55,18 @@ class SimpleJsonFormatter(logging.Formatter):
 
 
 def _parse_size(size_str: str) -> int:
-    """解析大小字符串（如 '10MB'）为字节数"""
+    """解析大小字符串（如 '10MB', '512KB', '1GB'）为字节数"""
     if isinstance(size_str, int):
         return size_str
-    if isinstance(size_str, str) and size_str.upper().endswith("MB"):
-        try:
-            return int(float(size_str[:-2]) * 1024 * 1024)
-        except Exception:
-            return 10 * 1024 * 1024
+    if isinstance(size_str, str):
+        size_str = size_str.strip().upper()
+        multipliers = {"KB": 1024, "MB": 1024 ** 2, "GB": 1024 ** 3}
+        for suffix, multiplier in multipliers.items():
+            if size_str.endswith(suffix):
+                try:
+                    return int(float(size_str[: -len(suffix)]) * multiplier)
+                except Exception:
+                    return 10 * 1024 * 1024
     return 10 * 1024 * 1024
 
 
@@ -119,17 +123,6 @@ def setup_logging(log_level: str = "INFO"):
             handlers_cfg = logging_root.get("handlers", {})
             file_handler_cfg = handlers_cfg.get("file", {})
             file_dir_cfg = file_handler_cfg.get("directory", "logs")
-            file_level = file_handler_cfg.get("level", "DEBUG")
-            max_bytes = file_handler_cfg.get("max_size", "10MB")
-            # 支持 "10MB" 形式
-            if isinstance(max_bytes, str) and max_bytes.upper().endswith("MB"):
-                try:
-                    max_bytes = int(float(max_bytes[:-2]) * 1024 * 1024)
-                except Exception:
-                    max_bytes = 10 * 1024 * 1024
-            elif not isinstance(max_bytes, int):
-                max_bytes = 10 * 1024 * 1024
-            backup_count = int(file_handler_cfg.get("backup_count", 5))
 
             file_dir = _resolve_logs_dir(file_dir_cfg)
 

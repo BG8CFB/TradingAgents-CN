@@ -453,7 +453,7 @@ export const configApi = {
   },
 
   // 导出配置
-  exportConfig(): Promise<ApiResponse<{ message: string; data: any; exported_at: string }>> {
+  exportConfig(): Promise<ApiResponse<{ message: string; data: Record<string, any>; exported_at: string }>> {
     return ApiClient.post('/api/config/export')
   },
 
@@ -520,14 +520,8 @@ export const DATABASE_TYPES = {
   POSTGRESQL: 'postgresql'
 } as const
 
-// 默认配置模板
-export const DEFAULT_LLM_CONFIG: Partial<LLMConfig> = {
-  max_tokens: 4000,
-  temperature: 0.7,
-  timeout: 60,
-  retry_times: 3,
-  enabled: true
-}
+// 默认 LLM 配置从单一源头导入
+export { DEFAULT_LLM_CONFIG } from '@/constants/llmDefaults'
 
 export const DEFAULT_DATA_SOURCE_CONFIG: Partial<DataSourceConfig> = {
   timeout: 30,

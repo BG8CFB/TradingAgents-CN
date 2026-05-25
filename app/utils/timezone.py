@@ -20,15 +20,15 @@ from app.utils.time_utils import (  # noqa: F401 — re-export
     get_current_datetime_str,
 )
 
-from app.engine.config.runtime_settings import get_timezone_name, get_zoneinfo
-
 
 # 别名：旧代码可能通过 timezone.py 调用的额外名称
 def get_tz_name() -> str:
+    from app.engine.config.runtime_settings import get_timezone_name
     return get_timezone_name()
 
 
 def get_tz():
+    from app.engine.config.runtime_settings import get_zoneinfo
     return get_zoneinfo()
 
 

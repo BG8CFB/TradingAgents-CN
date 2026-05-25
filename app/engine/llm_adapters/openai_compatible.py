@@ -15,6 +15,7 @@ from langchain_openai import ChatOpenAI
 
 from app.engine.llm_adapters.base import BaseChatAdapter
 from app.utils.logging_manager import get_logger
+from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TIMEOUT
 
 logger = get_logger("agents")
 
@@ -31,9 +32,9 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
         model: str = "gpt-4o-mini",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        temperature: float = 0.7,
+        temperature: float = DEFAULT_TEMPERATURE,
         max_tokens: Optional[int] = None,
-        timeout: int = 180,
+        timeout: int = DEFAULT_TIMEOUT,
         api_key_env: Optional[str] = None,
         **kwargs,
     ):
@@ -49,6 +50,10 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
 
         # 解析 API Key: 显式参数 > 环境变量
         resolved_key = self.resolve_api_key(provider, api_key, resolved_env)
+
+        # max_tokens 内部 fallback：显式 None → 使用全局默认值
+        if max_tokens is None:
+            max_tokens = DEFAULT_MAX_TOKENS
 
         # 本地模型（Ollama 等）允许空 API Key
         allow_no_key = defaults.get("allow_no_key", False)
@@ -154,6 +159,7 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
         self, result: ChatResult, messages: List[BaseMessage]
     ) -> None:
         """回填空的 content — 从底层 SDK 原生响应中提取 reasoning 字段"""
+        provider = getattr(self, "_provider_name", "")
         for gen in result.generations:
             msg = getattr(gen, "message", None)
             if msg is None:
@@ -161,13 +167,25 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
             content = getattr(msg, "content", None)
             has_tool_calls = bool(getattr(msg, "tool_calls", None))
             if (content is None or content == "") and not has_tool_calls:
-                reasoning = self._fetch_reasoning(messages)
+                # 优先从 message 对象直接提取 reasoning_content（DeepSeek 等推理模型）
+                reasoning = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
                 if reasoning:
                     msg.content = reasoning
                     logger.debug(
-                        f"[{getattr(self, '_provider_name', '')}] "
-                        f"content 为空，已从 reasoning 回填 ({len(reasoning)} 字符)"
+                        f"[{provider}] "
+                        f"content 为空，已从 reasoning_content 回填 ({len(reasoning)} 字符)"
                     )
+                # Ollama think 模式需要额外 API 调用获取 reasoning
+                elif provider == "ollama":
+                    reasoning = self._fetch_reasoning(messages)
+                    if reasoning:
+                        msg.content = reasoning
+                        logger.debug(
+                            f"[{provider}] "
+                            f"content 为空，已从 reasoning 回填 ({len(reasoning)} 字符)"
+                        )
+                else:
+                    logger.debug(f"[{provider}] content 为空，跳过 reasoning 回填")
 
     def _fetch_reasoning(self, messages: List[BaseMessage]) -> str:
         """用底层 OpenAI SDK 发起原生调用获取 reasoning 字段
@@ -209,10 +227,10 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
                 model=model_name,
                 messages=openai_messages,
                 max_tokens=getattr(self, 'max_tokens', 200) or 200,
-                temperature=getattr(self, 'temperature', 0.7),
+                temperature=getattr(self, 'temperature', DEFAULT_TEMPERATURE),
             )
             msg = resp.choices[0].message
-            reasoning = getattr(msg, "reasoning", None) or ""
+            reasoning = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
             return reasoning.strip() if reasoning else ""
         except Exception:
             return ""

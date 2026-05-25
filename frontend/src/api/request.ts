@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
@@ -26,6 +26,8 @@ export interface RequestConfig extends AxiosRequestConfig {
   retryDelay?: number  // 重试延迟（毫秒）
   /** 内部标志：已通过 token 刷新重试过，防止 401 无限循环 */
   __tokenRefreshed?: boolean
+  /** 内部标志：当前重试计数 */
+  __retryCount?: number
 }
 
 // 消息去重：记录最近显示的错误消息
@@ -61,7 +63,7 @@ const showErrorMessage = (message: string) => {
 }
 
 // 处理 401 错误（带防抖）
-const handle401Error = (authStore: any, message: string = '登录已过期，请重新登录') => {
+const handle401Error = (authStore: ReturnType<typeof useAuthStore>, message: string = '登录已过期，请重新登录') => {
   // 如果正在处理 401 错误，跳过
   if (isHandling401) {
     console.log('⏭️ 正在处理 401 错误，跳过重复处理')
@@ -96,7 +98,7 @@ const createAxiosInstance = (): AxiosInstance => {
 
   // 请求拦截器
   instance.interceptors.request.use(
-    (config: any) => {
+    (config: InternalAxiosRequestConfig & RequestConfig) => {
       const authStore = useAuthStore()
       const appStore = useAppStore()
 
@@ -139,14 +141,16 @@ const createAxiosInstance = (): AxiosInstance => {
       const safeHeaders = { ...config.headers }
       delete safeHeaders.Authorization
       delete safeHeaders.authorization
-      console.log(`🚀 API请求: ${config.method?.toUpperCase()} ${config.url}`, {
-        baseURL: config.baseURL,
-        fullURL: `${config.baseURL}${config.url}`,
-        params: config.params,
-        data: config.data,
-        headers: safeHeaders,
+      if (import.meta.env.DEV) {
+        console.log(`🚀 API请求: ${config.method?.toUpperCase()} ${config.url}`, {
+          baseURL: config.baseURL,
+          fullURL: `${config.baseURL}${config.url}`,
+          params: config.params,
+          data: config.data,
+          headers: safeHeaders,
         timeout: config.timeout
       })
+      }
 
       return config
     },
@@ -168,7 +172,9 @@ const createAxiosInstance = (): AxiosInstance => {
         appStore.setLoading(false)
       }
 
-      console.log(`✅ API响应: ${response.status} ${response.config.url}`, response.data)
+      if (import.meta.env.DEV) {
+        console.log(`✅ API响应: ${response.status} ${response.config.url}`, response.data)
+      }
 
       // 检查业务状态码
       const data = response.data as ApiResponse
@@ -396,7 +402,7 @@ const handleBusinessError = (data: ApiResponse) => {
 
 // 生成请求ID
 const generateRequestId = (): string => {
-  return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
 }
 
 // 判断是否应该重试
@@ -408,7 +414,7 @@ const shouldRetry = async (config: RequestConfig | undefined, error: any): Promi
   if (config.retryCount !== undefined) {
     retryCount = config.retryCount
   }
-  const currentRetry = (config as any).__retryCount || 0
+  const currentRetry = config.__retryCount || 0
 
   // 如果已经重试过指定次数，不再重试
   if (currentRetry >= retryCount) {
@@ -428,7 +434,7 @@ const shouldRetry = async (config: RequestConfig | undefined, error: any): Promi
 
 // 重试请求
 const retryRequest = async (instance: AxiosInstance, config: RequestConfig): Promise<any> => {
-  const currentRetry = (config as any).__retryCount || 0
+  const currentRetry = config.__retryCount || 0
   // 使用显式的默认值处理
   let retryDelay = 1000
   if (config.retryDelay !== undefined) {
@@ -436,7 +442,7 @@ const retryRequest = async (instance: AxiosInstance, config: RequestConfig): Pro
   }
 
   // 增加重试计数
-  (config as any).__retryCount = currentRetry + 1
+  config.__retryCount = currentRetry + 1
 
   console.log(`🔄 第 ${currentRetry + 1} 次重试请求: ${config.url}`)
 

@@ -10,6 +10,7 @@ import tempfile
 import yaml
 from typing import Optional
 
+from app.core.async_utils import run_async
 from app.utils.logging_init import get_logger
 from app.utils.stock_utils import StockUtils
 
@@ -22,9 +23,8 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
         if market_info["is_china"]:
             try:
                 from app.data.core.interface import DataInterface
-                import asyncio
                 _di = DataInterface.get_instance()
-                _r = asyncio.run(_di.read("CN", "basic_info", symbol=ticker))
+                _r = run_async(_di.read("CN", "basic_info", symbol=ticker))
                 data = _r.get("data")
                 if data and isinstance(data, dict) and data.get("name"):
                     return data["name"]
@@ -37,10 +37,9 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
         if market_info["is_hk"]:
             try:
                 from app.data.core.interface import DataInterface
-                import asyncio
                 clean_ticker = ticker.replace(".HK", "").replace(".hk", "").zfill(5)
                 di = DataInterface.get_instance()
-                result = asyncio.get_event_loop().run_until_complete(
+                result = run_async(
                     di.read("HK", "basic_info", symbol=clean_ticker)
                 )
                 data = result.get("data")
@@ -60,9 +59,8 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
         if market_info["is_us"]:
             try:
                 from app.data.core.interface import DataInterface
-                import asyncio
                 di = DataInterface.get_instance()
-                result = asyncio.run(di.read("US", "basic_info", symbol=ticker.upper()))
+                result = run_async(di.read("US", "basic_info", symbol=ticker.upper()))
                 data = result.get("data")
                 if data:
                     doc = data[0] if isinstance(data, list) and data else data

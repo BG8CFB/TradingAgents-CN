@@ -442,11 +442,49 @@ class QuotesIngestionService:
             f"✅ 行情入库完成 source={source}, matched={result.matched_count}, upserted={len(result.upserted_ids) if result.upserted_ids else 0}, modified={result.modified_count}"
         )
 
+    async def _fix_missing_fields(self) -> None:
+        """修复 market_quotes 中缺失的字段（pct_chg、turnover_rate 等），从 daily_quotes 补齐。"""
+        db = get_mongo_db()
+        coll = db[self.collection_name]
+
+        # 查找缺少 pct_chg 的记录
+        cursor = coll.find({"pct_chg": {"$exists": False}}, {"symbol": 1})
+        missing_symbols = [doc["symbol"] for doc in await cursor.to_list(length=None)]
+
+        if not missing_symbols:
+            logger.info("✅ market_quotes 所有记录均包含 pct_chg，无需修复")
+            return
+
+        logger.info(f"📊 需要修复 {len(missing_symbols)} 条记录的缺失字段")
+
+        # 从 daily_quotes 获取最新数据补齐
+        daily_coll = db[get_collection_name("daily_quotes", self._market)]
+        ops = []
+        for symbol in missing_symbols:
+            dq = await daily_coll.find_one(
+                {"symbol": symbol},
+                sort=[("trade_date", -1)],
+            )
+            if not dq:
+                continue
+            ops.append(UpdateOne(
+                {"symbol": symbol},
+                {"$set": {
+                    "pct_chg": dq.get("pct_chg"),
+                    "pre_close": dq.get("pre_close"),
+                    "turnover_rate": dq.get("turnover_rate"),
+                    "trade_date": dq.get("trade_date"),
+                }},
+            ))
+        if ops:
+            result = await coll.bulk_write(ops, ordered=False)
+            logger.info(f"✅ 修复完成: modified={result.modified_count}")
+
     async def backfill_from_historical_data(self) -> None:
         """
         从历史数据集合导入前一天的收盘数据到 market_quotes
         - 如果 market_quotes 集合为空，导入所有数据
-        - 如果 market_quotes 集合不为空，检查并修复缺失的成交量字段
+        - 如果 market_quotes 集合不为空，检查并修复缺失的字段
         """
         try:
             # 检查 market_quotes 是否为空
@@ -455,7 +493,7 @@ class QuotesIngestionService:
             if not is_empty:
                 # 集合不为空，检查是否有成交量缺失的记录
                 logger.info("✅ market_quotes 集合不为空，检查是否需要修复成交量...")
-                await self._fix_missing_volume()
+                await self._fix_missing_fields()
                 return
 
             logger.info("📊 market_quotes 集合为空，开始从历史数据导入")

@@ -1,0 +1,56 @@
+[
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-turbo",
+    "api_key": "",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "max_tokens": 128000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-plus-latest",
+    "api_key": "",
+    "base_url": null,
+    "max_tokens": 128000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "deepseek",
+    "model_name": "deepseek-v4-flash",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 128000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "deepseek",
+    "model_name": "deepseek-v4-pro",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 128000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "glm-5.1",
+    "api_key": "",
+    "base_url": "",
+    "max_tokens": 128000,
+    "temperature": 0.7,
+    "enabled": true
+  },
+  {
+    "provider": "google",
+    "model_name": "gemini-2.5-flash",
+    "api_key": "",
+    "base_url": null,
+    "max_tokens": 128000,
+    "temperature": 0.7,
+    "enabled": true
+  }
+]

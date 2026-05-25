@@ -102,7 +102,7 @@ function go(n: any) { if (n.link) window.open(n.link, '_blank') }
 
 onMounted(() => {
   notifStore.refreshUnreadCount()
-  // 🔥 建立 WebSocket 连接（优先），失败自动降级到 SSE
+  // 建立 WebSocket 连接
   notifStore.connect()
 
   timerCount = setInterval(() => notifStore.refreshUnreadCount(), 30000)
@@ -126,7 +126,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (timerCount) clearInterval(timerCount)
   if (timerList) clearInterval(timerList)
-  // 🔥 断开所有连接（WebSocket 和 SSE）
+  // 断开 WebSocket 连接
   notifStore.disconnect()
 })
 

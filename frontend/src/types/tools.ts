@@ -59,10 +59,12 @@ export const AVAILABILITY_COLORS: Record<AvailabilityStatus, string> = {
 }
 
 // ══════════════════════════════════════════════════
-// 以下为旧版 MCP Provider 工具类型（保留向后兼容）
+// 旧版 MCP Provider 工具类型（已废弃，保留向后兼容）
+// 新代码请使用 types/mcp.ts 中的 MCPTool 接口
 // ══════════════════════════════════════════════════
 
-export interface MCPTool {
+/** @deprecated 请使用 types/mcp.ts 中的 MCPTool */
+export interface LegacyMCPTool {
   name: string
   description: string
   source: 'local-mcp'
@@ -90,7 +92,7 @@ export interface MCPToolsSummary {
 
 export interface MCPToolsResponse {
   success: boolean
-  data: MCPTool[]
+  data: LegacyMCPTool[]
   count: number
   summary: MCPToolsSummary
 }

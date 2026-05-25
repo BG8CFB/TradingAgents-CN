@@ -122,15 +122,17 @@ class TestPeriodAggregatorWeekly:
         assert result[0]["volume"] == 0
         assert result[0]["amount"] == 0
 
-    def test_all_low_none_raises(self):
-        """当所有 low 值为 None 时，min() 迭代器为空会抛出 ValueError。"""
+    def test_all_low_none_returns_none(self):
+        """当所有 low 值为 None 时，聚合结果中的 low 应为 None。"""
         records = [
             {"symbol": "000001", "trade_date": "2024-01-15", "open": 10.0,
              "high": None, "low": None, "close": 10.5, "volume": 100,
              "amount": 10500, "pre_close": 10.0},
         ]
-        with pytest.raises(ValueError, match="min"):
-            self.agg.aggregate_to_weekly(records)
+        result = self.agg.aggregate_to_weekly(records)
+        assert len(result) == 1
+        assert result[0]["low"] is None
+        assert result[0]["high"] is None
 
 
 class TestPeriodAggregatorMonthly:

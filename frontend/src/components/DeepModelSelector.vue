@@ -41,6 +41,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { getCapabilityText, getCapabilityTagType, isAnalystRole, isDebateRole } from '@/utils/modelCapabilities'
 
 interface Props {
   modelValue: string
@@ -68,33 +69,5 @@ watch(() => props.modelValue, (val) => { localValue.value = val })
 
 const onChange = (val: string) => {
   emit('update:modelValue', val)
-}
-
-const getCapabilityText = (level: number): string => {
-  const texts: Record<number, string> = {
-    1: '⚡基础',
-    2: '📊标准',
-    3: '🎯高级',
-    4: '🔥专业',
-    5: '👑旗舰'
-  }
-  return texts[level] || '📊标准'
-}
-
-const getCapabilityTagType = (level: number): 'success' | 'info' | 'warning' | 'danger' => {
-  if (level >= 4) return 'danger'
-  if (level >= 3) return 'warning'
-  if (level >= 2) return 'success'
-  return 'info'
-}
-
-const isAnalystRole = (roles: string[] | undefined): boolean => {
-  if (!roles || !Array.isArray(roles)) return false
-  return roles.includes('analyst') || roles.includes('both')
-}
-
-const isDebateRole = (roles: string[] | undefined): boolean => {
-  if (!roles || !Array.isArray(roles)) return false
-  return roles.includes('debate') || roles.includes('both')
 }
 </script>

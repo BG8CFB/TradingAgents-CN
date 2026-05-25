@@ -3,6 +3,40 @@
 import json
 import re
 
+
+def _extract_json(text: str) -> str:
+    """从文本中提取第一个完整的 JSON 对象。
+
+    正确处理字符串字面量内的大括号，避免因字符串值中包含
+    {/} 而导致深度计数错误。
+    """
+    start = text.find('{')
+    if start == -1:
+        return ""
+    depth = 0
+    in_string = False
+    escape = False
+    i = start
+    while i < len(text):
+        ch = text[i]
+        if escape:
+            escape = False
+        elif ch == '\\' and in_string:
+            escape = True
+        elif ch == '"' and not in_string:
+            in_string = True
+        elif ch == '"' and in_string:
+            in_string = False
+        elif not in_string:
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        i += 1
+    return text[start:]
+
 from langchain_openai import ChatOpenAI
 
 from app.utils.logging_init import get_logger
@@ -128,9 +162,8 @@ class SignalProcessor:
             logger.debug(f"🔍 [SignalProcessor] LLM响应: {response[:200]}...")
 
             # 提取JSON部分
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
-            if json_match:
-                json_text = json_match.group()
+            json_text = _extract_json(response)
+            if json_text:
                 logger.debug(f"🔍 [SignalProcessor] 提取的JSON: {json_text}")
                 decision_data = json.loads(json_text)
 

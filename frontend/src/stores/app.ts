@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import type { RouteLocationNormalized } from 'vue-router'
-import { useStorage } from '@vueuse/core'
 
 export interface AppState {
   // 应用基础状态
@@ -40,33 +39,40 @@ export const useAppStore = defineStore('app', {
   state: (): AppState => ({
     loading: false,
     loadingProgress: 0,
-    theme: (useStorage('app-theme', 'auto').value || 'auto') as 'light' | 'dark' | 'auto',
-    language: (useStorage('app-language', 'zh-CN').value || 'zh-CN') as 'zh-CN' | 'en-US',
+    theme: (localStorage.getItem('app-theme') || 'auto') as 'light' | 'dark' | 'auto',
+    language: (localStorage.getItem('app-language') || 'zh-CN') as 'zh-CN' | 'en-US',
 
     isOnline: navigator.onLine,
     apiConnected: false,
     lastApiCheck: 0,
 
-    sidebarCollapsed: useStorage('sidebar-collapsed', false).value || false,
-    sidebarWidth: useStorage('sidebar-width', 240).value || 240,
+    sidebarCollapsed: localStorage.getItem('sidebar-collapsed') === 'true',
+    sidebarWidth: Number(localStorage.getItem('sidebar-width')) || 240,
 
     currentRoute: null,
 
-    preferences: (useStorage('user-preferences', {
-      defaultMarket: 'A股',
-      defaultDebateRounds: 2,
-      autoRefresh: true,
-      refreshInterval: 30,
-      showWelcome: true
-    }).value || {
-      defaultMarket: 'A股',
-      defaultDebateRounds: 2,
-      autoRefresh: true,
-      refreshInterval: 30,
-      showWelcome: true
-    }) as AppState['preferences'],
+    preferences: (() => {
+      try {
+        const raw = localStorage.getItem('user-preferences')
+        return raw ? JSON.parse(raw) : {
+          defaultMarket: 'A股',
+          defaultDebateRounds: 2,
+          autoRefresh: true,
+          refreshInterval: 30,
+          showWelcome: true
+        }
+      } catch {
+        return {
+          defaultMarket: 'A股',
+          defaultDebateRounds: 2,
+          autoRefresh: true,
+          refreshInterval: 30,
+          showWelcome: true
+        }
+      }
+    })() as AppState['preferences'],
 
-    version: '0.1.16',
+    version: '1.1.0-preview',
     buildTime: new Date().toISOString(),
     apiVersion: ''
   }),

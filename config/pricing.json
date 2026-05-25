@@ -1,9 +1,191 @@
 [
   {
     "provider": "zhipu",
-    "model_name": "glm-5-turbo",
+    "model_name": "glm-5.1",
+    "input_price_per_1k": 0.01015,
+    "output_price_per_1k": 0.0319,
+    "currency": "CNY"
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "GLM-5",
+    "input_price_per_1k": 0.00725,
+    "output_price_per_1k": 0.0232,
+    "currency": "CNY"
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "GLM-4.6",
+    "input_price_per_1k": 0.00435,
+    "output_price_per_1k": 0.01595,
+    "currency": "CNY"
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "glm-4",
+    "input_price_per_1k": 0.0145,
+    "output_price_per_1k": 0.0145,
+    "currency": "CNY"
+  },
+  {
+    "provider": "deepseek",
+    "model_name": "deepseek-v4-flash",
+    "input_price_per_1k": 0.001015,
+    "output_price_per_1k": 0.00203,
+    "currency": "CNY"
+  },
+  {
+    "provider": "deepseek",
+    "model_name": "deepseek-v4-pro",
+    "input_price_per_1k": 0.01261,
+    "output_price_per_1k": 0.02523,
+    "currency": "CNY"
+  },
+  {
+    "provider": "deepseek",
+    "model_name": "deepseek-chat",
+    "input_price_per_1k": 0.001015,
+    "output_price_per_1k": 0.00203,
+    "currency": "CNY"
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-turbo",
+    "input_price_per_1k": 0.0003,
+    "output_price_per_1k": 0.0006,
+    "currency": "CNY"
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-plus",
+    "input_price_per_1k": 0.0008,
+    "output_price_per_1k": 0.002,
+    "currency": "CNY"
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-plus-latest",
+    "input_price_per_1k": 0.0008,
+    "output_price_per_1k": 0.002,
+    "currency": "CNY"
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen-flash",
     "input_price_per_1k": 0.0,
     "output_price_per_1k": 0.0,
+    "currency": "CNY"
+  },
+  {
+    "provider": "dashscope",
+    "model_name": "qwen3-max",
+    "input_price_per_1k": 0.004,
+    "output_price_per_1k": 0.012,
+    "currency": "CNY"
+  },
+  {
+    "provider": "google",
+    "model_name": "gemini-2.5-flash",
+    "input_price_per_1k": 0.00105,
+    "output_price_per_1k": 0.00315,
+    "currency": "CNY"
+  },
+  {
+    "provider": "google",
+    "model_name": "gemini-2.5-pro",
+    "input_price_per_1k": 0.00942,
+    "output_price_per_1k": 0.02827,
+    "currency": "CNY"
+  },
+  {
+    "provider": "openai",
+    "model_name": "gpt-3.5-turbo",
+    "input_price_per_1k": 0.00362,
+    "output_price_per_1k": 0.00544,
+    "currency": "CNY"
+  },
+  {
+    "provider": "openai",
+    "model_name": "gpt-4",
+    "input_price_per_1k": 0.2175,
+    "output_price_per_1k": 0.435,
+    "currency": "CNY"
+  },
+  {
+    "provider": "openai",
+    "model_name": "Qwen3.6-27B",
+    "input_price_per_1k": 0.0,
+    "output_price_per_1k": 0.0,
+    "currency": "CNY"
+  },
+  {
+    "provider": "qianfan",
+    "model_name": "ernie-3.5-8k",
+    "input_price_per_1k": 0.0008,
+    "output_price_per_1k": 0.0008,
+    "currency": "CNY"
+  },
+  {
+    "provider": "qianfan",
+    "model_name": "ernie-4.0-turbo-8k",
+    "input_price_per_1k": 0.008,
+    "output_price_per_1k": 0.008,
+    "currency": "CNY"
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "anthropic/claude-sonnet-4.5",
+    "input_price_per_1k": 0.02175,
+    "output_price_per_1k": 0.10875,
+    "currency": "CNY"
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "openai/gpt-5",
+    "input_price_per_1k": 0.03625,
+    "output_price_per_1k": 0.145,
+    "currency": "CNY"
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "google/gemini-2.5-pro",
+    "input_price_per_1k": 0.00942,
+    "output_price_per_1k": 0.02827,
+    "currency": "CNY"
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "google/gemini-2.5-flash",
+    "input_price_per_1k": 0.00105,
+    "output_price_per_1k": 0.00315,
+    "currency": "CNY"
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "openai/gpt-3.5-turbo",
+    "input_price_per_1k": 0.00362,
+    "output_price_per_1k": 0.00544,
+    "currency": "CNY"
+  },
+  {
+    "provider": "openrouter",
+    "model_name": "google/gemini-2.0-flash-001",
+    "input_price_per_1k": 0.000725,
+    "output_price_per_1k": 0.002175,
+    "currency": "CNY"
+  },
+  {
+    "provider": "siliconflow",
+    "model_name": "Pro/deepseek-ai/DeepSeek-V3.2-Exp",
+    "input_price_per_1k": 0.000725,
+    "output_price_per_1k": 0.000725,
+    "currency": "CNY"
+  },
+  {
+    "provider": "zhipu",
+    "model_name": "GLM-4.5",
+    "input_price_per_1k": 0.00435,
+    "output_price_per_1k": 0.01595,
     "currency": "CNY"
   }
 ]

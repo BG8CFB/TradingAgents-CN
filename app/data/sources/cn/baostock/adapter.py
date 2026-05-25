@@ -33,6 +33,9 @@ def _to_bs_code(symbol: str) -> str:
     code = str(symbol).zfill(6)
     if code.startswith(("6", "9")):
         return f"sh{code}"
+    if code.startswith(("4", "8")):
+        logger.warning(f"北交所股票 {code} 不被 BaoStock 支持")
+        return ""
     return f"sz{code}"
 
 

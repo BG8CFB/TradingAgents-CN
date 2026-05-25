@@ -777,7 +777,7 @@ const submitting = ref(false)
 const currentTaskId = ref('')
 const analysisStatus = ref('idle') // 'idle', 'running', 'completed', 'failed'
 const showResults = ref(false)
-const analysisResults = ref<any>(null)
+const analysisResults = ref<Record<string, any> | null>(null)
 const activeReportTab = ref('') // 当前激活的报告标签页
 const progressInfo = ref({
   progress: 0,
@@ -788,7 +788,7 @@ const progressInfo = ref({
   remainingTime: 0,    // 预计剩余时间（秒）
   totalTime: 0         // 预计总时长（秒）
 })
-const pollingTimer = ref<any>(null)
+const pollingTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 
 // 动态分析师列表
 const analysts = ref<Analyst[]>([])
@@ -847,10 +847,10 @@ const fetchAnalysts = async () => {
 }
 
 // 分析步骤定义（动态生成）
-const analysisSteps = ref<any[]>([])
+const analysisSteps = ref<{ title: string; description: string; status: string }[]>([])
 
 // 从后端步骤数据生成前端步骤
-const generateStepsFromBackend = (backendSteps: any[]) => {
+const generateStepsFromBackend = (backendSteps: { step?: string; name?: string; description?: string; status?: string }[]) => {
   if (!backendSteps || !Array.isArray(backendSteps)) {
     return []
   }
@@ -870,7 +870,7 @@ const modelSettings = ref({
 })
 
 // 可用的模型列表（从配置中获取）
-const availableModels = ref<any[]>([])
+const availableModels = ref<{ model_name: string; model_display_name?: string; capability_level?: number; suitable_roles?: string[]; provider?: string }[]>([])
 
 // MCP工具列表
 const mcpTools = ref<MCPTool[]>([])
@@ -1470,7 +1470,7 @@ const getAnalysisReports = (data: any) => {
     reportsData = data.state
     console.log('📊 使用 data.state:', reportsData)
   } else {
-    console.log('📊 没有找到有效的报告数据')
+    if (import.meta.env.DEV) console.log('没有找到有效的报告数据')
     return reports
   }
 
@@ -1518,7 +1518,7 @@ const getAnalysisReports = (data: any) => {
   Object.entries(allMappings).forEach(([key, mapping]) => {
     const content = reportsData[key]
     if (content) {
-      console.log(`📊 找到报告: ${key} -> ${mapping.title}`)
+      if (import.meta.env.DEV) console.log(`找到报告: ${key} -> ${mapping.title}`)
       reports.push({
         title: mapping.title,
         content: content
@@ -1532,7 +1532,7 @@ const getAnalysisReports = (data: any) => {
     if (key.endsWith('_report') && !processedKeys.has(key) && reportsData[key]) {
       // 自动生成标题：将下划线替换为空格，移除 _report 后缀
       const autoTitle = `📊 ${key.replace('_report', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`
-      console.log(`📊 动态发现报告: ${key} -> ${autoTitle}`)
+      if (import.meta.env.DEV) console.log(`动态发现报告: ${key} -> ${autoTitle}`)
       reports.push({
         title: autoTitle,
         content: reportsData[key]
@@ -1540,7 +1540,7 @@ const getAnalysisReports = (data: any) => {
     }
   })
 
-  console.log(`📊 总共找到 ${reports.length} 个报告`)
+  if (import.meta.env.DEV) console.log(`总共找到 ${reports.length} 个报告`)
 
   // 设置第一个报告为默认激活标签页
   if (reports.length > 0 && !activeReportTab.value) {
@@ -1633,7 +1633,8 @@ const formatReportContent = (content: any) => {
   } catch (error) {
     console.error('❌ [ERROR] Markdown渲染失败:', error)
     // 如果渲染失败，回退到简单的文本显示
-    return `<pre style="white-space: pre-wrap; font-family: inherit;">${stringContent}</pre>`
+    const escaped = stringContent.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return `<pre style="white-space: pre-wrap; font-family: inherit;">${escaped}</pre>`
   }
 }
 
@@ -1720,22 +1721,30 @@ onUnmounted(() => {
     clearInterval(pollingTimer.value)
     pollingTimer.value = null
   }
+  if (visibilityRefreshTimer) {
+    clearTimeout(visibilityRefreshTimer)
+    visibilityRefreshTimer = null
+  }
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 // 页面可见性变化时的处理
+let visibilityRefreshTimer: ReturnType<typeof setTimeout> | null = null
 const handleVisibilityChange = () => {
   if (document.hidden) {
-    console.log('📱 页面隐藏，暂停轮询')
+    // 页面隐藏时清理延迟定时器
+    if (visibilityRefreshTimer) {
+      clearTimeout(visibilityRefreshTimer)
+      visibilityRefreshTimer = null
+    }
   } else {
-    console.log('📱 页面显示，恢复轮询')
-    // 页面重新可见时，立即查询一次状态
+    // 页面重新可见时，延迟查询一次状态
     if (currentTaskId.value && analysisStatus.value === 'running') {
-      setTimeout(async () => {
+      visibilityRefreshTimer = setTimeout(async () => {
+        visibilityRefreshTimer = null
         try {
           const response = await analysisApi.getTaskStatus(currentTaskId.value)
-          const status = response.data // 响应拦截器已返回 response.data
-          console.log('🔄 页面恢复查询状态:', status)
+          const status = response.data
           if (status.status === 'running') {
             analysisStatus.value = 'running'
             updateProgressInfo(status)

@@ -21,6 +21,7 @@ WORKDIR /app
 # - pandoc: 使用 Debian 官方包（稳定版本，避免网络问题）
 # - wkhtmltopdf: 使用 Debian 官方包（用于 PDF 生成）
 # - 中文字体: 用于 PDF 中文显示
+# 注意：编译工具（gcc 等）在 pip install 完成后清理以减小攻击面
 RUN mkdir -p /app/runtime /app/config && \
     # 配置 apt 重试和超时
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
@@ -61,15 +62,14 @@ RUN mkdir -p /app/runtime /app/config && \
 COPY pyproject.toml README.md ./
 
 # 安装 Node.js（用于基于 Node 的 MCP 服务器）
-# 使用 npmmirror 镜像加速下载，自动获取 Node.js 20 LTS 最新版
+# 固定 v20.18.0 以确保可重复构建
+ENV NODE_VERSION=v20.18.0
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
         amd64) NODE_ARCH="x64" ;; \
         arm64) NODE_ARCH="arm64" ;; \
     esac; \
-    FILE_NAME=$(curl -fsSL "https://registry.npmmirror.com/-/binary/node/latest-v20.x/SHASUMS256.txt" \
-        | grep "linux-${NODE_ARCH}\.tar\.xz$" | awk '{print $2}'); \
-    curl -fsSL "https://registry.npmmirror.com/-/binary/node/latest-v20.x/${FILE_NAME}" \
+    curl -fsSL "https://registry.npmmirror.com/-/binary/node/${NODE_VERSION}/node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
     | tar -xJ -C /usr/local --strip-components=1; \
     npm config set registry https://registry.npmmirror.com
 
@@ -91,14 +91,23 @@ RUN pip install --upgrade pip --retries 5 --timeout 120 -i https://mirrors.aliyu
     pip install --prefer-binary --retries 5 --timeout 120 pdfkit \
         -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
     pip install --prefer-binary --retries 5 --timeout 120 uv \
-        -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+        -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
+    # 清理编译工具，减小最终镜像体积和攻击面
+    apt-get update && \
+    apt-get remove -y --purge build-essential gcc g++ make cmake libssl-dev libffi-dev python3-dev && \
+    apt-get autoremove -y --purge && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # 复制后端代码和必需模块
 COPY app ./app
 COPY config ./config
 
-# 复制Docker环境配置文件（从docker目录复制，因为build context是项目根目录）
-COPY docker/.env.docker ./.env
+# 注意：不在此处 COPY .env 文件到镜像中。
+# 敏感配置应通过 docker-compose.yml 的 env_file / environment 注入，
+# 或使用 Docker secrets / Vault 等安全机制。
+# 开发环境使用 docker-compose.dev.yml 的 env_file: - .env
+# 生产环境使用 docker-compose.build.yml 的 environment: 节
 
 # 暴露后端端口
 EXPOSE 8000

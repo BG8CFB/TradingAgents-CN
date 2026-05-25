@@ -168,6 +168,7 @@ async def websocket_notifications_endpoint(
 
     try:
         # 心跳任务
+        heartbeat_task: asyncio.Task | None = None
         async def send_heartbeat():
             while True:
                 try:
@@ -200,7 +201,7 @@ async def websocket_notifications_endpoint(
     
     finally:
         # 取消心跳任务
-        if 'heartbeat_task' in locals():
+        if heartbeat_task is not None:
             heartbeat_task.cancel()
             try:
                 await heartbeat_task

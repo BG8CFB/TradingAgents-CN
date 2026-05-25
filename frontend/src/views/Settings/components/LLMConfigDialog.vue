@@ -229,6 +229,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { configApi, type LLMProvider, type LLMConfig, validateLLMConfig } from '@/api/config'
 import { getModelCapability } from '@/api/modelCapabilities'
+import { DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TIMEOUT, DEFAULT_RETRY_TIMES } from '@/constants/llmDefaults'
 
 interface Props {
   visible: boolean
@@ -259,10 +260,10 @@ const defaultFormData = {
   model_name: '',
   model_display_name: '',
   api_base: '',
-  max_tokens: 4000,
-  temperature: 0.7,
-  timeout: 180,
-  retry_times: 3,
+  max_tokens: DEFAULT_MAX_TOKENS,
+  temperature: DEFAULT_TEMPERATURE,
+  timeout: DEFAULT_TIMEOUT,
+  retry_times: DEFAULT_RETRY_TIMES,
   enabled: true,
   enable_memory: false,
   enable_debug: false,
@@ -295,7 +296,7 @@ interface ModelInfo {
 
 const modelOptions = ref<Array<{ label: string; value: string }>>([])
 const modelCatalog = ref<Record<string, Array<ModelInfo>>>({})
-const DEFAULT_MAX_TOKENS_LIMIT = 200000
+const DEFAULT_MAX_TOKENS_LIMIT = 128000
 
 const maxTokensLimit = computed(() => {
   const models = modelCatalog.value[formData.value.provider]

@@ -3,7 +3,7 @@
     <div class="footer-content">
       <!-- 左侧：版权信息 -->
       <div class="footer-left">
-        <span class="copyright">© 2025 TradingAgents-CN v1.0.0-preview</span>
+        <span class="copyright">© 2025 TradingAgents-CN v1.1.0-preview</span>
       </div>
 
       <!-- 中间：免责提示 (悬浮显示完整版) -->

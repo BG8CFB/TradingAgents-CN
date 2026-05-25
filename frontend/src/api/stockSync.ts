@@ -85,7 +85,10 @@ export interface StockSyncStatus {
 function buildRefreshDomains(req: SingleStockSyncRequest): string[] {
   const domains: string[] = []
   if (req.sync_basic) domains.push('basic_info')
-  if (req.sync_historical) domains.push('daily_quotes')
+  if (req.sync_historical) {
+    domains.push('daily_quotes')
+    domains.push('daily_indicators')
+  }
   if (req.sync_financial) domains.push('financial_data')
   return domains
 }
@@ -125,24 +128,26 @@ export const stockSyncApi = {
         basic_sync: null,
       }
 
+      const _isSuccess = (s: string | undefined) => s === 'refreshed' || s === 'fresh'
+
       if (rd.domains) {
         if (rd.domains.daily_quotes) {
           result.historical_sync = {
-            success: rd.domains.daily_quotes.status === 'success',
+            success: _isSuccess(rd.domains.daily_quotes.status),
             records: rd.domains.daily_quotes.records || 0,
             error: rd.domains.daily_quotes.error || undefined,
           }
         }
         if (rd.domains.financial_data) {
           result.financial_sync = {
-            success: rd.domains.financial_data.status === 'success',
+            success: _isSuccess(rd.domains.financial_data.status),
             records: rd.domains.financial_data.records || 0,
             error: rd.domains.financial_data.error || undefined,
           }
         }
         if (rd.domains.basic_info) {
           result.basic_sync = {
-            success: rd.domains.basic_info.status === 'success',
+            success: _isSuccess(rd.domains.basic_info.status),
             records: rd.domains.basic_info.records || 0,
             error: rd.domains.basic_info.error || undefined,
           }
@@ -171,7 +176,10 @@ export const stockSyncApi = {
   async syncBatch(request: BatchStockSyncRequest): Promise<ApiResponse<BatchStockSyncResponse>> {
     const domains: string[] = []
     if (request.sync_basic) domains.push('basic_info')
-    if (request.sync_historical) domains.push('daily_quotes')
+    if (request.sync_historical) {
+      domains.push('daily_quotes')
+      domains.push('daily_indicators')
+    }
     if (request.sync_financial) domains.push('financial_data')
 
     let successCount = 0

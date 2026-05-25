@@ -49,6 +49,12 @@ services:
       - tradingagents-network
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-tradingagents123}", "ping"]
+      # 注意：-a 参数会将密码暴露在进程列表中。
+      # TODO(安全): 改用 REDISCLI_AUTH 环境变量避免密码泄露：
+      #   environment:
+      #     REDISCLI_AUTH: ${REDIS_PASSWORD:-tradingagents123}
+      #   healthcheck:
+      #     test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -100,7 +106,7 @@ services:
       REFRESH_TOKEN_EXPIRE_DAYS: "30"
       CSRF_SECRET: ${CSRF_SECRET:-docker-csrf-secret-key-change-in-production-2024}
       BCRYPT_ROUNDS: "12"
-      CORS_ORIGINS: "*"
+      ALLOWED_ORIGINS: "*"
       DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY}"
       DASHSCOPE_ENABLED: "${DASHSCOPE_ENABLED:-false}"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"

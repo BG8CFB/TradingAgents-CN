@@ -117,14 +117,6 @@ def _try_openai(provider: str, config: dict) -> Optional[EmbeddingConfig]:
         )
 
     if provider == "deepseek" and deepseek_key:
-        try:
-            logger.info(f"💡 [{provider}] 使用 DeepSeek embedding")
-            return EmbeddingConfig(
-                client=OpenAI(api_key=deepseek_key, base_url="https://api.deepseek.com"),
-                embedding_model="text-embedding-3-small",
-                provider=provider,
-            )
-        except Exception as e:
-            logger.error(f"❌ [{provider}] DeepSeek embedding 不可用: {e}")
+        logger.info(f"[{provider}] DeepSeek 不提供 Embedding API，跳过")
 
     return None

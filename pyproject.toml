@@ -18,7 +18,7 @@ dependencies = [
     # 数据库和缓存
     "motor>=3.3.0",
     "pymongo>=4.0.0",
-    "redis>=6.2.0",
+    "redis>=5.0.0",
     # 认证和安全
     "PyJWT>=2.0.0",
     "bcrypt>=4.0.0",
@@ -32,15 +32,11 @@ dependencies = [
     "concurrent-log-handler>=0.9.24",  # Windows 友好的日志轮转处理器
     # 数据源和金融数据
     "akshare>=1.17.86",
-    "backtrader>=1.9.78.123",
     "baostock>=0.8.8",
-    "eodhd>=1.0.32",
     "finnhub-python>=2.4.23",
     "tushare>=1.4.21",
     "yfinance>=0.2.63",
-    "stockstats>=0.6.5",
     # AI和LLM
-    "chainlit>=2.5.5",
     "chromadb>=1.0.12",
     "dashscope>=1.20.0",
     "langchain>=1.1.0",
@@ -55,12 +51,8 @@ dependencies = [
     "openai>=1.0.0,<2.0.0",
     # 数据处理和分析
     "pandas>=2.3.0",
-    "plotly>=5.0.0",
     # 网络爬虫和解析
     "curl-cffi>=0.6.0",  # 模拟真实浏览器TLS指纹，绕过反爬虫检测
-    "feedparser>=6.0.11",
-    "parsel>=1.10.0",
-    "praw>=7.8.1",
     "requests>=2.32.4",
     # 文档和格式化
     "markdown>=3.4.0",
@@ -71,10 +63,8 @@ dependencies = [
     "psutil>=6.1.0",
     "python-dotenv>=1.0.0",
     "pytz>=2025.2",
-    "questionary>=2.1.0",
     "rich>=14.0.0",
     "setuptools>=80.9.0",
-    "streamlit>=1.28.0",
     "toml>=0.10.2",
     "tqdm>=4.67.1",
     "typing-extensions>=4.14.0",

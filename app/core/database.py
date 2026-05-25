@@ -106,6 +106,7 @@ class DatabaseManager:
 
     async def close_connections(self):
         """关闭所有数据库连接"""
+        global mongo_client, mongo_db, redis_client, redis_pool
         logger.info("🔄 正在关闭数据库连接...")
 
         # 关闭MongoDB连接
@@ -115,6 +116,8 @@ class DatabaseManager:
                 self._mongo_healthy = False
                 self.mongo_client = None
                 self.mongo_db = None
+                mongo_client = None
+                mongo_db = None
                 logger.info("✅ MongoDB连接已关闭")
             except Exception as e:
                 logger.error(f"❌ 关闭MongoDB连接时出错: {e}")
@@ -125,6 +128,7 @@ class DatabaseManager:
                 await self.redis_client.close()
                 self._redis_healthy = False
                 self.redis_client = None
+                redis_client = None
                 logger.info("✅ Redis连接已关闭")
             except Exception as e:
                 logger.error(f"❌ 关闭Redis连接时出错: {e}")
@@ -134,6 +138,7 @@ class DatabaseManager:
             try:
                 await self.redis_pool.disconnect()
                 self.redis_pool = None
+                redis_pool = None
                 logger.info("✅ Redis连接池已关闭")
             except Exception as e:
                 logger.error(f"❌ 关闭Redis连接池时出错: {e}")
@@ -386,10 +391,21 @@ async def create_database_indexes(db):
                 logger.info("已删除旧索引 code_1")
             except Exception:
                 pass
-            await market_quotes.create_index([("symbol", 1)], unique=True)
-            await market_quotes.create_index([("pct_chg", -1)])
-            await market_quotes.create_index([("amount", -1)])
-            await market_quotes.create_index([("updated_at", -1)])
+            # 跳过已存在的索引（避免名称冲突报错）
+            existing_indexes = await market_quotes.index_information()
+            if "symbol_1" not in existing_indexes and "symbol_unique" not in existing_indexes:
+                await market_quotes.create_index([("symbol", 1)], unique=True, name="symbol_unique")
+            for key_list, name in [
+                ([("last_price", -1)], "last_price_idx"),
+                ([("updated_at", -1)], "updated_at_idx"),
+            ]:
+                key_sig = tuple((k, d) for k, d in key_list)
+                already_exists = any(
+                    tuple((k, d) for k, d in info.get("key", [])) == key_sig
+                    for info in existing_indexes.values()
+                )
+                if not already_exists:
+                    await market_quotes.create_index(key_list, name=name)
             logger.info("market_quotes 索引创建完成")
         except Exception as e:
             logger.warning(f"创建 market_quotes 索引失败: {e}")
@@ -529,14 +545,15 @@ def close_mongo_db_sync():
     """
     global _sync_mongo_client, _sync_mongo_db
 
-    try:
-        if _sync_mongo_client is not None:
-            _sync_mongo_client.close()
-            _sync_mongo_client = None
-            _sync_mongo_db = None
-            logger.info("✅ 同步MongoDB连接已关闭")
-    except Exception as exc:
-        logger.error(f"❌ 关闭同步MongoDB连接失败: {exc}")
+    with _sync_mongo_lock:
+        try:
+            if _sync_mongo_client is not None:
+                _sync_mongo_client.close()
+                _sync_mongo_client = None
+                _sync_mongo_db = None
+                logger.info("✅ 同步MongoDB连接已关闭")
+        except Exception as exc:
+            logger.error(f"❌ 关闭同步MongoDB连接失败: {exc}")
 
 
 def get_redis_client() -> Redis:

@@ -39,13 +39,17 @@ class RefreshResult:
         all_fresh = all(s == "fresh" for s in statuses)
         all_success = all(s in ("fresh", "refreshed") for s in statuses)
         any_failed = "failed" in statuses
+        any_timeout = "timeout" in statuses
 
         if all_fresh:
             self.status = RefreshStatus.FRESH
         elif all_success:
             self.status = RefreshStatus.REFRESHED
-        elif any_failed and all_success:
-            self.status = RefreshStatus.PARTIAL
+        elif any_failed or any_timeout:
+            if any(s in ("fresh", "refreshed") for s in statuses):
+                self.status = RefreshStatus.PARTIAL
+            else:
+                self.status = RefreshStatus.FAILED
         else:
             self.status = RefreshStatus.FAILED
         return self.status

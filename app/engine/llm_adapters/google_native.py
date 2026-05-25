@@ -18,6 +18,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.engine.llm_adapters.base import BaseChatAdapter
 from app.utils.logging_manager import get_logger
+from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TIMEOUT
 
 logger = get_logger("agents")
 
@@ -31,9 +32,9 @@ class GoogleNativeAdapter(ChatGoogleGenerativeAI, BaseChatAdapter):
         model: str = "gemini-2.0-flash",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 4000,
-        timeout: int = 180,
+        temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        timeout: int = DEFAULT_TIMEOUT,
         **kwargs,
     ):
         object.__setattr__(self, "_provider_name", provider)

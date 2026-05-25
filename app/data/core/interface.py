@@ -1,6 +1,7 @@
 """DataInterface — 数据平台统一门面。消费层的唯一入口。"""
 
 import logging
+import threading
 from typing import Dict, List, Optional
 
 from app.data.core.result import RefreshResult
@@ -12,6 +13,7 @@ from app.data.core.registry.priority import PriorityConfig
 logger = logging.getLogger(__name__)
 
 _instance: Optional["DataInterface"] = None
+_instance_lock = threading.Lock()
 
 
 class DataInterface:
@@ -32,14 +34,17 @@ class DataInterface:
         """获取全局单例。"""
         global _instance
         if _instance is None:
-            _instance = cls()
+            with _instance_lock:
+                if _instance is None:
+                    _instance = cls()
         return _instance
 
     @classmethod
     def reset_instance(cls) -> None:
         """重置单例（测试用）。"""
         global _instance
-        _instance = None
+        with _instance_lock:
+            _instance = None
 
     # ── 数据读取 ──
 
@@ -95,7 +100,7 @@ class DataInterface:
             from app.worker.scheduler_setup import get_scheduler_engine
             engine = get_scheduler_engine()
             if engine:
-                job_id = engine.trigger_job(market, domain)
+                job_id = await engine.trigger_job(market, domain)
                 if job_id:
                     logger.info(f"通过调度引擎触发同步: {job_id}")
                     return job_id

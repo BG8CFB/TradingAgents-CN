@@ -296,7 +296,7 @@ class ToolRegistry:
         # 4. 外部 MCP 工具
         for tool in self._mcp_tools:
             if getattr(tool, "name", None) == tool_name:
-                return TOOL_TYPE_MCP_EXTERNAL
+                return TOOL_TYPE_MCP
 
         return "unknown"
 

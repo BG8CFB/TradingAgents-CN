@@ -14,6 +14,11 @@ from app.models.config import (
     SystemConfig, LLMConfig, DataSourceConfig, DatabaseConfig,
     ModelProvider, DataSourceType, DatabaseType
 )
+from app.constants.llm_defaults import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_LLM_FIELD_FALLBACKS,
+)
 from app.utils.timezone import now_tz
 
 logger = logging.getLogger(__name__)
@@ -95,8 +100,6 @@ class SystemService:
                     model_name="gpt-3.5-turbo",
                     api_key="your-openai-api-key",
                     api_base="https://api.openai.com/v1",
-                    max_tokens=4000,
-                    temperature=0.7,
                     enabled=False,
                     description="OpenAI GPT-3.5 Turbo模型"
                 ),
@@ -105,8 +108,6 @@ class SystemService:
                     model_name="glm-4",
                     api_key="your-zhipu-api-key",
                     api_base="https://open.bigmodel.cn/api/paas/v4",
-                    max_tokens=4000,
-                    temperature=0.7,
                     enabled=True,
                     description="智谱AI GLM-4模型（推荐）"
                 ),
@@ -115,8 +116,6 @@ class SystemService:
                     model_name="qwen-turbo",
                     api_key="your-qwen-api-key",
                     api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    max_tokens=4000,
-                    temperature=0.7,
                     enabled=False,
                     description="阿里云通义千问模型"
                 )
@@ -177,12 +176,6 @@ class SystemService:
                 "worker_heartbeat_interval_seconds": 30,
                 "queue_poll_interval_seconds": 1.0,
                 "queue_cleanup_interval_seconds": 60.0,
-                # SSE intervals
-                "sse_poll_timeout_seconds": 1.0,
-                "sse_heartbeat_interval_seconds": 10,
-                "sse_task_max_idle_seconds": 300,
-                "sse_batch_poll_interval_seconds": 2.0,
-                "sse_batch_max_idle_seconds": 600,
                 # TradingAgents runtime intervals (optional; DB-managed)
                 "ta_hk_min_request_interval_seconds": 2.0,
                 "ta_hk_timeout_seconds": 60,
@@ -205,54 +198,45 @@ class SystemService:
         return default_config
 
     async def save_system_config(self, config: SystemConfig) -> bool:
-        """保存系统配置到数据库"""
+        """保存系统配置到数据库（原子操作）"""
         try:
-            print(f"💾 开始保存配置，LLM配置数量: {len(config.llm_configs)}")
+            logger.info(f"保存配置，LLM配置数量: {len(config.llm_configs)}")
 
-            # 保存到数据库
             db = await self._get_db()
             config_collection = db.system_configs
 
-            # 更新时间戳和版本
             config.updated_at = now_tz()
             config.version += 1
 
-            # 将当前激活的配置设为非激活
-            update_result = await config_collection.update_many(
-                {"is_active": True},
-                {"$set": {"is_active": False}}
-            )
-            print(f"📝 禁用旧配置数量: {update_result.modified_count}")
-
-            # 插入新配置 - 移除_id字段让MongoDB自动生成新的
             config_dict = config.model_dump(by_alias=True)
             if '_id' in config_dict:
-                del config_dict['_id']  # 移除旧的_id，让MongoDB生成新的
+                del config_dict['_id']
+            config_dict['is_active'] = True
 
-            # 打印即将保存的 system_settings
-            system_settings = config_dict.get('system_settings', {})
-            print(f"📝 即将保存的 system_settings 包含 {len(system_settings)} 项")
-            if 'analyst_model' in system_settings:
-                print(f"  ✓ 包含 analyst_model: {system_settings['analyst_model']}")
-            else:
-                print(f"  ⚠️  不包含 analyst_model")
-            if 'debate_model' in system_settings:
-                print(f"  ✓ 包含 debate_model: {system_settings['debate_model']}")
-            else:
-                print(f"  ⚠️  不包含 debate_model")
-
-            insert_result = await config_collection.insert_one(config_dict)
-            print(f"📝 新配置ID: {insert_result.inserted_id}")
-
-            # 验证保存结果
-            saved_config = await config_collection.find_one({"_id": insert_result.inserted_id})
-            if saved_config:
-                print(f"✅ 配置保存成功，验证LLM配置数量: {len(saved_config.get('llm_configs', []))}")
-
+            # 尝试使用事务保证原子性
+            try:
+                async with await db.client.start_session() as session:
+                    async with session.start_transaction():
+                        await config_collection.update_many(
+                            {"is_active": True},
+                            {"$set": {"is_active": False}},
+                            session=session,
+                        )
+                        insert_result = await config_collection.insert_one(
+                            config_dict, session=session
+                        )
+                logger.info(f"配置保存成功（事务模式），ID: {insert_result.inserted_id}")
                 return True
-            else:
-                print("❌ 配置保存验证失败")
-                return False
+            except Exception as txn_err:
+                # fallback：先插入新配置，再标记旧配置
+                logger.debug(f"事务不可用，使用 fallback: {txn_err}")
+                insert_result = await config_collection.insert_one(config_dict)
+                await config_collection.update_many(
+                    {"is_active": True, "_id": {"$ne": insert_result.inserted_id}},
+                    {"$set": {"is_active": False}},
+                )
+                logger.info(f"配置保存成功（fallback模式），ID: {insert_result.inserted_id}")
+                return True
 
         except Exception as e:
             logger.error("保存系统配置失败: %s", e, exc_info=True)
@@ -292,7 +276,7 @@ class SystemService:
             if 'analyst_model' in config.system_settings:
                 print(f"  ✓ 更新前包含 analyst_model: {config.system_settings['analyst_model']}")
             else:
-                print(f"  ⚠️  更新前不包含 analyst_model")
+                print("  ⚠️  更新前不包含 analyst_model")
 
             # 更新系统设置
             config.system_settings.update(settings)
@@ -302,11 +286,11 @@ class SystemService:
             if 'analyst_model' in config.system_settings:
                 print(f"  ✓ 更新后包含 analyst_model: {config.system_settings['analyst_model']}")
             else:
-                print(f"  ⚠️  更新后不包含 analyst_model")
+                print("  ⚠️  更新后不包含 analyst_model")
             if 'debate_model' in config.system_settings:
                 print(f"  ✓ 更新后包含 debate_model: {config.system_settings['debate_model']}")
             else:
-                print(f"  ⚠️  更新后不包含 debate_model")
+                print("  ⚠️  更新后不包含 debate_model")
 
             result = await self.save_system_config(config)
 
@@ -410,9 +394,9 @@ class SystemService:
                     d = self._sanitize_dict(x.model_dump(), ["api_key"])
                     for fld in ("max_tokens", "timeout", "retry_times"):
                         if not d.get(fld) or d.get(fld) == "":
-                            d[fld] = {"max_tokens": 4000, "timeout": 180, "retry_times": 3}[fld]
+                            d[fld] = DEFAULT_LLM_FIELD_FALLBACKS[fld]
                     if not d.get("temperature") and d.get("temperature") != 0:
-                        d["temperature"] = 0.7
+                        d["temperature"] = DEFAULT_TEMPERATURE
                     return d
 
                 system_configs_data = {
@@ -628,7 +612,6 @@ class SystemService:
         try:
             project_root = Path(__file__).resolve().parents[3]
             migrated_items: List[str] = []
-            db = await self._get_db()
 
             # 1. 迁移 config/models.json → llm_configs（追加到 system_configs）
             models_json = project_root / "config" / "models.json"
@@ -652,8 +635,8 @@ class SystemService:
                                             model_name=name,
                                             api_key=m.get("api_key", ""),
                                             api_base=m.get("base_url"),
-                                            max_tokens=m.get("max_tokens", 4000),
-                                            temperature=m.get("temperature", 0.7),
+                                            max_tokens=m.get("max_tokens", DEFAULT_MAX_TOKENS),
+                                            temperature=m.get("temperature", DEFAULT_TEMPERATURE),
                                             enabled=m.get("enabled", False),
                                         ))
                                         existing_names.add(name)

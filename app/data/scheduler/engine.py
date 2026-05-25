@@ -1,8 +1,8 @@
 """调度引擎 — 基于 APScheduler。"""
 
-import asyncio
 import logging
 import os
+import threading
 from typing import Dict, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -19,15 +19,25 @@ class SchedulerEngine:
     """调度引擎，管理三市场的定时同步任务。"""
 
     _instance: Optional["SchedulerEngine"] = None
+    _instance_lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        with cls._instance_lock:
+            if cls._instance is None:
+                instance = super().__new__(cls)
+                cls._instance = instance
+            return cls._instance
 
     def __init__(self, scheduler: Optional[AsyncIOScheduler] = None):
+        if getattr(self, '_initialized', False):
+            return
+        self._initialized = True
         self._scheduler = scheduler or AsyncIOScheduler(timezone="UTC")
         self._registry = JobRegistry()
         self._checkpoint = CheckpointManager()
         self._dependency_graph = DependencyGraph()
         self._job_configs: Dict[tuple[str, str], Dict] = {}
         self._jobs_registered = False
-        SchedulerEngine._instance = self
 
     @classmethod
     def get_instance(cls) -> Optional["SchedulerEngine"]:
@@ -143,13 +153,13 @@ class SchedulerEngine:
         except Exception as e:
             logger.error("调度执行失败 %s/%s: %s", market, domain, e)
 
-    def trigger_job(self, market: str, domain: str) -> str:
+    async def trigger_job(self, market: str, domain: str) -> str:
         """手动触发任务。"""
         market = market.upper()
         job_id = f"{market.lower()}_{domain}"
         if self._registry.get_job(domain, market):
             try:
-                asyncio.create_task(self._run_job_with_dependencies(market, domain, set(), force=True))
+                await self._run_job_with_dependencies(market, domain, set(), force=True)
                 return job_id
             except Exception as e:
                 logger.error("手动触发失败 %s: %s", job_id, e)

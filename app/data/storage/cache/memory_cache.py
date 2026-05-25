@@ -44,3 +44,13 @@ class TTLCache:
     def size(self) -> int:
         with self._lock:
             return len(self._store)
+
+    def cleanup_expired(self) -> int:
+        """清理所有过期条目。返回清理数量。"""
+        import time
+        now = time.time()
+        with self._lock:
+            expired_keys = [k for k, (_, exp) in self._store.items() if now >= exp]
+            for k in expired_keys:
+                del self._store[k]
+        return len(expired_keys)

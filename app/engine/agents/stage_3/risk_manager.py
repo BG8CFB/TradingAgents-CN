@@ -12,6 +12,8 @@ from app.engine.agents.utils.agent_config import (
     resolve_company_name,
 )
 
+_STAGE3_PREFIXES = frozenset({"risky_", "safe_", "neutral_"})
+
 def create_risk_manager(llm, memory):
     def risk_manager_node(state) -> dict:
         logger.debug(f"👔 [DEBUG] ===== 首席风控官 (Risk Manager) 节点开始 =====")
@@ -68,7 +70,7 @@ def create_risk_manager(llm, memory):
         for key, content in all_reports.items():
             if content and "report" in key:
                 # 排除掉 Stage 3 自己的报告，避免冗余，或者选择性包含
-                if any(x in key for x in ["risky_", "safe_", "neutral_"]): continue
+                if any(key.startswith(prefix) for prefix in _STAGE3_PREFIXES): continue
                 display_name = key.replace("_report", "").replace("_", " ").title() + "报告"
                 messages.append(HumanMessage(content=f"=== 基础资料：{display_name} ===\n{content}"))
 

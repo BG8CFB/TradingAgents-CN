@@ -47,10 +47,34 @@ class FallbackRouter:
         self._registry = registry
         self._priority = priority
         self._circuit = circuit_breaker or CircuitBreaker()
-        self._rate_limiter = rate_limiter or RateLimiter()
+        self._rate_limiter = rate_limiter or self._create_default_rate_limiter()
         self._normalizer = Normalizer()
         self._validator = Validator()
         self._health_monitor = SourceHealthMonitor()
+
+    @staticmethod
+    def _create_default_rate_limiter() -> RateLimiter:
+        """创建带默认限流配置的 RateLimiter。"""
+        limiter = RateLimiter()
+        # Tushare: 120 次/分（积分等级不同可调整）
+        limiter.configure("tushare", rate_per_minute=120, polite_interval_ms=200)
+        # AKShare: 60 次/分，间隔 0.5s（反爬策略）
+        limiter.configure("akshare", rate_per_minute=60, polite_interval_ms=500)
+        # BaoStock: 60 次/分
+        limiter.configure("baostock", rate_per_minute=60, polite_interval_ms=300)
+        # YFinance: 30 次/分
+        limiter.configure("yfinance", rate_per_minute=30, polite_interval_ms=1000)
+        limiter.configure("yfinance_hk", rate_per_minute=30, polite_interval_ms=1000)
+        # Finnhub: 60 次/分
+        limiter.configure("finnhub", rate_per_minute=60, polite_interval_ms=500)
+        # Alpha Vantage: 5 次/分（免费版限制）
+        limiter.configure("alpha_vantage", rate_per_minute=5, polite_interval_ms=12000)
+        # 腾讯港股: 60 次/分
+        limiter.configure("tencent_hk", rate_per_minute=60, polite_interval_ms=500)
+        # Tushare 港股/美股
+        limiter.configure("tushare_hk", rate_per_minute=60, polite_interval_ms=300)
+        limiter.configure("tushare_us", rate_per_minute=60, polite_interval_ms=300)
+        return limiter
 
     async def fetch(
         self, market: str, domain: str, symbol: str,
@@ -83,6 +107,8 @@ class FallbackRouter:
             allowed, wait = await self._rate_limiter.acquire(source_name, domain)
             if not allowed:
                 await asyncio.sleep(wait)
+                if self._circuit.is_open(source_name, domain):
+                    continue
 
             provider, adapter = await self._get_provider_adapter(market, source_name)
             if not provider or not adapter:

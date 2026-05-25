@@ -4,7 +4,7 @@ repos:
       # 禁止路由层直连 MongoDB
       - id: no-mongo-in-routers
         name: No MongoDB in routers
-        entry: bash -c 'grep -rn "find_one(\|aggregate(\|update_one(\|insert_one(\|delete_one(" app/routers/ | grep -v __pycache__ | grep -v "config/" && exit 1 || exit 0'
+        entry: bash -c 'grep -rn "find_one(\|aggregate(\|update_one(\|insert_one(\|delete_one(\|\.find(\|count_documents(\|distinct(\|create_index(\|drop_index(\|replace_one(\|bulk_write(" app/routers/ | grep -v __pycache__ | grep -v "config/" && exit 1 || exit 0'
         language: system
         types: [python]
         pass_filenames: false
@@ -12,7 +12,7 @@ repos:
       # 禁止 os.getenv 散落（仅允许配置层和工具模块）
       - id: no-bare-os-getenv
         name: No os.getenv outside config modules
-        entry: bash -c 'grep -rn "os.getenv(" app/ | grep -v __pycache__ | grep -v "app/core/config.py" | grep -v "app/core/config_bridge.py" | grep -v "app/core/config_initializer.py" | grep -v "app/engine/config/env_utils.py" | grep -v "app/engine/graph/trading_graph.py" | grep -v "app/engine/llm_adapters/" | grep -v "app/worker/scheduler_setup.py" && exit 1 || exit 0'
+        entry: bash -c 'grep -rn "os.getenv(" app/ | grep -v __pycache__ | grep -v "app/core/config.py" | grep -v "app/core/config_bridge.py" | grep -v "app/core/config_initializer.py" | grep -v "app/core/startup_validator.py" | grep -v "app/engine/config/env_utils.py" | grep -v "app/engine/graph/trading_graph.py" | grep -v "app/engine/llm_adapters/" | grep -v "app/worker/scheduler_setup.py" && exit 1 || exit 0'
         language: system
         types: [python]
         pass_filenames: false

@@ -181,10 +181,13 @@ class StartupValidator:
             if not value:
                 self.result.missing_recommended.append(config)
                 logger.debug(f"⚠️  缺少推荐配置: {config.key}")
-            elif not self._is_valid_api_key(str(value)):
-                # API Key 存在但是占位符，视为未配置
-                self.result.missing_recommended.append(config)
-                logger.debug(f"⚠️  {config.key} 配置为占位符，视为未配置")
+            elif config.key.endswith(("_API_KEY", "_TOKEN")):
+                if not self._is_valid_api_key(str(value)):
+                    # API Key 存在但是占位符，视为未配置
+                    self.result.missing_recommended.append(config)
+                    logger.debug(f"⚠️  {config.key} 配置为占位符，视为未配置")
+                else:
+                    logger.debug(f"✅ {config.key}: 已配置")
             else:
                 logger.debug(f"✅ {config.key}: 已配置")
     

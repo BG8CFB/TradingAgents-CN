@@ -56,14 +56,14 @@ export const LogsApi = {
    * 获取日志文件列表
    */
   listLogFiles(): Promise<LogFileInfo[]> {
-    return ApiClient.get('/api/logs/files') as any
+    return ApiClient.get<LogFileInfo[]>('/api/logs/files').then(r => r.data ?? r) as Promise<LogFileInfo[]>
   },
 
   /**
    * 读取日志文件内容
    */
   readLogFile(request: LogReadRequest): Promise<LogContentResponse> {
-    return ApiClient.post('/api/logs/read', request) as any
+    return ApiClient.post<LogContentResponse>('/api/logs/read', request).then(r => r.data ?? r) as Promise<LogContentResponse>
   },
 
   /**

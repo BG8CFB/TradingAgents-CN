@@ -8,6 +8,12 @@ from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, ConfigDict, field_serializer
 from enum import Enum
 from bson import ObjectId
+from app.constants.llm_defaults import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TIMEOUT,
+    DEFAULT_RETRY_TIMES,
+)
 from .user import PyObjectId
 
 
@@ -201,14 +207,14 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = Field(None, description="API密钥(可选，优先从厂家配置获取)")
     api_base: Optional[str] = Field(None, description="API基础URL")
     max_tokens: int = Field(
-        default=4000,
+        default=DEFAULT_MAX_TOKENS,
         ge=1,
-        le=200000,
+        le=128000,
         description="最大token数（根据模型上下文长度校验）"
     )
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="温度参数")
-    timeout: int = Field(default=180, description="请求超时时间(秒)")
-    retry_times: int = Field(default=3, description="重试次数")
+    temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0, description="温度参数")
+    timeout: int = Field(default=DEFAULT_TIMEOUT, description="请求超时时间(秒)")
+    retry_times: int = Field(default=DEFAULT_RETRY_TIMES, description="重试次数")
     enabled: bool = Field(default=True, description="是否启用")
     description: Optional[str] = Field(None, description="配置描述")
 
@@ -357,10 +363,10 @@ class LLMConfigRequest(BaseModel):
     model_display_name: Optional[str] = None  # 新增：模型显示名称
     api_key: Optional[str] = None  # 可选，优先从厂家配置获取
     api_base: Optional[str] = None
-    max_tokens: int = Field(default=4000, ge=1, le=200000)
-    temperature: float = 0.7
-    timeout: int = 180  # 默认超时时间改为180秒
-    retry_times: int = 3
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=1, le=128000)
+    temperature: float = DEFAULT_TEMPERATURE
+    timeout: int = DEFAULT_TIMEOUT
+    retry_times: int = DEFAULT_RETRY_TIMES
     enabled: bool = True
     description: Optional[str] = None
 

@@ -297,7 +297,7 @@ class QueueService:
             expired_tasks = []
 
             # 使用 SCAN 替代 KEYS，避免 O(N) 全键空间扫描阻塞 Redis
-            async for key in self.r.scan_iter(match=VISIBILITY_TIMEOUT_PREFIX + "*"):
+            async for key in self.r.scan_iter(match=VISIBILITY_TIMEOUT_PREFIX + "*", count=100):
                 timeout_data = await self.r.hgetall(key)
                 if timeout_data:
                     timeout_at = int(timeout_data.get("timeout_at", 0))

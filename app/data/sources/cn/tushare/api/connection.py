@@ -3,6 +3,7 @@ Tushare 连接管理：Token 获取、连接建立、单例维护
 """
 import asyncio
 import logging
+import threading
 from typing import Optional
 
 from app.core.config import settings
@@ -93,17 +94,20 @@ class TushareConnection:
             return self.api.query(api_name, **kwargs)
         except Exception as e:
             logger.error(f"Tushare query({api_name}) 失败: {e}")
-            return None
+            raise
 
 
 # 单例
 _instance: Optional[TushareConnection] = None
+_instance_lock = threading.Lock()
 
 
 def get_tushare_api() -> TushareConnection:
     """获取 Tushare 连接单例"""
     global _instance
     if _instance is None:
-        _instance = TushareConnection()
-        _instance.connect_sync()
+        with _instance_lock:
+            if _instance is None:
+                _instance = TushareConnection()
+                _instance.connect_sync()
     return _instance

@@ -1,10 +1,10 @@
 """
 工具模块单元测试
-覆盖 stock_utils, time_utils, symbol, stock_validator
+覆盖 stock_utils, time_utils, stock_validator
 """
 
 import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from app.utils.stock_utils import (
     StockUtils,
@@ -26,13 +26,6 @@ from app.utils.time_utils import (
     ensure_tz,
     parse_date_aware,
     fromtimestamp_aware,
-)
-from app.utils.symbol import (
-    to_six_digit,
-    detect_market_and_code,
-    to_full_symbol,
-    to_yf_symbol,
-    normalize_stock_code,
 )
 
 
@@ -405,181 +398,6 @@ class TestFromtimestampAware:
         dt = fromtimestamp_aware(1704067200.0, to_config_tz=False)
         assert dt.year == 2024
         assert dt.tzinfo == timezone.utc
-
-
-# ============================================================================
-# symbol.py 测试
-# ============================================================================
-
-
-class TestToSixDigit:
-    """to_six_digit 测试"""
-
-    def test_pure_digits_pad_to_6(self):
-        """纯数字左补零到 6 位"""
-        assert to_six_digit("1") == "000001"
-        assert to_six_digit("600519") == "600519"
-
-    def test_remove_prefix(self):
-        """去除前缀"""
-        assert to_six_digit("sh600000") == "600000"
-        assert to_six_digit("SZ000001") == "000001"
-        assert to_six_digit("BJ430001") == "430001"
-
-    def test_remove_suffix(self):
-        """去除 Tushare 后缀"""
-        assert to_six_digit("600000.SH") == "600000"
-        assert to_six_digit("000001.SZ") == "000001"
-        assert to_six_digit("600000.SS") == "600000"
-
-    def test_alpha_passthrough(self):
-        """字母代码原样返回"""
-        assert to_six_digit("AAPL") == "AAPL"
-        assert to_six_digit("aapl") == "AAPL"
-
-    def test_empty_returns_empty(self):
-        """空字符串返回空"""
-        assert to_six_digit("") == ""
-
-    def test_none_returns_empty(self):
-        """None 返回空"""
-        assert to_six_digit(None) == ""
-
-
-class TestDetectMarketAndCode:
-    """detect_market_and_code 测试"""
-
-    def test_cn_6_digit(self):
-        market, code = detect_market_and_code("600000")
-        assert market == "CN"
-        assert code == "600000"
-
-    def test_cn_with_suffix(self):
-        market, code = detect_market_and_code("000001.SZ")
-        assert market == "CN"
-        assert code == "000001"
-
-    def test_hk_with_suffix(self):
-        market, code = detect_market_and_code("00700.HK")
-        assert market == "HK"
-        assert code == "00700"
-
-    def test_hk_4_5_digit(self):
-        market, code = detect_market_and_code("7000")
-        assert market == "HK"
-        assert code == "07000"
-
-    def test_hk_5_digit(self):
-        market, code = detect_market_and_code("9988")
-        assert market == "HK"
-        assert code == "09988"
-
-    def test_3digit_defaults_to_cn(self):
-        """3 位数字因无法判断市场，默认当作 A 股补零"""
-        market, code = detect_market_and_code("700")
-        assert market == "CN"
-        assert code == "000700"
-
-    def test_us_letters(self):
-        market, code = detect_market_and_code("AAPL")
-        assert market == "US"
-        assert code == "AAPL"
-
-    def test_empty_defaults_to_cn(self):
-        market, code = detect_market_and_code("")
-        assert market == "CN"
-        assert code == ""
-
-
-class TestToFullSymbol:
-    """to_full_symbol 测试"""
-
-    def test_shanghai_code(self):
-        """上海代码加 .SH"""
-        assert to_full_symbol("600000") == "600000.SH"
-        assert to_full_symbol("683986") == "683986.SH"
-
-    def test_shenzhen_code(self):
-        """深圳代码加 .SZ"""
-        assert to_full_symbol("000001") == "000001.SZ"
-        assert to_full_symbol("300750") == "300750.SZ"
-        assert to_full_symbol("200001") == "200001.SZ"
-
-    def test_beijing_code(self):
-        """北交所代码加 .BJ"""
-        assert to_full_symbol("430001") == "430001.BJ"
-        assert to_full_symbol("830001") == "830001.BJ"
-
-    def test_hk_explicit(self):
-        """港股显式指定"""
-        assert to_full_symbol("00700", market="HK") == "00700.HK"
-
-    def test_us_explicit(self):
-        """美股显式指定"""
-        assert to_full_symbol("AAPL", market="US") == "AAPL"
-
-    def test_already_has_suffix(self):
-        """已有后缀直接返回"""
-        assert to_full_symbol("600000.SH") == "600000.SH"
-
-    def test_ss_converts_to_sh(self):
-        """yfinance .SS 后缀转为 .SH"""
-        assert to_full_symbol("600000.SS") == "600000.SH"
-
-    def test_empty_returns_empty(self):
-        assert to_full_symbol("") == ""
-
-
-class TestToYfSymbol:
-    """to_yf_symbol 测试"""
-
-    def test_shanghai_to_ss(self):
-        """上海代码转为 .SS"""
-        assert to_yf_symbol("600000") == "600000.SS"
-
-    def test_shenzhen_unchanged(self):
-        """深圳代码保持 .SZ"""
-        assert to_yf_symbol("000001") == "000001.SZ"
-
-    def test_hk_explicit(self):
-        assert to_yf_symbol("00700", market="HK") == "00700.HK"
-
-    def test_us_no_suffix(self):
-        assert to_yf_symbol("AAPL", market="US") == "AAPL"
-
-    def test_ts_sh_converts_to_ss(self):
-        """Tushare .SH 转 yfinance .SS"""
-        assert to_yf_symbol("600000.SH") == "600000.SS"
-
-    def test_empty_returns_empty(self):
-        assert to_yf_symbol("") == ""
-
-
-class TestNormalizeStockCode:
-    """normalize_stock_code 测试"""
-
-    def test_china_stripped(self):
-        """A 股去除前后缀"""
-        assert normalize_stock_code(" sh600000 ") == "600000"
-        assert normalize_stock_code("600000.SH") == "600000"
-
-    def test_hk_stripped(self):
-        """港股去除 .HK"""
-        assert normalize_stock_code("00700.HK") == "00700"
-
-    def test_us_uppercase(self):
-        """美股大写"""
-        assert normalize_stock_code(" aapl ") == "AAPL"
-
-    def test_empty_returns_empty(self):
-        assert normalize_stock_code("") == ""
-
-    def test_none_returns_empty(self):
-        assert normalize_stock_code(None) == ""
-
-    def test_digit_padding(self):
-        """数字补零"""
-        assert normalize_stock_code("1") == "000001"
 
 
 # ============================================================================

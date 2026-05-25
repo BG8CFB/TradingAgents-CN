@@ -3,11 +3,12 @@
 import logging
 from typing import Optional, List
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 
 from app.core.response import ok, fail
 from app.data.core.interface import DataInterface
+from app.routers.auth_db import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class SyncTriggerRequest(BaseModel):
 
 
 @router.post("/refresh/{symbol}")
-async def refresh_hk_stock(symbol: str, req: RefreshRequest):
+async def refresh_hk_stock(symbol: str, req: RefreshRequest, user=Depends(get_current_user)):
     """按需刷新指定股票的数据"""
     try:
         di = DataInterface.get_instance()
@@ -93,14 +94,14 @@ async def get_refresh_status(symbol: str):
 
 
 @router.post("/sync/trigger")
-async def trigger_hk_sync(req: SyncTriggerRequest):
+async def trigger_hk_sync(req: SyncTriggerRequest, user=Depends(get_current_user)):
     di = DataInterface.get_instance()
     task_id = await di.trigger_sync(_MARKET, req.domain)
     return ok(data={"domain": req.domain, "task_id": task_id, "triggered": True})
 
 
 @router.post("/sync/{domain}")
-async def trigger_sync_by_domain(domain: str, request: SyncTriggerRequest):
+async def trigger_sync_by_domain(domain: str, request: SyncTriggerRequest, user=Depends(get_current_user)):
     """手动触发指定域的同步"""
     if domain not in _VALID_SYNC_DOMAINS:
         return fail(message=f"不支持的域: {domain}", code=400)
@@ -109,7 +110,7 @@ async def trigger_sync_by_domain(domain: str, request: SyncTriggerRequest):
         from app.worker.scheduler_setup import get_scheduler_engine
         engine = get_scheduler_engine()
         if engine:
-            job_id = engine.trigger_job("HK", domain)
+            job_id = await engine.trigger_job("HK", domain)
             return ok(data={"domain": domain, "job_id": job_id, "triggered": bool(job_id)})
 
         di = DataInterface.get_instance()

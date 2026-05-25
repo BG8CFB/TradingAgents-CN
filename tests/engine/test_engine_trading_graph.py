@@ -13,6 +13,7 @@ from app.engine.llm_adapters.factory import create_llm, PROVIDER_DEFAULTS
 from app.engine.llm_adapters.openai_compatible import OpenAICompatibleAdapter
 from app.engine.llm_adapters.anthropic_adapter import AnthropicAdapter
 from app.engine.llm_adapters.google_native import GoogleNativeAdapter
+from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TIMEOUT
 
 
 class TestCreateLlm:
@@ -21,9 +22,9 @@ class TestCreateLlm:
             "provider": "openai",
             "model": "gpt-4",
             "base_url": "https://api.openai.com/v1",
-            "temperature": 0.7,
-            "max_tokens": 4000,
-            "timeout": 60,
+            "temperature": DEFAULT_TEMPERATURE,
+            "max_tokens": DEFAULT_MAX_TOKENS,
+            "timeout": DEFAULT_TIMEOUT,
             "api_key": "sk-test-key",
         }
         defaults.update(overrides)

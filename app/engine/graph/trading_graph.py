@@ -9,6 +9,8 @@ from typing import Dict, Any, Tuple, List, Optional
 import time
 
 from app.engine.llm_adapters import create_llm
+from app.models.config import LLMConfig
+from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TIMEOUT
 
 from app.engine.agents import *
 from app.engine.default_config import DEFAULT_CONFIG
@@ -135,16 +137,29 @@ class TradingAgentsGraph:
         os.makedirs(cache_root, exist_ok=True)
 
         # Initialize LLMs — 使用统一工厂函数创建所有 provider 的 LLM
-        analyst_config = self.config.get("analyst_model_config", {})
-        debate_config = self.config.get("debate_model_config", {})
+        def _normalize_llm_config(config_dict: Optional[dict], model_name: str = "default") -> LLMConfig:
+            if not config_dict:
+                return LLMConfig(model_name=model_name)
+            cfg = dict(config_dict)
+            cfg.setdefault("model_name", model_name)
+            return LLMConfig(**cfg)
 
-        analyst_max_tokens = analyst_config.get("max_tokens", 4000)
-        analyst_temperature = analyst_config.get("temperature", 0.7)
-        analyst_timeout = analyst_config.get("timeout", 180)
+        analyst_cfg = _normalize_llm_config(
+            self.config.get("analyst_model_config"),
+            model_name=self.config.get("analyst_llm", "default"),
+        )
+        debate_cfg = _normalize_llm_config(
+            self.config.get("debate_model_config"),
+            model_name=self.config.get("debate_llm", "default"),
+        )
 
-        debate_max_tokens = debate_config.get("max_tokens", 4000)
-        debate_temperature = debate_config.get("temperature", 0.7)
-        debate_timeout = debate_config.get("timeout", 180)
+        analyst_max_tokens = analyst_cfg.max_tokens
+        analyst_temperature = analyst_cfg.temperature
+        analyst_timeout = analyst_cfg.timeout
+
+        debate_max_tokens = debate_cfg.max_tokens
+        debate_temperature = debate_cfg.temperature
+        debate_timeout = debate_cfg.timeout
 
         # 从 config 中读取 provider 和 model 信息
         # 优先使用 analysis_service 设置的 analyst_provider/debate_provider（精确的 per-model provider）
@@ -252,7 +267,6 @@ class TradingAgentsGraph:
         self.log_states_dict = {}  # date to full state dict
 
         # Set up the graph
-        import time
         setup_start = time.time()
         logger.info(f"⏱️ [性能追踪] 开始 setup_graph，分析师数量: {len(selected_analysts)}")
         self.graph = self.graph_setup.setup_graph(selected_analysts)
@@ -365,6 +379,9 @@ class TradingAgentsGraph:
                     final_state = chunk
         except Exception as e:
             logger.error(f"❌ 分析流程执行异常: {e}")
+            if final_state is not None:
+                e.partial_state = copy.deepcopy(final_state)  # type: ignore[attr-defined]
+                logger.info(f"已保存部分分析结果: {list(final_state.get('reports', {}).keys())}")
             raise
         finally:
             if progress_callback:
