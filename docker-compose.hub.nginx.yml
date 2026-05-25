@@ -5,7 +5,7 @@
 #   1. 下载此文件到任意目录
 #   2. (可选) 在同目录创建 .env 文件覆盖默认值（见下方"可选配置"）
 #   3. 启动: docker compose -f docker-compose.hub.nginx.yml up -d
-#   4. 访问: http://localhost:3000
+#   4. 访问: http://localhost:8080
 #   5. 默认管理员: admin / admin123（首次登录后请修改密码）
 #
 # 镜像来源: GitHub Container Registry (ghcr.io)
@@ -61,6 +61,15 @@ services:
     image: ghcr.1ms.run/bg8cfb/tradingagents-backend:${TA_VERSION:-latest}
     container_name: tradingagents-backend
     restart: unless-stopped
+    # 以 root 启动 entrypoint 修复 volume 权限，再降权运行应用
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        # 修复 volume 挂载目录权限，确保 appuser(id=999) 可写
+        chown -R 999:999 /app/runtime /app/config 2>/dev/null || true
+        # 切换到 appuser 执行原始 CMD
+        exec runuser -u appuser -- python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
     expose:
       - "8000"
     volumes:
@@ -154,13 +163,13 @@ services:
       start_period: 10s
 
   # ── Nginx 反向代理 ──
-  # 对外端口: 3000（可改为 80:80 或 8080:80）
+  # 对外端口: 8080（可通过 NGINX_PORT 环境变量修改）
   nginx:
     image: docker.1ms.run/nginx:alpine
     container_name: tradingagents-nginx
     restart: unless-stopped
     ports:
-      - "${NGINX_PORT:-3000}:80"
+      - "${NGINX_PORT:-8080}:8888"
     # Nginx 配置通过 tmpfs 内联生成，无需外部文件
     entrypoint:
       - /bin/sh
@@ -191,7 +200,7 @@ services:
             map $$http_upgrade $$connection_upgrade { default upgrade; '' close; }
             upstream backend { server backend:8000; }
             server {
-                listen 80;
+                listen 8888;
                 server_name _;
                 location / {
                     proxy_pass http://frontend:80;
@@ -247,7 +256,7 @@ services:
     networks:
       - tradingagents-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8888/health"]
       interval: 30s
       timeout: 10s
       retries: 3
