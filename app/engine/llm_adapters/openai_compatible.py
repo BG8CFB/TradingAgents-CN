@@ -4,12 +4,11 @@ OpenAI 兼容协议适配器
 SiliconFlow、OpenRouter、Ollama、自定义端点等。
 """
 
-import os
 import time
 from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatResult
 from langchain_openai import ChatOpenAI
 
@@ -18,6 +17,41 @@ from app.utils.logging_manager import get_logger
 from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TIMEOUT
 
 logger = get_logger("agents")
+
+
+# ── DeepSeek Thinking Mode 兼容 ────────────────────────────────────
+#
+# 问题背景：
+#   DeepSeek V4 的 thinking mode 会在 API 响应中返回 reasoning_content 字段。
+#   LangChain 的 ChatOpenAI 在两个关键环节丢失了此字段：
+#
+#   1. 响应解析（_convert_dict_to_message）：
+#      只提取 content / tool_calls / function_call / audio 到 AIMessage，
+#      reasoning_content 被完全丢弃。这意味着 AIMessage.additional_kwargs
+#      中永远不会包含 reasoning_content。
+#
+#   2. 请求序列化（_convert_message_to_dict）：
+#      即使手动将 reasoning_content 放入 additional_kwargs，
+#      _convert_message_to_dict 也不会将其序列化到请求的 message dict 中。
+#      DeepSeek 要求在多轮工具调用中回传 assistant 消息的 reasoning_content，
+#      否则返回 HTTP 400。
+#
+#   因此需要：
+#   - 覆盖 _create_chat_result 从原始响应中提取 reasoning_content
+#   - monkey-patch _convert_message_to_dict 在请求时注入 reasoning_content
+
+
+def _is_deepseek_thinking_model(provider: str, model_name: str) -> bool:
+    """判断是否为 DeepSeek thinking mode 模型（含 reasoning_content 的场景）
+
+    DeepSeek V4 模型在 thinking mode 下会返回 reasoning_content 字段，
+    需要在多轮工具调用中正确回传。保守策略：所有 DeepSeek 模型都启用
+    reasoning_content 补丁（非 thinking mode 模型不会有此字段，补丁无副作用）。
+    """
+    if provider != "deepseek":
+        return False
+    # 所有 deepseek-* 模型启用补丁（保守策略，无副作用）
+    return model_name.startswith("deepseek-")
 
 
 class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
@@ -129,6 +163,64 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
             )
         return truncated
 
+    # ── 响应处理：保留 reasoning_content ──────────────────────
+
+    def _create_chat_result(
+        self,
+        response: Any,
+        generation_info: Optional[Dict[str, Any]] = None,
+    ) -> ChatResult:
+        """
+        覆盖父类的 _create_chat_result，在标准解析后注入 DeepSeek 的
+        reasoning_content 到 AIMessage.additional_kwargs。
+
+        LangChain 的 _convert_dict_to_message 只提取标准 OpenAI 字段，
+        会丢弃 DeepSeek 的 reasoning_content。我们通过 _inject_reasoning
+        从原始响应中提取并注入。
+        """
+        result = super()._create_chat_result(response, generation_info)
+
+        # 注入 reasoning_content（仅对 DeepSeek 等推理模型有意义）
+        self._inject_reasoning_from_response(response, result)
+
+        return result
+
+    def _inject_reasoning_from_response(
+        self, response: Any, result: ChatResult
+    ) -> None:
+        """从原始 API 响应中提取 reasoning_content，注入到 AIMessage。
+
+        LangChain 的 _convert_dict_to_message 只处理标准 OpenAI 字段，
+        不会提取 reasoning_content。这个方法在 _create_chat_result 之后
+        调用，直接从原始响应 dict 中提取并注入。
+
+        这样 reasoning_content 会在 AIMessage.additional_kwargs 中保存，
+        后续多轮对话时 monkey-patch 会将它序列化回请求消息中。
+        """
+        provider = getattr(self, "_provider_name", "")
+        if provider != "deepseek":
+            return
+
+        # 获取原始响应 dict
+        response_dict = response if isinstance(response, dict) else response.model_dump()
+
+        choices = response_dict.get("choices") or []
+        for i, choice in enumerate(choices):
+            if i >= len(result.generations):
+                break
+            msg_dict = choice.get("message", {})
+            reasoning = msg_dict.get("reasoning_content")
+            if reasoning is None:
+                continue
+
+            ai_msg = result.generations[i].message
+            if isinstance(ai_msg, AIMessage):
+                ai_msg.additional_kwargs["reasoning_content"] = reasoning
+                logger.debug(
+                    f"[deepseek] 已注入 reasoning_content "
+                    f"({len(reasoning)} 字符) 到 AIMessage.additional_kwargs"
+                )
+
     # ── 生成方法 ──────────────────────────────────────────────
 
     def _generate(
@@ -145,7 +237,19 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
         if hook == "_truncate_messages_for_qianfan":
             messages = self._truncate_messages_for_qianfan(messages)
 
-        result = super()._generate(messages, stop, run_manager, **kwargs)
+        # DeepSeek thinking mode 兼容：
+        # 1. _create_chat_result（响应方向）：已在上面覆盖，自动注入 reasoning_content
+        # 2. _convert_message_to_dict（请求方向）：需要 monkey-patch 以回传 reasoning_content
+        provider = getattr(self, "_provider_name", "")
+        model_name = getattr(self, "model_name", None) or getattr(self, "_model_name_alias", "")
+        needs_reasoning_fix = _is_deepseek_thinking_model(provider, model_name)
+
+        if needs_reasoning_fix:
+            result = self._generate_with_reasoning_fix(
+                messages, stop, run_manager, **kwargs
+            )
+        else:
+            result = super()._generate(messages, stop, run_manager, **kwargs)
 
         # 修复 content 为空的情况：部分模型（如 Qwen3.6 + Ollama）
         # 在 think 模式下将实际回复放在非标准 reasoning 字段中，
@@ -155,10 +259,63 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
         self._track_token_usage(result, kwargs, start_time)
         return result
 
+    def _generate_with_reasoning_fix(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """
+        DeepSeek thinking mode 的 _generate 包装。
+
+        通过临时 monkey-patch langchain_openai.chat_models.base 模块的
+        _convert_message_to_dict 函数，确保 AIMessage 的 reasoning_content
+        被注入到序列化后的 dict 中。调用完成后恢复原函数。
+
+        仅对 DeepSeek thinking mode 模型生效，不影响其他 provider。
+
+        注意：reasoning_content 的来源是 _create_chat_result 中
+        _inject_reasoning_from_response 方法从原始响应中提取并注入的。
+        """
+        import langchain_openai.chat_models.base as _lc_openai_base
+
+        _original_fn = getattr(_lc_openai_base, "_convert_message_to_dict", None)
+        if _original_fn is None:
+            logger.warning(
+                "[deepseek] 无法获取 LangChain _convert_message_to_dict，"
+                "跳过 reasoning_content 注入（可能触发 400 错误）"
+            )
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+        def _patched_convert_message_to_dict(message, *args, **ckwargs):
+            msg_dict = _original_fn(message, *args, **ckwargs)
+            # 对 AIMessage，注入 additional_kwargs 中的 reasoning_content
+            if isinstance(message, AIMessage) and msg_dict.get("role") == "assistant":
+                reasoning = message.additional_kwargs.get("reasoning_content")
+                if reasoning is not None:
+                    msg_dict["reasoning_content"] = reasoning
+            return msg_dict
+
+        try:
+            _lc_openai_base._convert_message_to_dict = _patched_convert_message_to_dict
+            logger.debug(
+                f"[deepseek] 已启用 reasoning_content 序列化补丁 "
+                f"(messages 含 {sum(1 for m in messages if isinstance(m, AIMessage))} 条 AIMessage)"
+            )
+            result = super(OpenAICompatibleAdapter, self)._generate(
+                messages, stop, run_manager, **kwargs
+            )
+            return result
+        finally:
+            # 确保恢复原函数，避免影响其他调用
+            if _original_fn is not None:
+                _lc_openai_base._convert_message_to_dict = _original_fn
+
     def _fix_empty_content(
         self, result: ChatResult, messages: List[BaseMessage]
     ) -> None:
-        """回填空的 content — 从底层 SDK 原生响应中提取 reasoning 字段"""
+        """回填空的 content — 从 additional_kwargs 中提取 reasoning_content"""
         provider = getattr(self, "_provider_name", "")
         for gen in result.generations:
             msg = getattr(gen, "message", None)
@@ -167,13 +324,15 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
             content = getattr(msg, "content", None)
             has_tool_calls = bool(getattr(msg, "tool_calls", None))
             if (content is None or content == "") and not has_tool_calls:
-                # 优先从 message 对象直接提取 reasoning_content（DeepSeek 等推理模型）
-                reasoning = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
+                # 从 additional_kwargs 中提取 reasoning_content
+                # （已由 _inject_reasoning_from_response 注入）
+                reasoning = msg.additional_kwargs.get("reasoning_content")
                 if reasoning:
                     msg.content = reasoning
-                    logger.debug(
-                        f"[{provider}] "
-                        f"content 为空，已从 reasoning_content 回填 ({len(reasoning)} 字符)"
+                    logger.warning(
+                        f"[{provider}] 模型返回了 reasoning_content 但 content 为空。"
+                        f"已回填思考链内容 ({len(reasoning)} 字符) 作为回复。"
+                        f"这通常意味着模型处于 thinking mode 但未生成最终答案。"
                     )
                 # Ollama think 模式需要额外 API 调用获取 reasoning
                 elif provider == "ollama":

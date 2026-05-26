@@ -397,8 +397,10 @@ const availableModels = computed(() => {
   const provider = wizardData.value.llm.provider
   const models: Record<string, Array<{ label: string; value: string }>> = {
     deepseek: [
-      { label: 'deepseek-chat', value: 'deepseek-chat' },
-      { label: 'deepseek-coder', value: 'deepseek-coder' }
+      { label: 'deepseek-v4-flash (推荐，高速推理)', value: 'deepseek-v4-flash' },
+      { label: 'deepseek-v4-pro (深度推理，适合辩论)', value: 'deepseek-v4-pro' },
+      { label: 'deepseek-chat (旧版，即将弃用)', value: 'deepseek-chat' },
+      { label: 'deepseek-coder (旧版)', value: 'deepseek-coder' }
     ],
     dashscope: [
       { label: 'qwen-turbo', value: 'qwen-turbo' },

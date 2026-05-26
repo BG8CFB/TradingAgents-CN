@@ -190,7 +190,36 @@ class TradingAgentsGraph:
         )
 
         logger.info("[LLM初始化] 完成")
-        
+
+        # ── 分析师模型 TOOL_CALLING 能力检查 ──────────────────────
+        # Stage 1 分析师使用 bind_tools 进行工具调用，需要模型支持 TOOL_CALLING。
+        # 如果模型不支持（如 deepseek-reasoner），Stage 1 的工具调用循环将无法正常工作。
+        try:
+            from app.constants.model_capabilities import (
+                DEFAULT_MODEL_CAPABILITIES,
+                ModelFeature,
+            )
+
+            analyst_model = self.config.get("analyst_llm", "")
+            cap = DEFAULT_MODEL_CAPABILITIES.get(analyst_model, {})
+            if cap:
+                features = cap.get("features", [])
+                has_tool_calling = ModelFeature.TOOL_CALLING in features
+                if not has_tool_calling:
+                    logger.warning(
+                        f"⚠️ [LLM初始化] 分析师模型 '{analyst_model}' 不支持 TOOL_CALLING "
+                        f"(features: {[f.value for f in features]})。"
+                        f"Stage 1 工具调用可能失败，建议更换为支持 function calling 的模型。"
+                    )
+                else:
+                    logger.debug(f"[LLM初始化] 分析师模型 '{analyst_model}' 支持 TOOL_CALLING")
+            else:
+                logger.debug(
+                    f"[LLM初始化] 模型 '{analyst_model}' 未在能力表中注册，跳过 TOOL_CALLING 检查"
+                )
+        except Exception as e:
+            logger.debug(f"[LLM初始化] 跳过 TOOL_CALLING 能力检查: {e}")
+
         self.toolkit = Toolkit(config=self.config)
 
         # Initialize memories (如果启用)

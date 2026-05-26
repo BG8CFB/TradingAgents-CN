@@ -66,6 +66,9 @@ export const MODEL_TO_PROVIDER_MAP: Record<string, string> = {
   // DeepSeek
   'deepseek-chat': 'deepseek',
   'deepseek-coder': 'deepseek',
+  'deepseek-v4-flash': 'deepseek',
+  'deepseek-v4-pro': 'deepseek',
+  'deepseek-reasoner': 'deepseek',
 
   // 智谱AI
   'glm-4': 'zhipu',
