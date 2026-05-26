@@ -20,15 +20,17 @@ class MarketQuotesRepo:
             sym = rec.get("symbol")
             if not sym:
                 continue
-            # 写入前比较 last_updated，仅当新数据更新时覆盖
+            filter_doc = {"symbol": sym}
+            update_doc = {"$set": rec}
             new_updated = rec.get("last_updated")
-            existing = await coll.find_one({"symbol": sym}, {"last_updated": 1})
-            if existing and existing.get("last_updated") and new_updated:
-                if new_updated <= existing["last_updated"]:
-                    continue
-            ops.append(UpdateOne(
-                {"symbol": sym}, {"$set": rec}, upsert=True
-            ))
+            if new_updated:
+                # 使用 $max 将 last_updated 比较下推到 MongoDB 服务端：
+                # 仅当新值 > 已有值时才更新 last_updated，同时用 $set 覆盖其他字段。
+                update_doc = {
+                    "$set": {k: v for k, v in rec.items() if k != "last_updated"},
+                    "$max": {"last_updated": new_updated},
+                }
+            ops.append(UpdateOne(filter_doc, update_doc, upsert=True))
         if not ops:
             return 0
         result = await coll.bulk_write(ops, ordered=False)

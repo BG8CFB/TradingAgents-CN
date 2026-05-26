@@ -31,7 +31,7 @@ export const useAuthStore = defineStore('auth', {
     const token = localStorage.getItem('auth-token') || null
     const refreshToken = localStorage.getItem('refresh-token') || null
 
-    // 验证token格式
+    // 验证token格式并检查是否已过期
     const isValidToken = (token: string | null): boolean => {
       if (!token || typeof token !== 'string') return false
       // 检查是否是mock token（开发时可能设置的测试token）
@@ -40,7 +40,19 @@ export const useAuthStore = defineStore('auth', {
         return false
       }
       // JWT token应该有3个部分，用.分隔
-      return token.split('.').length === 3
+      const parts = token.split('.')
+      if (parts.length !== 3) return false
+      // 解码 payload 检查过期时间
+      try {
+        const payload = JSON.parse(atob(parts[1]))
+        if (payload.exp && payload.exp * 1000 < Date.now()) {
+          console.warn('Token 已过期，将被清除')
+          return false
+        }
+      } catch {
+        return false
+      }
+      return true
     }
 
     const validToken = isValidToken(token) ? token : null

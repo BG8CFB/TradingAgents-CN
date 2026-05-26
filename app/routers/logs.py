@@ -193,7 +193,7 @@ async def export_logs(
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=safe_error_message(e, "请求参数无效"))
     except Exception as e:
         logger.error(f"❌ 导出日志文件失败: {e}")
         raise HTTPException(status_code=500, detail=safe_error_message(e, "导出日志文件失败"))

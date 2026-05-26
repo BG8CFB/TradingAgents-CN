@@ -75,7 +75,7 @@ class AnalysisResult(BaseModel):
 
 class AnalysisTask(BaseModel):
     """分析任务模型"""
-    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    id: Optional[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
     task_id: str = Field(..., description="任务唯一标识")
     batch_id: Optional[str] = None
     user_id: PyObjectId
@@ -109,7 +109,7 @@ class AnalysisTask(BaseModel):
 
 class AnalysisBatch(BaseModel):
     """分析批次模型"""
-    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    id: Optional[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
     batch_id: str = Field(..., description="批次唯一标识")
     user_id: PyObjectId
     title: str = Field(..., description="批次标题")

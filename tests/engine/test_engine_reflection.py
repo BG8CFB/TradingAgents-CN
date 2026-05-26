@@ -43,8 +43,8 @@ class TestReflectorInit:
         r = Reflector(RecordingLLM())
         assert r.reflection_system_prompt is not None
         assert len(r.reflection_system_prompt) > 0
-        assert "Reasoning" in r.reflection_system_prompt
-        assert "Improvement" in r.reflection_system_prompt
+        assert "推理" in r.reflection_system_prompt
+        assert "改进" in r.reflection_system_prompt
 
 
 class TestExtractCurrentSituation:

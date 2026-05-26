@@ -49,6 +49,7 @@ class GoogleNativeAdapter(ChatGoogleGenerativeAI, BaseChatAdapter):
 
         kwargs.setdefault("temperature", temperature)
         kwargs.setdefault("max_tokens", max_tokens)
+        kwargs.setdefault("timeout", timeout)
         kwargs["google_api_key"] = resolved_key
 
         # base_url 处理：区分 Google 官方域名和中转地址

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tradingagents"
 version = "1.3.1"
-description = "Add your description here"
+description = "TradingAgents-CN: Chinese stock analysis platform with multi-agent AI system"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
@@ -77,8 +77,8 @@ qianfan = ["qianfan>=0.4.12.3"]
 tradingagents = "scripts.examples.run_analysis:main"
 
 [tool.setuptools.packages.find]
-include = ["app*", "backend*"]
-exclude = ["tests*", "docs*", "scripts*", "data*", "logs*", "reports*", "results*", "eval_results*", "upstream_contribution*", "frontend*"]
+include = ["app*", "backend*", "scripts*"]
+exclude = ["tests*", "docs*", "data*", "logs*", "reports*", "results*", "eval_results*", "upstream_contribution*", "frontend*"]
 
 [dependency-groups]
 dev = [

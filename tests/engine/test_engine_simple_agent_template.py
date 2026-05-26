@@ -95,28 +95,30 @@ class TestInjectToolArgsMap:
 class TestInjectToolData:
     """_inject_tool_data 数据注入逻辑"""
 
-    def test_skips_tools_not_in_map(self):
+    @pytest.mark.asyncio
+    async def test_skips_tools_not_in_map(self):
         """不在映射表中的工具不触发注入"""
 
         class FakeTool:
             name = "unknown_tool"
 
         messages = []
-        _inject_tool_data(
+        await _inject_tool_data(
             "test", [FakeTool()], [],
             {"ticker": "000001", "trade_date": "2024-12-31"},
             messages,
         )
         assert len(messages) == 0
 
-    def test_skips_when_ticker_empty_and_needed(self):
+    @pytest.mark.asyncio
+    async def test_skips_when_ticker_empty_and_needed(self):
         """ticker 为空且工具需要 ticker 时不注入数据（但可能有 SystemMessage 前导说明）"""
 
         class FakeTool:
             name = "daily_quotes"
 
         messages = []
-        _inject_tool_data(
+        await _inject_tool_data(
             "test", [FakeTool()], [],
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
@@ -124,7 +126,8 @@ class TestInjectToolData:
         assert not any(isinstance(m, AIMessage) for m in messages)
         assert not any(isinstance(m, ToolMessage) for m in messages)
 
-    def test_injects_tool_result_into_messages(self):
+    @pytest.mark.asyncio
+    async def test_injects_tool_result_into_messages(self):
         """china_market 不需要 ticker，应成功注入数据"""
 
         class FakeTool:
@@ -134,7 +137,7 @@ class TestInjectToolData:
                 return {"index": "上证指数"}
 
         messages = []
-        _inject_tool_data(
+        await _inject_tool_data(
             "test", [FakeTool()], [],
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
@@ -143,14 +146,15 @@ class TestInjectToolData:
         assert any(isinstance(m, AIMessage) for m in messages)
         assert any(isinstance(m, ToolMessage) for m in messages)
 
-    def test_handles_tool_exception_gracefully(self):
+    @pytest.mark.asyncio
+    async def test_handles_tool_exception_gracefully(self):
         """注册表中不存在的工具不触发注入"""
 
         class FakeTool:
             name = "unknown_tool_xyz"
 
         messages = []
-        _inject_tool_data(
+        await _inject_tool_data(
             "test", [FakeTool()], [],
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
@@ -181,7 +185,7 @@ class TestSimpleAgentWithRealLLM:
     """使用真实 LLM 的 agent 执行测试"""
 
     @pytest.mark.ai
-    def test_agent_executes_with_real_llm(self):
+    async def test_agent_executes_with_real_llm(self):
         """使用真实 LLM 执行 agent 节点"""
         from app.engine.llm_adapters.factory import create_llm
         import os
@@ -202,7 +206,7 @@ class TestSimpleAgentWithRealLLM:
             "task_id": None,
             "reports": {},
         }
-        result = node(state)
+        result = await node(state)
         assert "market_report" in result
         assert isinstance(result["market_report"], str)
         assert len(result["market_report"]) > 0

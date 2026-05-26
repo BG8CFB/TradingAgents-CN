@@ -80,7 +80,8 @@ class SystemInitService:
                         try:
                             result[key] = ObjectId(value)
                             continue
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f"ObjectId 转换失败: {key}={value}: {e}")
                             pass
 
                 # 处理日期时间
@@ -90,7 +91,8 @@ class SystemInitService:
                             # 处理 ISO 格式时间字符串
                             result[key] = datetime.fromisoformat(value.replace('Z', '+00:00'))
                             continue
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f"日期解析失败: {key}={value}: {e}")
                             pass
                 
                 result[key] = SystemInitService.convert_to_bson(value)
@@ -229,6 +231,7 @@ class SystemInitService:
             "is_active": True,
             "is_verified": True,
             "is_admin": True,
+            "must_change_password": admin_config["password"] == "admin123",
             "created_at": now_utc(),
             "updated_at": now_utc(),
             "last_login": None,

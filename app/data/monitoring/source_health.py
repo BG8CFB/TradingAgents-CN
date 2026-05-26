@@ -30,6 +30,7 @@ class SourceHealthMonitor:
         self._initialized = True
         self._stats: Dict[str, Dict] = {}
         # (market, source, domain) -> {success, failure, last_success, last_failure, avg_latency_ms}
+        self._stats_lock = threading.Lock()
         self._repo = MetadataRepo()
         self._flush_interval = 30
         self._flush_thread: Optional[threading.Thread] = None
@@ -53,32 +54,35 @@ class SourceHealthMonitor:
     ):
         """记录一次数据源调用。"""
         key = f"{market}:{source}:{domain}"
-        if key not in self._stats:
-            self._stats[key] = {
-                "market": market, "source": source, "domain": domain,
-                "success_count": 0, "failure_count": 0,
-                "total_latency_ms": 0, "call_count": 0,
-                "last_success_at": None, "last_failure_at": None,
-                "last_error": None,
-                "consecutive_failures": 0,
-                "circuit_state": "closed",
-            }
+        with self._stats_lock:
+            if key not in self._stats:
+                self._stats[key] = {
+                    "market": market, "source": source, "domain": domain,
+                    "success_count": 0, "failure_count": 0,
+                    "total_latency_ms": 0, "call_count": 0,
+                    "last_success_at": None, "last_failure_at": None,
+                    "last_error": None,
+                    "consecutive_failures": 0,
+                    "circuit_state": "closed",
+                }
 
-        s = self._stats[key]
-        s["call_count"] += 1
-        s["total_latency_ms"] += latency_ms
-        s["circuit_state"] = circuit_state
+            s = self._stats[key]
+            s["call_count"] += 1
+            s["total_latency_ms"] += latency_ms
+            s["circuit_state"] = circuit_state
+            if circuit_state == "open":
+                s["open_count"] = s.get("open_count", 0) + 1
 
-        if success:
-            s["success_count"] += 1
-            s["last_success_at"] = datetime.now(timezone.utc).isoformat()
-            s["consecutive_failures"] = 0
-        else:
-            s["failure_count"] += 1
-            s["last_failure_at"] = datetime.now(timezone.utc).isoformat()
-            s["consecutive_failures"] = s.get("consecutive_failures", 0) + 1
-            if error:
-                s["last_error"] = error
+            if success:
+                s["success_count"] += 1
+                s["last_success_at"] = datetime.now(timezone.utc).isoformat()
+                s["consecutive_failures"] = 0
+            else:
+                s["failure_count"] += 1
+                s["last_failure_at"] = datetime.now(timezone.utc).isoformat()
+                s["consecutive_failures"] = s.get("consecutive_failures", 0) + 1
+                if error:
+                    s["last_error"] = error
 
     def get_health(self, market: str, source: str, domain: str) -> Optional[Dict]:
         """获取健康度数据。"""
@@ -115,7 +119,7 @@ class SourceHealthMonitor:
             "avg_latency_1h": round(avg_latency, 1),
             "total_calls": stats["call_count"],
             "consecutive_failures": stats.get("consecutive_failures", 0),
-            "open_count": 0,
+            "open_count": stats.get("open_count", 0),
             "last_success_at": stats["last_success_at"],
             "last_failure_at": stats["last_failure_at"],
             "last_error": stats["last_error"],

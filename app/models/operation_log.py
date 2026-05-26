@@ -106,10 +106,11 @@ class ActionType:
     SYSTEM_SETTINGS = "system_settings"
     USER_LOGIN = "user_login"
     USER_LOGOUT = "user_logout"
-    USER_MANAGEMENT = "user_management"  # 🔧 添加用户管理操作类型
+    USER_MANAGEMENT = "user_management"
     DATABASE_OPERATION = "database_operation"
     SCREENING = "screening"
     REPORT_GENERATION = "report_generation"
+    API_ACCESS = "api_access"
 
 
 # 操作类型映射

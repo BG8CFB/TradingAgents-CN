@@ -23,11 +23,12 @@ class DataInterface:
     消费层只通过此类访问数据。
     """
 
-    def __init__(self):
+    def __init__(self, sync_trigger_callback=None):
         self.reader = Reader()
         self._registry = CapabilityRegistry()
         self._priority = PriorityConfig()
         self.refresh_service = DataRefreshService(self._registry, self._priority)
+        self._sync_trigger_callback = sync_trigger_callback
 
         from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
         self._metadata_repo = MetadataRepo()
@@ -92,12 +93,22 @@ class DataInterface:
     # ── 同步管理 ──
 
     async def trigger_sync(self, market: str, domain: str) -> str:
-        """手动触发同步任务。优先走调度引擎，降级走按需刷新。"""
+        """手动触发同步任务。优先走注入的回调，降级走调度引擎，最终降级走记录事件。"""
         from datetime import datetime, timezone
 
         task_id = f"sync_{market}_{domain}_{int(datetime.now(timezone.utc).timestamp())}"
 
-        # 优先走调度引擎（支持依赖链和 force_sync）
+        # 优先使用注入的回调（由上层 worker 模块注册）
+        if self._sync_trigger_callback:
+            try:
+                result = self._sync_trigger_callback(market, domain)
+                if result:
+                    logger.info(f"通过回调触发同步: {result}")
+                    return result
+            except Exception as e:
+                logger.warning(f"回调触发失败: {e}")
+
+        # 降级：尝试调度引擎
         try:
             from app.worker.scheduler_setup import get_scheduler_engine
             engine = get_scheduler_engine()
@@ -181,7 +192,8 @@ class DataInterface:
                     "records": count,
                     "last_updated": last_doc.get("updated_at") if last_doc else None,
                 }
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取域统计失败: {domain}: {e}")
                 stats[domain] = {"records": 0, "last_updated": None}
         return stats
 
@@ -278,7 +290,8 @@ class DataInterface:
                         "is_open": 1,
                         "cal_date": {"$gte": thirty_days_ago},
                     })
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"交易日历查询失败: {e}")
                     expected_days = None
                 stats["date_continuity"] = {
                     "trading_days_covered": trading_days_covered,

@@ -23,12 +23,12 @@ class DistributedLock:
     async def acquire(self) -> bool:
         """尝试获取锁。"""
         try:
+            from app.data.storage.redis.client import get_redis
             redis = None
             try:
-                # 使用 __import__ 避免模块级别循环导入，运行时按需获取 Redis 客户端
-                redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
-            except Exception:
-                pass
+                redis = get_redis()
+            except Exception as e:
+                logger.debug(f"获取 Redis 连接失败: {e}")
 
             if redis:
                 result = await redis.set(
@@ -48,6 +48,15 @@ class DistributedLock:
                 timeout=0.1,
             )
             _memory_lock_owners[self.lock_key] = self.owner_id
+            # 设置 TTL 自动释放，防止持锁协程异常退出导致死锁
+            asyncio.get_event_loop().call_later(
+                self.ttl,
+                lambda: (
+                    _async_memory_locks[self.lock_key].release()
+                    if self.lock_key in _async_memory_locks and _async_memory_locks[self.lock_key].locked()
+                    else None
+                ),
+            )
             return True
         except asyncio.TimeoutError:
             return False
@@ -55,12 +64,12 @@ class DistributedLock:
     async def release(self) -> None:
         """释放锁。"""
         try:
+            from app.data.storage.redis.client import get_redis
             redis = None
             try:
-                # 使用 __import__ 避免模块级别循环导入，运行时按需获取 Redis 客户端
-                redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
-            except Exception:
-                pass
+                redis = get_redis()
+            except Exception as e:
+                logger.debug(f"获取 Redis 连接失败: {e}")
 
             if redis:
                 # Lua 脚本保证原子性：只释放自己持有的锁

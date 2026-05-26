@@ -8,6 +8,8 @@
 - 内置工具预注入（基于 BuiltinToolSpec）+ 不可用工具通知
 """
 
+import asyncio
+import inspect
 import json
 from datetime import timedelta
 from typing import Any, Optional
@@ -40,8 +42,8 @@ def _get_us_company_name(ticker: str) -> str:
             name = info.get("shortName") or info.get("longName")
             if name:
                 return name
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"yfinance 获取公司名称失败: {e}")
     from app.utils.stock_utils import StockUtils
     return StockUtils.US_STOCK_NAMES.get(ticker.upper(), f"美股{ticker}")
 
@@ -94,7 +96,7 @@ def _resolve_inject_args(
     return args
 
 
-def _inject_tool_data(
+async def _inject_tool_data(
     agent_name: str,
     inject_tools: List[Any],
     unavailable_tool_ids: List[str],
@@ -186,7 +188,13 @@ def _inject_tool_data(
             call_id = f"pre_{uuid.uuid4().hex[:8]}_{tool_name}"
             logger.info(f"💉 [{agent_name}] 预加载数据: {spec.display_name}({tool_args})")
 
-            result = spec.fn(**tool_args)
+            if inspect.iscoroutinefunction(spec.fn):
+                result = await spec.fn(**tool_args)
+            else:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(spec.fn, **tool_args),
+                    timeout=30,
+                )
             result_str = format_tool_result(result)
 
             messages.append(AIMessage(
@@ -239,7 +247,7 @@ def create_simple_agent(
         节点函数
     """
 
-    def simple_agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    async def simple_agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"🤖 [{name}] 开始分析")
 
         from app.engine.agents.analysts.dynamic_analyst import ProgressManager, DynamicAnalystFactory
@@ -310,8 +318,9 @@ def create_simple_agent(
             try:
                 from app.utils.llm_rate_limiter import get_rate_limiter
                 rate_limiter = get_rate_limiter()
+            except Exception as e:
+                logger.debug(f"获取速率限制器失败: {e}")
             except Exception:
-                pass
 
             from app.engine.agents.executors import AgentExecutor
 
@@ -331,7 +340,7 @@ def create_simple_agent(
                 unavailable_tools=unavailable_tools or [],
             )
 
-            result = executor.execute(messages)
+            result = await executor.execute(messages)
 
             final_report = result.final_report
 

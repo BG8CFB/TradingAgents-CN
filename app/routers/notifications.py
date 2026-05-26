@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.routers.auth_db import get_current_user, require_admin
 from app.core.response import ok, safe_error_message
+# get_redis_client 仅用于管理员调试端点 debug_redis_pool
 from app.core.database import get_redis_client
 from app.services.notifications_service import get_notifications_service
 

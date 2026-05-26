@@ -9,6 +9,24 @@ logger = logging.getLogger(__name__)
 _name_cache: Dict[str, str] = {}
 
 
+def infer_exchange(symbol: str) -> str:
+    """根据股票代码推断交易所。
+
+    Args:
+        symbol: 6位纯数字股票代码（不带后缀），如 "000001"
+
+    Returns:
+        交易所代码: "SSE"（上交所）/ "SZSE"（深交所）/ "BSE"（北交所）/ ""（未知）
+    """
+    if symbol.startswith(("60", "68", "90")):
+        return "SSE"
+    elif symbol.startswith(("00", "30", "20")):
+        return "SZSE"
+    elif symbol.startswith(("4", "8")):
+        return "BSE"
+    return ""
+
+
 def get_stock_name_sync(symbol: str) -> Optional[str]:
     """通过腾讯行情接口快速获取股票名称（同步版本）。
 
@@ -34,8 +52,8 @@ def get_stock_name_sync(symbol: str) -> Optional[str]:
             name = parts[1].strip()
             _name_cache[symbol] = name
             return name
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"腾讯行情接口获取股票名称失败: {e}")
 
     # 备选: 从 DataInterface 获取
     try:
@@ -55,7 +73,7 @@ def get_stock_name_sync(symbol: str) -> Optional[str]:
         if name:
             _name_cache[symbol] = name
             return name
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"DataInterface 获取股票名称失败: {e}")
 
     return None

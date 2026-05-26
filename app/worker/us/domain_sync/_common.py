@@ -21,7 +21,7 @@ async def sync_domain(
     from app.data.core.registry.capability import CapabilityRegistry
     from app.data.core.registry.priority import PriorityConfig
     from pymongo import UpdateOne
-    from app.core.database import get_mongo_db_sync
+    from app.core.database import get_database
 
     start = time.time()
     registry = CapabilityRegistry()
@@ -50,8 +50,8 @@ async def sync_domain(
                 continue
 
             docs = [r.to_db_doc() for r in records]
-            db = get_mongo_db_sync()
-            col = db[get_collection_name(domain, "US")]
+            db = await get_database()
+            collection = db[get_collection_name(domain, "US")]
 
             fields = filter_fields or ["symbol"]
             ops = []
@@ -61,7 +61,7 @@ async def sync_domain(
                     ops.append(UpdateOne(filt, {"$set": d}, upsert=True))
 
             if ops:
-                col.bulk_write(ops, ordered=False)
+                await collection.bulk_write(ops, ordered=False)
 
             elapsed = int((time.time() - start) * 1000)
             logger.info(f"US {domain} 同步完成: {len(ops)} 条, 源={source_name}, 耗时={elapsed}ms")

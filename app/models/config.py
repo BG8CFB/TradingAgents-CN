@@ -47,7 +47,7 @@ class ModelProvider(str, Enum):
 
 class LLMProvider(BaseModel):
     """大模型厂家配置"""
-    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    id: Optional[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
     name: str = Field(..., description="厂家唯一标识")
     display_name: str = Field(..., description="显示名称")
     description: Optional[str] = Field(None, description="厂家描述")
@@ -93,7 +93,7 @@ class ModelInfo(BaseModel):
 
 class ModelCatalog(BaseModel):
     """模型目录"""
-    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    id: Optional[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
     provider: str = Field(..., description="厂家标识")
     provider_name: str = Field(..., description="厂家显示名称")
     models: List[ModelInfo] = Field(default_factory=list, description="模型列表")
@@ -325,7 +325,7 @@ class UsageStatistics(BaseModel):
 
 class SystemConfig(BaseModel):
     """系统配置模型"""
-    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    id: Optional[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
     config_name: str = Field(..., description="配置名称")
     config_type: str = Field(..., description="配置类型")
     

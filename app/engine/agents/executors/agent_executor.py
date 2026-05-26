@@ -12,6 +12,7 @@
 - 速率限制异常优雅降级
 """
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -66,7 +67,7 @@ class AgentExecutor:
             max_iterations=12,
             system_prompt="你是一个分析师...",
         )
-        result = executor.execute(
+        result = await executor.execute(
             initial_messages=[HumanMessage(content="请分析...")],
         )
         print(result.final_report)
@@ -119,7 +120,7 @@ class AgentExecutor:
             f"tools={len(tools)}, bind_tools=一次绑定"
         )
 
-    def execute(
+    async def execute(
         self,
         initial_messages: List[BaseMessage],
     ) -> ExecutionResult:
@@ -145,7 +146,7 @@ class AgentExecutor:
 
         # === 自动数据注入 ===
         if self.inject_tools:
-            self._inject_tool_data(messages)
+            await self._inject_tool_data(messages)
 
         # === 执行循环 ===
         self.state_injector.reset()
@@ -225,11 +226,12 @@ class AgentExecutor:
                         break
                     # LLM 仍然调用工具，强制停止
                     messages.append(final_response)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"LLM 循环后调用失败: {e}")
                     pass
 
                 # 强制总结
-                final_report = self._force_summary(messages)
+                final_report = await self._force_summary(messages)
                 return ExecutionResult(
                     final_report=final_report,
                     iterations=iteration,
@@ -325,7 +327,7 @@ class AgentExecutor:
                 f"⚠️ [AgentExecutor] 达到最大迭代次数 {self.max_iterations}, "
                 f"执行强制总结"
             )
-            final_report = self._force_summary(messages)
+            final_report = await self._force_summary(messages)
             return ExecutionResult(
                 final_report=final_report,
                 iterations=iteration,
@@ -348,24 +350,30 @@ class AgentExecutor:
             messages=messages,
         )
 
-    def _invoke_llm(self, messages: List[BaseMessage]) -> Any:
-        """调用 LLM（带速率限制和优雅降级）"""
+    async def _invoke_llm(self, messages: List[BaseMessage]) -> Any:
+        """调用 LLM（带速率限制和优雅降级），同步调用包装在线程池中避免阻塞事件循环"""
+        loop = asyncio.get_running_loop()
         if self.rate_limiter:
             try:
-                return self.rate_limiter.rate_limited_call(
-                    self.llm_provider,
-                    self._llm_with_tools.invoke,
-                    messages,
+                return await loop.run_in_executor(
+                    None,
+                    lambda: self.rate_limiter.rate_limited_call(
+                        self.llm_provider,
+                        self._llm_with_tools.invoke,
+                        messages,
+                    ),
                 )
             except RuntimeError as e:
                 # 速率限制超时 — 优雅降级
                 if "rate limit" in str(e).lower():
                     logger.warning(f"⚠️ [AgentExecutor] 速率限制触发，降级为无限制调用: {e}")
-                    return self._llm_with_tools.invoke(messages)
+                    return await loop.run_in_executor(
+                        None, self._llm_with_tools.invoke, messages
+                    )
                 raise
-        return self._llm_with_tools.invoke(messages)
+        return await loop.run_in_executor(None, self._llm_with_tools.invoke, messages)
 
-    def _force_summary(self, messages: List[BaseMessage]) -> str:
+    async def _force_summary(self, messages: List[BaseMessage]) -> str:
         """强制生成总结报告"""
         prompt = HumanMessage(
             content=(
@@ -377,8 +385,9 @@ class AgentExecutor:
         )
         messages.append(prompt)
         try:
+            loop = asyncio.get_running_loop()
             # 不绑定工具，强制纯文本输出
-            response = self.llm.invoke(messages)
+            response = await loop.run_in_executor(None, self.llm.invoke, messages)
             return response.content or "分析失败: 无法生成报告"
         except Exception as e:
             logger.error(f"❌ [AgentExecutor] 强制总结失败: {e}")
@@ -419,11 +428,11 @@ class AgentExecutor:
                 })
         return result
 
-    def _inject_tool_data(self, messages: List[BaseMessage]) -> None:
+    async def _inject_tool_data(self, messages: List[BaseMessage]) -> None:
         """自动注入预加载数据 + 不可用工具通知（委托给 simple_agent_template）"""
         try:
             from app.engine.agents.analysts.simple_agent_template import _inject_tool_data
-            _inject_tool_data(
+            await _inject_tool_data(
                 agent_name="AgentExecutor",
                 inject_tools=self.inject_tools,
                 unavailable_tool_ids=self.unavailable_tools,

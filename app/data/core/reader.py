@@ -1,6 +1,7 @@
 """统一读取层 — 从 MongoDB 读标准数据 + 新鲜度判定 + 异步刷新通知。"""
 
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
@@ -14,47 +15,54 @@ class Reader:
 
     def __init__(self):
         self._repo_cache: Dict[str, Any] = {}
+        self._refresh_queue = None
+        self._repo_lock = threading.Lock()
 
     def _get_repo(self, domain: str):
         """按域获取对应仓储。"""
         if domain in self._repo_cache:
             return self._repo_cache[domain]
 
-        from app.data.storage.mongo.repositories import (
-            BasicInfoRepo, DailyQuotesRepo, DailyIndicatorsRepo,
-            AdjFactorsRepo, CorporateActionsRepo, FinancialDataRepo,
-            MarketQuotesRepo, NewsRepo, TradeCalendarRepo,
-            IntradayQuotesRepo, MoneyFlowRepo, MarginTradingRepo,
-            DragonTigerRepo, BlockTradeRepo,
-            ConnectStatusRepo, SouthboundHoldingRepo, PrePostMarketRepo,
-        )
+        with self._repo_lock:
+            # 双重检查
+            if domain in self._repo_cache:
+                return self._repo_cache[domain]
 
-        repo_map = {
-            "basic_info": BasicInfoRepo,
-            "trade_calendar": TradeCalendarRepo,
-            "daily_quotes": DailyQuotesRepo,
-            "daily_indicators": DailyIndicatorsRepo,
-            "adj_factors": AdjFactorsRepo,
-            "corporate_actions": CorporateActionsRepo,
-            "financial_data": FinancialDataRepo,
-            "market_quotes": MarketQuotesRepo,
-            "news": NewsRepo,
-            "intraday_quotes": IntradayQuotesRepo,
-            "money_flow": MoneyFlowRepo,
-            "margin_trading": MarginTradingRepo,
-            "dragon_tiger": DragonTigerRepo,
-            "block_trade": BlockTradeRepo,
-            "connect_status": ConnectStatusRepo,
-            "southbound_holding": SouthboundHoldingRepo,
-            "pre_post_market": PrePostMarketRepo,
-        }
+            from app.data.storage.mongo.repositories import (
+                BasicInfoRepo, DailyQuotesRepo, DailyIndicatorsRepo,
+                AdjFactorsRepo, CorporateActionsRepo, FinancialDataRepo,
+                MarketQuotesRepo, NewsRepo, TradeCalendarRepo,
+                IntradayQuotesRepo, MoneyFlowRepo, MarginTradingRepo,
+                DragonTigerRepo, BlockTradeRepo,
+                ConnectStatusRepo, SouthboundHoldingRepo, PrePostMarketRepo,
+            )
 
-        repo_cls = repo_map.get(domain)
-        if repo_cls:
-            repo = repo_cls()
-            self._repo_cache[domain] = repo
-            return repo
-        return None
+            repo_map = {
+                "basic_info": BasicInfoRepo,
+                "trade_calendar": TradeCalendarRepo,
+                "daily_quotes": DailyQuotesRepo,
+                "daily_indicators": DailyIndicatorsRepo,
+                "adj_factors": AdjFactorsRepo,
+                "corporate_actions": CorporateActionsRepo,
+                "financial_data": FinancialDataRepo,
+                "market_quotes": MarketQuotesRepo,
+                "news": NewsRepo,
+                "intraday_quotes": IntradayQuotesRepo,
+                "money_flow": MoneyFlowRepo,
+                "margin_trading": MarginTradingRepo,
+                "dragon_tiger": DragonTigerRepo,
+                "block_trade": BlockTradeRepo,
+                "connect_status": ConnectStatusRepo,
+                "southbound_holding": SouthboundHoldingRepo,
+                "pre_post_market": PrePostMarketRepo,
+            }
+
+            repo_cls = repo_map.get(domain)
+            if repo_cls:
+                repo = repo_cls()
+                self._repo_cache[domain] = repo
+                return repo
+            return None
 
     async def get_data(
         self, market: str, domain: str, symbol: Optional[str] = None,
@@ -231,6 +239,8 @@ class Reader:
 
         try:
             updated = datetime.fromisoformat(updated_at)
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
             now = datetime.now(timezone.utc)
 
             rule_type = domain_rule.get("rule_type", "time_window")
@@ -262,8 +272,9 @@ class Reader:
     async def notify_refresh_async(self, market: str, symbol: str, domain: str) -> None:
         """异步通知刷新服务（非阻塞）。"""
         try:
-            from app.data.storage.redis.pubsub import RefreshQueue
-            queue = RefreshQueue()
-            await queue.publish_refresh(market, symbol, domain)
+            if self._refresh_queue is None:
+                from app.data.storage.redis.pubsub import RefreshQueue
+                self._refresh_queue = RefreshQueue()
+            await self._refresh_queue.publish_refresh(market, symbol, domain)
         except Exception as e:
             logger.debug(f"异步刷新通知失败: {e}")

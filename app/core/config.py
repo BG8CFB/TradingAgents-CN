@@ -384,18 +384,25 @@ for _key in _REQUIRED_SECRETS:
         )
 
 # 生产环境安全检查：CORS 和 TrustedHost 不能使用通配符
-# Docker 环境下跳过此检查（Nginx 反代保证同源，通配符配置合理）
-if settings.is_production and not _IS_DOCKER:
+# Docker 环境下也需检查（Nginx 反代可能不总是存在）
+if settings.is_production:
     if "*" in settings.ALLOWED_ORIGINS:
-        raise RuntimeError(
-            "❌ 安全错误: 生产环境 ALLOWED_ORIGINS 不能包含 '*'，"
-            "请在 .env 中显式配置允许的域名！"
-        )
+        if not _IS_DOCKER:
+            raise RuntimeError(
+                "❌ 安全错误: 生产环境 ALLOWED_ORIGINS 不能包含 '*'，"
+                "请在 .env 中显式配置允许的域名！"
+            )
+        else:
+            raise RuntimeError(
+                "❌ 安全错误: Docker 生产环境 ALLOWED_ORIGINS 包含 '*'，"
+                "请在 .env 中配置具体的域名！"
+            )
     if "*" in settings.ALLOWED_HOSTS:
-        raise RuntimeError(
-            "❌ 安全错误: 生产环境 ALLOWED_HOSTS 不能包含 '*'，"
-            "请在 .env 中显式配置允许的主机名！"
-        )
+        if not _IS_DOCKER:
+            raise RuntimeError(
+                "❌ 安全错误: 生产环境 ALLOWED_HOSTS 不能包含 '*'，"
+                "请在 .env 中显式配置允许的主机名！"
+            )
 
 # 自动将代理配置设置到环境变量
 # 这样 requests 库可以直接读取 os.environ['NO_PROXY']

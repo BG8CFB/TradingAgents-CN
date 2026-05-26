@@ -111,7 +111,6 @@ class TestProcessSignalWithLLM:
     """
 
     @pytest.mark.ai
-    @pytest.mark.asyncio
     def test_buy_signal_with_real_llm(self):
         """使用真实 LLM 处理买入信号"""
         from app.engine.llm_adapters.factory import create_llm

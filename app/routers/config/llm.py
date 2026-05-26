@@ -474,7 +474,6 @@ async def add_llm_config(
     """添加或更新大模型配置"""
     try:
         logger.info(f"添加/更新大模型配置开始")
-        logger.info(f"请求数据: {request.model_dump()}")
         logger.info(f"厂家: {request.provider}, 模型: {request.model_name}")
 
         # 创建LLM配置

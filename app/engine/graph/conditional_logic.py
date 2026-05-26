@@ -11,14 +11,27 @@ from app.engine.agents.utils.agent_states import AgentState
 from app.utils.logging_init import get_logger
 logger = get_logger("default")
 
+# 硬编码安全上限，防止配置错误导致无限循环
+MAX_ROUNDS = 10
+
 
 class ConditionalLogic:
     """Handles conditional logic for determining graph flow."""
 
     def __init__(self, max_debate_rounds=1, max_risk_discuss_rounds=1):
         """Initialize with configuration parameters."""
-        self.max_debate_rounds = max_debate_rounds
-        self.max_risk_discuss_rounds = max_risk_discuss_rounds
+        self.max_debate_rounds = min(max_debate_rounds, MAX_ROUNDS)
+        self.max_risk_discuss_rounds = min(max_risk_discuss_rounds, MAX_ROUNDS)
+        if max_debate_rounds > MAX_ROUNDS:
+            logger.warning(
+                f"⚠️ [ConditionalLogic] max_debate_rounds={max_debate_rounds} 超过安全上限 "
+                f"{MAX_ROUNDS}，已自动裁减"
+            )
+        if max_risk_discuss_rounds > MAX_ROUNDS:
+            logger.warning(
+                f"⚠️ [ConditionalLogic] max_risk_discuss_rounds={max_risk_discuss_rounds} "
+                f"超过安全上限 {MAX_ROUNDS}，已自动裁减"
+            )
 
     # ========== 2阶段：投资辩论 ==========
 

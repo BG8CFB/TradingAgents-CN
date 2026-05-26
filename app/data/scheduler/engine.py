@@ -29,9 +29,10 @@ class SchedulerEngine:
             return cls._instance
 
     def __init__(self, scheduler: Optional[AsyncIOScheduler] = None):
-        if getattr(self, '_initialized', False):
-            return
-        self._initialized = True
+        with self._instance_lock:
+            if getattr(self, '_initialized', False):
+                return
+            self._initialized = True
         self._scheduler = scheduler or AsyncIOScheduler(timezone="UTC")
         self._registry = JobRegistry()
         self._checkpoint = CheckpointManager()
@@ -115,6 +116,7 @@ class SchedulerEngine:
                     trigger=trigger,
                     id=job_id,
                     replace_existing=True,
+                    max_instances=1,
                 )
                 logger.info("注册调度: %s (%s %s)", job_id, cron_expr, timezone)
             except Exception as e:

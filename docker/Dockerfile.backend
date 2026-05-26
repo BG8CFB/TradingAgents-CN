@@ -4,7 +4,7 @@
 
 # 使用 Debian Bookworm (稳定版) 而不是 Trixie (测试版)
 # 使用 1ms.run 镜像源加速下载
-FROM docker.m.daocloud.io/library/python:3.10-slim-bookworm
+FROM docker.m.daocloud.io/library/python:3.12-slim-bookworm
 
 # 获取构建架构信息
 ARG TARGETARCH

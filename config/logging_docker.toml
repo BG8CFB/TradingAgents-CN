@@ -110,6 +110,22 @@ level = "WARNING"
 [logging.loggers.pymongo]
 level = "WARNING"
 
+# 引擎核心模块日志（代码中使用的高频logger名称）
+[logging.loggers.agents]
+level = "INFO"
+
+[logging.loggers.default]
+level = "INFO"
+
+[logging.loggers.analysts]
+level = "INFO"
+
+[logging.loggers.executors]
+level = "INFO"
+
+[logging.loggers.graph]
+level = "INFO"
+
 # Docker配置 - 修复版
 [logging.docker]
 enabled = true

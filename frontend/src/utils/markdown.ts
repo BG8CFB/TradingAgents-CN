@@ -32,7 +32,12 @@ export function renderMarkdown(content: string): string {
     const rawHtml = marked.parse(content, { async: false }) as string
     return DOMPurify.sanitize(rawHtml, PURIFY_CONFIG)
   } catch (e) {
-    return `<pre style="white-space: pre-wrap; font-family: inherit;">${content}</pre>`
+    const escaped = content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+    return `<pre style="white-space: pre-wrap; font-family: inherit;">${escaped}</pre>`
   }
 }
 

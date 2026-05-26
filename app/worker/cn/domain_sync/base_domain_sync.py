@@ -71,7 +71,7 @@ class BaseDomainSync(ABC):
 
         # 1. 查 sync_checkpoints
         try:
-            cp_collection = db[get_collection_name("CN", "sync_checkpoints")]
+            cp_collection = db[get_collection_name("sync_checkpoints", "CN")]
             checkpoint = await cp_collection.find_one(
                 {"domain": self.domain},
                 {"last_sync_date": 1},
@@ -89,7 +89,7 @@ class BaseDomainSync(ABC):
 
         # 2. 查 stock_basic_info 的 list_date
         try:
-            bi_collection = db[get_collection_name("CN", "basic_info")]
+            bi_collection = db[get_collection_name("basic_info", "CN")]
             stock_info = await bi_collection.find_one(
                 {"symbol": symbol},
                 {"list_date": 1},
@@ -148,7 +148,7 @@ class BaseDomainSync(ABC):
             logger.warning("无法连接 MongoDB，跳过写入")
             return 0
 
-        collection_name = get_collection_name("CN", self.domain)
+        collection_name = get_collection_name(self.domain, "CN")
         collection = db[collection_name]
 
         filter_fields = filter_fields or ["symbol", "trade_date"]
@@ -191,7 +191,7 @@ class BaseDomainSync(ABC):
         except Exception:
             return
 
-        collection_name = get_collection_name("CN", "sync_checkpoints")
+        collection_name = get_collection_name("sync_checkpoints", "CN")
         collection = db[collection_name]
 
         now_iso = now_utc().isoformat()
@@ -224,7 +224,7 @@ class BaseDomainSync(ABC):
         except Exception:
             return
 
-        collection_name = get_collection_name("CN", "sync_events")
+        collection_name = get_collection_name("sync_events", "CN")
         collection = db[collection_name]
 
         event = {

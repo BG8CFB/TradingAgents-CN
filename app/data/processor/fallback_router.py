@@ -43,6 +43,7 @@ class FallbackRouter:
         priority: PriorityConfig,
         circuit_breaker: Optional[CircuitBreaker] = None,
         rate_limiter: Optional[RateLimiter] = None,
+        retry_max_retries: int = 2,
     ):
         self._registry = registry
         self._priority = priority
@@ -51,6 +52,7 @@ class FallbackRouter:
         self._normalizer = Normalizer()
         self._validator = Validator()
         self._health_monitor = SourceHealthMonitor()
+        self._retry_max_retries = retry_max_retries
 
     @staticmethod
     def _create_default_rate_limiter() -> RateLimiter:
@@ -94,7 +96,7 @@ class FallbackRouter:
         if preferred_sources:
             preferred_order = {name: i for i, name in enumerate(preferred_sources)}
             original_order = {name: i for i, name in enumerate(sources)}
-            sources.sort(key=lambda name: (preferred_order.get(name, 999), original_order[name]))
+            sources.sort(key=lambda name: (preferred_order.get(name, 999), original_order.get(name, 999)))
 
         if not sources:
             result.error = f"无可用数据源: {market}/{domain}"
@@ -118,7 +120,7 @@ class FallbackRouter:
             if not provider or not adapter:
                 continue
 
-            retry_policy = RetryPolicy(max_retries=2)
+            retry_policy = RetryPolicy(max_retries=self._retry_max_retries)
             try:
                 raw_data = await retry_policy.execute_with_retry(
                     self._fetch_raw, provider, domain, symbol, start_date, end_date, default_exchange

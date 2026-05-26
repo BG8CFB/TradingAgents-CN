@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
 from app.engine.tools.mcp.config_utils import (
     MCPServerConfig,
@@ -111,7 +111,7 @@ async def list_connectors(user: dict = Depends(get_current_user)) -> Dict[str, A
 @router.post("/connectors/update")
 async def update_connectors(
     payload: UpdatePayload,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_admin)
 ) -> Dict[str, Any]:
     """
     更新 MCP 连接器配置
@@ -132,7 +132,7 @@ async def update_connectors(
 async def toggle_connector(
     name: str,
     body: Dict[str, bool] = Body(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_admin)
 ) -> Dict[str, Any]:
     """
     切换 MCP 连接器的启用状态
@@ -178,7 +178,7 @@ async def toggle_connector(
 @router.delete("/connectors/{name}")
 async def delete_connector(
     name: str,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_admin)
 ) -> Dict[str, Any]:
     """
     删除 MCP 连接器配置
@@ -267,7 +267,7 @@ async def get_health_status(user: dict = Depends(get_current_user)) -> Dict[str,
 # -----------------------------------------------------------------------------
 
 @router.post("/reload")
-async def reload_mcp_config(user: dict = Depends(get_current_user)) -> Dict[str, Any]:
+async def reload_mcp_config(user: dict = Depends(require_admin)) -> Dict[str, Any]:
     """
     手动重载 MCP 配置并重新初始化所有连接
 
@@ -291,7 +291,7 @@ async def reload_mcp_config(user: dict = Depends(get_current_user)) -> Dict[str,
 @router.post("/servers/{name}/restart")
 async def restart_mcp_server(
     name: str,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_admin)
 ) -> Dict[str, Any]:
     """
     重启指定的 MCP 服务器

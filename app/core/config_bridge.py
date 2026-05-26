@@ -7,6 +7,11 @@ Phase 4D 简化说明：
 - 移除了 Step 6（重初始化 config_manager.mongodb_storage，config_manager 已标记 deprecated）
 - 移除了 Step 7（_sync_pricing_config_from_db 后台任务，定价由 config_service 管理）
 - 保留核心引导逻辑：MongoDB 环境变量、LLM Provider API Key、模型配置、数据源 API Key
+
+安全说明：
+- API Key 通过 os.environ 桥接是引擎层（tradingagents）通过 os.getenv() 读取的必要设计
+- 日志中不记录 API Key 值，仅记录是否存在
+- 建议：生产环境通过 .env 文件提供密钥，而非数据库存储
 """
 
 import json
@@ -20,6 +25,9 @@ from app.core.database import get_mongo_db
 from app.utils.api_key_utils import is_valid_api_key
 
 logger = logging.getLogger("app.config_bridge")
+
+# 进程内密钥存储，作为 os.environ 的替代读取源
+_api_key_store: dict[str, str] = {}
 
 
 async def bridge_config_to_env() -> bool:
@@ -72,8 +80,9 @@ async def bridge_config_to_env() -> bool:
                     logger.debug(f"  {env_key}: 使用 .env 值")
                     bridged_count += 1
                 elif provider.api_key and is_valid_api_key(provider.api_key):
+                    _api_key_store[env_key] = provider.api_key
                     os.environ[env_key] = provider.api_key
-                    logger.debug(f"  {env_key}: 使用数据库值")
+                    logger.debug(f"  {env_key}: 已从数据库桥接（长度={len(provider.api_key)}）")
                     bridged_count += 1
         except Exception as e:
             logger.error(f"从数据库读取厂家配置失败: {e}", exc_info=True)
@@ -111,8 +120,9 @@ async def bridge_config_to_env() -> bool:
                         continue
                     env_key = ds_env_map.get(ds_config.type.value)
                     if env_key:
+                        _api_key_store[env_key] = ds_config.api_key
                         os.environ[env_key] = ds_config.api_key
-                        logger.debug(f"  {env_key}: 使用数据库值")
+                        logger.debug(f"  {env_key}: 已从数据库桥接（长度={len(ds_config.api_key)}）")
                         bridged_count += 1
             else:
                 logger.warning("  未找到激活的系统配置，模型和数据源将使用 .env 降级方案")
@@ -130,8 +140,9 @@ async def bridge_config_to_env() -> bool:
 # ── 公共查询接口 ──────────────────────────────────────────────────────
 
 def get_bridged_api_key(provider: str) -> Optional[str]:
-    """获取桥接的 API 密钥"""
-    return os.environ.get(f"{provider.upper()}_API_KEY")
+    """获取桥接的 API 密钥，优先从进程内存储读取"""
+    env_key = f"{provider.upper()}_API_KEY"
+    return _api_key_store.get(env_key) or os.environ.get(env_key)
 
 
 def get_bridged_model(model_type: str = "default") -> Optional[str]:
@@ -154,6 +165,7 @@ def clear_bridged_config():
         keys_to_clear.append(f"{p}_API_KEY")
     for key in keys_to_clear:
         os.environ.pop(key, None)
+        _api_key_store.pop(key, None)
     logger.info("已清除所有桥接的配置")
 
 

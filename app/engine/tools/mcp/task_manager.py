@@ -362,6 +362,12 @@ class TaskLevelMCPManager:
             tool_state.last_success_time = time.time()
             tool_state.failure_count = 0
 
+            # 断路器恢复到 CLOSED 时，清除工具的 disabled 标志
+            if circuit_breaker.state == CircuitState.CLOSED and tool_key in self._failed_tools:
+                with self._lock:
+                    self._failed_tools.discard(tool_key)
+                logger.info(f"工具 {tool_name} 断路器已恢复，重新启用工具")
+
             return result
 
         except Exception as e:

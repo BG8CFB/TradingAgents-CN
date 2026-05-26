@@ -18,14 +18,7 @@ from app.data.schema.domains.adj_factors import AdjFactorsSchema
 logger = logging.getLogger(__name__)
 
 
-def _infer_exchange(symbol: str) -> str:
-    if symbol.startswith(("60", "68", "90")):
-        return "SSE"
-    elif symbol.startswith(("00", "30", "20")):
-        return "SZSE"
-    elif symbol.startswith(("4", "8")):
-        return "BSE"
-    return ""
+from app.data.sources.cn.stock_name_utils import infer_exchange as _infer_exchange
 
 
 def _to_bs_code(symbol: str) -> str:

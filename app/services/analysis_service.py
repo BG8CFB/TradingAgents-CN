@@ -69,9 +69,11 @@ try:
             else:
                 result = asyncio.run(_di.read("CN", "basic_info", symbol=stock_code))
             return result.get("data")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取股票信息失败: {e}")
             return None
-except Exception:
+except Exception as e:
+    logger.debug(f"DataInterface 初始化失败，_get_stock_info_safe 不可用: {e}")
     _get_stock_info_safe = None
 
 # -----------------------------------------------------------------------------
@@ -424,9 +426,8 @@ class AnalysisService:
         try:
             if self._thread_pool:
                 self._thread_pool.shutdown(wait=wait)
-                logger.info("🔧 线程池已关闭")
         except Exception as e:
-            logger.warning(f"⚠️ 关闭线程池失败: {e}")
+            logger.debug(f"线程池关闭失败（atexit 阶段可能日志已关闭）: {e}")
 
     # -------------------------------------------------------------------------
     # Private Methods
@@ -469,8 +470,8 @@ class AnalysisService:
                 info = _get_stock_info_safe(code)
                 if isinstance(info, dict):
                     name = info.get("name")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"解析股票名称失败: {e}")
         if not name:
             name = f"股票{code}"
         self._stock_name_cache[code] = name
@@ -781,8 +782,8 @@ class AnalysisService:
                         content=summary, link=f"/stocks/{stock_code}", source='analysis'
                     )
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"发送分析完成通知失败: {e}")
 
         except Exception as e:
             logger.error(f"❌ 后台分析任务失败: {task_id} - {e}")
@@ -1216,8 +1217,8 @@ class AnalysisService:
                             progress_tracker.update_progress({'last_message': message})
                     else:
                         progress_tracker.update_progress({'last_message': message})
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"进度回调更新失败: {e}")
 
             # 执行分析
             state, decision = trading_graph.propagate(
@@ -1231,97 +1232,7 @@ class AnalysisService:
             execution_time = (now_config_tz() - start_time).total_seconds()
 
             # 提取 reports 从 state
-            reports = {}
-            if isinstance(state, dict):
-                # 1. 动态发现所有 *_report 字段和其他已知报告字段
-                # 🔥 使用动态发现而非硬编码列表，自动支持新添加的分析师报告
-                known_non_report_keys = [
-                    "trader_investment_plan", "investment_plan", "final_trade_decision"
-                ]
-                
-                # 🔍 调试：打印所有 state 中的键
-                report_keys_found = [k for k in state.keys() if k.endswith("_report") or k in known_non_report_keys]
-                logger.info(f"🔍 [报告提取] state中发现的报告键: {report_keys_found}")
-                
-                for key in state.keys():
-                    # 匹配所有 *_report 字段或已知的非 _report 后缀的报告字段
-                    if key.endswith("_report") or key in known_non_report_keys:
-                        content = state[key]
-                        if content:
-                            # 确保内容是字符串或可序列化的
-                            if isinstance(content, str):
-                                reports[key] = content
-                                logger.debug(f"🔍 [报告提取] 提取报告 {key}: 长度={len(content)}")
-                            elif hasattr(content, "content") and isinstance(content.content, str):
-                                reports[key] = content.content
-                                logger.debug(f"🔍 [报告提取] 提取报告 {key} (从content属性): 长度={len(content.content)}")
-                            else:
-                                try:
-                                    reports[key] = str(content)
-                                    logger.debug(f"🔍 [报告提取] 提取报告 {key} (转换为字符串): 长度={len(str(content))}")
-                                except Exception:
-                                    logger.warning(f"⚠️ [报告提取] 无法提取报告 {key}: 内容类型={type(content)}")
-                        else:
-                            logger.debug(f"🔍 [报告提取] 跳过空报告 {key}")
-                
-                logger.info(f"🔍 [报告提取] 最终提取的报告: {list(reports.keys())}")
-                
-                # 2. 提取 investment_debate_state (多空博弈) 中的报告
-                if "investment_debate_state" in state and isinstance(state["investment_debate_state"], dict):
-                    inv_state = state["investment_debate_state"]
-                    # 映射: 内部状态字段 -> 前端报告key
-                    inv_mapping = {
-                        "bull_history": "bull_researcher",
-                        "bear_history": "bear_researcher",
-                        "judge_decision": "research_team_decision"
-                    }
-                    for state_key, report_key in inv_mapping.items():
-                        if state_key in inv_state and inv_state[state_key]:
-                            reports[report_key] = inv_state[state_key]
-
-                # 3. 提取 risk_debate_state (风险管理) 中的报告
-                if "risk_debate_state" in state and isinstance(state["risk_debate_state"], dict):
-                    risk_state = state["risk_debate_state"]
-                    # 映射: 内部状态字段 -> 前端报告key
-                    risk_mapping = {
-                        "risky_history": "risky_analyst",
-                        "safe_history": "safe_analyst",
-                        "neutral_history": "neutral_analyst",
-                        "judge_decision": "risk_management_decision"
-                    }
-                    for state_key, report_key in risk_mapping.items():
-                        if state_key in risk_state and risk_state[state_key]:
-                            reports[report_key] = risk_state[state_key]
-
-                # 4. 🔥 从 reports 字典中提取 (支持动态添加的智能体)
-                if "reports" in state and isinstance(state["reports"], dict):
-                    dynamic_reports = state["reports"]
-                    logger.info(f"🔍 [报告提取] 从 reports 字典发现 {len(dynamic_reports)} 个报告: {list(dynamic_reports.keys())}")
-                    for key, content in dynamic_reports.items():
-                        # 如果key已经存在（优先使用根级别的），则跳过
-                        if key not in reports and content:
-                            if isinstance(content, str):
-                                reports[key] = content
-                            else:
-                                reports[key] = str(content)
-
-                # 5. 🔥 从 messages 列表中提取 (作为最终兜底，绕过 TypedDict 限制)
-                # 遍历消息历史，提取带有 name 且以 _report 结尾的 AIMessage
-                if "messages" in state and isinstance(state["messages"], list):
-                    from langchain_core.messages import AIMessage
-                    # 倒序遍历，取最新的
-                    messages_reports_count = 0
-                    for msg in reversed(state["messages"]): 
-                        if isinstance(msg, AIMessage) and hasattr(msg, "name") and msg.name and msg.name.endswith("_report"):
-                            report_key = msg.name
-                            if report_key not in reports:
-                                content = msg.content
-                                if content and isinstance(content, str):
-                                    reports[report_key] = content
-                                    messages_reports_count += 1
-                                    logger.debug(f"🔍 [报告提取] 从 AIMessage 恢复报告: {report_key}")
-                    if messages_reports_count > 0:
-                        logger.info(f"🔍 [报告提取] 从消息历史中恢复了 {messages_reports_count} 个报告")
+            reports = self._extract_reports_from_state(state)
 
             # 提取结构化总结
             structured_summary = state.get("structured_summary") or {}
@@ -1383,6 +1294,88 @@ class AnalysisService:
                         logger.warning(f"⚠️ [任务管理器] 同步清理失败: {e}")
                 except Exception as e:
                     logger.warning(f"⚠️ [任务管理器] 清理任务管理器失败: {e}")
+
+    # -------------------------------------------------------------------------
+    # Report Extraction Helper
+    # -------------------------------------------------------------------------
+
+    def _extract_reports_from_state(self, state: dict) -> dict:
+        """从 LangGraph 状态中提取所有报告（5 层提取策略）。"""
+        reports = {}
+        if not isinstance(state, dict):
+            return reports
+
+        # 1. 动态发现所有 *_report 字段和已知非 _report 后缀的报告字段
+        known_non_report_keys = [
+            "trader_investment_plan", "investment_plan", "final_trade_decision"
+        ]
+
+        report_keys_found = [k for k in state.keys() if k.endswith("_report") or k in known_non_report_keys]
+        logger.info(f"[报告提取] state中发现的报告键: {report_keys_found}")
+
+        for key in state.keys():
+            if key.endswith("_report") or key in known_non_report_keys:
+                content = state[key]
+                if content:
+                    if isinstance(content, str):
+                        reports[key] = content
+                    elif hasattr(content, "content") and isinstance(content.content, str):
+                        reports[key] = content.content
+                    else:
+                        try:
+                            reports[key] = str(content)
+                        except Exception as e:
+                            logger.warning(f"[报告提取] 无法提取报告 {key}: 类型={type(content)}, 错误: {e}")
+
+        logger.info(f"[报告提取] 根级报告: {list(reports.keys())}")
+
+        # 2. 提取 investment_debate_state (多空博弈)
+        if "investment_debate_state" in state and isinstance(state["investment_debate_state"], dict):
+            inv_state = state["investment_debate_state"]
+            for state_key, report_key in {
+                "bull_history": "bull_researcher",
+                "bear_history": "bear_researcher",
+                "judge_decision": "research_team_decision"
+            }.items():
+                if state_key in inv_state and inv_state[state_key]:
+                    reports[report_key] = inv_state[state_key]
+
+        # 3. 提取 risk_debate_state (风险管理)
+        if "risk_debate_state" in state and isinstance(state["risk_debate_state"], dict):
+            risk_state = state["risk_debate_state"]
+            for state_key, report_key in {
+                "risky_history": "risky_analyst",
+                "safe_history": "safe_analyst",
+                "neutral_history": "neutral_analyst",
+                "judge_decision": "risk_management_decision"
+            }.items():
+                if state_key in risk_state and risk_state[state_key]:
+                    reports[report_key] = risk_state[state_key]
+
+        # 4. 从 reports 字典中提取 (动态添加的智能体)
+        if "reports" in state and isinstance(state["reports"], dict):
+            dynamic_reports = state["reports"]
+            logger.info(f"[报告提取] 从 reports 字典发现 {len(dynamic_reports)} 个: {list(dynamic_reports.keys())}")
+            for key, content in dynamic_reports.items():
+                if key not in reports and content:
+                    reports[key] = content if isinstance(content, str) else str(content)
+
+        # 5. 从 messages 列表中提取 (最终兜底)
+        if "messages" in state and isinstance(state["messages"], list):
+            from langchain_core.messages import AIMessage
+            messages_reports_count = 0
+            for msg in reversed(state["messages"]):
+                if isinstance(msg, AIMessage) and hasattr(msg, "name") and msg.name and msg.name.endswith("_report"):
+                    report_key = msg.name
+                    if report_key not in reports:
+                        content = msg.content
+                        if content and isinstance(content, str):
+                            reports[report_key] = content
+                            messages_reports_count += 1
+            if messages_reports_count > 0:
+                logger.info(f"[报告提取] 从消息历史中恢复了 {messages_reports_count} 个报告")
+
+        return reports
 
     # -------------------------------------------------------------------------
     # Status & Saving Methods
@@ -1556,8 +1549,8 @@ class AnalysisService:
                 # 假设传入的是 YYYY-MM-DD
                 s_date = datetime.strptime(start_date, "%Y-%m-%d")
                 date_query["$gte"] = s_date
-            except Exception:
-                logger.warning(f"⚠️ 日期解析失败: start_date={start_date}")
+            except Exception as e:
+                logger.debug(f"日期解析失败: start_date={start_date}: {e}")
                 pass
         if end_date:
             try:
@@ -1565,8 +1558,8 @@ class AnalysisService:
                 # 结束日期加一天，包含当天
                 e_date = e_date.replace(hour=23, minute=59, second=59, microsecond=999999)
                 date_query["$lte"] = e_date
-            except Exception:
-                logger.warning(f"⚠️ 日期解析失败: end_date={end_date}")
+            except Exception as e:
+                logger.debug(f"日期解析失败: end_date={end_date}: {e}")
                 pass
                 
         if date_query:
@@ -2217,7 +2210,8 @@ class AnalysisService:
             try:
                 from app.data.core.registry.priority import PriorityConfig
                 enabled_sources = PriorityConfig().get_default_sources("CN", "basic_info")
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取数据源优先级失败，使用默认列表: {e}")
                 enabled_sources = ["tushare", "akshare", "baostock"]
 
             b = None

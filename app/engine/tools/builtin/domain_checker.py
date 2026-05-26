@@ -25,7 +25,8 @@ class DomainAvailabilityChecker:
         try:
             from app.data.storage.mongo.collections import _BUSINESS_COLLECTIONS
             return set(_BUSINESS_COLLECTIONS.keys())
-        except Exception:
+        except Exception as e:
+            logger.debug(f"加载标准域名称失败: {e}")
             return set()
 
     async def check_domain(self, market: str, domain: str) -> bool:
@@ -36,7 +37,8 @@ class DomainAvailabilityChecker:
             stats = await di.get_domain_stats(market, [domain])
             count = stats.get(domain, {}).get("records", 0)
             return count > 0
-        except Exception:
+        except Exception as e:
+            logger.debug(f"域可用性检查失败: {domain}: {e}")
             return False
 
     async def batch_check_domains(
@@ -116,7 +118,7 @@ class AvailabilityCache:
     预计算的可用性缓存（sync 读取）
 
     在 analysis_service 的 async 上下文中预计算好各工具的可用性状态，
-    后续 sync 的 _inject_tool_data 直接读取缓存。
+    后续 async 的 _inject_tool_data 直接读取缓存。
     """
 
     _instance: Optional["AvailabilityCache"] = None

@@ -79,7 +79,7 @@ export default defineConfig({
     }
   },
   build: {
-    target: 'es2020',  // 支持 nullish coalescing operator (??) 和 optional chaining (?.)
+    target: 'es2020',
     outDir: 'dist',
     assetsDir: 'assets',
     sourcemap: false,
@@ -87,7 +87,13 @@ export default defineConfig({
       output: {
         chunkFileNames: 'js/[name]-[hash].js',
         entryFileNames: 'js/[name]-[hash].js',
-        assetFileNames: '[ext]/[name]-[hash].[ext]'
+        assetFileNames: '[ext]/[name]-[hash].[ext]',
+        manualChunks: {
+          'vue-vendor': ['vue', 'vue-router', 'pinia'],
+          'element-plus': ['element-plus'],
+          'markdown': ['marked', 'dompurify'],
+          'axios': ['axios'],
+        }
       }
     }
   },

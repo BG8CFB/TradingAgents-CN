@@ -17,7 +17,7 @@ from app.constants.model_capabilities import (
     get_role_badge,
     get_feature_badge
 )
-from app.core.response import ok, fail
+from app.core.response import ok, fail, safe_error_message
 from app.services.config_service import config_service
 import logging
 
@@ -99,7 +99,7 @@ async def get_default_model_configs(current_user: dict = Depends(get_current_use
         }
     except Exception as e:
         logger.error(f"获取默认模型配置失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取默认模型配置失败"))
 
 
 @router.get("/capability-descriptions", response_model=dict)
@@ -109,7 +109,7 @@ async def get_capability_descriptions(current_user: dict = Depends(get_current_u
         return ok(CAPABILITY_DESCRIPTIONS, "获取能力等级描述成功")
     except Exception as e:
         logger.error(f"获取能力等级描述失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取能力等级描述失败"))
 
 
 @router.get("/badges", response_model=dict)
@@ -138,7 +138,7 @@ async def get_all_badges(current_user: dict = Depends(get_current_user)):
         return ok(badges, "获取徽章样式成功")
     except Exception as e:
         logger.error(f"获取徽章样式失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取徽章样式失败"))
 
 
 @router.post("/recommend", response_model=dict)
@@ -185,7 +185,7 @@ async def recommend_models(current_user: dict = Depends(get_current_user)):
         return ok(response_data, "模型推荐成功")
     except Exception as e:
         logger.error(f"模型推荐失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "模型推荐失败"))
 
 
 @router.post("/validate", response_model=dict)
@@ -206,7 +206,7 @@ async def validate_models(request: ModelValidationRequest, current_user: dict = 
         return ok(validation, "模型验证完成")
     except Exception as e:
         logger.error(f"模型验证失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "模型验证失败"))
 
 
 @router.post("/batch-init", response_model=dict)
@@ -263,7 +263,7 @@ async def batch_init_capabilities(request: BatchInitRequest, current_user: dict 
         )
     except Exception as e:
         logger.error(f"批量初始化失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "批量初始化失败"))
 
 
 @router.get("/model/{model_name}", response_model=dict)
@@ -281,5 +281,5 @@ async def get_model_capability(model_name: str, current_user: dict = Depends(get
         return ok(config, f"获取模型 {model_name} 能力信息成功")
     except Exception as e:
         logger.error(f"获取模型能力信息失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取模型能力信息失败"))
 

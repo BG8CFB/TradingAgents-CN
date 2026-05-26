@@ -233,12 +233,20 @@ class SignalProcessor:
 
     def _extract_simple_decision(self, text: str, is_china: bool = True) -> dict:
         """简单的决策提取方法作为备用"""
+        _VALID_ACTIONS = {'买入', '卖出', '持有'}
+
+        # 信号优先级：卖出 > 买入 > 持有
+        # 先排除否定语境，再做正向匹配
         action = '持有'
-        if re.search(r'买入|BUY', text, re.IGNORECASE):
-            action = '买入'
-        elif re.search(r'卖出|SELL', text, re.IGNORECASE):
+        if re.search(r'(?:建议|推荐|应该|应当)?\s*(?:卖出|SELL|出售|清仓|减仓)', text, re.IGNORECASE):
             action = '卖出'
-        elif re.search(r'持有|HOLD', text, re.IGNORECASE):
+        elif re.search(r'(?:建议|推荐|应该|应当)?\s*(?:买入|BUY|购买|加仓|建仓|增持)', text, re.IGNORECASE):
+            action = '买入'
+        elif re.search(r'(?:建议|推荐|应该|应当)?\s*(?:持有|HOLD|观望|维持)', text, re.IGNORECASE):
+            action = '持有'
+
+        # 校验 action 必须在已知集合中
+        if action not in _VALID_ACTIONS:
             action = '持有'
 
         target_price = None
@@ -246,7 +254,10 @@ class SignalProcessor:
             price_match = re.search(pattern, text)
             if price_match:
                 try:
-                    target_price = float(price_match.group(1))
+                    price = float(price_match.group(1))
+                    # 价格合理性校验：正数且在合理范围内
+                    if price > 0 and price < 1_000_000:
+                        target_price = price
                     break
                 except ValueError:
                     continue

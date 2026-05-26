@@ -283,6 +283,26 @@ async def _init_mcp(logger):
     return task
 
 
+_DEFAULT_SECRET_PATTERNS = {
+    "JWT_SECRET": "docker-jwt-secret-key-change-in-production",
+    "CSRF_SECRET": "docker-csrf-secret-key-change-in-production",
+}
+
+
+def _check_default_secrets(logger: logging.Logger):
+    """启动时检测是否使用了默认密钥，输出醒目警告。"""
+    import os
+    for env_key, default_prefix in _DEFAULT_SECRET_PATTERNS.items():
+        value = os.environ.get(env_key, "")
+        if value and value.startswith(default_prefix):
+            logger.warning(
+                f"{'!' * 70}\n"
+                f"  SECURITY WARNING: {env_key} is using a default/docker value!\n"
+                f"  This is insecure for production. Please set a strong secret in .env.\n"
+                f"{'!' * 70}"
+            )
+
+
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     setup_logging()
@@ -291,6 +311,9 @@ async def lifespan(app: FastAPI):
     # 验证启动配置
     from app.core.startup_validator import validate_startup_config
     validate_startup_config()
+
+    # 安全检查：默认密钥告警
+    _check_default_secrets(logger)
 
     await _init_database(logger)
 

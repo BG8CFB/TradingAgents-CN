@@ -16,7 +16,10 @@ def _safe_float(value) -> Optional[float]:
     if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
         return None
     try:
-        return float(value)
+        result = float(value)
+        if np.isnan(result) or np.isinf(result):
+            return None
+        return result
     except (ValueError, TypeError):
         return None
 

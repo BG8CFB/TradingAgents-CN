@@ -4,6 +4,7 @@ OpenAI 兼容协议适配器
 SiliconFlow、OpenRouter、Ollama、自定义端点等。
 """
 
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -17,6 +18,11 @@ from app.utils.logging_manager import get_logger
 from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TIMEOUT
 
 logger = get_logger("agents")
+
+# 线程锁：保护 monkey-patch 操作的线程安全
+_patch_lock = threading.Lock()
+# Ollama reasoning 回填调用计数器（防止同一会话多次调用）
+_ollama_fetch_count: dict[int, int] = {}
 
 
 # ── DeepSeek Thinking Mode 兼容 ────────────────────────────────────
@@ -298,19 +304,21 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
             return msg_dict
 
         try:
-            _lc_openai_base._convert_message_to_dict = _patched_convert_message_to_dict
-            logger.debug(
-                f"[deepseek] 已启用 reasoning_content 序列化补丁 "
-                f"(messages 含 {sum(1 for m in messages if isinstance(m, AIMessage))} 条 AIMessage)"
-            )
-            result = super(OpenAICompatibleAdapter, self)._generate(
-                messages, stop, run_manager, **kwargs
-            )
+            with _patch_lock:
+                _lc_openai_base._convert_message_to_dict = _patched_convert_message_to_dict
+                logger.debug(
+                    f"[deepseek] 已启用 reasoning_content 序列化补丁 "
+                    f"(messages 含 {sum(1 for m in messages if isinstance(m, AIMessage))} 条 AIMessage)"
+                )
+                result = super(OpenAICompatibleAdapter, self)._generate(
+                    messages, stop, run_manager, **kwargs
+                )
             return result
         finally:
             # 确保恢复原函数，避免影响其他调用
-            if _original_fn is not None:
-                _lc_openai_base._convert_message_to_dict = _original_fn
+            with _patch_lock:
+                if _original_fn is not None:
+                    _lc_openai_base._convert_message_to_dict = _original_fn
 
     def _fix_empty_content(
         self, result: ChatResult, messages: List[BaseMessage]
@@ -336,13 +344,17 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
                     )
                 # Ollama think 模式需要额外 API 调用获取 reasoning
                 elif provider == "ollama":
-                    reasoning = self._fetch_reasoning(messages)
-                    if reasoning:
-                        msg.content = reasoning
-                        logger.debug(
-                            f"[{provider}] "
-                            f"content 为空，已从 reasoning 回填 ({len(reasoning)} 字符)"
-                        )
+                    # 限制同一 adapter 实例最多调用1次，避免重复开销
+                    adapter_id = id(self)
+                    if _ollama_fetch_count.get(adapter_id, 0) < 1:
+                        _ollama_fetch_count[adapter_id] = _ollama_fetch_count.get(adapter_id, 0) + 1
+                        reasoning = self._fetch_reasoning(messages)
+                        if reasoning:
+                            msg.content = reasoning
+                            logger.debug(
+                                f"[{provider}] "
+                                f"content 为空，已从 reasoning 回填 ({len(reasoning)} 字符)"
+                            )
                 else:
                     logger.debug(f"[{provider}] content 为空，跳过 reasoning 回填")
 

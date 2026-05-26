@@ -16,6 +16,7 @@ class RateLimiter:
     def __init__(self):
         self._counters: Dict[str, SlidingWindowCounter] = {}
         self._limits: Dict[str, dict] = {}
+        self._locks: Dict[str, asyncio.Lock] = {}
 
     def configure(self, source: str, rate_per_minute: int = 60, **kwargs) -> None:
         self._limits[source] = {
@@ -25,6 +26,8 @@ class RateLimiter:
         }
         if source not in self._counters:
             self._counters[source] = SlidingWindowCounter(window_seconds=60)
+        if source not in self._locks:
+            self._locks[source] = asyncio.Lock()
 
     async def acquire(self, source: str, domain: str = "") -> Tuple[bool, float]:
         """尝试获取请求配额。Returns (是否允许, 需等待秒数)。"""
@@ -32,19 +35,24 @@ class RateLimiter:
         if not limits:
             return True, 0
 
-        interval_s = limits.get("polite_interval_ms", 1000) / 1000
-        elapsed = time.time() - limits.get("last_request_time", 0)
-        if elapsed < interval_s:
-            return False, interval_s - elapsed
+        lock = self._locks.get(source)
+        if not lock:
+            return True, 0
 
-        counter = self._counters.get(source)
-        if counter:
-            count = await counter.increment(f"ratelimit:{source}")
-            if count > limits["rate_per_minute"]:
-                return False, 60
+        async with lock:
+            interval_s = limits.get("polite_interval_ms", 1000) / 1000
+            elapsed = time.time() - limits.get("last_request_time", 0)
+            if elapsed < interval_s:
+                return False, interval_s - elapsed
 
-        limits["last_request_time"] = time.time()
-        return True, 0
+            counter = self._counters.get(source)
+            if counter:
+                count = await counter.increment(f"ratelimit:{source}")
+                if count > limits["rate_per_minute"]:
+                    return False, 60
+
+            limits["last_request_time"] = time.time()
+            return True, 0
 
     async def wait_and_acquire(self, source: str, domain: str = "", max_wait: float = 30) -> bool:
         start = time.time()

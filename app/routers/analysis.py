@@ -172,8 +172,8 @@ async def get_task_result(
                                 content = f.read_text(encoding='utf-8')
                                 if content and content.strip():
                                     loaded_reports[f.stem] = content.strip()
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(f"读取报告文件失败: {e}")
                 if loaded_reports:
                     result_data['reports'] = loaded_reports
                     # 若 summary / recommendation 缺失，尝试从同名报告补全
@@ -787,7 +787,18 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
         await websocket.close(code=4001, reason="Invalid or expired token")
         return
 
-    user_id = token_data.sub
+    # token_data.sub 是 username，需要查出 ObjectId 才能与 task 的 user_id 比较
+    try:
+        from app.services.user_service import user_service
+        ws_user = await user_service.get_user_by_username(token_data.sub)
+        if not ws_user:
+            await websocket.close(code=4001, reason="User not found")
+            return
+        user_id = str(ws_user.id)
+    except Exception as e:
+        logger.debug(f"WebSocket 用户查询失败，使用 token subject: {e}")
+        user_id = token_data.sub
+
     logger.info(f"🔌 [WS] 认证成功: user={user_id}, task_id={task_id}")
 
     try:

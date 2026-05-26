@@ -9,24 +9,33 @@ from typing import Any
 
 
 def get_env(key: str, default: Any = None) -> Any:
-    """统一环境变量读取，优先从 settings 获取。
+    """统一环境变量读取。
 
-    Pydantic Settings 中值为空字符串时，视为"未配置"，回退到 os.getenv()。
-    这确保通过 os.environ 设置的值能被正确读取，即使 Settings 有空字符串默认值。
+    优先级：os.environ > Pydantic Settings 缓存 > default。
+
+    os.environ 优先确保运行时动态修改（如测试中的 env_vars）能立即生效，
+    不被 settings 启动时加载的 .env 缓存覆盖。
 
     Args:
         key: 环境变量名（也是 settings 属性名）
         default: 找不到时的默认值
 
     Returns:
-        优先返回 settings 中的非空值，否则返回 os.getenv()，最后返回 default。
+        按 os.environ → settings → default 顺序返回首个非空值。
     """
+    # 1. os.environ 最高优先——运行时动态设置立即可见
+    os_val = os.environ.get(key)
+    if os_val is not None and os_val != "":
+        return os_val
+
+    # 2. 回退到 Pydantic Settings 缓存（启动时从 .env 加载）
     try:
         from app.core.config import settings
 
         val = getattr(settings, key, None)
         if val is not None and val != "":
             return val
-    except Exception:
+    except Exception as e:
         pass
-    return os.getenv(key, default)
+
+    return default

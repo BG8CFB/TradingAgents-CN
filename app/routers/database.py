@@ -13,7 +13,6 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.routers.auth_db import get_current_user, require_admin
-from app.core.database import get_mongo_db, get_redis_client
 from app.services.database_service import DatabaseService
 from app.core.response import safe_error_message
 

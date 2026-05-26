@@ -59,7 +59,7 @@
         </header>
 
         <!-- 文章内容 -->
-        <article class="article-content" v-html="article.content"></article>
+        <article class="article-content" v-html="sanitizedContent"></article>
 
         <!-- 文章底部导航 -->
         <footer class="article-footer">
@@ -178,6 +178,10 @@ const article = ref({
   views: 0,
   updateTime: '',
   content: ''
+})
+
+const sanitizedContent = computed(() => {
+  return sanitizeHtml(article.value.content || '')
 })
 
 const categoryColor = computed(() => {

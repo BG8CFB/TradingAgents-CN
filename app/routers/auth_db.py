@@ -95,7 +95,7 @@ async def get_current_user(authorization: Optional[str] = Header(default=None)) 
         raise HTTPException(status_code=401, detail="No authorization header")
 
     if not authorization.lower().startswith("bearer "):
-        logger.warning(f"❌ Authorization header格式错误: prefix={authorization[:7] if len(authorization) >= 7 else 'short'}...")
+        logger.warning("❌ Authorization header格式错误: 前缀不符合 Bearer 格式")
         raise HTTPException(status_code=401, detail="Invalid authorization format")
 
     token = authorization.split(" ", 1)[1]
@@ -219,7 +219,8 @@ async def login(payload: LoginRequest, request: Request):
                     "username": user.username,
                     "email": user.email,
                     "name": user.username,
-                    "is_admin": user.is_admin
+                    "is_admin": user.is_admin,
+                    "must_change_password": getattr(user, "must_change_password", False),
                 }
             },
             "message": "登录成功"
@@ -252,6 +253,21 @@ async def refresh_token(payload: RefreshTokenRequest):
         if not payload.refresh_token:
             logger.warning("❌ Refresh token为空")
             raise HTTPException(status_code=401, detail="Refresh token is required")
+
+        # 检查 token 是否在黑名单中（已被登出）
+        import hashlib
+        token_hash = hashlib.sha256(payload.refresh_token.encode()).hexdigest()
+        try:
+            from app.data.storage.redis.client import get_redis
+            redis = get_redis()
+            if redis and await redis.get(f"token_blacklist:{token_hash}"):
+                logger.warning("❌ Refresh token已被撤销")
+                raise HTTPException(status_code=401, detail="Token has been revoked")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.debug(f"检查 token 黑名单失败: {e}")
+            pass
 
         # 验证refresh token
         token_data = AuthService.verify_token(payload.refresh_token)
@@ -294,6 +310,10 @@ async def refresh_token(payload: RefreshTokenRequest):
         logger.error(f"❌ Refresh token处理异常: {str(e)}")
         raise HTTPException(status_code=401, detail=safe_error_message(e, "Token刷新失败"))
 
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = None
+
+
 @router.post("/logout")
 async def logout(request: Request, user: dict = Depends(get_current_user)):
     """用户登出"""
@@ -304,6 +324,25 @@ async def logout(request: Request, user: dict = Depends(get_current_user)):
     user_agent = request.headers.get("user-agent", "")
 
     try:
+        # 尝试解析请求体中的 refresh_token 并加入黑名单
+        try:
+            body = await request.json()
+            refresh_token = body.get("refresh_token") if body else None
+            if refresh_token:
+                import hashlib
+                token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+                try:
+                    from app.data.storage.redis.client import get_redis
+                    redis = get_redis()
+                    if redis:
+                        # 7 天 TTL 与 refresh_token 有效期一致
+                        await redis.set(f"token_blacklist:{token_hash}", "1", ex=7 * 24 * 3600)
+                except Exception as e:
+                    logger.debug(f"token 黑名单写入失败: {e}")
+        except Exception as e:
+            logger.debug(f"登出 token 处理失败: {e}")
+            pass
+
         # 记录登出日志
         await log_operation(
             user_id=user["id"],
@@ -385,10 +424,10 @@ async def update_me(
         if not updated_user:
             raise HTTPException(status_code=400, detail="更新失败，邮箱可能已被使用")
 
-        # 返回更新后的用户信息
+        # 返回更新后的用户信息（排除敏感字段）
         return {
             "success": True,
-            "data": updated_user.model_dump(by_alias=True),
+            "data": updated_user.model_dump(by_alias=True, exclude={"hashed_password"}),
             "message": "用户信息更新成功"
         }
     except HTTPException:

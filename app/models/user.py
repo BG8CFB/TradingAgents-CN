@@ -72,13 +72,14 @@ class FavoriteStock(BaseModel):
 
 class User(BaseModel):
     """用户模型"""
-    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    id: Optional[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
     username: str = Field(..., min_length=3, max_length=50)
     email: str = Field(..., pattern=r'^[^@]+@[^@]+\.[^@]+$')
     hashed_password: str
     is_active: bool = True
     is_verified: bool = False
     is_admin: bool = False
+    must_change_password: bool = False
     created_at: datetime = Field(default_factory=now_tz)
     updated_at: datetime = Field(default_factory=now_tz)
     last_login: Optional[datetime] = None

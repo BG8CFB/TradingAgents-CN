@@ -39,14 +39,7 @@ def _parse_exchange(ts_code: str) -> str:
     return {"SH": "SSE", "SZ": "SZSE", "BJ": "BSE"}.get(suffix, suffix)
 
 
-def _infer_exchange(symbol: str) -> str:
-    if symbol.startswith(("60", "68", "90")):
-        return "SSE"
-    elif symbol.startswith(("00", "30", "20")):
-        return "SZSE"
-    elif symbol.startswith(("4", "8")):
-        return "BSE"
-    return ""
+from app.data.sources.cn.stock_name_utils import infer_exchange as _infer_exchange
 
 
 class TushareCNAdapter(BaseAdapter):
@@ -307,7 +300,7 @@ class TushareCNAdapter(BaseAdapter):
             get = row.get
             symbol = _parse_symbol_from_ts_code(str(get("ts_code", get("symbol", ""))))
             close = _safe_float(get("price") or get("close"))
-            pre_close = _safe_float(get("pre_close") or get("pre_close"))
+            pre_close = _safe_float(get("pre_close") or get("close"))
             pct_chg = _safe_float(get("pct_chg") or get("change_percent"))
 
             # 成交量单位转换: 手 → 股（×100）

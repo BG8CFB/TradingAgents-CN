@@ -40,6 +40,14 @@ class DataRefreshService:
     def __init__(self, capability_registry: CapabilityRegistry, priority_config: PriorityConfig):
         self._registry = capability_registry
         self._priority = priority_config
+        self._router: Optional["FallbackRouter"] = None
+
+    def _get_router(self):
+        """获取或创建缓存的 FallbackRouter 实例（断路器和限流器状态跨调用保持）。"""
+        if self._router is None:
+            from app.data.processor.fallback_router import FallbackRouter
+            self._router = FallbackRouter(self._registry, self._priority)
+        return self._router
 
     async def refresh(
         self,
@@ -117,9 +125,7 @@ class DataRefreshService:
             return dr
 
         try:
-            from app.data.processor.fallback_router import FallbackRouter
-
-            router = FallbackRouter(self._registry, self._priority)
+            router = self._get_router()
             fetch_result = await asyncio.wait_for(
                 router.fetch(market, domain, symbol),
                 timeout=timeout,
@@ -159,10 +165,16 @@ class DataRefreshService:
             await lock.release()
 
     async def _write_to_mongo(self, records: list, domain: str, market: str) -> int:
-        """写入 MongoDB。"""
-        from app.data.core.reader import Reader
-        reader = Reader()
-        repo = reader._get_repo(domain)
+        """写入 MongoDB。通过 DataInterface 单例获取 Reader，避免创建多余实例。"""
+        try:
+            from app.data.core.interface import DataInterface
+            di = DataInterface.get_instance()
+            repo = di.reader._get_repo(domain)
+        except Exception as e:
+            # 降级：直接创建（测试或特殊场景）
+            logger.debug(f"通过 DataInterface 获取 Reader 失败，降级创建: {e}")
+            from app.data.core.reader import Reader
+            repo = Reader()._get_repo(domain)
         if repo:
             return await repo.upsert_many(records, market)
         return 0
