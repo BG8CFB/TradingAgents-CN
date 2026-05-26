@@ -129,8 +129,8 @@ class BaseChatAdapter:
                     f"cost={cost:.6f} elapsed={elapsed:.2f}s"
                 )
 
-        except Exception:
-            logger.warning("Token 跟踪失败", exc_info=True)
+        except Exception as e:
+            logger.warning("Token 跟踪失败: %s", e, exc_info=True)
 
     @staticmethod
     def _estimate_input_tokens(kwargs: dict) -> int:

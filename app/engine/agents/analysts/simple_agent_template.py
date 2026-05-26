@@ -320,7 +320,6 @@ def create_simple_agent(
                 rate_limiter = get_rate_limiter()
             except Exception as e:
                 logger.debug(f"获取速率限制器失败: {e}")
-            except Exception:
 
             from app.engine.agents.executors import AgentExecutor
 

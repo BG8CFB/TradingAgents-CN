@@ -359,7 +359,8 @@ class LLMService:
                     error_detail = response.json()
                     error_msg = error_detail.get("error", {}).get("message", f"HTTP {response.status_code}")
                     return {"success": False, "message": f"API测试失败: {error_msg}", "response_time": response_time, "details": None}
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"解析API错误响应失败: {e}")
                     return {"success": False, "message": f"API测试失败: HTTP {response.status_code}", "response_time": response_time, "details": None}
 
         except requests.exceptions.Timeout:
@@ -487,7 +488,8 @@ class LLMService:
                         {"_id": provider_id},
                         {"$set": update_data}
                     )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"ObjectId转换失败，使用字符串查询: {e}")
                 # 如果 ObjectId 转换失败，直接用字符串查询
                 result = await providers_collection.update_one(
                     {"_id": provider_id},
@@ -572,7 +574,8 @@ class LLMService:
                         {"_id": provider_id},
                         {"$set": {"is_active": is_active, "updated_at": now_tz()}}
                     )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"ObjectId转换失败，使用字符串查询: {e}")
                 # 如果 ObjectId 转换失败，直接用字符串查询
                 result = await providers_collection.update_one(
                     {"_id": provider_id},
@@ -824,7 +827,8 @@ class LLMService:
             try:
                 # 先尝试作为 ObjectId 查询
                 provider_data = await providers_collection.find_one({"_id": ObjectId(provider_id)})
-            except Exception:
+            except Exception as e:
+                logger.debug(f"ObjectId查询失败: {e}")
                 pass
 
             # 如果没有找到，再尝试作为字符串查询
@@ -1050,7 +1054,8 @@ class LLMService:
                         "success": False,
                         "message": f"{display_name} API请求错误: {error_msg}"
                     }
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"解析API错误响应失败: {e}")
                     return {
                         "success": False,
                         "message": f"{display_name} API请求格式错误"
@@ -1078,7 +1083,8 @@ class LLMService:
                             "success": False,
                             "message": f"{display_name} 服务暂时不可用: {error_msg}"
                         }
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"解析503错误响应失败: {e}")
                     return {
                         "success": False,
                         "message": f"{display_name} 服务暂时不可用 (HTTP 503)"
@@ -1454,7 +1460,8 @@ class LLMService:
                         "success": False,
                         "message": f"{display_name} API测试失败: {error_msg}"
                     }
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"解析API测试错误响应失败: {e}")
                     return {
                         "success": False,
                         "message": f"{display_name} API测试失败: HTTP {response.status_code}"
@@ -1563,7 +1570,8 @@ class LLMService:
                         "success": False,
                         "message": f"{display_name} API测试失败: {error_msg}"
                     }
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"解析API测试错误详情失败: {e}")
                     logger.error(f"❌ [{display_name}] API测试失败")
                     logger.error(f"   请求URL: {url}")
                     logger.error(f"   状态码: {response.status_code}")
@@ -1593,7 +1601,8 @@ class LLMService:
             provider_data = None
             try:
                 provider_data = await providers_collection.find_one({"_id": ObjectId(provider_id)})
-            except Exception:
+            except Exception as e:
+                logger.debug(f"ObjectId查询失败: {e}")
                 pass
 
             if not provider_data:
@@ -1753,8 +1762,8 @@ class LLMService:
                         "success": False,
                         "message": f"{display_name} API请求失败: {error_msg}"
                     }
-                except Exception:
-                    print(f"❌ HTTP 错误: {response.status_code}")
+                except Exception as e:
+                    logger.debug(f"解析API请求错误响应失败: {e}")
                     return {
                         "success": False,
                         "message": f"{display_name} API请求失败: HTTP {response.status_code}, 响应: {response.text[:200]}"

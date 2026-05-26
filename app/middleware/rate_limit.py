@@ -31,9 +31,9 @@ def _get_redis_service_safe():
         service = get_redis_service()
         _redis_available = True
         return service
-    except Exception:
+    except Exception as e:
         if _redis_available is None or _redis_available:
-            logger.warning("⚠️ Redis 不可用，速率限制功能已禁用")
+            logger.warning(f"⚠️ Redis 不可用，速率限制功能已禁用: {e}")
         _redis_available = False
         _redis_last_check = time.time()
         return None

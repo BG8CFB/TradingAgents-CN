@@ -31,7 +31,8 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
                     return data["name"]
                 if data and isinstance(data, list) and data and data[0].get("name"):
                     return data[0]["name"]
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取A股公司名称失败: {e}")
                 pass
             return f"股票代码{ticker}"
 
@@ -52,8 +53,8 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
                         name = data[0].get("name_zh") or data[0].get("name_en")
                         if name:
                             return name
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"获取港股公司名称失败: {e}")
             clean_ticker = ticker.replace(".HK", "").replace(".hk", "")
             return f"港股{clean_ticker}"
 
@@ -68,8 +69,8 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
                     company_name = doc.get("name") or doc.get("shortName") or doc.get("longName")
                     if company_name:
                         return company_name
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"获取美股公司名称失败: {e}")
             return StockUtils.US_STOCK_NAMES.get(ticker.upper(), f"美股{ticker}")
 
         return f"股票{ticker}"

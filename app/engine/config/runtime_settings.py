@@ -50,7 +50,8 @@ def _coerce(value: Any, caster: Callable[[Any], Any], default: Any) -> Any:
         if value is None:
             return default
         return caster(value)
-    except Exception:
+    except Exception as e:
+        _logger.debug(f"配置值转换失败，使用默认值: {e}")
         return default
 
 
@@ -116,7 +117,8 @@ def use_app_cache_enabled(default: bool = False) -> bool:
     env_val = get_env("TA_USE_APP_CACHE")
     try:
         eff = _get_system_settings_sync()
-    except Exception:
+    except Exception as e:
+        _logger.debug(f"获取系统设置失败: {e}")
         eff = {}
     if isinstance(eff, dict) and "ta_use_app_cache" in eff:
         src = "db"
@@ -128,9 +130,9 @@ def use_app_cache_enabled(default: bool = False) -> bool:
 
     try:
         _logger.info(f"[runtime_settings] TA_USE_APP_CACHE evaluated -> {val} (source={src}, env={env_val})")
-    except Exception:
+    except Exception as e:
+        _logger.debug(f"日志写入失败: {e}")
         pass
-    return val
 
 
 # --- Timezone access helpers -------------------------------------------------
@@ -149,9 +151,8 @@ def get_timezone_name(default: str = "Asia/Shanghai") -> str:
             tz = eff.get("app_timezone") or eff.get("APP_TIMEZONE")
             if isinstance(tz, str) and tz.strip():
                 return tz.strip()
-    except Exception:
-        pass
-
+    except Exception as e:
+        _logger.debug(f"获取系统时区设置失败: {e}")
     for env_key in ("APP_TIMEZONE", "TIMEZONE", "TA_TIMEZONE"):
         val = get_env(env_key)
         if isinstance(val, str) and val.strip():
@@ -165,7 +166,8 @@ def get_zoneinfo(default: str = "Asia/Shanghai") -> _ZoneInfo:
     name = get_timezone_name(default)
     try:
         return _ZoneInfo(name)
-    except Exception:
+    except Exception as e:
+        _logger.debug(f"时区 '{name}' 无效，回退到 UTC: {e}")
         # Fallback to UTC if invalid
         return _ZoneInfo("UTC")
 

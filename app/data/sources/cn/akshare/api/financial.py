@@ -104,11 +104,13 @@ async def fetch_financial_data(code: str) -> Optional[pd.DataFrame]:
 
         tables: Dict[str, Optional[pd.DataFrame]] = {}
 
+        from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+
         fetch_tasks = [
-            ("abstract", lambda: ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")),
-            ("balance", lambda: ak.stock_balance_sheet_by_report_em(symbol=code)),
-            ("income", lambda: ak.stock_profit_sheet_by_report_em(symbol=code)),
-            ("cashflow", lambda: ak.stock_cash_flow_sheet_by_report_em(symbol=code)),
+            ("abstract", lambda: (wait_rate_limit(), ak.stock_financial_abstract_ths(symbol=code, indicator="按年度"))[1]),
+            ("balance", lambda: (wait_rate_limit(), ak.stock_balance_sheet_by_report_em(symbol=code))[1]),
+            ("income", lambda: (wait_rate_limit(), ak.stock_profit_sheet_by_report_em(symbol=code))[1]),
+            ("cashflow", lambda: (wait_rate_limit(), ak.stock_cash_flow_sheet_by_report_em(symbol=code))[1]),
         ]
 
         for name, fn in fetch_tasks:
@@ -116,7 +118,8 @@ async def fetch_financial_data(code: str) -> Optional[pd.DataFrame]:
                 df = await asyncio.to_thread(fn)
                 if df is not None and not df.empty:
                     tables[name] = df
-            except Exception:
+            except Exception as e:
+                logger.debug(f"AKShare获取财务数据 {name} 失败: {e}")
                 continue
 
         if not tables:

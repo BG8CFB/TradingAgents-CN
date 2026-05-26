@@ -371,7 +371,8 @@ async def create_database_indexes(db):
                 try:
                     await basic_info.drop_index(idx_name)
                     logger.info(f"已删除旧索引 {idx_name}")
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"删除旧索引 {idx_name} 失败: {e}")
                     pass
             await basic_info.create_index([("symbol", 1), ("data_source", 1)], unique=True)
             await basic_info.create_index([("industry", 1)])
@@ -389,7 +390,8 @@ async def create_database_indexes(db):
             try:
                 await market_quotes.drop_index("code_1")
                 logger.info("已删除旧索引 code_1")
-            except Exception:
+            except Exception as e:
+                logger.debug(f"删除旧索引 code_1 失败: {e}")
                 pass
             # 跳过已存在的索引（避免名称冲突报错）
             existing_indexes = await market_quotes.index_information()

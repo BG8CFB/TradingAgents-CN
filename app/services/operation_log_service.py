@@ -283,5 +283,6 @@ async def log_operation(
             session_id=session_id
         )
         return await service.create_log(user_id, username, log_data, ip_address, user_agent)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"快速创建操作日志失败: {e}")
         return ""

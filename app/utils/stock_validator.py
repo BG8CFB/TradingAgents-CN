@@ -46,7 +46,8 @@ def _get_stock_info_sync(market: str, symbol: str):
                 return pool.submit(asyncio.run, _read()).result()
         except RuntimeError:
             return asyncio.run(_read())
-    except Exception:
+    except Exception as e:
+        logger.debug(f"获取股票数据失败: {e}")
         pass
     return None
 
@@ -72,7 +73,8 @@ def _get_stock_data_sync(market: str, symbol: str, start_date=None, end_date=Non
                 return pool.submit(asyncio.run, _read()).result()
         except RuntimeError:
             return asyncio.run(_read())
-    except Exception:
+    except Exception as e:
+        logger.debug(f"获取股票名称失败: {e}")
         pass
     return None
 
@@ -1070,7 +1072,8 @@ class StockDataPreparer:
             try:
                 _stock_data = _get_stock_data_sync("US", formatted_code, start_date_str, end_date_str)
                 historical_data = _stock_data
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取美股历史数据失败: {e}")
                 historical_data = None
 
             if historical_data and "❌" not in historical_data and "错误" not in historical_data and "无法获取" not in historical_data:

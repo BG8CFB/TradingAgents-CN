@@ -27,8 +27,8 @@ class RefreshQueue:
             try:
                 # 使用 __import__ 避免模块级别循环导入，运行时按需获取 Redis 客户端
                 redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"获取 Redis 连接失败: {e}")
 
             if redis:
                 await redis.rpush(queue_key, message)
@@ -50,8 +50,8 @@ class RefreshQueue:
             try:
                 # 使用 __import__ 避免模块级别循环导入，运行时按需获取 Redis 客户端
                 redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"获取 Redis 连接失败: {e}")
 
             if redis:
                 msg = await redis.lpop(queue_key)

@@ -84,8 +84,8 @@ class BaseSyncService:
                     if data and freshness == "fresh":
                         stats["success_count"] += 1
                         continue
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"检查基础信息新鲜度失败: {symbol}: {e}")
 
             try:
                 refresh_result = await di.refresh(
@@ -146,8 +146,8 @@ class BaseSyncService:
                                 actual_start = (last_dt + timedelta(days=1)).strftime("%Y-%m-%d")
                             except ValueError:
                                 pass
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"检查日线数据最新日期失败: {symbol}: {e}")
 
             if incremental and actual_start > end_date:
                 stats["success_count"] += 1

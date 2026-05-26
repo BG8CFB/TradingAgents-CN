@@ -507,6 +507,7 @@ def _get_log_directory() -> str:
         try:
             from app.utils.runtime_paths import get_logs_dir
             return str(get_logs_dir())
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取日志目录失败: {e}")
             return "./runtime/logs"
 

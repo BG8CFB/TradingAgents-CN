@@ -51,7 +51,8 @@ class PriorityConfig:
             config = await repo.get_config("data_source_priority", market, domain)
             if config and "value" in config and "sources" in config["value"]:
                 return config["value"]["sources"]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取数据源优先级配置失败: {e}")
             pass
         return None
 

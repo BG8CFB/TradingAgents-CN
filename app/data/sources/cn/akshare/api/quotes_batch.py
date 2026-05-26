@@ -62,6 +62,8 @@ async def _fetch_ak_spot(codes: List[str]) -> Optional[Dict[str, Dict[str, Any]]
         import akshare as ak
 
         def _fetch():
+            from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+            wait_rate_limit()
             return ak.stock_zh_a_spot_em()
 
         df = await asyncio.to_thread(_fetch)
@@ -75,5 +77,6 @@ async def _fetch_ak_spot(codes: List[str]) -> Optional[Dict[str, Dict[str, Any]]
             if code in code_set:
                 result[code] = row.to_dict()
         return result if result else None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"AKShare批量获取行情失败: {e}")
         return None

@@ -209,7 +209,8 @@ class ToolRegistry:
         try:
             from app.routers.tools import _MCP_TOOLS
             return list(_MCP_TOOLS)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取 MCP 工具列表失败: {e}")
             return []
 
     def get_tools_grouped_by_type(self) -> Dict[str, List]:
@@ -284,10 +285,9 @@ class ToolRegistry:
             mcp_names = {t["name"] for t in _MCP_TOOLS}
             if tool_name in mcp_names:
                 return TOOL_TYPE_BUILTIN
-        except Exception:
+        except Exception as e:
+            logger.debug(f"检查 MCP Provider 工具类型失败: {e}")
             pass
-
-        # 3. Skill 工具
         for tool in self._skill_tools:
             if getattr(tool, "name", None) == tool_name:
                 return TOOL_TYPE_SKILL
@@ -311,10 +311,9 @@ class ToolRegistry:
             for t in _MCP_TOOLS:
                 if t["name"] == tool_name:
                     return t.get("description", tool_name).split("（")[0].split("(")[0]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取 MCP Provider 工具显示名失败: {e}")
             pass
-
-        return tool_name
 
     @staticmethod
     def is_builtin_tool(tool) -> bool:

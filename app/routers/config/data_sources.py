@@ -171,7 +171,8 @@ async def add_data_source_config(
                     details={"name": ds_config.name, "market_categories": market_categories},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             return {"message": "数据源配置添加成功", "name": ds_config.name}
         else:
@@ -282,7 +283,8 @@ async def update_data_source_config(
                             details={"name": name, "market_categories": list(new_categories)},
                             success=True,
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"记录操作日志失败: {e}")
                         pass
                     return {"message": "数据源配置更新成功"}
                 else:
@@ -336,7 +338,8 @@ async def delete_data_source_config(
                             details={"name": name},
                             success=True,
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"记录操作日志失败: {e}")
                         pass
                     return {"message": "数据源配置删除成功"}
                 else:
@@ -377,7 +380,8 @@ async def set_default_data_source(
                     details={"name": request.name},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             return {"message": "默认数据源设置成功", "default_data_source": request.name}
         else:
@@ -432,7 +436,8 @@ async def add_datasource_to_category(
                     details={"data_source_name": request.data_source_name, "category_id": request.category_id},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             return {"message": "数据源添加到分类成功"}
         else:
@@ -470,7 +475,8 @@ async def remove_datasource_from_category(
                     details={"data_source_name": data_source_name, "category_id": category_id},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             return {"message": "数据源从分类中移除成功"}
         else:
@@ -509,7 +515,8 @@ async def update_datasource_grouping(
                     details={"data_source_name": data_source_name, "category_id": category_id, "changed_keys": list(request.keys())},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             return {"message": "数据源分组关系更新成功"}
         else:
@@ -547,7 +554,8 @@ async def update_category_datasource_order(
                     details={"category_id": category_id, "data_sources": request.data_sources},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             return {"message": "数据源排序更新成功"}
         else:

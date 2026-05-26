@@ -25,6 +25,8 @@ async def fetch_daily_quotes(
         ak_period = period_map.get(period, "daily")
 
         def _fetch():
+            from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+            wait_rate_limit()
             return ak.stock_zh_a_hist(
                 symbol=code, period=ak_period,
                 start_date=start_date.replace("-", ""),

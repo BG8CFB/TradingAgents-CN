@@ -32,7 +32,8 @@ class ModelCapabilityService:
                 for c in doc["llm_configs"]:
                     try:
                         result.append(LLMConfig(**c))
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"解析LLM配置失败: {e}")
                         continue
                 return result
         except Exception as e:
@@ -48,7 +49,8 @@ class ModelCapabilityService:
             doc = db.system_configs.find_one({"is_active": True}, sort=[("version", -1)])
             settings = (doc or {}).get("system_settings", {})
             return settings.get(key, default)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取系统设置失败: {e}")
             return default
 
     def _parse_aggregator_model_name(self, model_name: str) -> Tuple[Optional[str], str]:

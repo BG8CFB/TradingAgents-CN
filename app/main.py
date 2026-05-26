@@ -47,7 +47,7 @@ def get_version() -> str:
         version_file = Path(__file__).parent.parent / "VERSION"
         if version_file.exists():
             return version_file.read_text(encoding='utf-8').strip()
-    except Exception:
+    except Exception as e:
         pass
     return "1.1.0-preview"  # 默认版本号
 
@@ -236,8 +236,8 @@ async def _apply_dynamic_settings(logger):
         try:
             from app.middleware.operation_log_middleware import set_operation_log_enabled
             set_operation_log_enabled(bool(eff.get("enable_monitoring", True)))
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger("webapi").debug(f"设置操作日志开关失败: {e}")
     except Exception as e:
         logging.getLogger("webapi").warning(f"Failed to apply dynamic settings: {e}")
 

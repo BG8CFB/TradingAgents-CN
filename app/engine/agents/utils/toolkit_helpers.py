@@ -46,8 +46,8 @@ def _get_stock_data_sync(market, symbol, start_date=None, end_date=None):
         data = result.get("data")
         if data:
             return pd.DataFrame(data).to_string()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"获取股票日线数据失败: {e}")
     return None
 
 
@@ -67,8 +67,8 @@ def _get_stock_info_sync(market, symbol):
             if doc.get("exchange"):
                 lines.append(f"交易所: {doc.get('exchange')}")
             return "\n".join(lines)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"获取股票基础信息失败: {e}")
     return None
 
 
@@ -80,8 +80,8 @@ def _get_us_news_sync(symbol):
         data = result.get("data")
         if data:
             return str(data)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"获取美股新闻数据失败: {e}")
     return None
 
 
@@ -101,6 +101,6 @@ def _get_us_daily_quotes_sync(symbol, start_date=None, end_date=None):
         data = result.get("data")
         if data:
             return pd.DataFrame(data).to_string()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"获取美股日线数据失败: {e}")
     return None

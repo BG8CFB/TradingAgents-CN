@@ -33,7 +33,8 @@ async def fetch_financial_data(code: str, year: int = None, quarter: int = None)
                     df = await asyncio.to_thread(fn, bs_code, year, quarter)
                     if df is not None and not df.empty:
                         result[name] = df.iloc[0].to_dict() if len(df) == 1 else df.to_dict("records")
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"BaoStock获取财务数据 {name} 失败: {e}")
                     continue
 
             return result if len(result) > 2 else None

@@ -10,6 +10,7 @@ Stage 2 研究员工厂 — 将 bull/bear 辩手的公共逻辑参数化。
 原文件 bull_researcher.py / bear_researcher.py 改为薄包装以保持向后兼容。
 """
 
+import os
 import re
 import time
 from typing import Literal
@@ -277,7 +278,8 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             filename = os.path.join(
                 report_dir, f"{cfg['report_file_prefix']}_{safe_name}.md"
             )
-            with open(filename, "w", encoding="utf-8") as f:
+            tmp_filename = filename + ".tmp"
+            with open(tmp_filename, "w", encoding="utf-8") as f:
                 f.write(
                     cfg["file_header"].format(
                         company_name=company_name, ticker=ticker
@@ -287,6 +289,7 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
                 f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"> 货币单位：{currency}\n\n")
                 f.write(report_content)
+            os.replace(tmp_filename, filename)
             logger.info(f"{emoji} [{label}研究员] 已更新报告文件: {filename}")
         except Exception as e:
             logger.error(f"{emoji} [ERROR] 保存报告文件失败: {e}")

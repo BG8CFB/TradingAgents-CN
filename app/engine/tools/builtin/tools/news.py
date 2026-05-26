@@ -21,7 +21,8 @@ def _get_market_for_code(stock_code: str) -> str:
             return "HK"
         if market_info.get('is_us'):
             return "US"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"市场类型检测失败，默认CN: {e}")
         pass
     return "CN"
 

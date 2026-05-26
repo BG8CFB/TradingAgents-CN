@@ -83,10 +83,9 @@ def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
                     "tool_id": spec.tool_id,
                     "builtin_domains": spec.domains,
                 }
-            except Exception:
+            except Exception as e:
+                logger.debug(f"设置内置工具元数据失败 ({spec.tool_id}): {e}")
                 pass
-
-            all_tools.append(tool)
 
         except Exception as e:
             logger.error(f"❌ 包装工具 {spec.tool_id} 失败: {e}")

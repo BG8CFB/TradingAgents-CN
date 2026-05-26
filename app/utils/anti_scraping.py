@@ -110,7 +110,8 @@ class AntiScrapingSession:
                         self._impersonate_target = target
                         logger.info(f"curl_cffi 会话初始化成功，指纹: {target}")
                         return
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"curl_cffi指纹 {target} 初始化失败: {e}")
                         continue
 
             logger.warning("curl_cffi 初始化失败，回退到标准 requests")

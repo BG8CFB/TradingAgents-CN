@@ -60,14 +60,16 @@ async def get_dashboard():
     try:
         di = DataInterface.get_instance()
         health = await di.get_source_health(_MARKET)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"获取US数据源健康状态失败: {e}")
         pass
 
     domain_stats = {}
     try:
         from app.services.data_dashboard_service import get_domain_stats
         domain_stats = await get_domain_stats(_MARKET, _DASHBOARD_DOMAINS)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"获取US域统计失败: {e}")
         domain_stats = {d: {"records": 0, "last_updated": None} for d in _DASHBOARD_DOMAINS}
 
     return ok(data={
@@ -139,7 +141,8 @@ async def get_us_priority_config():
             config = await di.get_config(_MARKET, domain)
             if config:
                 priorities[domain] = config
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取US数据源配置失败: {e}")
             pass
     return ok(data=priorities)
 

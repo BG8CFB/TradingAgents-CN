@@ -237,7 +237,8 @@ class RedisProgressTracker:
                     "name": f"{icon} {name}",
                     "description": f"进行{name}相关的专业分析"
                 }
-        except Exception:
+        except Exception as e:
+            logger.debug(f"从配置文件获取分析师信息失败: {analyst}: {e}")
             pass
         
         # 降级到默认映射
@@ -328,7 +329,8 @@ class RedisProgressTracker:
                 # try to coerce iterable of pairs; otherwise fallback to string
                 try:
                     self.progress_data.update(dict(progress_update))
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"进度数据转换失败，降级为字符串: {e}")
                     self.progress_data['last_message'] = str(progress_update)
                     self.progress_data['last_update'] = time.time()
 

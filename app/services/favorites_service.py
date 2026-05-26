@@ -124,7 +124,7 @@ class FavoritesService:
                     else:
                         it["board"] = self._infer_board(code)
                         it["exchange"] = "-"
-            except Exception:
+            except Exception as e:
                 # 查询失败时设置默认值
                 for it in items:
                     it["board"] = "-"
@@ -158,7 +158,7 @@ class FavoritesService:
                         )
                         if latest:
                             pct_map[code] = latest
-                    except Exception:
+                    except Exception as e:
                         pass
 
                 for it in items:
@@ -193,17 +193,17 @@ class FavoritesService:
                                         "close": doc.get("last_price") or doc.get("close"),
                                         "pct_chg": doc.get("pct_chg"),
                                     }
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(f"获取行情数据失败: {e}")
                         for it in items:
                             code = it.get("stock_code")
                             if it.get("current_price") is None:
                                 q2 = quotes_online.get(code, {})
                                 it["current_price"] = q2.get("close")
                                 it["change_percent"] = q2.get("pct_chg")
-                    except Exception:
+                    except Exception as e:
                         pass
-            except Exception:
+            except Exception as e:
                 pass
 
         return items

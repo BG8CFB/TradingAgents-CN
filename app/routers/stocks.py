@@ -25,7 +25,8 @@ def _zfill_code(code: str) -> str:
         if len(s) == 6 and s.isdigit():
             return s
         return s.zfill(6)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"股票代码标准化失败: {e}")
         return str(code)
 
 

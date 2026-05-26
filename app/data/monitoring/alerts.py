@@ -76,12 +76,12 @@ class AlertService:
                 redis = None
                 try:
                     redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"获取 Redis 连接失败: {e}")
                 if redis:
                     await redis.rpush(queue_key, message)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"告警 Redis 推送失败: {e}")
         except Exception as e:
             logger.debug(f"SSE 推送失败: {e}")
 

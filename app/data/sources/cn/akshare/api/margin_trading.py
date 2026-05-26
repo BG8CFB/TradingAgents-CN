@@ -20,6 +20,8 @@ async def fetch_margin_trading(
         import akshare as ak
 
         def _fetch():
+            from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+            wait_rate_limit()
             code = symbol.zfill(6)
             if code.startswith("6"):
                 return ak.stock_margin_detail_sse(code=code)

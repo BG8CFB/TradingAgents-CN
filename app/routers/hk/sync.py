@@ -83,7 +83,8 @@ async def get_refresh_status(symbol: str):
         try:
             result = await di.read(_MARKET, domain, symbol=symbol)
             statuses[domain] = result.get("freshness", "unknown")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取HK数据域 {domain} 新鲜度失败: {e}")
             statuses[domain] = "unknown"
     return ok(data={"symbol": symbol, "domains": statuses})
 

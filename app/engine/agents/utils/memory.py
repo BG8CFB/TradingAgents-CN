@@ -77,7 +77,8 @@ class ChromaDBManager:
                 # 尝试获取现有集合
                 collection = self._client.get_collection(name=name)
                 logger.info(f"📚 [ChromaDB] 获取现有集合: {name}")
-            except Exception:
+            except Exception as e:
+                logger.debug(f"[ChromaDB] 获取集合失败，尝试创建: {e}")
                 try:
                     # 创建新集合
                     collection = self._client.create_collection(name=name)

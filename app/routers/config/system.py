@@ -43,7 +43,8 @@ def _sanitize_llm_configs(items):
     try:
         from app.models.config import LLMConfig
         return [LLMConfig(**{**i.model_dump(), "api_key": None}) for i in items]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"脱敏LLM配置失败: {e}")
         return items
 
 
@@ -81,7 +82,8 @@ def _sanitize_database_configs(items):
     """脱敏数据库配置中的密码"""
     try:
         return [DatabaseConfig(**{**i.model_dump(), "password": None}) for i in items]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"脱敏数据库配置失败: {e}")
         return items
 
 
@@ -98,7 +100,8 @@ def _sanitize_kv(d: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 redacted[k] = v
         return redacted
-    except Exception:
+    except Exception as e:
+        logger.debug(f"脱敏字典失败: {e}")
         return d
 
 
@@ -250,12 +253,14 @@ async def update_system_settings(
                     details={"changed_keys": list(settings.keys())},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             # 失效缓存
             try:
                 config_provider.invalidate()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"失效配置缓存失败: {e}")
                 pass
             return {"message": "系统设置更新成功"}
         else:
@@ -277,7 +282,8 @@ async def update_system_settings(
                 success=False,
                 error_message=str(e),
             )
-        except Exception:
+        except Exception as e:
+            logger.debug(f"记录操作日志失败: {e}")
             pass
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -304,7 +310,8 @@ async def export_config(
                 details={"size": len(str(config_data))},
                 success=True,
             )
-        except Exception:
+        except Exception as e:
+            logger.debug(f"记录导出操作日志失败: {e}")
             pass
         return {
             "message": "配置导出成功",
@@ -337,7 +344,8 @@ async def import_config(
                     details={"keys": list(config_data.keys())[:10]},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录导入操作日志失败: {e}")
                 pass
             return {"message": "配置导入成功"}
         else:
@@ -372,7 +380,8 @@ async def migrate_legacy_config(
                     details={},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录迁移操作日志失败: {e}")
                 pass
             return {"message": "传统配置迁移成功"}
         else:

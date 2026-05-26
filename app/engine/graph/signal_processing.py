@@ -232,11 +232,12 @@ class SignalProcessor:
             return self._extract_simple_decision(full_signal, is_china)
 
     def _extract_simple_decision(self, text: str, is_china: bool = True) -> dict:
-        """简单的决策提取方法作为备用"""
+        """简单的决策提取方法作为备用
+
+        优先级：卖出 > 买入 > 持有（保守策略，明确卖出信号优先处理）
+        """
         _VALID_ACTIONS = {'买入', '卖出', '持有'}
 
-        # 信号优先级：卖出 > 买入 > 持有
-        # 先排除否定语境，再做正向匹配
         action = '持有'
         if re.search(r'(?:建议|推荐|应该|应当)?\s*(?:卖出|SELL|出售|清仓|减仓)', text, re.IGNORECASE):
             action = '卖出'

@@ -114,7 +114,8 @@ def _build_report_query(report_id: str) -> Dict[str, Any]:
     ]
     try:
         ors.append({"_id": ObjectId(report_id)})
-    except Exception:
+    except Exception as e:
+        logger.debug(f"ObjectId转换失败: {e}")
         pass
     return {"$or": ors}
 
@@ -148,7 +149,8 @@ def _extract_reports_from_state(state: Dict[str, Any]) -> Dict[str, str]:
                 else:
                     try:
                         reports[key] = str(content)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"读取报告内容失败: {e}")
                         pass
     return reports
 
@@ -210,7 +212,8 @@ def _infer_market_type(stock_code: str) -> str:
             "unknown": "A股"
         }
         return market_type_map.get(market_info.get("market", "unknown"), "A股")
-    except Exception:
+    except Exception as e:
+        logger.debug(f"获取市场类型失败: {e}")
         return "A股"
 
 

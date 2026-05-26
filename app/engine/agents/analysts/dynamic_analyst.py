@@ -192,7 +192,8 @@ class DynamicAnalystFactory:
 
         try:
             mtime = os.path.getmtime(config_path)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取配置文件修改时间失败: {e}")
             mtime = None
 
         # 命中缓存且文件未变化则复用

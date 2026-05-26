@@ -93,12 +93,15 @@ async def fetch_daily_indicators_by_symbol(
 async def _fetch_valuation_safe(ak_module, code: str, indicator: str, period: str) -> Optional[pd.DataFrame]:
     """安全获取百度估值数据，失败返回 None。"""
     try:
-        df = await asyncio.to_thread(
-            ak_module.stock_zh_valuation_baidu,
-            symbol=code,
-            indicator=indicator,
-            period=period,
-        )
+        from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+
+        def _fetch():
+            wait_rate_limit()
+            return ak_module.stock_zh_valuation_baidu(
+                symbol=code, indicator=indicator, period=period,
+            )
+
+        df = await asyncio.to_thread(_fetch)
         if df is None or df.empty:
             return None
 
@@ -119,14 +122,16 @@ async def _fetch_turnover_from_quotes(
         start = (start_date or "20200101").replace("-", "")
         end = (end_date or "20991231").replace("-", "")
 
-        df = await asyncio.to_thread(
-            ak_module.stock_zh_a_hist,
-            symbol=code,
-            period="daily",
-            start_date=start,
-            end_date=end,
-            adjust="",
-        )
+        from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+
+        def _fetch():
+            wait_rate_limit()
+            return ak_module.stock_zh_a_hist(
+                symbol=code, period="daily",
+                start_date=start, end_date=end, adjust="",
+            )
+
+        df = await asyncio.to_thread(_fetch)
         if df is None or df.empty:
             return None
 

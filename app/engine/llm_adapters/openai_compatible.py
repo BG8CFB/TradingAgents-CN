@@ -403,5 +403,6 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
             msg = resp.choices[0].message
             reasoning = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
             return reasoning.strip() if reasoning else ""
-        except Exception:
+        except Exception as e:
+            logger.debug(f"提取推理内容失败: {e}")
             return ""

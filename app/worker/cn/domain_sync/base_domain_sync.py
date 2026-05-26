@@ -66,7 +66,8 @@ class BaseDomainSync(ABC):
         try:
             from app.core.database import get_database
             db = await get_database()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取数据库连接失败，使用默认30天前: {e}")
             return (now_utc() - timedelta(days=30)).strftime("%Y-%m-%d")
 
         # 1. 查 sync_checkpoints
@@ -84,7 +85,8 @@ class BaseDomainSync(ABC):
                     return (last_dt + timedelta(days=1)).strftime("%Y-%m-%d")
                 except ValueError:
                     return last
-        except Exception:
+        except Exception as e:
+            logger.debug(f"查询同步检查点失败: {e}")
             pass
 
         # 2. 查 stock_basic_info 的 list_date
@@ -101,7 +103,8 @@ class BaseDomainSync(ABC):
                         return f"{ld[:4]}-{ld[4:6]}-{ld[6:]}"
                     return ld
                 return ld.strftime("%Y-%m-%d")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"查询上市日期失败: {symbol}: {e}")
             pass
 
         # 3. 兜底 30 天前
@@ -144,8 +147,8 @@ class BaseDomainSync(ABC):
         try:
             from app.core.database import get_database
             db = await get_database()
-        except Exception:
-            logger.warning("无法连接 MongoDB，跳过写入")
+        except Exception as e:
+            logger.warning(f"无法连接 MongoDB，跳过写入: {e}")
             return 0
 
         collection_name = get_collection_name(self.domain, "CN")
@@ -188,7 +191,8 @@ class BaseDomainSync(ABC):
         try:
             from app.core.database import get_database
             db = await get_database()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取数据库连接失败，跳过写入检查点: {e}")
             return
 
         collection_name = get_collection_name("sync_checkpoints", "CN")
@@ -221,7 +225,8 @@ class BaseDomainSync(ABC):
         try:
             from app.core.database import get_database
             db = await get_database()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取数据库连接失败，跳过写入同步事件: {e}")
             return
 
         collection_name = get_collection_name("sync_events", "CN")
@@ -242,5 +247,5 @@ class BaseDomainSync(ABC):
 
         try:
             await collection.insert_one(event)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"写入同步事件失败: {e}")

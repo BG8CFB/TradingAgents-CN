@@ -66,7 +66,8 @@ class AnalysisWorker:
             # 读取系统设置（ENV 优先 → DB）
             try:
                 effective_settings = await config_provider.get_effective_system_settings()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取系统设置失败: {e}")
                 effective_settings = {}
 
             # 获取队列服务
@@ -83,7 +84,8 @@ class AnalysisWorker:
                 self.heartbeat_interval = int(effective_settings.get("worker_heartbeat_interval_seconds", self.heartbeat_interval))
                 self.poll_interval = float(effective_settings.get("queue_poll_interval_seconds", self.poll_interval))
                 self.cleanup_interval = float(effective_settings.get("queue_cleanup_interval_seconds", self.cleanup_interval))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"解析工作线程配置失败: {e}")
                 pass
             # 启动心跳任务
             heartbeat_task = asyncio.create_task(self._heartbeat_loop())

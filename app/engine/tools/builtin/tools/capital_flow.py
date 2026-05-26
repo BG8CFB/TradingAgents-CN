@@ -53,7 +53,8 @@ def get_money_flow(
             if data:
                 df = pd.DataFrame(data) if isinstance(data, list) else data
                 return format_tool_result(success_result(format_result(df, f"Money Flow: {ts_code or query_type}")))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"资金流向数据获取失败: {e}")
             pass
 
         return format_tool_result(error_result(
@@ -104,7 +105,8 @@ def get_margin_trade(
             if data:
                 df = pd.DataFrame(data) if isinstance(data, list) else data
                 return format_tool_result(success_result(format_result(df, f"Margin Trade: {data_type}")))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"融资融券数据获取失败: {e}")
             pass
 
         return format_tool_result(error_result(

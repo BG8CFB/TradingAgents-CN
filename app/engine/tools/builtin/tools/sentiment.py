@@ -88,10 +88,9 @@ def get_stock_sentiment(
                 reddit_info = _r.get("data")
                 if reddit_info:
                     result_data.append(f"## Reddit讨论\n{reddit_info}")
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取 Reddit 数据失败: {e}")
                 pass
-
-            if not result_data:
                 result_data.append("## 市场情绪分析\n暂无数据")
 
         execution_time = (now_utc() - start_time).total_seconds()

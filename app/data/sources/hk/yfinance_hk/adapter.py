@@ -126,6 +126,7 @@ class YFinanceHKAdapter(BaseAdapter):
                     revenue=_safe_float(row_data.get("Total Revenue")),
                     net_profit=_safe_float(row_data.get("Net Income")),
                 ))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"解析港股财务数据行失败: {e}")
                 continue
         return results

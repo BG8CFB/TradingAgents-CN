@@ -92,7 +92,8 @@ class AggregationSync(BaseDomainSync):
         try:
             from app.core.database import get_database
             db = await get_database()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取数据库连接失败: {e}")
             return []
 
         collection_name = get_collection_name("CN", "daily_quotes")

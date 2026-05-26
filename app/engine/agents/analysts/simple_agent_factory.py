@@ -106,10 +106,9 @@ class SimpleAgentFactory:
                             "tool_category": "builtin",
                             "tool_id": spec.tool_id,
                         }
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"设置工具元数据失败: {e}")
                         pass
-
-                    builtin_tools.append(langchain_tool)
                 except Exception as e:
                     logger.error(f"❌ 包装内置工具 {spec.tool_id} 失败: {e}")
 

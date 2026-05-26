@@ -116,7 +116,8 @@ class DataIntegrityService:
             try:
                 collection = db[get_collection_name(domain, "CN")]
                 counts[domain] = await collection.count_documents({})
-            except Exception:
+            except Exception as e:
+                logger.debug(f"统计域 {domain} 记录数失败: {e}")
                 counts[domain] = 0
         return counts
 
@@ -197,7 +198,8 @@ class DataIntegrityService:
                             description=f"域 {domain} 有 {null_count} 条记录缺少字段 {f}",
                             details={"field": f, "null_count": null_count},
                         ))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"检查域 {domain} 空字段失败: {e}")
                 pass
 
     async def _check_cross_domain_consistency(
@@ -231,7 +233,8 @@ class DataIntegrityService:
                         issue_type="cross_domain_mismatch",
                         description=f"股票 {symbol} 有 {quote_count} 条日线但无指标数据",
                     ))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"跨域一致性检查失败: {e}")
             pass
 
     async def _save_report(self, report: IntegrityReport):
@@ -252,7 +255,8 @@ class DataIntegrityService:
                 "details": report.to_dict(),
             }
             await collection.insert_one(event)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"保存完整性报告失败: {e}")
             pass
 
 

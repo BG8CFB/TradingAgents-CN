@@ -71,8 +71,8 @@ async def list_connectors(user: dict = Depends(get_current_user)) -> Dict[str, A
                     health_data = factory._health_monitor.get_server_health_info(name)
                     if health_data:
                         health_info_map[name] = health_data.to_dict()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"获取 MCP 健康信息失败: {name}: {e}")
         except Exception as exc:
             logger.warning("获取 MCP 健康状态失败: %s", exc)
 

@@ -39,7 +39,8 @@ def _sanitize_llm_configs(items):
     """脱敏 LLM 配置中的 API Key"""
     try:
         return [LLMConfig(**{**i.model_dump(), "api_key": None}) for i in items]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"LLM 配置脱敏失败: {e}")
         return items
 
 
@@ -145,8 +146,8 @@ async def add_llm_provider(
                 details={"provider_id": str(provider_id), "name": request.name},
                 success=True,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"记录操作日志失败: {e}")
         return {
             "success": True,
             "message": "厂家添加成功",
@@ -202,8 +203,8 @@ async def update_llm_provider(
                     details={"provider_id": provider_id, "changed_keys": list(request.model_dump().keys())},
                     success=True,
                 )
-            except Exception:
-                pass
+            except Exception as _log_err:
+                logger.debug(f"记录操作日志失败: {_log_err}")
             return {
                 "success": True,
                 "message": "厂家更新成功",
@@ -243,8 +244,8 @@ async def delete_llm_provider(
                     details={"provider_id": provider_id},
                     success=True,
                 )
-            except Exception:
-                pass
+            except Exception as _log_err:
+                logger.debug(f"记录操作日志失败: {_log_err}")
             return {
                 "success": True,
                 "message": "厂家删除成功",
@@ -286,8 +287,8 @@ async def toggle_llm_provider(
                     details={"provider_id": provider_id, "is_active": bool(is_active)},
                     success=True,
                 )
-            except Exception:
-                pass
+            except Exception as _log_err:
+                logger.debug(f"记录操作日志失败: {_log_err}")
             return {
                 "success": True,
                 "message": f"厂家已{'启用' if is_active else '禁用'}",
@@ -346,8 +347,8 @@ async def migrate_env_to_providers(
                 },
                 success=bool(result.get("success", False)),
             )
-        except Exception:
-            pass
+        except Exception as _log_err:
+            logger.debug(f"记录操作日志失败: {_log_err}")
 
         return {
             "success": result["success"],
@@ -385,8 +386,8 @@ async def init_aggregator_providers(
                 },
                 success=bool(result.get("success", False)),
             )
-        except Exception:
-            pass
+        except Exception as _log_err:
+            logger.debug(f"记录操作日志失败: {_log_err}")
 
         return {
             "success": result["success"],
@@ -584,8 +585,8 @@ async def add_llm_config(
                     details={"provider": llm_config.provider, "model_name": llm_config.model_name},
                     success=True,
                 )
-            except Exception:
-                pass
+            except Exception as _log_err:
+                logger.debug(f"记录操作日志失败: {_log_err}")
             return {"message": "大模型配置更新成功", "model_name": llm_config.model_name}
         else:
             logger.error(f"大模型配置保存失败")
@@ -637,8 +638,8 @@ async def delete_llm_config(
                     details={"provider": provider, "model_name": model_name},
                     success=True,
                 )
-            except Exception:
-                pass
+            except Exception as _log_err:
+                logger.debug(f"记录操作日志失败: {_log_err}")
             return {"message": "大模型配置删除成功"}
         else:
             logger.warning(f"未找到大模型配置 - {provider}/{model_name}")
@@ -675,8 +676,8 @@ async def set_default_llm(
                     details={"name": request.name},
                     success=True,
                 )
-            except Exception:
-                pass
+            except Exception as _log_err:
+                logger.debug(f"记录操作日志失败: {_log_err}")
             return {"message": "默认大模型设置成功", "default_llm": request.name}
         else:
             raise HTTPException(

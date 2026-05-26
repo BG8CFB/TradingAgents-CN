@@ -176,7 +176,8 @@ async def _fetch_news_fast(
                 all_news.extend(items)
                 if len(all_news) >= limit:
                     break
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取新闻数据失败: {e}")
             continue
         await asyncio.sleep(0.2)
 
@@ -316,11 +317,12 @@ def _parse_time(time_str) -> Optional[datetime]:
         return now_utc()
     try:
         return datetime.strptime(str(time_str), "%Y-%m-%d %H:%M:%S")
-    except Exception:
+    except Exception as e:
+        logger.debug(f"解析日期格式失败: {e}")
         # 尝试纯日期格式（cctv_news 返回 YYYYMMDD）
         try:
             return datetime.strptime(str(time_str), "%Y%m%d")
-        except Exception:
+        except Exception as e:
             return now_utc()
 
 
@@ -366,6 +368,7 @@ def _is_relevant(item: Dict, symbol: str) -> bool:
         name = get_stock_name_sync(clean)
         if name and name in text:
             return True
-    except Exception:
+    except Exception as e:
+        logger.debug(f"检查股票名称匹配失败: {e}")
         pass
     return False

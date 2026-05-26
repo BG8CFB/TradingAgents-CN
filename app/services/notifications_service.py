@@ -119,7 +119,8 @@ class NotificationsService:
         db = get_mongo_db()
         try:
             oid = ObjectId(notif_id)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"ObjectId转换失败: {e}")
             return False
         res = await db[self.collection].update_one({"_id": oid, "user_id": user_id}, {"$set": {"status": "read"}})
         return res.modified_count > 0

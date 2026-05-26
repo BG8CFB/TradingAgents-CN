@@ -42,7 +42,8 @@ def get_china_market_overview(
                     indices_map[idx_name] = (
                         f"{doc.get('close', 'N/A')} ({doc.get('pct_chg', 'N/A')}%)"
                     )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取指数数据失败: {idx_name}: {e}")
                 indices_map[idx_name] = "数据获取中..."
 
         indices_lines = "\n".join(

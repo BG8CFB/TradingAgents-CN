@@ -190,7 +190,8 @@ class ScreeningService:
                         else:
                             fund_data = asyncio.run(_di.read("CN", "financial_data", symbol=code))
                         snap = fund_data.get("data")
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"获取财务数据失败: {e}")
                         snap = None
                     if not snap:
                         passes = False

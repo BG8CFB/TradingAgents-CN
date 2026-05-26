@@ -82,8 +82,9 @@ class DatabaseService:
                                 "index_size": 0,
                                 "note": "视图不支持统计"
                             }
-                    except Exception:
+                    except Exception as e:
                         # 如果无法判断类型，继续尝试 collStats
+                        logger.debug(f"判断集合类型失败: {e}")
                         pass
 
                     # 对集合执行 collStats

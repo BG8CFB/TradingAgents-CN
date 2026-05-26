@@ -107,8 +107,8 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
                         ip_address=ip_address,
                         user_agent=user_agent
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"记录错误操作日志失败: {e}")
             raise
 
         # 计算耗时
@@ -192,7 +192,8 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
             return None
         except jwt.InvalidTokenError:
             return None
-        except Exception:
+        except Exception as e:
+            logger.debug(f"JWT token 解析失败: {e}")
             return None
 
     def _get_action_type(self, path: str) -> str:

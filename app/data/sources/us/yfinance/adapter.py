@@ -118,7 +118,8 @@ class YFinanceUSAdapter(BaseAdapter):
                     net_profit=_safe_float(col_data.get("Net Income")),
                     operating_cashflow=_safe_float(col_data.get("Operating Cash Flow")),
                 ))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"解析财务数据行失败: {e}")
                 continue
         return results
 

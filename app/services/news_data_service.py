@@ -433,9 +433,10 @@ class NewsDataService:
                 self.logger.warning(f"⚠️ 无法解析日期时间: {dt_value}")
                 return now_utc()
                 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"解析新闻日期失败: {e}")
                 return now_utc()
-        
+
         return now_utc()
     
     def _safe_float(self, value) -> Optional[float]:

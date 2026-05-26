@@ -73,7 +73,7 @@ def evaluate_fund_conditions(snap: Dict[str, Any], node: Dict[str, Any], fund_fi
                 return False
             v = float(left)
             return float(lo) <= v <= float(hi)
-    except Exception:
+    except Exception as e:
         logger.debug("基本面条件求值异常: field=%s, op=%s, left=%s, right=%s", field, op, left, right)
         return False
     return False
@@ -156,7 +156,7 @@ def evaluate_conditions(
                 return False
             v = float(left)
             return float(lo) <= v <= float(hi)
-    except Exception:
+    except Exception as e:
         logger.debug("条件求值异常: field=%s, op=%s, left=%s, right=%s", field, op, left, right)
         return False
     return False
@@ -167,6 +167,6 @@ def safe_float(v: Any) -> Optional[float]:
         if v is None or (isinstance(v, float) and np.isnan(v)):
             return None
         return float(v)
-    except Exception:
+    except Exception as e:
         return None
 

@@ -71,5 +71,6 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             # 清理 contextvar，避免泄露到后续请求
             try:
                 trace_id_var.reset(token)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"清理 trace_id 失败: {e}")
                 pass

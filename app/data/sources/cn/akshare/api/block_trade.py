@@ -22,6 +22,8 @@ async def fetch_block_trade(
         import akshare as ak
 
         def _fetch():
+            from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+            wait_rate_limit()
             return ak.stock_dzjy_mrmx(symbol="A股", start_date=start_date, end_date=end_date)
 
         df = await asyncio.to_thread(_fetch)

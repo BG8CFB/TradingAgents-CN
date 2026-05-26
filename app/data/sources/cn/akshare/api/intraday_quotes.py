@@ -22,6 +22,8 @@ async def fetch_intraday_quotes(
         import akshare as ak
 
         def _fetch():
+            from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+            wait_rate_limit()
             return ak.stock_zh_a_hist_min_em(symbol=code, period=period, adjust="")
 
         df = await asyncio.to_thread(_fetch)

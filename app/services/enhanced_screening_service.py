@@ -356,7 +356,8 @@ class EnhancedScreeningService:
                         if raw != raw or raw in (float("inf"), float("-inf")):
                             return 0
                     return int(raw)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"转换筛选值失败: {e}")
                     return 0
 
             # 按优先级逐一尝试各数据源

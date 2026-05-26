@@ -111,11 +111,13 @@ def create_research_manager(llm, memory):
             report_dir = os.path.join(settings.runtime_dir, "results")
             os.makedirs(report_dir, exist_ok=True)
             filename = os.path.join(report_dir, f"投资裁决报告_{company_name}.md")
-            with open(filename, "w", encoding="utf-8") as f:
+            tmp_filename = filename + ".tmp"
+            with open(tmp_filename, "w", encoding="utf-8") as f:
                 f.write(f"# {company_name} ({ticker}) 投资裁决报告\n\n")
                 f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"> 决策人：研究部主管\n\n")
                 f.write(final_content)
+            os.replace(tmp_filename, filename)
             logger.info(f"👔 [Research Manager] 已生成裁决报告: {filename}")
         except Exception as e:
             logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")

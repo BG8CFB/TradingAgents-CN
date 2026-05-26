@@ -183,7 +183,8 @@ class MCPToolLoaderFactory:
         # 提取 schema 定义
         try:
             schema_dict = args_schema.schema()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"提取工具 schema 失败: {e}")
             return tool
 
         required_params = set(schema_dict.get('required', []))
@@ -230,10 +231,9 @@ class MCPToolLoaderFactory:
 
         try:
             tool.description = enhanced_desc.strip()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"设置工具描述失败: {e}")
             pass
-
-        return tool
 
     def _unwrap_runnable_binding(self, tool: Any) -> Any:
         """
@@ -252,40 +252,31 @@ class MCPToolLoaderFactory:
         try:
             if not hasattr(base, "__name__"):
                 base.__name__ = name  # type: ignore[attr-defined]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"设置工具 __name__ 失败: {e}")
             pass
-
-        tool_obj = tool
         try:
             tool_classes = tuple(
                 cls for cls in (BaseTool, StructuredTool) if cls is not None  # type: ignore[arg-type]
             )
             if tool_classes and isinstance(base, tool_classes):
                 tool_obj = base
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"工具类检查失败: {e}")
 
         # 附加 metadata
         metadata: Dict[str, Any] = {}
         for candidate in (getattr(tool, "metadata", None), getattr(base, "metadata", None)):
             if isinstance(candidate, dict):
                 metadata.update(candidate)
-        if metadata:
-            try:
+        try:
+            if metadata:
                 existing = getattr(tool_obj, "metadata", {}) or {}
                 if isinstance(existing, dict):
                     metadata = {**existing, **metadata}
                 setattr(tool_obj, "metadata", metadata)
-            except Exception:
-                pass
-
-        try:
-            if not getattr(tool_obj, "name", None):
-                setattr(tool_obj, "name", name)
-        except Exception:
-            pass
-
-        return tool_obj
+        except Exception as e:
+            logger.debug(f"设置工具 metadata 失败: {e}")
 
     def _attach_server_metadata(self, tool: Any, server_name: str) -> Any:
         """为工具附加服务器元数据。"""
@@ -299,11 +290,9 @@ class MCPToolLoaderFactory:
             existing = getattr(tool, "metadata", {}) or {}
             if isinstance(existing, dict):
                 metadata.update(existing)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"读取工具现有元数据失败: {e}")
             pass
-
-        metadata.setdefault("server_name", server_name)
-        metadata.setdefault("server_id", server_name)
 
         try:
             if hasattr(tool, "with_config"):
@@ -313,13 +302,15 @@ class MCPToolLoaderFactory:
 
         try:
             setattr(tool, "metadata", metadata)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"设置工具 metadata 属性失败: {e}")
             pass
 
         for attr in ("server_name", "_server_name"):
             try:
                 setattr(tool, attr, server_name)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"设置工具 {attr} 属性失败: {e}")
                 continue
 
         return tool

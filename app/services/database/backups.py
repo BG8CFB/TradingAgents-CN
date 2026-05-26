@@ -330,10 +330,12 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
                 if "_id" in doc and isinstance(doc["_id"], str):
                     try:
                         doc["_id"] = ObjectId(doc["_id"])
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"ObjectId转换失败: {e}")
                         del doc["_id"]
 
                 # 🔥 转换日期字段（字符串 -> datetime）
+                # 适用于用户配置备份
                 _convert_date_fields(doc)
 
             # 插入数据
@@ -379,10 +381,12 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
             if "_id" in doc and isinstance(doc["_id"], str):
                 try:
                     doc["_id"] = ObjectId(doc["_id"])
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"ObjectId转换失败: {e}")
                     del doc["_id"]
 
             # 🔥 转换日期字段（字符串 -> datetime）
+            # 适用于系统配置备份
             _convert_date_fields(doc)
 
         inserted_count = 0

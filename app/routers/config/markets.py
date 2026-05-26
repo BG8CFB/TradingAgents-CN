@@ -68,7 +68,8 @@ async def add_market_category(
                     details={"id": str(getattr(category, 'id', ''))},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             return {"message": "市场分类添加成功", "id": category.id}
         else:
@@ -106,7 +107,8 @@ async def update_market_category(
                     details={"category_id": category_id, "changed_keys": list(request.keys())},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             return {"message": "市场分类更新成功"}
         else:
@@ -143,7 +145,8 @@ async def delete_market_category(
                     details={"category_id": category_id},
                     success=True,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"记录操作日志失败: {e}")
                 pass
             return {"message": "市场分类删除成功"}
         else:

@@ -20,6 +20,8 @@ async def fetch_money_flow_by_symbol(
         import akshare as ak
 
         def _fetch():
+            from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+            wait_rate_limit()
             return ak.stock_individual_fund_flow(stock=symbol, market="sh" if symbol.startswith("6") else "sz")
 
         df = await asyncio.to_thread(_fetch)

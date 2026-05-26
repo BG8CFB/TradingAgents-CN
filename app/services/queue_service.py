@@ -220,7 +220,8 @@ class QueueService:
         if "params" in data:
             try:
                 data["parameters"] = json.loads(data.pop("params"))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"解析队列任务参数失败: {e}")
                 data["parameters"] = {}
         if "created_at" in data and data["created_at"].isdigit():
             data["created_at"] = int(data["created_at"])

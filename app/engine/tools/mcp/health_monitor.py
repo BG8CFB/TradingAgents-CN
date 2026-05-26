@@ -202,64 +202,104 @@ class HealthMonitor:
     ) -> ServerStatus:
         """
         检查单个服务器的健康状态
-        
+
+        带重试机制：首次失败后会额外重试一次，避免因短暂网络抖动误报。
+
         Args:
             server_name: 服务器名称
             timeout: 超时时间（秒）
-            
+
         Returns:
             服务器状态
         """
         if server_name not in self._health_check_funcs:
             logger.warning("[HealthMonitor] 服务器 %s 未注册", server_name)
             return ServerStatus.UNKNOWN
-        
+
         health_check_func = self._health_check_funcs[server_name]
         loop = asyncio.get_running_loop()
-        start_time = loop.time()
 
-        try:
-            # 在线程池中运行同步健康检查函数
-            is_healthy = await asyncio.wait_for(
-                loop.run_in_executor(None, health_check_func),
-                timeout=timeout
-            )
+        # 最多尝试 2 次，避免短暂抖动误报
+        max_attempts = 2
+        last_exception = None
 
-            latency_ms = (loop.time() - start_time) * 1000
-            
-            if is_healthy:
-                self._update_status(
-                    server_name,
-                    ServerStatus.HEALTHY,
-                    latency_ms=latency_ms
+        for attempt in range(1, max_attempts + 1):
+            start_time = loop.time()
+            try:
+                is_healthy = await asyncio.wait_for(
+                    loop.run_in_executor(None, health_check_func),
+                    timeout=timeout
                 )
-                return ServerStatus.HEALTHY
-            else:
+
+                latency_ms = (loop.time() - start_time) * 1000
+
+                if is_healthy:
+                    self._update_status(
+                        server_name,
+                        ServerStatus.HEALTHY,
+                        latency_ms=latency_ms
+                    )
+                    return ServerStatus.HEALTHY
+                else:
+                    # 健康检查返回 False，记录并继续尝试
+                    if attempt < max_attempts:
+                        logger.debug(
+                            "[HealthMonitor] 服务器 %s 健康检查返回 False (第%d次), 重试中",
+                            server_name, attempt
+                        )
+                        await asyncio.sleep(1)
+                        continue
+
+                    self._update_status(
+                        server_name,
+                        ServerStatus.DEGRADED,
+                        error="健康检查返回 False",
+                        latency_ms=latency_ms
+                    )
+                    return ServerStatus.DEGRADED
+
+            except asyncio.TimeoutError:
+                latency_ms = (loop.time() - start_time) * 1000
+                last_exception = f"健康检查超时 ({timeout}s)"
+
+                if attempt < max_attempts:
+                    logger.debug(
+                        "[HealthMonitor] 服务器 %s 健康检查超时 (第%d次, %.0fms), 重试中",
+                        server_name, attempt, latency_ms
+                    )
+                    await asyncio.sleep(1)
+                    continue
+
                 self._update_status(
                     server_name,
                     ServerStatus.DEGRADED,
-                    error="健康检查返回 False",
+                    error=last_exception,
                     latency_ms=latency_ms
                 )
+                logger.warning("[HealthMonitor] 服务器 %s 健康检查超时 (%d次)", server_name, max_attempts)
                 return ServerStatus.DEGRADED
-                
-        except asyncio.TimeoutError:
-            self._update_status(
-                server_name,
-                ServerStatus.DEGRADED,
-                error=f"健康检查超时 ({timeout}s)"
-            )
-            logger.warning("[HealthMonitor] 服务器 %s 健康检查超时", server_name)
-            return ServerStatus.DEGRADED
-            
-        except Exception as e:
-            self._update_status(
-                server_name,
-                ServerStatus.UNREACHABLE,
-                error=str(e)
-            )
-            logger.error("[HealthMonitor] 服务器 %s 健康检查失败: %s", server_name, e)
-            return ServerStatus.UNREACHABLE
+
+            except Exception as e:
+                last_exception = str(e)
+
+                if attempt < max_attempts:
+                    logger.debug(
+                        "[HealthMonitor] 服务器 %s 健康检查异常 (第%d次): %s, 重试中",
+                        server_name, attempt, e
+                    )
+                    await asyncio.sleep(1)
+                    continue
+
+                self._update_status(
+                    server_name,
+                    ServerStatus.UNREACHABLE,
+                    error=str(e)
+                )
+                logger.error("[HealthMonitor] 服务器 %s 健康检查失败 (%d次): %s", server_name, max_attempts, e)
+                return ServerStatus.UNREACHABLE
+
+        # 理论上不会到这里，但防御性返回
+        return ServerStatus.UNKNOWN
     
     async def _monitor_server(
         self,

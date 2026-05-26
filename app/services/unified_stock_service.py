@@ -107,7 +107,8 @@ class UnifiedStockService:
         if prev_close is None and close is not None and pct is not None:
             try:
                 prev_close = round(float(close) / (1.0 + float(pct) / 100.0), 4)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"计算前收盘价失败: {e}")
                 prev_close = None
 
         turnover_rate = dq.get("turnover_rate")
@@ -121,7 +122,8 @@ class UnifiedStockService:
                 if ind_data:
                     ind = ind_data[0] if isinstance(ind_data, list) and ind_data else ind_data
                     turnover_rate = ind.get("turnover_rate")
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取换手率数据失败: {e}")
                 pass
 
         amplitude = None
@@ -130,7 +132,8 @@ class UnifiedStockService:
             low = dq.get("low")
             if high is not None and low is not None and prev_close is not None and prev_close > 0:
                 amplitude = round((float(high) - float(low)) / float(prev_close) * 100, 2)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"计算振幅失败: {e}")
             pass
 
         return {

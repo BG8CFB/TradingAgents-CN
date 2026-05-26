@@ -280,7 +280,8 @@ async def get_cache_backend_info(current_user: dict = Depends(get_current_user))
                 redis_connected = True
                 info = await redis.info("server")
                 redis_version = info.get("redis_version")
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取Redis信息失败: {e}")
                 redis_connected = False
 
         memory_cache_active = _memory_cache is not None

@@ -40,7 +40,8 @@ class YFinanceHKProvider(BaseProvider):
             # 获取恒指成分股作为基础列表
             await asyncio.to_thread(lambda: yf.download("^HSI", period="5d"))
             return None  # yfinance 不支持全市场列表
-        except Exception:
+        except Exception as e:
+            logger.debug(f"yfinance HK连通性检查失败: {e}")
             return None
 
     async def get_daily_quotes(

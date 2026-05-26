@@ -80,7 +80,7 @@ class ConfigProvider:
         if cfg and getattr(cfg, "system_settings", None):
             try:
                 base = dict(cfg.system_settings)
-            except Exception:
+            except Exception as e:
                 base = {}
 
         # 兼容旧格式：展平嵌套的 config 键
@@ -128,7 +128,7 @@ class ConfigProvider:
         if cfg and getattr(cfg, "system_settings", None):
             try:
                 db_settings = dict(cfg.system_settings)
-            except Exception:
+            except Exception as e:
                 db_settings = {}
 
         # 兼容旧格式：展平嵌套的 config 键

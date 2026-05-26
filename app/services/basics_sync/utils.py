@@ -112,7 +112,8 @@ def find_latest_trade_date() -> str:
             db = api.daily_basic(trade_date=d, fields="ts_code,total_mv")
             if db is not None and not db.empty:
                 return d
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Tushare获取每日指标失败 {d}: {e}")
             continue
     return format_date_compact(today - timedelta(days=1))
 
@@ -160,7 +161,8 @@ def fetch_daily_basic_mv_map(trade_date: str) -> Dict[str, Dict[str, float]]:
                             metrics[field] = float(value)
                     if metrics:
                         data_map[str(ts_code)] = metrics
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"解析总市值数据失败: {e}")
                     pass
     return data_map
 
@@ -214,12 +216,13 @@ def fetch_latest_roe_map() -> Dict[str, Dict[str, float]]:
                         continue
                     try:
                         v = float(val)
-                    except Exception:
+                    except Exception as e:
                         continue
                     data_map[str(ts_code)] = {"roe": v}
                 if data_map:
                     break  # 找到最近一期即可
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取ROE数据失败: {e}")
             continue
 
     return data_map

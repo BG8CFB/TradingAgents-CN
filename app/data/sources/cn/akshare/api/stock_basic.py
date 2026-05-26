@@ -26,6 +26,8 @@ async def fetch_stock_list() -> Optional[pd.DataFrame]:
         import akshare as ak
 
         def _fetch():
+            from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+            wait_rate_limit()
             return ak.stock_info_a_code_name()
 
         df = await asyncio.to_thread(_fetch)
@@ -45,6 +47,8 @@ async def fetch_stock_basic_info(code: str) -> Optional[dict]:
         import akshare as ak
 
         def _fetch():
+            from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+            wait_rate_limit()
             return ak.stock_individual_info_em(symbol=code)
 
         df = await asyncio.to_thread(_fetch)

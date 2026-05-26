@@ -31,7 +31,8 @@ class BaoStockCNProvider(BaseProvider):
         try:
             from .api.connection import is_available
             return is_available()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"BaoStock可用性检查失败: {e}")
             return False
 
     async def get_stock_list(self, **kwargs) -> Optional[pd.DataFrame]:

@@ -472,7 +472,8 @@ class TradingAgentsGraph:
                 model_info = f"{self.debate_llm.__class__.__name__}:{self.debate_llm.model_name}"
             else:
                 model_info = self.debate_llm.__class__.__name__
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取模型信息失败: {e}")
             model_info = "Unknown"
 
         # 处理决策并添加模型信息（兼容未启用后续阶段）
@@ -742,8 +743,10 @@ class TradingAgentsGraph:
         directory.mkdir(parents=True, exist_ok=True)
 
         log_file = directory / "full_states_log.json"
-        with log_file.open("w") as f:
+        tmp_file = log_file.with_suffix(log_file.suffix + ".tmp")
+        with tmp_file.open("w") as f:
             json.dump(self.log_states_dict, f, indent=4)
+        os.replace(tmp_file, log_file)
 
     def reflect_and_remember(self, returns_losses):
         """Reflect on decisions and update memory based on returns."""

@@ -264,7 +264,8 @@ async def sync_favorites_realtime(
                     success_count += 1
                 else:
                     failed_count += 1
-            except Exception:
+            except Exception as e:
+                logger.debug(f"自选股行情同步失败 {symbol}: {e}")
                 failed_count += 1
 
         logger.info(f"✅ 自选股实时行情同步完成: 同步 {success_count} 条记录")

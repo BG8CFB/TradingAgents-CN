@@ -35,12 +35,16 @@ async def fetch_adj_factors(
     try:
         import akshare as ak
 
+        from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+
         sina_code = _to_sina_symbol(symbol)
 
         def _fetch_qfq():
+            wait_rate_limit()
             return ak.stock_zh_a_daily(symbol=sina_code, adjust="qfq-factor")
 
         def _fetch_hfq():
+            wait_rate_limit()
             return ak.stock_zh_a_daily(symbol=sina_code, adjust="hfq-factor")
 
         qfq_df, hfq_df = await asyncio.gather(

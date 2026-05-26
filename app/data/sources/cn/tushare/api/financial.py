@@ -97,7 +97,8 @@ def _determine_report_type(report_period: str) -> str:
         return "quarterly"
     try:
         return "annual" if report_period[4:8] == "1231" else "quarterly"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"判断报告类型失败: {e}")
         return "quarterly"
 
 

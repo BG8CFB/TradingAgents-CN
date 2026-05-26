@@ -53,7 +53,8 @@ def get_china_stock_data_cached(symbol: str, start_date: str, end_date: str) -> 
     provider = get_fundamentals_provider()
     try:
         return asyncio.run(provider.get_stock_data(symbol, start_date, end_date))
-    except Exception:
+    except Exception as e:
+        logger.debug(f"获取基本面数据失败: {e}")
         return None
 
 
@@ -61,7 +62,8 @@ def get_china_fundamentals_cached(symbol: str) -> Optional[Dict]:
     provider = get_fundamentals_provider()
     try:
         return asyncio.run(provider.get_fundamentals(symbol))
-    except Exception:
+    except Exception as e:
+        logger.debug(f"获取基本面摘要失败: {e}")
         return None
 
 

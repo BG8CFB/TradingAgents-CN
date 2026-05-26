@@ -68,7 +68,8 @@ def _save_disabled_tools(disabled: Set[str]):
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(data)
             os.replace(tmp_path, str(_DISABLED_TOOLS_FILE))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"替换禁用工具列表文件失败: {e}")
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -107,7 +108,8 @@ async def _get_builtin_availability(registry: ToolRegistry) -> Dict[str, bool]:
         from app.engine.tools.builtin.domain_checker import AvailabilityCache
         cache = AvailabilityCache.get_instance()
         return dict(cache.all_results)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"获取内置工具可用性状态失败: {e}")
         return {}
 
 
@@ -188,7 +190,8 @@ async def list_available_tools(
         if hasattr(tool, "bound") and not getattr(tool, "name", None):
             try:
                 tool = tool.bound
-            except Exception:
+            except Exception as e:
+                logger.debug(f"解包工具绑定失败: {e}")
                 pass
 
         name = getattr(tool, "name", None)

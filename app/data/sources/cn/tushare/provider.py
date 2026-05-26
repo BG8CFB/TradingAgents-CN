@@ -36,7 +36,8 @@ class TushareCNProvider(BaseProvider):
     def is_available(self) -> bool:
         try:
             return self._get_conn().is_available()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Tushare可用性检查失败: {e}")
             return False
 
     async def get_stock_list(self, **kwargs) -> Optional[pd.DataFrame]:

@@ -23,10 +23,10 @@ else:
 
 try:
     import tomllib as toml_loader  # Python 3.11+
-except Exception:
+except Exception as e:
     try:
         import tomli as toml_loader  # Python 3.10 fallback
-    except Exception:
+    except Exception as e:
         toml_loader = None
 
 
@@ -65,7 +65,7 @@ def _parse_size(size_str: str) -> int:
             if size_str.endswith(suffix):
                 try:
                     return int(float(size_str[: -len(suffix)]) * multiplier)
-                except Exception:
+                except Exception as e:
                     return 10 * 1024 * 1024
     return 10 * 1024 * 1024
 

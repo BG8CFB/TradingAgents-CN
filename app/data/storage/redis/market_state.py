@@ -29,8 +29,8 @@ class MarketStateCache:
             try:
                 # 使用 __import__ 避免模块级别循环导入，运行时按需获取 Redis 客户端
                 redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"获取 Redis 连接失败: {e}")
 
             if redis:
                 await redis.hset(key, mapping=state)
@@ -49,14 +49,14 @@ class MarketStateCache:
             try:
                 # 使用 __import__ 避免模块级别循环导入，运行时按需获取 Redis 客户端
                 redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"获取 Redis 连接失败: {e}")
 
             if redis:
                 data = await redis.hgetall(key)
                 if data:
                     return {"is_open": data.get("is_open") == "True", "session": data.get("session", "closed")}
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Redis 市场状态读取失败: {e}")
 
         return _memory_state.get(key)

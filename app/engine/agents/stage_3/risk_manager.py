@@ -1,4 +1,5 @@
 
+import os
 import time
 
 # 导入统一日志系统
@@ -112,11 +113,13 @@ def create_risk_manager(llm, memory):
                 ticker,
                 "risk_manager_decision",
             )
-            with open(filename, "w", encoding="utf-8") as f:
+            tmp_filename = filename + ".tmp"
+            with open(tmp_filename, "w", encoding="utf-8") as f:
                 f.write(f"# {company_name} ({ticker}) 投资组合风控裁决报告\n\n")
                 f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"> 决策人：首席风控官\n\n")
                 f.write(final_content)
+            os.replace(tmp_filename, filename)
             logger.info(f"👔 [Risk Manager] 已生成裁决报告: {filename}")
         except Exception as e:
             logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")

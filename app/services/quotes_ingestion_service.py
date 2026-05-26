@@ -380,7 +380,8 @@ class QuotesIngestionService:
         try:
             count = await coll.estimated_document_count()
             return count == 0
-        except Exception:
+        except Exception as e:
+            logger.debug(f"检查集合是否为空失败: {e}")
             return True
 
     async def _collection_stale(self, latest_trade_date: Optional[str]) -> bool:
@@ -395,7 +396,8 @@ class QuotesIngestionService:
                 return True
             doc_td = str(docs[0].get("trade_date") or "")
             return doc_td < str(latest_trade_date)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"检查集合数据时效失败: {e}")
             return True
 
     async def _bulk_upsert(self, quotes_map: Dict[str, Dict], trade_date: str, source: Optional[str] = None) -> None:
@@ -575,7 +577,8 @@ class QuotesIngestionService:
                 return
             try:
                 trade_date = self._find_latest_trade_date() or format_date_compact(now_config_tz())
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取最新交易日失败，使用当前日期: {e}")
                 trade_date = format_date_compact(now_config_tz())
             await self._bulk_upsert(quotes_map, trade_date, source)
         except Exception as e:
@@ -728,7 +731,8 @@ class QuotesIngestionService:
             # 获取交易日
             try:
                 trade_date = self._find_latest_trade_date() or format_date_compact(now_config_tz())
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取最新交易日失败，使用当前日期: {e}")
                 trade_date = format_date_compact(now_config_tz())
 
             # 入库

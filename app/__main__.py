@@ -27,7 +27,7 @@ if sys.platform == 'win32':
             import ctypes
             ctypes.windll.kernel32.SetConsoleCP(65001)
             ctypes.windll.kernel32.SetConsoleOutputCP(65001)
-        except Exception:
+        except Exception as e:
             pass
 
     except Exception as e:
@@ -161,7 +161,8 @@ def main():
     try:
         from app.core.logging_config import setup_logging as app_setup_logging
         app_setup_logging(settings.LOG_LEVEL)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"应用日志配置失败，回退到默认配置: {e}")
         # 回退到开发环境简化日志配置
         DEV_CONFIG.setup_logging(settings.DEBUG)
     logger.info("✅ 日志配置设置完成")

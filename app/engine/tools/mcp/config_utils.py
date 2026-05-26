@@ -44,7 +44,8 @@ def _safe_is_relative_to(path: Path, base: Path) -> bool:
     try:
         path.resolve().relative_to(base.resolve())
         return True
-    except Exception:
+    except Exception as e:
+        logger.debug(f"路径相对检查失败: {path} vs {base}: {e}")
         return False
 
 
