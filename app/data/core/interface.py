@@ -29,6 +29,9 @@ class DataInterface:
         self._priority = PriorityConfig()
         self.refresh_service = DataRefreshService(self._registry, self._priority)
 
+        from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
+        self._metadata_repo = MetadataRepo()
+
     @classmethod
     def get_instance(cls) -> "DataInterface":
         """获取全局单例。"""
@@ -91,7 +94,6 @@ class DataInterface:
     async def trigger_sync(self, market: str, domain: str) -> str:
         """手动触发同步任务。优先走调度引擎，降级走按需刷新。"""
         from datetime import datetime, timezone
-        from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
 
         task_id = f"sync_{market}_{domain}_{int(datetime.now(timezone.utc).timestamp())}"
 
@@ -108,7 +110,7 @@ class DataInterface:
             logger.warning(f"调度引擎触发失败，降级到直接同步: {e}")
 
         # 降级：只记录事件（实际执行需等调度引擎可用）
-        repo = MetadataRepo()
+        repo = self._metadata_repo
         await repo.insert_event({
             "market": market,
             "event_type": "SYNC_START",
@@ -120,23 +122,17 @@ class DataInterface:
 
     async def get_sync_status(self, market: str, domain: Optional[str] = None) -> List[Dict]:
         """查询同步检查点列表。"""
-        from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
-        repo = MetadataRepo()
-        return await repo.get_all_checkpoints(market, domain)
+        return await self._metadata_repo.get_all_checkpoints(market, domain)
 
     async def get_sync_events(self, market: str, domain: Optional[str] = None, limit: int = 50) -> List[Dict]:
         """查询同步事件。"""
-        from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
-        repo = MetadataRepo()
-        return await repo.get_events(market, domain, limit)
+        return await self._metadata_repo.get_events(market, domain, limit)
 
     # ── 数据源管理 ──
 
     async def get_source_health(self, market: str) -> List[Dict]:
         """获取数据源健康状态。优先从 MongoDB 读取，回退到内存监控。"""
-        from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
-        repo = MetadataRepo()
-        mongo_health = await repo.get_all_health(market)
+        mongo_health = await self._metadata_repo.get_all_health(market)
 
         if mongo_health:
             return mongo_health
@@ -153,15 +149,11 @@ class DataInterface:
 
     async def get_config(self, market: str, domain: str) -> Optional[Dict]:
         """获取数据源优先级配置。"""
-        from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
-        repo = MetadataRepo()
-        return await repo.get_config("data_source_priority", market, domain)
+        return await self._metadata_repo.get_config("data_source_priority", market, domain)
 
     async def update_config(self, market: str, domain: str, sources: List[str], updated_by: str = "user") -> bool:
         """更新数据源优先级。"""
-        from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
-        repo = MetadataRepo()
-        await repo.upsert_config(
+        await self._metadata_repo.upsert_config(
             "data_source_priority", market, domain,
             {"sources": sources}, updated_by,
         )

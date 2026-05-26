@@ -335,8 +335,8 @@ class SystemService:
     @staticmethod
     def _get_agent_config_dir() -> Path:
         """获取 Agent 配置文件目录"""
-        import os
-        env_dir = os.getenv("AGENT_CONFIG_DIR")
+        from app.core.env import get_env
+        env_dir = get_env("AGENT_CONFIG_DIR")
         if env_dir:
             path = Path(env_dir)
             if path.exists():
@@ -613,43 +613,7 @@ class SystemService:
             project_root = Path(__file__).resolve().parents[3]
             migrated_items: List[str] = []
 
-            # 1. 迁移 config/models.json → llm_configs（追加到 system_configs）
-            models_json = project_root / "config" / "models.json"
-            if models_json.exists():
-                try:
-                    with models_json.open("r", encoding="utf-8") as f:
-                        models_list = json.loads(f.read())
-                    if isinstance(models_list, list) and models_list:
-                        config = await self.get_system_config()
-                        if config:
-                            existing_names = {llm.model_name for llm in config.llm_configs}
-                            added = 0
-                            for m in models_list:
-                                if not isinstance(m, dict):
-                                    continue
-                                name = m.get("model_name", "")
-                                if name and name not in existing_names:
-                                    try:
-                                        config.llm_configs.append(LLMConfig(
-                                            provider=m.get("provider", "openai"),
-                                            model_name=name,
-                                            api_key=m.get("api_key", ""),
-                                            api_base=m.get("base_url"),
-                                            max_tokens=m.get("max_tokens", DEFAULT_MAX_TOKENS),
-                                            temperature=m.get("temperature", DEFAULT_TEMPERATURE),
-                                            enabled=m.get("enabled", False),
-                                        ))
-                                        existing_names.add(name)
-                                        added += 1
-                                    except Exception:
-                                        pass
-                            if added:
-                                await self.save_system_config(config)
-                                migrated_items.append(f"models.json → {added} 个模型")
-                except Exception as e:
-                    logger.warning(f"迁移 models.json 失败: {e}")
-
-            # 2. 迁移 config/agents/*.yaml → 确认文件存在（YAML 本身就是 Agent 的真相来源）
+            # 1. 迁移 config/agents/*.yaml → 确认文件存在（YAML 本身就是 Agent 的真相来源）
             agents_dir = project_root / "config" / "agents"
             if agents_dir.exists():
                 phase_count = 0
@@ -660,7 +624,7 @@ class SystemService:
                 if phase_count:
                     migrated_items.append(f"agent YAML 已就绪 ({phase_count} 个阶段)")
 
-            # 3. 刷新
+            # 2. 刷新
             await self._post_import_reload()
 
             if migrated_items:

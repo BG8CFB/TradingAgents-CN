@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from typing import Optional, Union
 
+from app.core.env import get_env
+
 PathLike = Union[str, os.PathLike]
 
 # 以仓库根目录为基准，保证相对路径稳定
@@ -24,8 +26,8 @@ def _resolve_base_dir(runtime_dir: Optional[PathLike] = None) -> Path:
     若为相对路径，则相对于项目根目录。
     """
     candidate = (
-        os.getenv("TA_RUNTIME_DIR")
-        or os.getenv("TRADINGAGENTS_RUNTIME_DIR")
+        get_env("TA_RUNTIME_DIR")
+        or get_env("TRADINGAGENTS_RUNTIME_DIR")
         or runtime_dir
         or "runtime"
     )

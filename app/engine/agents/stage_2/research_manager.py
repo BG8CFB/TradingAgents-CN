@@ -1,4 +1,4 @@
-import copy
+
 import time
 import json
 import os
@@ -121,7 +121,7 @@ def create_research_manager(llm, memory):
             logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")
 
         # 6. 更新状态
-        new_investment_debate_state = copy.deepcopy(investment_debate_state)
+        new_investment_debate_state = dict(investment_debate_state)
         new_investment_debate_state.update({
             "judge_decision": final_content,
             "current_response": final_content,

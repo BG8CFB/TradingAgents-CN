@@ -1,11 +1,10 @@
 customModes:
   - slug: financial-news-analyst
     name: 财经新闻分析师
+    icon: "📰"
+    tool_key: "news"
     tools:
-      - get_stock_news
-      - get_finance_news
-      - get_hot_news_7x24
-      - get_current_timestamp
+      - news
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 
@@ -376,14 +375,17 @@ customModes:
     source: global
   - slug: china-market-analyst
     name: 中国市场分析师
+    icon: "🇨🇳"
+    tool_key: "market"
     tools:
-      - get_stock_data
-      - get_china_market_overview
-      - get_index_data
-      - get_dragon_tiger_inst
-      - get_block_trade
-      - get_money_flow
-      - get_current_timestamp
+      - daily_quotes
+      - china_market
+      - market_quotes
+      - dragon_tiger
+      - block_trade
+      - money_flow
+      - margin_trade
+      - basic_info
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 
@@ -810,11 +812,13 @@ customModes:
     source: global
   - slug: market-analyst
     name: 市场技术分析师
+    icon: "📊"
+    tool_key: "market"
     tools:
-      - get_stock_data
-      - get_stock_data_minutes
-      - get_index_data
-      - get_current_timestamp
+      - daily_quotes
+      - intraday_quotes
+      - market_quotes
+      - daily_indicators
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 
@@ -1221,9 +1225,11 @@ customModes:
     source: global
   - slug: social-media-analyst
     name: 社交媒体和投资情绪分析师
+    icon: "💬"
+    tool_key: "social"
     tools:
-      - get_stock_sentiment
-      - get_current_timestamp
+      - sentiment
+      - news
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 
@@ -1405,11 +1411,14 @@ customModes:
     source: global
   - slug: fundamentals-analyst
     name: 基本面分析师
+    icon: "💼"
+    tool_key: "fundamentals"
     tools:
-      - get_stock_data
-      - get_stock_fundamentals
-      - get_company_performance_unified
-      - get_current_timestamp
+      - daily_quotes
+      - fundamentals
+      - financial_data
+      - daily_indicators
+      - basic_info
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 
@@ -1720,15 +1729,16 @@ customModes:
     source: global
   - slug: short-term-capital-analyst
     name: 短线资金分析师
+    icon: "💸"
+    tool_key: "market"
     tools:
-      - get_stock_data
-      - get_stock_data_minutes
-      - get_money_flow
-      - get_margin_trade
-      - get_dragon_tiger_inst
-      - get_block_trade
-      - get_china_market_overview
-      - get_current_timestamp
+      - daily_quotes
+      - intraday_quotes
+      - money_flow
+      - margin_trade
+      - dragon_tiger
+      - block_trade
+      - china_market
     roleDefinition: |-
       ⚠️ **重要指令**：如果工具调用失败或无法获取数据，请直接在报告中说明'数据获取失败'，严禁自行编写代码或伪造数据。
 

@@ -79,7 +79,6 @@ class GraphSetup:
 
         # 初始化节点字典
         analyst_nodes = {}
-        delete_nodes = {}
         normalized_analysts = []
 
         # 使用新工厂创建所有分析师节点（统一管理，支持错误处理）
@@ -94,7 +93,6 @@ class GraphSetup:
             # 将工厂创建的节点函数添加到 analyst_nodes
             for internal_key, node_func in analyst_node_functions.items():
                 analyst_nodes[internal_key] = node_func
-                delete_nodes[internal_key] = create_msg_delete()
                 normalized_analysts.append(internal_key)
                 logger.info(f"✅ [重构] 已创建智能体节点: {internal_key}")
         except Exception as e:
@@ -132,13 +130,7 @@ class GraphSetup:
         # Add analyst nodes to the graph
         for analyst_type, node in analyst_nodes.items():
             workflow.add_node(f"{self._format_analyst_name(analyst_type)} Analyst", node)
-            # 🔥 性能优化：删除消息清理节点
-            # 原因：子图现在只返回最后一条消息，不需要清理
-            # 之前清理节点耗时 342 秒，是因为需要删除几百条消息
-            # workflow.add_node(
-            #     f"Msg Clear {self._format_analyst_name(analyst_type)}", delete_nodes[analyst_type]
-            # )
-            # 子图模式：不再添加外部工具节点
+            # 🔥 性能优化：子图模式只返回最后一条消息，无需清理节点
             # 子图内部控制工具调用流程
 
         # Create other nodes
@@ -246,6 +238,6 @@ class GraphSetup:
 
 # ============================================================================
 # 🔥 重构说明：第一阶段智能体工厂函数已迁移到
-# tradingagents/agents/analysts/simple_agent_factory.py
-# 和 tradingagents/agents/analysts/simple_agent_template.py
+# app/engine/agents/analysts/simple_agent_factory.py
+# 和 app/engine/agents/analysts/simple_agent_template.py
 # ============================================================================

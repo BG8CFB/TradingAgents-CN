@@ -3,11 +3,11 @@ from chromadb.config import Settings
 from openai import OpenAI
 import dashscope
 from dashscope import TextEmbedding
-import os
 import threading
 import hashlib
 from typing import Dict, Optional
 
+from app.core.env import get_env
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
 logger = get_logger("agents.utils.memory")
@@ -101,8 +101,8 @@ class FinancialSituationMemory:
         self.config = config
         self.llm_provider = config.get("llm_provider", "openai").lower()
 
-        self.max_embedding_length = int(os.getenv('MAX_EMBEDDING_CONTENT_LENGTH', '50000'))
-        self.enable_embedding_length_check = os.getenv('ENABLE_EMBEDDING_LENGTH_CHECK', 'true').lower() == 'true'
+        self.max_embedding_length = int(get_env('MAX_EMBEDDING_CONTENT_LENGTH', '50000'))
+        self.enable_embedding_length_check = get_env('ENABLE_EMBEDDING_LENGTH_CHECK', 'true').lower() == 'true'
 
         from app.engine.agents.utils.embedding_resolver import resolve_embedding
         emb = resolve_embedding(self.llm_provider, config)
@@ -422,49 +422,3 @@ class FinancialSituationMemory:
             info['last_text_processing'] = self._last_text_info
             
         return info
-
-
-if __name__ == "__main__":
-    # Example usage
-    matcher = FinancialSituationMemory()
-
-    # Example data
-    example_data = [
-        (
-            "High inflation rate with rising interest rates and declining consumer spending",
-            "Consider defensive sectors like consumer staples and utilities. Review fixed-income portfolio duration.",
-        ),
-        (
-            "Tech sector showing high volatility with increasing institutional selling pressure",
-            "Reduce exposure to high-growth tech stocks. Look for value opportunities in established tech companies with strong cash flows.",
-        ),
-        (
-            "Strong dollar affecting emerging markets with increasing forex volatility",
-            "Hedge currency exposure in international positions. Consider reducing allocation to emerging market debt.",
-        ),
-        (
-            "Market showing signs of sector rotation with rising yields",
-            "Rebalance portfolio to maintain target allocations. Consider increasing exposure to sectors benefiting from higher rates.",
-        ),
-    ]
-
-    # Add the example situations and recommendations
-    matcher.add_situations(example_data)
-
-    # Example query
-    current_situation = """
-    Market showing increased volatility in tech sector, with institutional investors 
-    reducing positions and rising interest rates affecting growth stock valuations
-    """
-
-    try:
-        recommendations = matcher.get_memories(current_situation, n_matches=2)
-
-        for i, rec in enumerate(recommendations, 1):
-            logger.info(f"\nMatch {i}:")
-            logger.info(f"Similarity Score: {rec.get('similarity', 0):.2f}")
-            logger.info(f"Matched Situation: {rec.get('situation', '')}")
-            logger.info(f"Recommendation: {rec.get('recommendation', '')}")
-
-    except Exception as e:
-        logger.error(f"Error during recommendation: {str(e)}")

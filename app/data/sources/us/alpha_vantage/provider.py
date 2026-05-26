@@ -7,6 +7,7 @@ from typing import Optional
 
 import pandas as pd
 
+from app.core.env import get_env
 from app.data.sources.base.provider import BaseProvider
 
 logger = logging.getLogger(__name__)
@@ -25,12 +26,12 @@ class AlphaVantageUSProvider(BaseProvider):
         return True
 
     def is_available(self) -> bool:
-        return bool(os.getenv("ALPHA_VANTAGE_API_KEY", ""))
+        return bool(get_env("ALPHA_VANTAGE_API_KEY", ""))
 
     async def get_daily_quotes(
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> Optional[pd.DataFrame]:
-        api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+        api_key = get_env("ALPHA_VANTAGE_API_KEY", "")
         if not api_key:
             return None
         try:
@@ -69,7 +70,7 @@ class AlphaVantageUSProvider(BaseProvider):
         self, symbol: str, start_date: str, end_date: str,
         statement_type: str = "", **kwargs
     ) -> Optional[pd.DataFrame]:
-        api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+        api_key = get_env("ALPHA_VANTAGE_API_KEY", "")
         if not api_key:
             return None
         try:
@@ -103,7 +104,7 @@ class AlphaVantageUSProvider(BaseProvider):
     async def get_corporate_actions(
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> Optional[pd.DataFrame]:
-        api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+        api_key = get_env("ALPHA_VANTAGE_API_KEY", "")
         if not api_key:
             return None
         try:

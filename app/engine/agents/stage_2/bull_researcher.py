@@ -1,4 +1,4 @@
-import copy
+
 import re
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -218,7 +218,7 @@ def create_bull_researcher(llm, memory):
             history = history + "\n" + argument
             bull_history = bull_history + "\n" + argument
 
-        new_investment_debate_state = copy.deepcopy(investment_debate_state)
+        new_investment_debate_state = dict(investment_debate_state)
         new_investment_debate_state.update({
             "history": history,
             "bull_history": bull_history,

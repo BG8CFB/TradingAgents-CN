@@ -13,7 +13,7 @@ from .stage_2.research_manager import create_research_manager
 from .stage_2.trader import create_trader
 
 # Stage 3
-from .stage_3.aggresive_debator import create_risky_debator
+from .stage_3.aggressive_debator import create_risky_debator
 from .stage_3.conservative_debator import create_safe_debator
 from .stage_3.neutral_debator import create_neutral_debator
 from .stage_3.risk_manager import create_risk_manager

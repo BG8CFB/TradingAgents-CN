@@ -91,6 +91,8 @@ class AgentState(MessagesState):
     sender: Annotated[str, "Agent that sent this message"]
 
     # research step - 核心分析师报告（summary_agent 直接读取）
+    # 注意：这些硬编码字段与动态 reports 字典（下方）功能重复，
+    # 保留是为了向后兼容 summary_agent 等消费者同时从两种路径读取。
     market_report: Annotated[str, "Report from the Market Analyst"]
     sentiment_report: Annotated[str, "Report from the Social Media Analyst"]
     news_report: Annotated[

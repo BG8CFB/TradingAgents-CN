@@ -1,155 +1,318 @@
-# TradingAgents MCP版本 (社区维护版)
+# TradingAgents-CN
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/Version-v1.0.0_preview-green.svg)](./VERSION)
-[![Documentation](https://img.shields.io/badge/docs-中文文档-green.svg)](./docs/)
-[![Original](https://img.shields.io/badge/基于-TauricResearch/TradingAgents-orange.svg)](https://github.com/TauricResearch/TradingAgents)
-[![Maintainer](https://img.shields.io/badge/Maintainer-BG8CFB-red.svg)](https://github.com/BG8CFB)
+> 社区维护版 | 由 [BG8CFB](https://github.com/BG8CFB) 二次开发与持续维护
 
-> ⚠️ **特别维护声明**
-> 建议优先使用原作者版本，原作者已经发布2.0版本，功能更加强大和完善，本项目主要未个人使用。
-原作者仓库：https://github.com/hsliuping/TradingAgents-CN
-
-> ⚠️ **免责声明**
-> 本项目仅供学习与研究使用，不构成任何投资建议。所有策略和数据均为模拟，不涉及真实交易。使用者需自行承担风险。
-> 本项目由 **BG8CFB** 个人维护与更新，只用于个人学习与研究，不用于任何商业用途。
-> - **开源承诺**: 永久免费，严格遵守开源协议。
-> - **版本说明**: 当前为预览版，功能可能不稳定。
-> - **维护计划**: 只做维护，使用有问题请进QQ群进行反馈和交流，重大问题实时修复。
+> **免责声明**: 本项目仅供学习与研究使用，不构成任何投资建议。所有策略和数据均为模拟，不涉及真实交易。使用者需自行承担风险。
 
 ---
 
-- **QQ群**
+## 项目简介
+
+**TradingAgents-CN** 是一个面向中文市场的**多智能体 AI 股票分析平台**，基于 LangGraph 构建 4 阶段协作式分析流水线，模拟真实投研团队的研究决策流程。
+
+- 多空辩论机制 — 看多/看空研究员多轮对抗，模拟真实投研团队博弈
+- 多市场覆盖 — A股 / 港股 / 美股，支持 Tushare、AKShare、BaoStock 等数据源
+- 多模型适配 — DeepSeek、通义千问、SiliconFlow、OpenRouter、Google Gemini、百度千帆、Anthropic 等
+- 全中文投研框架 — A股特有指标（北向资金、融资融券、龙虎榜）全面覆盖
+- 一键 Docker 部署 — 预构建镜像，5 分钟完成部署
+
+### 联系方式
+
+- **QQ 群**:
 
 <div align="left">
   <img src="docs/BG8CFBQQ.jpg" alt="QQ交流群" width="180" style="margin-left: 20px;"/>
 </div>
 
-### 问题反馈
 - **GitHub Issues**: [提交 Bug 或建议](https://github.com/BG8CFB/TradingAgents-CN/issues)
 
-## 📖 项目简介
+---
 
-**TradingAgents-CN** 是一个面向中文用户的**多智能体与大模型股票分析学习平台**。它基于 [TradingAgents](https://github.com/TauricResearch/TradingAgents) 框架开发，旨在帮助用户系统化学习如何利用 AI Agent 进行合规的股票研究与策略实验。
+## 核心特性
 
-**核心定位**:
-- 🎯 **学习与研究**: 提供完整的 AI 金融分析实验环境。
-- 🇨🇳 **中文本地化**: 全面适配中文语境，支持 A股/港股/美股 数据。
-- 🤖 **多模型支持**: 集成 OpenAI、Google、Claude 及主流国产大模型。
+### 技术架构
 
-## 🚀 最新版本: v1.0.0-preview
+| 层级 | 技术选型 |
+|------|---------|
+| **后端** | FastAPI + Uvicorn，异步 RESTful API |
+| **前端** | Vue 3 + Element Plus + Pinia + Vue Router 4，Vite 构建 |
+| **AI 引擎** | LangGraph 4 阶段多智能体流水线 |
+| **数据层** | MongoDB 7.0 + Redis 7，统一数据接口 + 多源自动降级 |
+| **部署** | Docker Compose（amd64/arm64），Nginx 反向代理 |
+| **实时通信** | SSE + WebSocket 双通道推送 |
 
-> **重磅发布**: v1.0.0-preview 版本已正式上线！采用全新的 **FastAPI + Vue 3** 架构，带来企业级的性能和体验。
+### 功能亮点
 
-### ✨ 核心特性升级
-
-#### 1. 🏗️ 全新技术架构
-- **后端**: 迁移至 **FastAPI**，提供高性能 RESTful API。
-- **前端**: 重构为 **Vue 3 + Element Plus** 现代化单页应用。
-- **数据**: **MongoDB + Redis** 双数据库架构，性能提升显著。
-- **部署**: 完善的 **Docker** 支持（兼容 amd64/arm64）。
-
-#### 2. 🎯 企业级功能体验
-- **权限管理**: 完整的用户认证、角色管理与操作日志。
-- **配置中心**: 可视化管理大模型配置、数据源及系统设置。
-- **实时通知**: SSE + WebSocket 双通道推送，实时掌握分析进度。
-- **批量分析**: 支持多只股票并发分析，大幅提升效率。
-
-#### 3. 🤖 智能分析增强
-- **动态模型**: 支持动态添加 LLM 供应商，根据任务自动匹配最佳模型。
-- **多模型支持**: 完美支持 **DeepSeek**、**阿里百炼 (DashScope)**、**SiliconFlow**、**OpenRouter**、**Google Gemini** 等。
-- **数据同步**: 统一管理 Tushare、AkShare、BaoStock 数据源。
-- **专业报告**: 支持导出 Markdown/Word/PDF 格式的专业分析报告。
+- **动态分析师配置** — YAML 定义分析师角色，无需修改 Python 代码即可增删分析师
+- **多数据源自动降级** — Tushare → AKShare → BaoStock 自动切换，保障数据可用性
+- **权限管理** — 完整的用户认证、角色管理与操作日志
+- **配置中心** — 可视化管理大模型配置、数据源及系统设置
+- **实时进度** — SSE + WebSocket 双通道推送，实时掌握分析进度
+- **批量分析** — 支持多只股票并发分析
+- **专业报告** — 支持 Markdown / Word / PDF 格式导出
+- **MCP 工具生态** — 内置 MCP Provider / Consumer 双向架构，可扩展外部工具
 
 ---
 
-## 🤖 智能体工作流 (Agent Workflow)
+## 智能体工作流
 
-本项目采用 **LangGraph** 构建了复杂的多智能体协作网络，整个分析过程分为四个核心阶段，用户可根据需求灵活开启或关闭特定阶段。
+本项目采用 **LangGraph** 构建多智能体协作网络，整个分析过程分为四个阶段：
 
-### 📈 流程详解
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     阶段 1 — 多维度分析师                        │
+│  财经新闻 | 市场分析 | 技术分析 | 基本面 | 社交情绪 | 短线资金     │
+│                     （并行工作，独立输出报告）                     │
+└──────────────────────────┬──────────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     阶段 2 — 研究辩论                            │
+│                                                                  │
+│   ┌──────────┐    多轮辩论    ┌──────────┐                       │
+│   │ 看多研究员 │ ◄──────────► │ 看空研究员 │                       │
+│   └─────┬────┘               └─────┬────┘                       │
+│         └──────────┬───────────────┘                            │
+│                    ▼                                             │
+│           ┌──────────────┐                                      │
+│           │ 研究部主管裁决 │                                      │
+│           └──────┬───────┘                                      │
+└──────────────────┼──────────────────────────────────────────────┘
+                   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     阶段 3 — 交易决策                            │
+│              专业交易员制定具体交易计划                             │
+│       （逐日价格区间、入场/止损/止盈点位、仓位管理）               │
+└──────────────────────────┬──────────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     阶段 4 — 风险控制                            │
+│      激进/保守/中立三视角风险团队 + 风控经理最终拍板               │
+│              （含应急处理预案、最大回撤约束）                       │
+└──────────────────────────┬──────────────────────────────────────┘
+                           ▼
+                    结构化投资分析报告
+```
 
-1.  **阶段 1 (分析师)**: 多个垂直领域的分析师（市场、新闻、基本面等）并行或串行工作，利用 MCP 工具集获取实时数据并生成初步分析。
-2.  **阶段 2 (研究辩论)**: **看多 (Bull)** 和 **看空 (Bear)** 研究员基于阶段 1 的数据进行多轮辩论，挖掘潜在机会与风险。
-3.  **阶段 4 (交易策略)**: **交易员 (Trader)** 综合多空双方观点，结合仓位管理原则，制定具体的交易计划（买入/卖出/持有）。
-4.  **阶段 3 (风险控制)**: 风险团队（激进、保守、中立派）对交易计划进行压力测试和风险评估，最终由 **风控经理 (Risk Manager)** 拍板。
-5.  **总结报告**: 最后由 **总结 Agent** 汇总所有信息，生成一份结构清晰、逻辑严密的投资分析报告。
+### 核心创新：多空辩论机制
 
----
+阶段 2 的多空辩论是本项目的核心创新：
 
-## 📥 安装与部署
+1. **看多研究员 (Bull)** — 挖掘增长潜力、竞争优势、催化剂，构建看涨论证
+2. **看空研究员 (Bear)** — 识别估值泡沫、风险因素、行业天花板，构建看跌论证
+3. **多轮对抗** — 双方基于阶段 1 的分析师报告进行多轮辩论，相互反驳
+4. **研究部主管裁决** — 综合多空双方观点，给出最终投资评级和目标价格
 
-我们提供三种部署方式，满足不同场景需求：
+### 相比原版项目的增强
 
-| 部署方式 | 适用场景 | 难度 | 文档链接 |
-|---------|---------|------|---------|
-| 🟢 **绿色版** | Windows 用户、快速体验 | ⭐ 简单 | [绿色版安装指南](https://mp.weixin.qq.com/s/eoo_HeIGxaQZVT76LBbRJQ) |
-| 🐳 **Docker版** | 生产环境、跨平台 | ⭐⭐ 中等 | [Docker 部署指南](https://mp.weixin.qq.com/s/JkA0cOu8xJnoY_3LC5oXNw) |
-| 💻 **源码版** | 开发者、定制二开 | ⭐⭐⭐ 较难 | [本地安装指南](https://mp.weixin.qq.com/s/cqUGf-sAzcBV19gdI4sYfA) |
-
-> ⚠️ **注意**: 分析股票前，请务必按文档要求完成数据同步，否则可能导致分析结果异常。
-
----
-
-## 📚 使用指南与资源
-
-建议优先阅读以下教程以快速上手：
-
-- **入门视频**: [TradingAgents-CN v1.0.0-preview 快速入门](https://www.bilibili.com/video/BV1i2CeBwEP7/)
-- **源码安装**: [源码安装视频教程](https://www.bilibili.com/video/BV1FxCtBHEte/)
-- **详细文档**:
-  - [v1.0.0-preview 使用指南](https://mp.weixin.qq.com/s/ppsYiBncynxlsfKFG8uEbw)
-  - [Docker Compose 部署指南](https://mp.weixin.qq.com/s/JkA0cOu8xJnoY_3LC5oXNw)
-  - [绿色版端口配置说明](https://mp.weixin.qq.com/s/o5QdNuh2-iKkIHzJXCj7vQ)
-
-更多文档请查看 [docs/](./docs/) 目录。
-
----
-
-## 🆚 中文增强版特色
-
-相比原版 TradingAgents，本项目增加了以下特性：
-
-- ✅ **智能新闻分析**: 多层次新闻过滤与质量评估。
-- ✅ **国产化适配**: 完整支持 A股数据，集成通义千问、Kimi 等国产大模型。
-- ✅ **体验优化**: 全中文界面，Web 配置管理，实时进度显示。
-- ✅ **工程化落地**: Docker 一键部署，统一日志管理，成本优化策略。
-
----
-
-## 🤝 贡献指南
-
-欢迎参与社区贡献！
-- **提交代码**: Fork 本仓库 -> 创建分支 -> 提交 PR。
-- **贡献类型**: Bug 修复、新功能开发、文档改进、多语言翻译。
-- **贡献者名单**: 详见 [CONTRIBUTORS.md](CONTRIBUTORS.md)
-
-## 📄 许可证
-
-本项目采用 **混合许可证** 模式：
-- **Apache 2.0**: 适用于除 `app/` (后端) 和 `frontend/` (前端) 外的核心代码。
-- **专有协议**: `app/` 和 `frontend/` 目录下的企业级功能组件需商业授权（个人学习研究可免费使用）。
-
-详细说明请参阅 [LICENSE](LICENSE) 文件。
-
-## 🙏 致谢
-
-特别感谢 [Tauric Research](https://github.com/TauricResearch) 团队创造了 TradingAgents 这一优秀的开源框架，为我们提供了巨人的肩膀。
+| 维度 | 原版项目 | 本社区版 |
+|------|---------|---------|
+| **辩论结构** | 单轮辩论即出结论 | **多轮对抗式辩论**，逐步逼近真相 |
+| **数据约束** | 辩论依据较泛化 | **强制引用阶段1报告**，禁止凭空论证 |
+| **裁决机制** | 简单汇总 | **研究部主管独立裁决**，给出量化目标价格 |
+| **威科夫分析** | 无 | 辩论双方必须判断威科夫阶段 |
+| **短期协同性** | 无 | 未来 7 天协同性分析，量化多空信号强度 |
+| **交易执行** | 笼统建议 | 逐日价格区间（3天买入/7天卖出），含具体入场、止损、止盈 |
+| **风控体系** | 基础风控 | 三视角风险团队 + 风控经理最终拍板 |
+| **中文适配** | 英文为主 | 全中文投研框架，A股特有指标全面覆盖 |
 
 ---
 
-## ⚠️ 风险提示
+## 快速部署
+
+### 一键部署（推荐）
+
+最快 5 分钟完成部署，无需克隆代码仓库。
+
+#### 1. 下载部署文件
+
+下载 [`docker-compose.hub.nginx.yml`](./docker-compose.hub.nginx.yml) 到任意目录：
+
+```bash
+# 命令行下载
+curl -O https://raw.githubusercontent.com/BG8CFB/TradingAgents-CN/main/docker-compose.hub.nginx.yml
+
+# 或浏览器访问上方链接，右键"另存为"
+```
+
+#### 2.（可选）配置 AI 模型密钥
+
+在 `docker-compose.hub.nginx.yml` 同目录下创建 `.env` 文件：
+
+```env
+# AI 模型密钥（至少配置一个，不配置也能启动系统）
+DASHSCOPE_API_KEY=your_dashscope_key
+DASHSCOPE_ENABLED=true
+
+# DEEPSEEK_API_KEY=your_deepseek_key
+# DEEPSEEK_ENABLED=true
+
+# 数据源（可选）
+# TUSHARE_TOKEN=your_tushare_token
+# TUSHARE_ENABLED=true
+```
+
+> AkShare 和 BaoStock 数据源默认启用，无需密钥。
+
+#### 3. 启动服务
+
+```bash
+docker compose -f docker-compose.hub.nginx.yml up -d
+```
+
+Docker 自动从 GitHub Container Registry 拉取预构建镜像（后端 + 前端 + MongoDB + Redis + Nginx），无需编译。
+
+#### 4. 访问系统
+
+- **地址**: http://localhost:8080
+- **默认管理员**: `admin` / `admin123`（首次登录后请修改密码）
+
+#### 常用命令
+
+```bash
+# 查看服务状态
+docker compose -f docker-compose.hub.nginx.yml ps
+
+# 查看后端日志
+docker compose -f docker-compose.hub.nginx.yml logs -f backend
+
+# 停止服务
+docker compose -f docker-compose.hub.nginx.yml down
+
+# 更新到最新版本
+docker compose -f docker-compose.hub.nginx.yml pull && docker compose -f docker-compose.hub.nginx.yml up -d
+```
+
+#### 自定义端口
+
+默认 `8080`，如需修改：
+
+```bash
+NGINX_PORT=9090 docker compose -f docker-compose.hub.nginx.yml up -d
+```
+
+> **注意**: 分析股票前，请先完成数据同步（系统内"数据管理"页面），否则可能导致分析结果异常。
+
+### 本地开发
+
+适用于参与代码贡献或二次开发的开发者。
+
+#### 环境要求
+
+- Python 3.10 - 3.13
+- Node.js >= 18.0.0
+- Docker（用于 MongoDB / Redis）
+- Miniconda（推荐）
+
+#### 启动开发环境
+
+```bash
+# 1. 启动基础设施
+docker compose -f docker-compose.dev.yml up -d mongodb redis
+
+# 2. 创建 conda 环境
+conda create -n tradingagents python=3.12 -y
+conda activate tradingagents
+pip install -e .
+
+# 3. 启动后端（热重载）
+docker compose -f docker-compose.dev.yml up -d backend
+
+# 4. 启动前端（HMR）
+cd frontend && npm install && npm run dev
+```
+
+#### 访问地址
+
+| 服务 | 地址 |
+|------|------|
+| 前端（Vite HMR） | http://localhost:3000 |
+| 后端 API 文档 | http://localhost:8000/docs |
+| Nginx 统一入口 | http://localhost:3080 |
+
+---
+
+## 项目结构
+
+```
+TradingAgents-CN/
+├── app/                        # 后端应用
+│   ├── main.py                 # FastAPI 入口
+│   ├── routers/                # API 路由（auth, analysis, config, sync...）
+│   ├── services/               # 业务逻辑层
+│   ├── models/                 # MongoDB 数据模型
+│   ├── core/                   # 配置、数据库、日志
+│   ├── data/                   # 数据层（多源采集、存储、调度）
+│   ├── engine/                 # AI 引擎（LangGraph 多智能体）
+│   │   ├── agents/             # 分析师、研究员、交易员、风控
+│   │   ├── graph/              # 图构建与状态传播
+│   │   ├── llm_adapters/       # LLM 适配器（DeepSeek, Gemini 等）
+│   │   └── tools/              # 内置工具 + MCP 工具
+│   ├── worker/                 # 后台任务（数据同步）
+│   └── middleware/             # 中间件
+├── frontend/                   # Vue 3 前端
+│   └── src/
+│       ├── views/              # 页面组件
+│       ├── components/         # 通用组件
+│       ├── stores/             # Pinia 状态管理
+│       ├── router/             # 路由配置
+│       └── api/                # API 请求封装
+├── config/                     # 运行时配置
+│   ├── agents/                 # 智能体 YAML 配置
+│   ├── defaults/               # 默认配置
+│   └── skills/                 # 技能定义
+├── tests/                      # 测试套件
+├── docker/                     # Docker 构建文件
+├── docs/                       # 文档
+├── scripts/                    # 辅助脚本
+└── runtime/                    # 运行时产物（日志、缓存、结果）
+```
+
+---
+
+## 贡献指南
+
+欢迎参与贡献！
+
+- **提交代码**: Fork → 创建分支 → 提交 PR
+- **贡献类型**: Bug 修复、新功能开发、文档改进、多语言翻译
+- **问题反馈**: [GitHub Issues](https://github.com/BG8CFB/TradingAgents-CN/issues)
+
+---
+
+## 许可证
+
+本项目采用 **混合许可证**：
+
+- **Apache 2.0** — 除 `app/` 和 `frontend/` 外的核心代码
+- **专有协议** — `app/`（后端）和 `frontend/`（前端）企业级功能组件需商业授权（个人学习研究可免费使用）
+
+详见 [LICENSE](LICENSE) 文件。
+
+---
+
+## 风险提示
 
 **本项目仅供学习与研究使用，严禁用于非法用途。**
-- AI 模型输出具有不确定性，不构成任何投资建议。
-- 股市有风险，投资需谨慎。实盘交易请咨询专业持牌机构。
+
+- AI 模型输出具有不确定性，不构成任何投资建议
+- 股市有风险，投资需谨慎。实盘交易请咨询专业持牌机构
+
+---
+
+## 致谢
+
+本项目基于 [TradingAgents](https://github.com/TauricResearch/TradingAgents)（Tauric Research）开发，感谢原作者的开源贡献。本仓库为社区维护版本，由 [BG8CFB](https://github.com/BG8CFB) 进行中文本地化、功能增强和持续维护。
 
 ---
 
 <div align="center">
 
-**🌟 如果这个项目对您有帮助，请点亮 Star 支持我们！**
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Python](https://img.shields.io/badge/Python-3.10%20--%203.13-blue.svg)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/Version-v1.1.0_preview-green.svg)](./VERSION)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
+
+**如果这个项目对您有帮助，请点亮 Star 支持我们！**
 
 [GitHub 仓库](https://github.com/BG8CFB/TradingAgents-CN)
 

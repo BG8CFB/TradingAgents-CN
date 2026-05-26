@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class ReconciliationService:
-    """多源对账。"""
+    """多源对账。
+
+    状态：尚未集成 — 当前未被路由/服务/调度器调用，属于预留功能。
+    """
 
     async def reconcile_corporate_actions(
         self, market: str, symbol: str,

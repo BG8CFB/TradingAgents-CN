@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class CompletenessChecker:
-    """数据完整性检查。"""
+    """数据完整性检查。
+
+    状态：尚未集成 — 当前未被路由/服务/调度器调用，属于预留功能。
+    """
 
     async def check_daily_completeness(
         self, market: str, check_date: Optional[str] = None

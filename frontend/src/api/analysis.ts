@@ -215,16 +215,6 @@ export const analysisApi = {
     return request.delete(`/api/analysis/tasks/${taskId}`)
   },
 
-  // 分享分析结果（后端尚未实现此端点，调用方需做降级处理）
-  // TODO: 等待后端实现 /api/analysis/tasks/{id}/share 端点后取消注释
-  shareAnalysis(analysisId: string, options: {
-    expires_in?: number // 过期时间（秒）
-    password?: string   // 访问密码
-    public?: boolean    // 是否公开
-  }): Promise<{ share_url: string; share_code: string }> {
-    return request.post(`/api/analysis/${analysisId}/share`, options)
-  },
-
   // 获取股票基础信息
   getStockInfo(symbol: string, market: string): Promise<{
     symbol: string

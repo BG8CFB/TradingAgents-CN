@@ -5,13 +5,13 @@
 import time
 import asyncio
 import logging
-import os
 import re
 from typing import List, Optional, Dict, Any
 
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
+from app.core.env import get_env
 from app.models.config import (
     LLMConfig, LLMProvider
 )
@@ -434,7 +434,7 @@ class LLMService:
 
         env_var = env_key_mapping.get(provider_name)
         if env_var:
-            api_key = os.getenv(env_var)
+            api_key = get_env(env_var)
             # 为了支持本地AI模型，直接返回环境变量中的API Key，不进行验证
             return api_key
 

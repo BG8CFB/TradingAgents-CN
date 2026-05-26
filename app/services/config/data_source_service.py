@@ -8,6 +8,7 @@ import os
 from typing import List, Dict, Any, Optional
 
 from app.core.database import get_mongo_db
+from app.core.env import get_env
 from app.models.config import (
     DataSourceConfig, DataSourceGrouping
 )
@@ -307,7 +308,7 @@ class DataSourceService:
                     else:
                         # 数据库中没有有效的 API Key，尝试从环境变量获取
                         logger.info(f"⚠️  [TEST] No valid API Key in database, trying environment variable")
-                        env_token = os.getenv('TUSHARE_TOKEN')
+                        env_token = get_env('TUSHARE_TOKEN')
                         if env_token:
                             api_key = env_token.strip().strip('"').strip("'")
                             used_env_credentials = True
@@ -346,7 +347,7 @@ class DataSourceService:
                     else:
                         # 如果数据库中也没有，尝试从环境变量获取
                         logger.info(f"⚠️  [TEST] No valid API Key in database, trying environment variable")
-                        env_token = os.getenv('TUSHARE_TOKEN')
+                        env_token = get_env('TUSHARE_TOKEN')
                         if env_token:
                             api_key = env_token.strip().strip('"').strip("'")
                             used_env_credentials = True
@@ -609,7 +610,7 @@ class DataSourceService:
                     else:
                         # 数据库中没有有效的 API Key，尝试从环境变量获取
                         logger.info(f"⚠️  [TEST] No valid API Key in database, trying environment variable")
-                        env_key = os.getenv('ALPHA_VANTAGE_API_KEY')
+                        env_key = get_env('ALPHA_VANTAGE_API_KEY')
                         if env_key:
                             api_key = env_key.strip().strip('"').strip("'")
                             used_env_credentials = True
@@ -648,7 +649,7 @@ class DataSourceService:
                     else:
                         # 如果数据库中也没有，尝试从环境变量获取
                         logger.info(f"⚠️  [TEST] No valid API Key in database, trying environment variable")
-                        env_key = os.getenv('ALPHA_VANTAGE_API_KEY')
+                        env_key = get_env('ALPHA_VANTAGE_API_KEY')
                         if env_key:
                             api_key = env_key.strip().strip('"').strip("'")
                             used_env_credentials = True
@@ -747,7 +748,7 @@ class DataSourceService:
                 # 如果配置中没有 API Key，尝试从环境变量获取
                 if ds_type in env_key_map and (not api_key or "..." in api_key):
                     env_var_name = env_key_map[ds_type]
-                    env_key = os.getenv(env_var_name)
+                    env_key = get_env(env_var_name)
                     if env_key:
                         api_key = env_key.strip()
                         used_env_credentials = True

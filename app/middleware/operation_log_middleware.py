@@ -160,16 +160,39 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
         return _get_client_ip_from_request(request)
 
     async def _get_user_info(self, request: Request) -> Optional[Dict[str, Any]]:
-        """获取用户信息
+        """从 Authorization header 解析 JWT Token 获取用户信息。
 
-        完全依赖路由层已验证的用户信息（request.state.user），
-        避免中间件独立二次解析 JWT Token 带来的性能开销。
+        独立解析 Token，不依赖路由层设置 request.state.user。
         """
         try:
-            user_info = getattr(request.state, 'user', None)
-            return user_info
-        except Exception as e:
-            logger.debug(f"获取用户信息失败: {e}")
+            auth_header = request.headers.get("authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return None
+
+            token = auth_header[7:]
+            if not token:
+                return None
+
+            import jwt
+            from app.core.config import settings
+
+            payload = jwt.decode(
+                token,
+                settings.JWT_SECRET,
+                algorithms=[settings.JWT_ALGORITHM],
+                options={"verify_exp": True},
+            )
+
+            return {
+                "id": payload.get("sub", ""),
+                "username": payload.get("username", "unknown"),
+                "role": payload.get("role", "user"),
+            }
+        except jwt.ExpiredSignatureError:
+            return None
+        except jwt.InvalidTokenError:
+            return None
+        except Exception:
             return None
 
     def _get_action_type(self, path: str) -> str:

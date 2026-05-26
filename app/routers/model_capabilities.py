@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 
+from app.routers.auth_db import get_current_user
 from app.services.model_capability_service import get_model_capability_service
 from app.constants.model_capabilities import (
     DEFAULT_MODEL_CAPABILITIES,
@@ -72,7 +73,7 @@ class BatchInitRequest(BaseModel):
 # ==================== API路由 ====================
 
 @router.get("/default-configs")
-async def get_default_model_configs():
+async def get_default_model_configs(current_user: dict = Depends(get_current_user)):
     """
     获取所有默认模型能力配置
 
@@ -102,7 +103,7 @@ async def get_default_model_configs():
 
 
 @router.get("/capability-descriptions", response_model=dict)
-async def get_capability_descriptions():
+async def get_capability_descriptions(current_user: dict = Depends(get_current_user)):
     """获取能力等级描述"""
     try:
         return ok(CAPABILITY_DESCRIPTIONS, "获取能力等级描述成功")
@@ -112,7 +113,7 @@ async def get_capability_descriptions():
 
 
 @router.get("/badges", response_model=dict)
-async def get_all_badges():
+async def get_all_badges(current_user: dict = Depends(get_current_user)):
     """
     获取所有徽章样式
 
@@ -141,7 +142,7 @@ async def get_all_badges():
 
 
 @router.post("/recommend", response_model=dict)
-async def recommend_models():
+async def recommend_models(current_user: dict = Depends(get_current_user)):
     """
     推荐模型
 
@@ -188,7 +189,7 @@ async def recommend_models():
 
 
 @router.post("/validate", response_model=dict)
-async def validate_models(request: ModelValidationRequest):
+async def validate_models(request: ModelValidationRequest, current_user: dict = Depends(get_current_user)):
     """
     验证模型对
 
@@ -209,7 +210,7 @@ async def validate_models(request: ModelValidationRequest):
 
 
 @router.post("/batch-init", response_model=dict)
-async def batch_init_capabilities(request: BatchInitRequest):
+async def batch_init_capabilities(request: BatchInitRequest, current_user: dict = Depends(get_current_user)):
     """
     批量初始化模型能力
 
@@ -266,7 +267,7 @@ async def batch_init_capabilities(request: BatchInitRequest):
 
 
 @router.get("/model/{model_name}", response_model=dict)
-async def get_model_capability(model_name: str):
+async def get_model_capability(model_name: str, current_user: dict = Depends(get_current_user)):
     """
     获取指定模型的能力信息
 

@@ -11,8 +11,8 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import concurrent.futures
-import os
 
+from app.core.env import get_env
 from app.engine.graph.trading_graph import TradingAgentsGraph
 from app.engine.default_config import DEFAULT_CONFIG
 from app.utils.runtime_paths import get_analysis_results_dir
@@ -266,7 +266,7 @@ def _get_env_api_key_for_provider(provider: str) -> str:
 
     env_key_name = env_key_map.get(provider.lower())
     if env_key_name:
-        api_key = os.getenv(env_key_name)
+        api_key = get_env(env_key_name)
         if api_key and api_key.strip() and api_key != "your-api-key":
             return api_key
 
@@ -491,29 +491,6 @@ class AnalysisService:
         except Exception as e:
             logger.warning(f"⚠️ 补齐股票名称时出现异常: {e}")
         return tasks
-
-    def _convert_user_id(self, user_id: str) -> PyObjectId:
-        """将字符串用户ID转换为PyObjectId（已废弃，保留兼容）
-
-        .. deprecated::
-            请使用 `_convert_user_id_async` 替代，避免在异步事件循环中执行同步数据库查询。
-        """
-        try:
-            if user_id == "admin":
-                # 从数据库查询 admin 用户的真实 ObjectId
-                try:
-                    db = self._get_sync_mongo_db()
-                    admin_doc = db.users.find_one({"username": "admin"})
-                    if admin_doc:
-                        return PyObjectId(admin_doc["_id"])
-                except Exception as e:
-                    logger.warning(f"⚠️ 从数据库查询 admin 用户失败: {e}")
-                # 回退：尝试使用 "admin" 作为 ObjectId 字符串
-                raise ValueError("无法确定 admin 用户的 ObjectId")
-            return PyObjectId(ObjectId(user_id))
-        except Exception as e:
-            logger.warning(f"⚠️ 用户ID转换失败: user_id={user_id}, error={e}")
-            raise ValueError(f"无效的用户ID: {user_id}") from e
 
     async def _convert_user_id_async(self, user_id: str) -> PyObjectId:
         """异步将字符串用户ID转换为PyObjectId，避免在事件循环中执行同步数据库查询"""

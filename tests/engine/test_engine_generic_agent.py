@@ -7,7 +7,7 @@
 import os
 import pytest
 
-from app.engine.agents.utils.generic_agent import (
+from app.engine.agents.utils.agent_config import (
     resolve_company_name,
     build_stage3_report_path,
     load_agent_config,

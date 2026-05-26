@@ -54,26 +54,30 @@ class FallbackRouter:
 
     @staticmethod
     def _create_default_rate_limiter() -> RateLimiter:
-        """创建带默认限流配置的 RateLimiter。"""
+        """从 source_limits.yaml 加载限流配置。"""
+        import yaml
+        from pathlib import Path
+
         limiter = RateLimiter()
-        # Tushare: 120 次/分（积分等级不同可调整）
-        limiter.configure("tushare", rate_per_minute=120, polite_interval_ms=200)
-        # AKShare: 60 次/分，间隔 0.5s（反爬策略）
-        limiter.configure("akshare", rate_per_minute=60, polite_interval_ms=500)
-        # BaoStock: 60 次/分
-        limiter.configure("baostock", rate_per_minute=60, polite_interval_ms=300)
-        # YFinance: 30 次/分
-        limiter.configure("yfinance", rate_per_minute=30, polite_interval_ms=1000)
-        limiter.configure("yfinance_hk", rate_per_minute=30, polite_interval_ms=1000)
-        # Finnhub: 60 次/分
-        limiter.configure("finnhub", rate_per_minute=60, polite_interval_ms=500)
-        # Alpha Vantage: 5 次/分（免费版限制）
-        limiter.configure("alpha_vantage", rate_per_minute=5, polite_interval_ms=12000)
-        # 腾讯港股: 60 次/分
-        limiter.configure("tencent_hk", rate_per_minute=60, polite_interval_ms=500)
-        # Tushare 港股/美股
-        limiter.configure("tushare_hk", rate_per_minute=60, polite_interval_ms=300)
-        limiter.configure("tushare_us", rate_per_minute=60, polite_interval_ms=300)
+
+        config_path = Path(__file__).parent.parent / "config" / "source_limits.yaml"
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                limits_config = yaml.safe_load(f) or {}
+
+            for source, cfg in limits_config.items():
+                if isinstance(cfg, dict) and "rate_per_minute" in cfg:
+                    limiter.configure(
+                        source,
+                        rate_per_minute=cfg["rate_per_minute"],
+                        polite_interval_ms=cfg.get("polite_interval_ms", 1000),
+                    )
+        except Exception as e:
+            logger.warning(f"加载限流配置失败，使用默认值: {e}")
+            limiter.configure("tushare", rate_per_minute=120, polite_interval_ms=200)
+            limiter.configure("akshare", rate_per_minute=60, polite_interval_ms=500)
+            limiter.configure("baostock", rate_per_minute=60, polite_interval_ms=300)
+
         return limiter
 
     async def fetch(

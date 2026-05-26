@@ -1,4 +1,4 @@
-import copy
+
 import time
 
 # 导入统一日志系统
@@ -122,7 +122,7 @@ def create_risk_manager(llm, memory):
             logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")
 
         # 7. 更新状态（保留原有所有字段，避免丢失上游数据）
-        new_risk_debate_state = copy.deepcopy(risk_debate_state)
+        new_risk_debate_state = dict(risk_debate_state)
         new_risk_debate_state.update({
             "judge_decision": final_content,
             "current_response": final_content,

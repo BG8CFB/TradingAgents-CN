@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage
 
 from app.engine.agents.stage_2.bull_researcher import create_bull_researcher
 from app.engine.agents.stage_2.bear_researcher import create_bear_researcher
-from app.engine.agents.stage_3.aggresive_debator import create_risky_debator
+from app.engine.agents.stage_3.aggressive_debator import create_risky_debator
 from app.engine.agents.stage_3.conservative_debator import create_safe_debator
 from app.engine.agents.stage_3.neutral_debator import create_neutral_debator
 from app.engine.agents.stage_3.risk_manager import create_risk_manager

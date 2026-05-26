@@ -14,6 +14,8 @@ import asyncio
 import threading
 from typing import Any, Optional, Callable
 
+from app.core.env import get_env
+
 import logging
 _logger = logging.getLogger("tradingagents.config")
 
@@ -66,7 +68,7 @@ def get_number(env_var: str, system_key: Optional[str], default: float | int, ca
             return _coerce(eff.get(system_key), caster, default)
 
     # 2) 环境变量
-    env_val = os.getenv(env_var)
+    env_val = get_env(env_var)
     if env_val is not None and str(env_val).strip() != "":
         return _coerce(env_val, caster, default)
 
@@ -98,7 +100,7 @@ def get_bool(env_var: str, system_key: Optional[str], default: bool) -> bool:
             if isinstance(v, str):
                 return str(v).strip().lower() in ("1", "true", "yes", "on")
     # 2) 环境变量
-    env_val = os.getenv(env_var)
+    env_val = get_env(env_var)
     if env_val is not None and str(env_val).strip() != "":
         return str(env_val).strip().lower() in ("1", "true", "yes", "on")
     # 3) 代码默认
@@ -111,7 +113,7 @@ def use_app_cache_enabled(default: bool = False) -> bool:
     """
     # 推断来源（DB/ENV/DEFAULT）
     src = "default"
-    env_val = os.getenv("TA_USE_APP_CACHE")
+    env_val = get_env("TA_USE_APP_CACHE")
     try:
         eff = _get_system_settings_sync()
     except Exception:
@@ -151,7 +153,7 @@ def get_timezone_name(default: str = "Asia/Shanghai") -> str:
         pass
 
     for env_key in ("APP_TIMEZONE", "TIMEZONE", "TA_TIMEZONE"):
-        val = os.getenv(env_key)
+        val = get_env(env_key)
         if isinstance(val, str) and val.strip():
             return val.strip()
 

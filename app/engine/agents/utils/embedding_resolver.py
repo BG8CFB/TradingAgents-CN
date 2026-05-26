@@ -9,6 +9,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional, Any
 
+from app.core.env import get_env
 from app.utils.logging_init import get_logger
 
 logger = get_logger("agents.utils.embedding_resolver")
@@ -73,12 +74,12 @@ def resolve_embedding(provider: str, config: dict) -> EmbeddingConfig:
 
 
 def _force_openai() -> bool:
-    return os.getenv("FORCE_OPENAI_EMBEDDING", "false").lower() == "true"
+    return get_env("FORCE_OPENAI_EMBEDDING", "false").lower() == "true"
 
 
 def _try_dashscope(provider: str) -> Optional[EmbeddingConfig]:
     """尝试 DashScope embedding"""
-    api_key = os.getenv("DASHSCOPE_API_KEY")
+    api_key = get_env("DASHSCOPE_API_KEY")
     if not api_key:
         return None
 
@@ -104,8 +105,8 @@ def _try_openai(provider: str, config: dict) -> Optional[EmbeddingConfig]:
     """尝试 OpenAI 兼容 embedding"""
     from openai import OpenAI
 
-    openai_key = os.getenv("OPENAI_API_KEY")
-    deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+    openai_key = get_env("OPENAI_API_KEY")
+    deepseek_key = get_env("DEEPSEEK_API_KEY")
 
     if openai_key:
         base_url = config.get("backend_url", "https://api.openai.com/v1")

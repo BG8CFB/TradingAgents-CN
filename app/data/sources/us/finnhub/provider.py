@@ -8,6 +8,8 @@ from typing import Optional
 
 import pandas as pd
 
+from app.core.env import get_env
+
 from app.data.sources.base.provider import BaseProvider
 
 logger = logging.getLogger(__name__)
@@ -15,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 def _get_finnhub_client():
     import finnhub
-    api_key = os.getenv("FINNHUB_API_KEY", "")
+    api_key = get_env("FINNHUB_API_KEY", "")
     if not api_key:
         raise RuntimeError("Finnhub API Key 未配置")
     return finnhub.Client(api_key=api_key)
@@ -34,7 +36,7 @@ class FinnhubUSProvider(BaseProvider):
     def is_available(self) -> bool:
         try:
             import finnhub  # noqa: F401
-            return bool(os.getenv("FINNHUB_API_KEY", ""))
+            return bool(get_env("FINNHUB_API_KEY", ""))
         except ImportError:
             return False
 

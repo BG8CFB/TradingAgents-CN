@@ -25,6 +25,7 @@ _SUPPORTED_SYNC_DOMAINS = {
     "margin_trading",
     "dragon_tiger",
     "block_trade",
+    "tushare_universe",
 }
 
 

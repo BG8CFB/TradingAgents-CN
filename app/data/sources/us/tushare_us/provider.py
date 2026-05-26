@@ -8,6 +8,8 @@ import logging
 import os
 from typing import Optional
 
+from app.core.env import get_env
+
 import pandas as pd
 
 from app.data.sources.base.provider import BaseProvider
@@ -28,7 +30,7 @@ class TushareUSProvider(BaseProvider):
             return self._api
         try:
             import tushare as ts
-            token = os.getenv("TUSHARE_US_TOKEN") or os.getenv("TUSHARE_TOKEN")
+            token = get_env("TUSHARE_US_TOKEN") or get_env("TUSHARE_TOKEN")
             if not token:
                 return None
             ts.set_token(token)

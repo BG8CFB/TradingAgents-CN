@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Union
 import json
 import toml
+from app.core.env import get_env
 from app.utils.runtime_paths import get_logs_dir, get_runtime_base_dir, resolve_path
 from app.utils.time_utils import now_config_tz
 
@@ -87,9 +88,9 @@ class TradingAgentsLogger:
             return config
 
         # 从环境变量获取配置
-        log_level = os.getenv('TRADINGAGENTS_LOG_LEVEL', 'INFO').upper()
+        log_level = get_env('TRADINGAGENTS_LOG_LEVEL', 'INFO').upper()
         runtime_base = get_runtime_base_dir()
-        log_dir_env = os.getenv('TRADINGAGENTS_LOG_DIR', '')
+        log_dir_env = get_env('TRADINGAGENTS_LOG_DIR', '')
         if log_dir_env:
             log_dir_path = Path(resolve_path(log_dir_env, runtime_base))
             log_dir_path.mkdir(parents=True, exist_ok=True)
@@ -140,7 +141,7 @@ class TradingAgentsLogger:
                 'matplotlib': {'level': 'WARNING'}
             },
             'docker': {
-                'enabled': os.getenv('DOCKER_CONTAINER', 'false').lower() == 'true',
+                'enabled': get_env('DOCKER_CONTAINER', 'false').lower() == 'true',
                 'stdout_only': True  # Docker环境只输出到stdout
             }
         }
@@ -149,7 +150,7 @@ class TradingAgentsLogger:
         """从配置文件加载日志配置"""
         # 确定配置文件路径
         config_paths = [
-            'config/logging_docker.toml' if os.getenv('DOCKER_CONTAINER') == 'true' else None,
+            'config/logging_docker.toml' if get_env('DOCKER_CONTAINER') == 'true' else None,
             'config/logging.toml',
             './logging.toml'
         ]
@@ -174,7 +175,7 @@ class TradingAgentsLogger:
 
         # 检查Docker环境
         is_docker = (
-            os.getenv('DOCKER_CONTAINER') == 'true' or
+            get_env('DOCKER_CONTAINER') == 'true' or
             logging_config.get('docker', {}).get('enabled', False)
         )
 

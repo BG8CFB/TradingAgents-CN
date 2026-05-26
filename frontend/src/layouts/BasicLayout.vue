@@ -97,9 +97,7 @@ const { width } = useWindowSize()
 // 需要缓存的组件
 const keepAliveComponents = computed(() => [
   'Dashboard',
-  'StockScreening',
-  'AnalysisHistory',
-  'QueueManagement'
+  'StockScreening'
 ])
 
 // 移动端判断

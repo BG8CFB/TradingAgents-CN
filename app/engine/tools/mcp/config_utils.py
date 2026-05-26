@@ -8,6 +8,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from app.core.env import get_env
+
 try:  # 轻量文件锁，避免并发写入损坏；若未安装则降级为无锁
     from filelock import FileLock
 except Exception:  # pragma: no cover - 可选依赖
@@ -34,7 +36,7 @@ class MCPServerType(str, Enum):
 BASE_CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 
 # 优先从环境变量获取默认配置路径
-_env_config_path = os.getenv("MCP_CONFIG_PATH")
+_env_config_path = get_env("MCP_CONFIG_PATH")
 DEFAULT_CONFIG_FILE = Path(_env_config_path) if _env_config_path else BASE_CONFIG_DIR / "mcp.json"
 
 
@@ -47,12 +49,12 @@ def _safe_is_relative_to(path: Path, base: Path) -> bool:
 
 
 def _allowed_commands() -> set:
-    env_value = os.getenv("MCP_ALLOWED_COMMANDS", "")
+    env_value = get_env("MCP_ALLOWED_COMMANDS", "")
     return {c.strip() for c in env_value.split(",") if c.strip()}
 
 
 def _allowed_roots() -> List[Path]:
-    env_value = os.getenv("MCP_ALLOWED_ROOTS", "")
+    env_value = get_env("MCP_ALLOWED_ROOTS", "")
     roots: List[Path] = []
     for part in env_value.split(os.pathsep):
         if part.strip():

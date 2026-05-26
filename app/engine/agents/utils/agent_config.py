@@ -11,6 +11,7 @@ import yaml
 from typing import Optional
 
 from app.core.async_utils import run_async
+from app.core.env import get_env
 from app.utils.logging_init import get_logger
 from app.utils.stock_utils import StockUtils
 
@@ -89,7 +90,7 @@ def build_stage3_report_path(task_id: Optional[str], ticker: str, report_slug: s
 def load_agent_config(slug: str) -> str:
     """从 YAML 配置加载智能体角色定义"""
     try:
-        env_dir = os.getenv("AGENT_CONFIG_DIR")
+        env_dir = get_env("AGENT_CONFIG_DIR")
         agents_dirs = []
 
         if env_dir and os.path.exists(env_dir):

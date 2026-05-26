@@ -30,12 +30,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent-configs", tags=["Agent Configs"])
 
-import os
+from app.core.env import get_env
 
 
 def _get_config_dir() -> Path:
     # 1. 优先从环境变量读取
-    env_dir = os.getenv("AGENT_CONFIG_DIR")
+    env_dir = get_env("AGENT_CONFIG_DIR")
     if env_dir:
         path = Path(env_dir)
         if path.exists():

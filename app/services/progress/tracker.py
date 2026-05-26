@@ -9,6 +9,7 @@ import os
 import logging
 import time
 
+from app.core.env import get_env
 from app.utils.runtime_paths import get_data_dir
 
 
@@ -109,7 +110,7 @@ class RedisProgressTracker:
         """初始化Redis连接"""
         try:
             # 检查REDIS_ENABLED环境变量
-            redis_enabled = os.getenv('REDIS_ENABLED', 'false').lower() == 'true'
+            redis_enabled = get_env('REDIS_ENABLED', 'false').lower() == 'true'
             if not redis_enabled:
                 logger.info(f"📊 [Redis进度] Redis未启用，使用文件存储")
                 return False
@@ -117,10 +118,10 @@ class RedisProgressTracker:
             import redis
 
             # 从环境变量获取Redis配置
-            redis_host = os.getenv('REDIS_HOST', 'localhost')
-            redis_port = int(os.getenv('REDIS_PORT', 6379))
-            redis_password = os.getenv('REDIS_PASSWORD', None)
-            redis_db = int(os.getenv('REDIS_DB', 0))
+            redis_host = get_env('REDIS_HOST', 'localhost')
+            redis_port = int(get_env('REDIS_PORT', 6379))
+            redis_password = get_env('REDIS_PASSWORD', None)
+            redis_db = int(get_env('REDIS_DB', 0))
 
             # 创建Redis连接
             if redis_password:
@@ -518,7 +519,7 @@ def get_progress_by_id(task_id: str) -> Optional[Dict[str, Any]]:
     """根据任务ID获取进度（与旧实现一致，修正 cls 引用）"""
     try:
         # 检查REDIS_ENABLED环境变量
-        redis_enabled = os.getenv('REDIS_ENABLED', 'false').lower() == 'true'
+        redis_enabled = get_env('REDIS_ENABLED', 'false').lower() == 'true'
 
         # 如果Redis启用，先尝试Redis
         if redis_enabled:
@@ -526,10 +527,10 @@ def get_progress_by_id(task_id: str) -> Optional[Dict[str, Any]]:
                 import redis
 
                 # 从环境变量获取Redis配置
-                redis_host = os.getenv('REDIS_HOST', 'localhost')
-                redis_port = int(os.getenv('REDIS_PORT', 6379))
-                redis_password = os.getenv('REDIS_PASSWORD', None)
-                redis_db = int(os.getenv('REDIS_DB', 0))
+                redis_host = get_env('REDIS_HOST', 'localhost')
+                redis_port = int(get_env('REDIS_PORT', 6379))
+                redis_password = get_env('REDIS_PASSWORD', None)
+                redis_db = int(get_env('REDIS_DB', 0))
 
                 # 创建Redis连接
                 if redis_password:

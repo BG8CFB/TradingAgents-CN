@@ -5,6 +5,7 @@ import logging
 import threading
 from typing import List, Dict, Any, Optional
 
+from app.core.env import get_env
 from app.engine.tools.registry import get_all_tools
 from app.utils.logging_init import get_logger
 
@@ -171,7 +172,7 @@ class DynamicAnalystFactory:
         """加载智能体配置文件"""
         if not config_path:
             # 1. 优先使用环境变量 AGENT_CONFIG_DIR
-            env_dir = os.getenv("AGENT_CONFIG_DIR")
+            env_dir = get_env("AGENT_CONFIG_DIR")
             if env_dir and os.path.exists(env_dir):
                 config_path = os.path.join(env_dir, "phase1_agents_config.yaml")
             else:

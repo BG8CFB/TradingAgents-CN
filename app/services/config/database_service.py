@@ -8,6 +8,7 @@ import logging
 from typing import List, Optional, Dict, Any
 
 from app.core.database import get_mongo_db
+from app.core.env import get_env
 from app.models.config import DatabaseConfig
 from app.utils.timezone import now_tz
 
@@ -239,15 +240,15 @@ class DatabaseService:
                     used_env_config = False
 
                     # 检测是否在 Docker 环境中
-                    is_docker = os.path.exists('/.dockerenv') or os.getenv('DOCKER_CONTAINER') == 'true'
+                    is_docker = os.path.exists('/.dockerenv') or get_env('DOCKER_CONTAINER') == 'true'
 
                     # 如果配置中没有用户名密码，尝试从环境变量获取完整配置
                     if not username or not password:
-                        env_host = os.getenv('MONGODB_HOST')
-                        env_port = os.getenv('MONGODB_PORT')
-                        env_username = os.getenv('MONGODB_USERNAME')
-                        env_password = os.getenv('MONGODB_PASSWORD')
-                        env_auth_source = os.getenv('MONGODB_AUTH_SOURCE', 'admin')
+                        env_host = get_env('MONGODB_HOST')
+                        env_port = get_env('MONGODB_PORT')
+                        env_username = get_env('MONGODB_USERNAME')
+                        env_password = get_env('MONGODB_PASSWORD')
+                        env_auth_source = get_env('MONGODB_AUTH_SOURCE', 'admin')
 
                         if env_username and env_password:
                             username = env_username
@@ -270,7 +271,7 @@ class DatabaseService:
 
                     # 如果配置中没有数据库名，尝试从环境变量获取
                     if not database:
-                        env_database = os.getenv('MONGODB_DATABASE')
+                        env_database = get_env('MONGODB_DATABASE')
                         if env_database:
                             database = env_database
                             logger.info(f"📦 使用环境变量中的数据库名: {database}")
@@ -388,13 +389,13 @@ class DatabaseService:
                     used_env_config = False
 
                     # 检测是否在 Docker 环境中
-                    is_docker = os.path.exists('/.dockerenv') or os.getenv('DOCKER_CONTAINER') == 'true'
+                    is_docker = os.path.exists('/.dockerenv') or get_env('DOCKER_CONTAINER') == 'true'
 
                     # 如果配置中没有密码，尝试从环境变量获取完整配置
                     if not password:
-                        env_host = os.getenv('REDIS_HOST')
-                        env_port = os.getenv('REDIS_PORT')
-                        env_password = os.getenv('REDIS_PASSWORD')
+                        env_host = get_env('REDIS_HOST')
+                        env_port = get_env('REDIS_PORT')
+                        env_password = get_env('REDIS_PASSWORD')
 
                         if env_password:
                             password = env_password
@@ -415,7 +416,7 @@ class DatabaseService:
 
                     # 如果配置中没有数据库编号，尝试从环境变量获取
                     if database is None:
-                        env_db = os.getenv('REDIS_DB')
+                        env_db = get_env('REDIS_DB')
                         if env_db:
                             database = int(env_db)
                             logger.info(f"📦 使用环境变量中的 Redis 数据库编号: {database}")

@@ -249,8 +249,8 @@ class QuotesIngestionService:
             return self._tushare_has_premium or False
 
         try:
-            import os
-            token = os.getenv("TUSHARE_TOKEN")
+            from app.core.env import get_env
+            token = get_env("TUSHARE_TOKEN")
             if not token or not token.strip():
                 logger.info("Tushare 未配置 Token，跳过权限检测")
                 self._tushare_has_premium = False

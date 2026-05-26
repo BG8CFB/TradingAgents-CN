@@ -7,6 +7,7 @@ Tushare配置管理
 import os
 from typing import Dict, Any, Optional
 from .env_utils import parse_bool_env, parse_str_env, get_env_info, validate_required_env_vars
+from app.core.env import get_env
 
 
 class TushareConfig:
@@ -149,7 +150,7 @@ class TushareConfig:
         fixes = {}
         
         # 检查TUSHARE_ENABLED的常见问题
-        enabled_raw = os.getenv("TUSHARE_ENABLED", "")
+        enabled_raw = get_env("TUSHARE_ENABLED", "")
         if enabled_raw.lower() in ["true", "1", "yes", "on"] and not self.enabled:
             fixes["TUSHARE_ENABLED"] = f"检测到 '{enabled_raw}'，但解析为False，可能存在兼容性问题"
         

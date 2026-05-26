@@ -1,4 +1,4 @@
-import copy
+
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 import time
@@ -155,7 +155,7 @@ def create_neutral_debator(llm):
 
         # 构造返回状态
         # 必须保留原有状态的所有字段，避免丢失历史数据
-        new_risk_debate_state = copy.deepcopy(risk_debate_state)
+        new_risk_debate_state = dict(risk_debate_state)
         new_risk_debate_state.update({
             "rounds": rounds,
             "neutral_report_content": neutral_report_content,

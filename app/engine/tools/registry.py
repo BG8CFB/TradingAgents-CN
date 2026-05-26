@@ -4,7 +4,6 @@
 管理三类工具：内置工具（Builtin）、外部 MCP 工具、Skill 工具。
 提供统一的工具获取、按名称查询、可用性管理、类型分类接口。
 """
-import asyncio
 import logging
 import threading
 from typing import Any, Callable, Dict, List, Optional

@@ -28,6 +28,7 @@ class SlidingWindowCounter:
         try:
             redis = None
             try:
+                # 使用 __import__ 避免模块级别循环导入，运行时按需获取 Redis 客户端
                 redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
             except Exception:
                 pass

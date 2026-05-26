@@ -49,7 +49,7 @@ def get_version() -> str:
             return version_file.read_text(encoding='utf-8').strip()
     except Exception:
         pass
-    return "1.0.0"  # 默认版本号
+    return "1.1.0-preview"  # 默认版本号
 
 
 def _sanitize_url(url: str) -> str:
@@ -117,7 +117,8 @@ async def _print_config_summary(logger):
         logger.info("  • Key settings sources:")
         for setting_name in key_settings:
             env_var_name = setting_name
-            env_value = os.getenv(env_var_name)
+            from app.core.env import get_env
+            env_value = get_env(env_var_name)
             config_value = getattr(settings, setting_name, None)
             if env_value is not None:
                 logger.info(f"    - {setting_name}: from environment variable ({config_value})")

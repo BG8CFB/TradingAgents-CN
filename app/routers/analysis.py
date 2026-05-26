@@ -141,7 +141,7 @@ async def get_task_result(
 
         # 处理reports字段 - 如果没有reports字段，优先尝试从文件系统加载，其次从state中提取
         if 'reports' not in result_data or not result_data['reports']:
-            import os
+            from app.core.env import get_env
 
             stock_symbol = result_data.get('stock_symbol') or result_data.get('stock_code')
             # analysis_date 可能是日期或时间戳字符串，这里只取日期部分
@@ -152,7 +152,7 @@ async def get_task_result(
             try:
                 # 1) 优先环境变量，其次统一 runtime 路径
                 runtime_base = settings.RUNTIME_BASE_DIR
-                base_env = os.getenv('TRADINGAGENTS_RESULTS_DIR')
+                base_env = get_env('TRADINGAGENTS_RESULTS_DIR')
                 if base_env:
                     base_path = resolve_path(base_env, runtime_base)
                 else:

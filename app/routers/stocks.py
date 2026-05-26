@@ -10,7 +10,6 @@ import logging
 import re
 
 from app.routers.auth_db import get_current_user
-from app.core.database import get_mongo_db
 from app.core.response import ok, safe_error_message
 from app.services.unified_stock_service import UnifiedStockService
 from app.utils.time_utils import now_config_tz, format_date_compact, format_date_short
@@ -115,7 +114,6 @@ async def get_quote(
 
     # A股：使用统一服务
     code6 = normalized_code
-    db = get_mongo_db()
     service = UnifiedStockService()
 
     data = await service.get_cn_quote_with_basic_info(code6)
@@ -172,7 +170,6 @@ async def get_fundamentals(
 
     # A股：使用统一服务
     code6 = normalized_code
-    db = get_mongo_db()
     service = UnifiedStockService()
 
     if source:
@@ -386,7 +383,6 @@ async def get_kline(
                 logger.info(f"🔥 尝试从 market_quotes 获取当天实时数据: {code_padded} (交易时间: {is_trading_time}, 已有当天数据: {has_today_data})")
 
                 # 使用统一服务获取实时行情原始数据
-                db = get_mongo_db()
                 stock_service = UnifiedStockService()
 
                 # 查询当天的实时行情
@@ -568,7 +564,6 @@ async def search_stocks(
             detail=f"不支持的市场类型: {market}"
         )
 
-    db = get_mongo_db()
     service = UnifiedStockService()
 
     try:

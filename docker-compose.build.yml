@@ -45,17 +45,12 @@ services:
       - tradingagents_redis_data:/data
     environment:
       TZ: "Asia/Shanghai"
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-tradingagents123}
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-tradingagents123}
     networks:
       - tradingagents-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-tradingagents123}", "ping"]
-      # 注意：-a 参数会将密码暴露在进程列表中。
-      # TODO(安全): 改用 REDISCLI_AUTH 环境变量避免密码泄露：
-      #   environment:
-      #     REDISCLI_AUTH: ${REDIS_PASSWORD:-tradingagents123}
-      #   healthcheck:
-      #     test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -138,6 +133,12 @@ services:
       BAOSTOCK_ENABLED: "${BAOSTOCK_ENABLED:-true}"
       FINNHUB_API_KEY: "${FINNHUB_API_KEY}"
       FINNHUB_ENABLED: "${FINNHUB_ENABLED:-false}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      ANTHROPIC_ENABLED: "${ANTHROPIC_ENABLED:-false}"
+      SILICONFLOW_API_KEY: "${SILICONFLOW_API_KEY}"
+      SILICONFLOW_ENABLED: "${SILICONFLOW_ENABLED:-false}"
+      ALPHA_VANTAGE_API_KEY: "${ALPHA_VANTAGE_API_KEY}"
+      ALPHA_VANTAGE_ENABLED: "${ALPHA_VANTAGE_ENABLED:-false}"
       # 首次初始化管理员密码（首次登录后请修改）
       INITIAL_ADMIN_PASSWORD: "${INITIAL_ADMIN_PASSWORD:-admin123}"
     depends_on:

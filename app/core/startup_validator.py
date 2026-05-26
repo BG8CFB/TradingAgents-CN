@@ -7,7 +7,7 @@
 import os
 import logging
 from collections.abc import Callable
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -158,11 +158,11 @@ class StartupValidator:
         return self.result
     
     def _validate_required_configs(self):
-        """验证必需配置（通过 os.getenv 检查，避免被 settings 默认值绕过）"""
+        """验证必需配置（通过 os.getenv 检查，确保只检测用户真实设置的环境变量）"""
         for config in self.REQUIRED_CONFIGS:
-            # 优先检查环境变量是否显式配置，避免 settings 默认值/运行时生成值绕过验证
+            # 必须使用 os.getenv 而非 get_env，因为 get_env 会优先返回 settings 中的
+            # 默认值/运行时生成值（如 JWT_SECRET 的随机 token），导致验证被绕过
             env_value = os.getenv(config.key)
-            settings_value = getattr(settings, config.key, None)
 
             if not env_value:
                 self.result.missing_required.append(config)
@@ -194,8 +194,9 @@ class StartupValidator:
     def _check_security_configs(self):
         """检查安全配置"""
         # 检查密钥是否为运行时随机生成（用户未显式配置）
-        import os
         for secret_key in ("JWT_SECRET", "CSRF_SECRET"):
+            # 必须使用 os.getenv 而非 get_env，因为 get_env 会返回 settings 中的
+            # 运行时生成值（secrets.token_urlsafe），导致 if not 条件永远不成立
             if not os.getenv(secret_key):
                 self.result.warnings.append(
                     f"{secret_key} 未在环境变量中配置，使用运行期随机值；"

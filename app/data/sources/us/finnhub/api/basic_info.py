@@ -8,6 +8,8 @@ from typing import Optional
 
 import pandas as pd
 
+from app.core.env import get_env
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,7 +21,7 @@ async def fetch_stock_list() -> Optional[pd.DataFrame]:
     Returns:
         股票列表 DataFrame，失败返回 None
     """
-    api_key = os.getenv("FINNHUB_API_KEY", "")
+    api_key = get_env("FINNHUB_API_KEY", "")
     if not api_key:
         logger.debug("Finnhub API Key 未配置")
         return None

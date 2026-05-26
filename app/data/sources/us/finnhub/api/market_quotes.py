@@ -8,6 +8,8 @@ from typing import Optional
 
 import pandas as pd
 
+from app.core.env import get_env
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,7 +24,7 @@ async def fetch_quote(symbol: str) -> Optional[pd.DataFrame]:
     Returns:
         行情快照 DataFrame（单行），失败返回 None
     """
-    api_key = os.getenv("FINNHUB_API_KEY", "")
+    api_key = get_env("FINNHUB_API_KEY", "")
     if not api_key:
         logger.debug("Finnhub API Key 未配置")
         return None

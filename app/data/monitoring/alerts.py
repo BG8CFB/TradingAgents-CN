@@ -16,7 +16,10 @@ class AlertLevel(str, Enum):
 
 
 class AlertService:
-    """告警分发。"""
+    """告警分发。
+
+    状态：尚未集成 — 当前未被路由/服务/调度器调用，属于预留功能。
+    """
 
     def __init__(self):
         self._sse_enabled = False

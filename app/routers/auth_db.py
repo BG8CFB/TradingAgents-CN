@@ -471,8 +471,8 @@ async def register(payload: RegisterRequest, request: Request):
     """用户公开注册（无需认证）"""
     # 注册开关检查：非 DEBUG（生产）环境下需要管理员显式开放注册
     if not settings.DEBUG:
-        import os
-        if os.getenv("REGISTRATION_ENABLED", "").lower() not in ("true", "1", "yes"):
+        from app.core.env import get_env
+        if get_env("REGISTRATION_ENABLED", "").lower() not in ("true", "1", "yes"):
             raise HTTPException(status_code=403, detail="当前未开放注册，请联系管理员")
 
     start_time = time.time()

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.env import get_env
 from app.routers.auth_db import get_current_user
 from app.engine.agents import Toolkit
 from app.engine.tools.registry import (
@@ -39,7 +40,7 @@ def _check_tushare_available() -> bool:
     if not getattr(settings, "TUSHARE_ENABLED", False):
         return False
 
-    token = (getattr(settings, "TUSHARE_TOKEN", "") or os.getenv("TUSHARE_TOKEN", "")).strip()
+    token = (getattr(settings, "TUSHARE_TOKEN", "") or get_env("TUSHARE_TOKEN", "")).strip()
     return bool(token)
 
 

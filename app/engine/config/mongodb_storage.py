@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import asdict
 from .usage_models import UsageRecord
 
+from app.core.env import get_env
 # 导入日志模块
 from app.utils.logging_manager import get_logger
 from app.engine.config.runtime_settings import get_timezone_name
@@ -33,7 +34,7 @@ class MongoDBStorage:
         if not MONGODB_AVAILABLE:
             raise ImportError("pymongo is not installed. Please install it with: pip install pymongo")
 
-        self.connection_string = connection_string or os.getenv("MONGODB_CONNECTION_STRING")
+        self.connection_string = connection_string or get_env("MONGODB_CONNECTION_STRING")
         if not self.connection_string:
             raise ValueError(
                 "MongoDB连接字符串未配置。请通过以下方式之一进行配置：\n"
@@ -63,9 +64,9 @@ class MongoDBStorage:
     def _connect(self):
         """连接到MongoDB"""
         try:
-            connect_timeout = int(os.getenv("MONGO_CONNECT_TIMEOUT_MS", "30000"))
-            socket_timeout = int(os.getenv("MONGO_SOCKET_TIMEOUT_MS", "60000"))
-            server_selection_timeout = int(os.getenv("MONGO_SERVER_SELECTION_TIMEOUT_MS", "5000"))
+            connect_timeout = int(get_env("MONGO_CONNECT_TIMEOUT_MS", "30000"))
+            socket_timeout = int(get_env("MONGO_SOCKET_TIMEOUT_MS", "60000"))
+            server_selection_timeout = int(get_env("MONGO_SERVER_SELECTION_TIMEOUT_MS", "5000"))
 
             self.client = MongoClient(
                 self.connection_string,

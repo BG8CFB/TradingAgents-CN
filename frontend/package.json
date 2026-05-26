@@ -23,14 +23,12 @@
     "element-plus": "^2.4.4",
     "lodash-es": "^4.17.21",
     "marked": "^16.2.0",
-    "mermaid": "^10",
     "nprogress": "^0.2.0",
     "pinia": "^2.1.7",
     "sortablejs": "^1.15.6",
     "vue": "^3.4.0",
     "vue-echarts": "^6.6.1",
-    "vue-router": "^4.2.5",
-    "vue3-markdown-it": "^1.0.10"
+    "vue-router": "^4.2.5"
   },
   "devDependencies": {
     "@rushstack/eslint-patch": "^1.16.1",

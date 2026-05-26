@@ -82,13 +82,6 @@ market_quotes:
   description: "每交易日 16:01 全量收盘快照"
   source: "tushare_hk"
 
-market_quotes_realtime:
-  cron: "*/30 * 9-16 * * 1-5"
-  timezone: "Asia/Hong_Kong"
-  mode: incremental
-  description: "交易时段每 30 秒准实时行情（仅活跃股票）"
-  source: "tencent_hk"
-
 news:
   cron: "0 */1 * * *"
   timezone: "Asia/Hong_Kong"

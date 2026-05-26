@@ -67,7 +67,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.endpoint_limits = {
             "/api/analysis/single": 10,      # 单股分析：每分钟10次
             "/api/analysis/batch": 5,        # 批量分析：每分钟5次
-            "/api/screening/filter": 20,     # 股票筛选：每分钟20次
+            "/api/screening/run": 20,         # 股票筛选：每分钟20次
             "/api/auth/login": 5,            # 登录：每分钟5次
             "/api/auth/register": 3,         # 注册：每分钟3次
         }
@@ -153,7 +153,7 @@ class QuotaMiddleware(BaseHTTPMiddleware):
         self.quota_endpoints = {
             "/api/analysis/single",
             "/api/analysis/batch",
-            "/api/screening/filter"
+            "/api/screening/run"
         }
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:

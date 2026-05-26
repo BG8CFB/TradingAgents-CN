@@ -9,6 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.database import db_manager
 from app.core.config import settings
+from app.core.env import get_env
 from app.utils.time_utils import now_utc
 from app.utils.passwords import hash_password as secure_hash_password
 
@@ -48,8 +49,8 @@ class SystemInitService:
     def get_default_admin_config() -> Dict[str, str]:
         """获取默认管理员配置，密码优先从环境变量读取，未设置则使用内置默认值。"""
         password = (
-            os.getenv("INITIAL_ADMIN_PASSWORD")
-            or os.getenv("DEFAULT_ADMIN_PASSWORD")
+            get_env("INITIAL_ADMIN_PASSWORD")
+            or get_env("DEFAULT_ADMIN_PASSWORD")
             or ""
         ).strip()
 
@@ -62,8 +63,8 @@ class SystemInitService:
             )
 
         return {
-            "username": os.getenv("INITIAL_ADMIN_USERNAME", DEFAULT_ADMIN["username"]).strip() or DEFAULT_ADMIN["username"],
-            "email": os.getenv("INITIAL_ADMIN_EMAIL", DEFAULT_ADMIN["email"]).strip() or DEFAULT_ADMIN["email"],
+            "username": get_env("INITIAL_ADMIN_USERNAME", DEFAULT_ADMIN["username"]).strip() or DEFAULT_ADMIN["username"],
+            "email": get_env("INITIAL_ADMIN_EMAIL", DEFAULT_ADMIN["email"]).strip() or DEFAULT_ADMIN["email"],
             "password": password,
         }
 
