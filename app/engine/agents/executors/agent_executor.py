@@ -176,7 +176,7 @@ class AgentExecutor:
             # --- LLM 调用 ---
             logger.debug(f"🧠 [AgentExecutor] 迭代 {iteration}/{self.max_iterations}")
             try:
-                response = self._invoke_llm(messages)
+                response = await self._invoke_llm(messages)
             except Exception as e:
                 logger.error(f"❌ [AgentExecutor] LLM 调用失败: {e}", exc_info=True)
                 final_report = self._extract_last_ai_content(messages)
@@ -219,7 +219,7 @@ class AgentExecutor:
                 messages.append(HumanMessage(content=loop_result.message))
                 # 给 LLM 一次机会自主停止
                 try:
-                    final_response = self._invoke_llm(messages)
+                    final_response = await self._invoke_llm(messages)
                     if not (hasattr(final_response, "tool_calls") and final_response.tool_calls):
                         final_report = final_response.content or ""
                         messages.append(final_response)

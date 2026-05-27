@@ -1,5 +1,6 @@
 # TradingAgents/graph/trading_graph.py
 
+import asyncio
 import os
 from pathlib import Path
 import json
@@ -369,42 +370,46 @@ class TradingAgentsGraph:
         is_updates_mode = args.get("stream_mode") == "updates"
 
         try:
-            for chunk in self.graph.stream(init_agent_state, **args):
-                # ---- 节点计时 ----
-                for node_name in chunk.keys():
-                    if not node_name.startswith('__'):
-                        if current_node_name and current_node_start:
-                            elapsed = time.time() - current_node_start
-                            node_timings[current_node_name] = elapsed
-                            logger.info(f"⏱️ [{current_node_name}] 耗时: {elapsed:.2f}秒")
-                            if progress_callback:
-                                logger.info(f"🔍 [TIMING] 节点切换: {current_node_name} → {node_name}")
-
-                        current_node_name = node_name
-                        current_node_start = time.time()
-                        if progress_callback:
-                            logger.info(f"🔍 [TIMING] 开始计时: {node_name}")
-                        break
-
-                # ---- 进度回调 ----
-                if progress_callback:
-                    self._send_progress_update(chunk, progress_callback)
-
-                # ---- 状态累积 ----
-                if is_updates_mode or progress_callback:
-                    # updates 模式：chunk = {node_name: state_update}
-                    if final_state is None:
-                        final_state = copy.deepcopy(init_agent_state)
-                    for node_name, node_update in chunk.items():
+            async def _stream_graph():
+                nonlocal trace, final_state, current_node_start, current_node_name
+                async for chunk in self.graph.astream(init_agent_state, **args):
+                    # ---- 节点计时 ----
+                    for node_name in chunk.keys():
                         if not node_name.startswith('__'):
-                            _merge_state_update(final_state, node_update)
-                else:
-                    # values 模式：chunk = 完整状态
-                    if self.debug:
-                        if len(chunk.get("messages", [])) > 0:
-                            chunk["messages"][-1].pretty_print()
-                    trace.append(chunk)
-                    final_state = chunk
+                            if current_node_name and current_node_start:
+                                elapsed = time.time() - current_node_start
+                                node_timings[current_node_name] = elapsed
+                                logger.info(f"⏱️ [{current_node_name}] 耗时: {elapsed:.2f}秒")
+                                if progress_callback:
+                                    logger.info(f"🔍 [TIMING] 节点切换: {current_node_name} → {node_name}")
+
+                            current_node_name = node_name
+                            current_node_start = time.time()
+                            if progress_callback:
+                                logger.info(f"🔍 [TIMING] 开始计时: {node_name}")
+                            break
+
+                    # ---- 进度回调 ----
+                    if progress_callback:
+                        self._send_progress_update(chunk, progress_callback)
+
+                    # ---- 状态累积 ----
+                    if is_updates_mode or progress_callback:
+                        # updates 模式：chunk = {node_name: state_update}
+                        if final_state is None:
+                            final_state = copy.deepcopy(init_agent_state)
+                        for node_name, node_update in chunk.items():
+                            if not node_name.startswith('__'):
+                                _merge_state_update(final_state, node_update)
+                    else:
+                        # values 模式：chunk = 完整状态
+                        if self.debug:
+                            if len(chunk.get("messages", [])) > 0:
+                                chunk["messages"][-1].pretty_print()
+                        trace.append(chunk)
+                        final_state = chunk
+
+            asyncio.run(_stream_graph())
         except Exception as e:
             logger.error(f"❌ 分析流程执行异常: {e}")
             if final_state is not None:
