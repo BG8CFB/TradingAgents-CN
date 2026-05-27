@@ -480,12 +480,13 @@ export const useAuthStore = defineStore('auth', {
           }
         } catch (error) {
           console.error('❌ 检查认证状态失败:', error)
-          // 如果是网络错误或超时，不清除认证信息，只是标记为未认证
+          // 网络超时不代表 token 失效，本地已通过 isValidToken() 验证过格式和过期时间
+          // 此时不应修改 isAuthenticated，避免路由守卫误判导致导航被拦截
           if ((error as any).code === 'ECONNABORTED' || (error as any).message?.includes('timeout')) {
-            console.warn('⚠️ 网络超时，保留认证信息但标记为未认证状态')
-            this.isAuthenticated = false
+            console.warn('⚠️ 网络超时，保持当前认证状态（本地 token 仍然有效）')
+            // 不要修改 isAuthenticated，保持与本地 token 一致
           } else {
-            // 其他错误则清除认证信息
+            // 其他错误（如 401）则清除认证信息
             this.clearAuthInfo()
             this.redirectToLogin()
           }

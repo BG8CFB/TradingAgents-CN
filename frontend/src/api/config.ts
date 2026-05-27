@@ -145,6 +145,7 @@ export interface ConfigTestResponse {
   success: boolean
   message: string
   details?: Record<string, any>
+  response_time?: number
 }
 
 
@@ -418,7 +419,7 @@ export const configApi = {
   },
 
   // 测试数据库配置连接
-  testDatabaseConfig(dbName: string): Promise<ApiResponse<ConfigTestResponse>> {
+  testDatabaseConfig(dbName: string): Promise<ConfigTestResponse> {
     return ApiClient.post(`/api/config/database/${encodeURIComponent(dbName)}/test`)
   },
 
@@ -448,7 +449,7 @@ export const configApi = {
   },
 
   // 测试配置连接
-  testConfig(testRequest: ConfigTestRequest): Promise<ApiResponse<ConfigTestResponse>> {
+  testConfig(testRequest: ConfigTestRequest): Promise<ConfigTestResponse> {
     return ApiClient.post('/api/config/test', testRequest)
   },
 

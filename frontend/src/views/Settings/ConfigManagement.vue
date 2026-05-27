@@ -1798,7 +1798,8 @@ const testDatabase = async (config: DatabaseConfig) => {
     const result = await configApi.testDatabaseConfig(config.name)
 
     if (result.success) {
-      ElMessage.success(`数据库连接测试成功 (${(result.data as any).response_time?.toFixed(2)}s)`)
+      const timeStr = result.response_time ? ` (${result.response_time.toFixed(2)}s)` : ''
+      ElMessage.success(`数据库连接测试成功${timeStr}`)
     } else {
       ElMessage.error(`数据库连接测试失败: ${result.message}`)
     }
