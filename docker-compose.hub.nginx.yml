@@ -61,15 +61,7 @@ services:
     image: ghcr.1ms.run/bg8cfb/tradingagents-backend:${TA_VERSION:-latest}
     container_name: tradingagents-backend
     restart: unless-stopped
-    # 以 root 启动 entrypoint 修复 volume 权限，再降权运行应用
-    user: "0:0"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        # 修复 volume 挂载目录权限，确保 appuser(id=999) 可写
-        chown -R 999:999 /app/runtime /app/config 2>/dev/null || true
-        # 切换到 appuser 执行原始 CMD
-        exec runuser -u appuser -- python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # Dockerfile 内置 entrypoint：以 root 修复 volume 权限，再降权到 appuser
     expose:
       - "8000"
     volumes:

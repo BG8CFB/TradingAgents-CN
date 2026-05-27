@@ -103,6 +103,10 @@ RUN pip install --upgrade pip --retries 5 --timeout 120 -i https://mirrors.aliyu
 COPY app ./app
 COPY config ./config
 
+# 复制 entrypoint 脚本（以 root 启动，修复 volume 权限后降权到 appuser）
+COPY docker/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
+
 # 注意：不在此处 COPY .env 文件到镜像中。
 # 敏感配置应通过 docker-compose.yml 的 env_file / environment 注入，
 # 或使用 Docker secrets / Vault 等安全机制。
@@ -115,9 +119,12 @@ EXPOSE 8000
 # Docker环境标识
 ENV DOCKER_CONTAINER=true
 
-# 创建非 root 用户并以该用户运行
+# 创建非 root 用户
 RUN useradd -r -m -s /bin/false appuser
-USER appuser
+
+# entrypoint 以 root 启动，修复 volume 权限后降权到 appuser
+# docker-compose 中的 command 只覆盖 CMD，不覆盖 ENTRYPOINT
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # 启动FastAPI服务
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

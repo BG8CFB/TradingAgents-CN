@@ -101,7 +101,7 @@ services:
       REFRESH_TOKEN_EXPIRE_DAYS: "30"
       CSRF_SECRET: ${CSRF_SECRET:-docker-csrf-secret-key-change-in-production-2024}
       BCRYPT_ROUNDS: "12"
-      ALLOWED_ORIGINS: "*"
+      ALLOWED_ORIGINS: '["*"]'
       DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY}"
       DASHSCOPE_ENABLED: "${DASHSCOPE_ENABLED:-false}"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
