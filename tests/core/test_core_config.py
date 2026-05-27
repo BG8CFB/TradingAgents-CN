@@ -1,12 +1,14 @@
-from test_infra import env_vars
 """
 测试 app/core/config.py — Settings 配置类
 """
 
+import importlib
 import os
+import sys
 import warnings
 
 import pytest
+from test_infra import env_vars
 
 
 class TestSettingsDefaults:
@@ -237,3 +239,30 @@ class TestLegacyEnvAliases:
             with env_vars({"PORT": "9000"}):
                 s = Settings()
                 assert s.PORT == 9000
+
+
+class TestProductionSecurityChecks:
+    """测试生产环境下的导入期安全检查"""
+
+    def test_docker_production_rejects_wildcard_allowed_hosts(self):
+        """Docker 生产环境下 ALLOWED_HOSTS 不能包含 '*'"""
+        module_name = "app.core.config"
+        original_module = sys.modules.get(module_name)
+
+        with env_vars(
+            {
+                "DEBUG": "false",
+                "DOCKER_CONTAINER": "true",
+                "ALLOWED_ORIGINS": '["https://example.com"]',
+                "ALLOWED_HOSTS": '["*"]',
+                "JWT_SECRET": "test-jwt-secret",
+                "CSRF_SECRET": "test-csrf-secret",
+            }
+        ):
+            sys.modules.pop(module_name, None)
+            with pytest.raises(RuntimeError, match="ALLOWED_HOSTS"):
+                importlib.import_module(module_name)
+
+        sys.modules.pop(module_name, None)
+        if original_module is not None:
+            sys.modules[module_name] = original_module

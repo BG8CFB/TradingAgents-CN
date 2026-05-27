@@ -403,6 +403,11 @@ if settings.is_production:
                 "❌ 安全错误: 生产环境 ALLOWED_HOSTS 不能包含 '*'，"
                 "请在 .env 中显式配置允许的主机名！"
             )
+        else:
+            raise RuntimeError(
+                "❌ 安全错误: Docker 生产环境 ALLOWED_HOSTS 包含 '*'，"
+                "请在 .env 中配置具体的主机名！"
+            )
 
 # 自动将代理配置设置到环境变量
 # 这样 requests 库可以直接读取 os.environ['NO_PROXY']
