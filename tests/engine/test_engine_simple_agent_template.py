@@ -112,7 +112,7 @@ class TestInjectToolData:
 
     @pytest.mark.asyncio
     async def test_skips_when_ticker_empty_and_needed(self):
-        """ticker 为空且工具需要 ticker 时不注入数据（但可能有 SystemMessage 前导说明）"""
+        """ticker 为空且工具需要 ticker 时不注入数据"""
 
         class FakeTool:
             name = "daily_quotes"
@@ -123,12 +123,11 @@ class TestInjectToolData:
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
         )
-        assert not any(isinstance(m, AIMessage) for m in messages)
-        assert not any(isinstance(m, ToolMessage) for m in messages)
+        assert len(messages) == 0
 
     @pytest.mark.asyncio
     async def test_injects_tool_result_into_messages(self):
-        """china_market 不需要 ticker，应成功注入数据"""
+        """china_market 不需要 ticker，应成功注入数据为 SystemMessage"""
 
         class FakeTool:
             name = "china_market"
@@ -142,9 +141,12 @@ class TestInjectToolData:
             {"ticker": "", "trade_date": "2024-12-31"},
             messages,
         )
-        assert any(isinstance(m, SystemMessage) for m in messages)
-        assert any(isinstance(m, AIMessage) for m in messages)
-        assert any(isinstance(m, ToolMessage) for m in messages)
+        sys_msgs = [m for m in messages if isinstance(m, SystemMessage)]
+        assert len(sys_msgs) >= 1, "应有至少一个 SystemMessage 包含预加载数据"
+        combined = " ".join(m.content for m in sys_msgs)
+        assert "预加载数据" in combined, f"SystemMessage 应包含预加载数据标题，实际: {combined[:200]}"
+        assert not any(isinstance(m, AIMessage) for m in messages)
+        assert not any(isinstance(m, ToolMessage) for m in messages)
 
     @pytest.mark.asyncio
     async def test_handles_tool_exception_gracefully(self):
