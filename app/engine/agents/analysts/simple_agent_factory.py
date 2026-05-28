@@ -109,6 +109,8 @@ class SimpleAgentFactory:
                     except Exception as e:
                         logger.debug(f"设置工具元数据失败: {e}")
                         pass
+
+                    builtin_tools.append(langchain_tool)
                 except Exception as e:
                     logger.error(f"❌ 包装内置工具 {spec.tool_id} 失败: {e}")
 
@@ -130,7 +132,24 @@ class SimpleAgentFactory:
                 registry.initialize()
 
             # 只保留非内置工具（MCP + Skill）
-            callable_tools = [t for t in all_tools if not registry.is_builtin_tool(t)]
+            # 双重检查：metadata 标记 + tool_id 名称白名单，防止 metadata 设置失败时内置工具泄露到 bind_tools
+            builtin_tool_ids = {spec.tool_id for spec in config_specs}
+            callable_tools = []
+            for t in all_tools:
+                tool_name = getattr(t, "name", None)
+                # 检查1：metadata 标记
+                if registry.is_builtin_tool(t):
+                    continue
+                # 检查2：名称在本次分析师配置的内置工具列表中
+                if tool_name and tool_name in builtin_tool_ids:
+                    logger.debug(
+                        f"🔄 [工厂] 工具 '{tool_name}' metadata 未标记为 builtin 但匹配内置 tool_id，已排除"
+                    )
+                    continue
+                # 检查3：ToolRegistry 的 _builtin_metas 中注册过的名称
+                if tool_name and registry.is_builtin_tool_by_name(tool_name):
+                    continue
+                callable_tools.append(t)
 
             # 断路器包装
             callable_tools = [DynamicAnalystFactory._wrap_tool_safe(t, toolkit) for t in callable_tools]

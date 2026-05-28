@@ -70,7 +70,9 @@ def get_stock_fundamentals(
                 recent_start_date = (datetime.strptime(current_date, '%Y-%m-%d') - timedelta(days=2)).strftime('%Y-%m-%d')
 
                 _di = DataInterface.get_instance()
-                _r = run_async(_di.read("CN", "daily_quotes", symbol=stock_code,
+                clean_symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
+                                         .replace('.sz', '').replace('.sh', '').replace('.bj', '')
+                _r = run_async(_di.read("CN", "daily_quotes", symbol=clean_symbol,
                                           start_date=recent_start_date, end_date=recent_end_date))
                 _d = _r.get("data")
                 if _d:
@@ -201,6 +203,15 @@ def get_company_performance_unified(
                 suggestion="检查股票代码格式是否正确"
             ))
 
+        # 清洗 symbol（去掉交易所后缀以匹配数据库存储格式）
+        if market_info['is_china']:
+            symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
+                               .replace('.sz', '').replace('.sh', '').replace('.bj', '')
+        elif market_info['is_hk']:
+            symbol = stock_code.replace('.HK', '').replace('.hk', '').zfill(5)
+        else:
+            symbol = stock_code.upper()
+
         if not end_date:
             end_date = get_current_date_compact()
         if not start_date:
@@ -208,9 +219,17 @@ def get_company_performance_unified(
 
         logger.info(f"[{market_name}业绩] 获取数据: {stock_code}, data_type: {data_type}")
 
+        # data_type → statement_type 映射（API 层用 indicators，数据库存 indicator）
+        _DT_TO_STMT = {
+            "forecast": None, "express": None, "indicators": "indicator",
+            "income": "income", "balance": "balance", "cashflow": "cashflow",
+        }
+        stmt_type = _DT_TO_STMT.get(data_type)
+
         di = DataInterface.get_instance()
-        result = run_async(di.read(market, "financial_data", symbol=stock_code,
-                                     start_date=start_date, end_date=end_date))
+        result = run_async(di.read(market, "financial_data", symbol=symbol,
+                                     start_date=start_date, end_date=end_date,
+                                     filters={"statement_type": stmt_type} if stmt_type else None))
         perf_data = result.get("data")
         if perf_data:
             import pandas as pd

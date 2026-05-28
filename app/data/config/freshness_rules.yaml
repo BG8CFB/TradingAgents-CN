@@ -21,6 +21,25 @@ CN:
   market_quotes:
     rule_type: time_window
     threshold_minutes: 30
+  intraday_quotes:
+    rule_type: time_window
+    threshold_minutes: 30
+  money_flow:
+    rule_type: trading_day_after_close
+    threshold_minutes: 30
+    reference_time: "15:00"
+  margin_trading:
+    rule_type: trading_day_after_close
+    threshold_minutes: 30
+    reference_time: "15:00"
+  dragon_tiger:
+    rule_type: trading_day_after_close
+    threshold_minutes: 60
+    reference_time: "15:00"
+  block_trade:
+    rule_type: trading_day_after_close
+    threshold_minutes: 60
+    reference_time: "15:00"
 
 HK:
   daily_quotes:

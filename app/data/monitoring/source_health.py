@@ -153,7 +153,11 @@ class SourceHealthMonitor:
                     logger.debug(f"刷入健康度失败: {e}")
 
         try:
-            from app.core.async_utils import run_async
+            from app.core.async_utils import run_async, get_main_loop
+            main_loop = get_main_loop()
+            # 主循环未运行（启动前/关闭中/热重载），跳过刷入避免 Motor 循环冲突
+            if main_loop is None or not main_loop.is_running():
+                return
             run_async(_do_flush())
         except Exception as e:
             logger.debug(f"健康度刷入失败: {e}")

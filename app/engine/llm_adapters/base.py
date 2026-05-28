@@ -45,27 +45,18 @@ class BaseChatAdapter:
         """
         统一 API Key 解析。
 
-        优先级: 显式 api_key 参数 > 环境变量 > None
+        API Key 仅通过显式参数传入（来源于数据库配置）。
         对本地模型（如 Ollama）返回 None 也合法。
         """
         if api_key:
-            return api_key
-
-        if not api_key_env:
-            return None
-
-        env_val = os.getenv(api_key_env)
-        if not env_val:
-            return None
-
-        # 过滤占位符
-        try:
-            from app.utils.api_key_utils import is_valid_api_key
-
-            if is_valid_api_key(env_val):
-                return env_val
-        except ImportError:
-            return env_val
+            # 过滤占位符
+            try:
+                from app.utils.api_key_utils import is_valid_api_key
+                if is_valid_api_key(api_key):
+                    return api_key
+                return None
+            except ImportError:
+                return api_key
 
         return None
 

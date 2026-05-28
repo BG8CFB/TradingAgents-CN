@@ -49,17 +49,10 @@ class StartupValidator:
     """启动配置验证器"""
     
     # 必需配置项（仅包含无合理默认值、必须手动配置的项）
-    REQUIRED_CONFIGS = [
-        ConfigItem(
-            key="JWT_SECRET",
-            level=ConfigLevel.REQUIRED,
-            description="JWT密钥（用于生成认证令牌，必须在 .env 中显式配置）",
-            example="your-super-secret-jwt-key-change-in-production",
-            validator=lambda v: len(v) >= 16
-        ),
-    ]
+    # JWT_SECRET 已改为自动生成并持久化到 DB，不再需要手动配置
+    REQUIRED_CONFIGS = []
     
-    # 推荐配置项
+    # 推荐配置项（仅基础设施）
     RECOMMENDED_CONFIGS = [
         ConfigItem(
             key="MONGODB_HOST",
@@ -92,27 +85,6 @@ class StartupValidator:
             description="Redis端口",
             example="6379",
             validator=lambda v: v.isdigit() and 1 <= int(v) <= 65535
-        ),
-        ConfigItem(
-            key="DEEPSEEK_API_KEY",
-            level=ConfigLevel.RECOMMENDED,
-            description="DeepSeek API密钥（推荐，性价比高）",
-            example="sk-xxx",
-            help_url="https://platform.deepseek.com/"
-        ),
-        ConfigItem(
-            key="DASHSCOPE_API_KEY",
-            level=ConfigLevel.RECOMMENDED,
-            description="阿里百炼API密钥（推荐，国产稳定）",
-            example="sk-xxx",
-            help_url="https://dashscope.aliyun.com/"
-        ),
-        ConfigItem(
-            key="TUSHARE_TOKEN",
-            level=ConfigLevel.RECOMMENDED,
-            description="Tushare Token（推荐，专业A股数据）",
-            example="xxx",
-            help_url="https://tushare.pro/register?reg=tacn"
         ),
     ]
     

@@ -22,6 +22,11 @@ from app.data.schema.domains.adj_factors import AdjFactorsSchema
 from app.data.schema.domains.financial_data import FinancialDataSchema
 from app.data.schema.domains.stock_news import StockNewsSchema
 from app.data.schema.domains.market_quotes import MarketQuotesSchema
+from app.data.schema.domains.money_flow import MoneyFlowSchema
+from app.data.schema.domains.margin_trading import MarginTradingSchema
+from app.data.schema.domains.dragon_tiger import DragonTigerSchema
+from app.data.schema.domains.block_trade import BlockTradeSchema
+from app.data.schema.domains.intraday_quotes import IntradayQuotesSchema
 
 logger = logging.getLogger(__name__)
 
@@ -330,5 +335,169 @@ class TushareCNAdapter(BaseAdapter):
                 last_volume=volume,
                 last_updated=get("update_time"),
                 trade_date=get("trade_date"),
+            ))
+        return results
+
+    # ── money_flow ──
+
+    def adapt_money_flow(self, raw: Any) -> List[MoneyFlowSchema]:
+        """Tushare moneyflow → MoneyFlowSchema
+
+        单位转换: 万元 → 元（×10000）
+        """
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "")))
+            td = _parse_date(get("trade_date"))
+            if not td:
+                continue
+
+            # 万元 → 元
+            main_net_inflow = _safe_float(get("net_mf_amount"))
+            if main_net_inflow is not None:
+                main_net_inflow = main_net_inflow * 10000
+            huge_net_inflow = _safe_float(get("buy_elg_amount"))
+            if huge_net_inflow is not None:
+                huge_net_inflow = huge_net_inflow * 10000
+            large_net_inflow = _safe_float(get("buy_lg_amount"))
+            if large_net_inflow is not None:
+                large_net_inflow = large_net_inflow * 10000
+            medium_net_inflow = _safe_float(get("buy_md_amount"))
+            if medium_net_inflow is not None:
+                medium_net_inflow = medium_net_inflow * 10000
+            small_net_inflow = _safe_float(get("buy_sm_amount"))
+            if small_net_inflow is not None:
+                small_net_inflow = small_net_inflow * 10000
+
+            results.append(MoneyFlowSchema(
+                symbol=symbol,
+                market="CN",
+                data_source="tushare",
+                trade_date=td,
+                main_net_inflow=main_net_inflow,
+                main_net_inflow_pct=_safe_float(get("net_mf_vol")),
+                huge_net_inflow=huge_net_inflow,
+                large_net_inflow=large_net_inflow,
+                medium_net_inflow=medium_net_inflow,
+                small_net_inflow=small_net_inflow,
+            ))
+        return results
+
+    # ── margin_trading ──
+
+    def adapt_margin_trading(self, raw: Any) -> List[MarginTradingSchema]:
+        """Tushare margin_detail → MarginTradingSchema"""
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "")))
+            td = _parse_date(get("trade_date"))
+            if not td:
+                continue
+            results.append(MarginTradingSchema(
+                symbol=symbol,
+                market="CN",
+                data_source="tushare",
+                trade_date=td,
+                rzye=_safe_float(get("rzye")),
+                rqye=_safe_float(get("rqye")),
+                rz_buy=_safe_float(get("rzmre")),
+                rq_sell=_safe_float(get("rqmcl")),
+                rzrqye=_safe_float(get("rzrqye")),
+                rqyl=_safe_float(get("rqyl")),
+            ))
+        return results
+
+    # ── dragon_tiger ──
+
+    def adapt_dragon_tiger(self, raw: Any) -> List[DragonTigerSchema]:
+        """Tushare top_list → DragonTigerSchema"""
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "")))
+            td = _parse_date(get("trade_date"))
+            if not td:
+                continue
+            results.append(DragonTigerSchema(
+                symbol=symbol,
+                market="CN",
+                data_source="tushare",
+                trade_date=td,
+                name=str(get("name", "")),
+                close=_safe_float(get("close")),
+                pct_chg=_safe_float(get("pct_change")),
+                direction=str(get("reason", "")),
+                buy_amount=_safe_float(get("l_buy")),
+                sell_amount=_safe_float(get("l_sell")),
+                net_amount=_safe_float(get("net_amount")),
+            ))
+        return results
+
+    # ── block_trade ──
+
+    def adapt_block_trade(self, raw: Any) -> List[BlockTradeSchema]:
+        """Tushare block_trade → BlockTradeSchema"""
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "")))
+            td = _parse_date(get("trade_date"))
+            if not td:
+                continue
+            results.append(BlockTradeSchema(
+                symbol=symbol,
+                market="CN",
+                data_source="tushare",
+                trade_date=td,
+                name=str(get("name", "")),
+                price=_safe_float(get("price")),
+                volume=_safe_float(get("vol")),
+                amount=_safe_float(get("amount")),
+                buyer=str(get("buyer", "")),
+                seller=str(get("seller", "")),
+            ))
+        return results
+
+    # ── intraday_quotes ──
+
+    def adapt_intraday_quotes(self, raw: Any) -> List[IntradayQuotesSchema]:
+        """Tushare stk_mins → IntradayQuotesSchema"""
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            ts_code = str(get("ts_code", ""))
+            symbol = _parse_symbol_from_ts_code(ts_code)
+            dt = str(get("trade_time", ""))
+            if not dt:
+                continue
+            results.append(IntradayQuotesSchema(
+                symbol=symbol,
+                market="CN",
+                data_source="tushare",
+                datetime=dt,
+                freq="30min",
+                open=_safe_float(get("open")),
+                close=_safe_float(get("close")),
+                high=_safe_float(get("high")),
+                low=_safe_float(get("low")),
+                volume=_safe_float(get("vol")),
+                amount=_safe_float(get("amount")),
             ))
         return results

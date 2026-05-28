@@ -72,7 +72,7 @@ class UnifiedStockService:
         """获取 A 股实时行情（合并 market_quotes + daily_quotes + basic_info）。"""
         di = self._di()
 
-        # 1) market_quotes：获取最新价格（字段：last_price, last_volume, last_updated）
+        # 1) market_quotes：获取实时行情（含 open/high/low/close/pre_close/volume/amount 等）
         q_result = await di.read("CN", "market_quotes", symbol=code6)
         q = q_result.get("data")
 
@@ -102,8 +102,8 @@ class UnifiedStockService:
 
         # 价格：优先 market_quotes 的实时价，其次 daily_quotes 收盘价
         close = (q or {}).get("last_price") or dq.get("close")
-        pct = dq.get("pct_chg")
-        prev_close = dq.get("pre_close")
+        pct = dq.get("pct_chg") or (q or {}).get("pct_chg")
+        prev_close = dq.get("pre_close") or (q or {}).get("pre_close")
         if prev_close is None and close is not None and pct is not None:
             try:
                 prev_close = round(float(close) / (1.0 + float(pct) / 100.0), 4)
@@ -128,8 +128,8 @@ class UnifiedStockService:
 
         amplitude = None
         try:
-            high = dq.get("high")
-            low = dq.get("low")
+            high = dq.get("high") or (q or {}).get("high")
+            low = dq.get("low") or (q or {}).get("low")
             if high is not None and low is not None and prev_close is not None and prev_close > 0:
                 amplitude = round((float(high) - float(low)) / float(prev_close) * 100, 2)
         except Exception as e:
@@ -142,11 +142,11 @@ class UnifiedStockService:
             "market": (b or {}).get("market"),
             "price": close,
             "change_percent": pct,
-            "amount": dq.get("amount"),
-            "volume": dq.get("volume"),
-            "open": dq.get("open"),
-            "high": dq.get("high"),
-            "low": dq.get("low"),
+            "amount": dq.get("amount") or (q or {}).get("amount"),
+            "volume": dq.get("volume") or (q or {}).get("volume"),
+            "open": dq.get("open") or (q or {}).get("open"),
+            "high": dq.get("high") or (q or {}).get("high"),
+            "low": dq.get("low") or (q or {}).get("low"),
             "prev_close": prev_close,
             "turnover_rate": turnover_rate,
             "amplitude": amplitude,

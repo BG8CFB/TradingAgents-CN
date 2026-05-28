@@ -46,4 +46,4 @@ def wait_rate_limit():
     """执行限流等待"""
     limiter = get_rate_limiter()
     if limiter:
-        limiter.wait()
+        limiter.acquire()

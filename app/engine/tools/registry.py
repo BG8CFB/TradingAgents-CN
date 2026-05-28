@@ -119,8 +119,12 @@ class ToolRegistry:
         try:
             from app.engine.tools.skill import SkillRegistry
 
-            # SkillRegistry.__init__ 内已自动调用 discover_skills()，无需重复调用
             skill_registry = SkillRegistry()
+
+            if not skill_registry.list_skills():
+                logger.info("[ToolRegistry] 无已安装技能，跳过 load_skill 工具注册")
+                self._skill_tools = []
+                return
 
             from app.engine.tools.skill.meta_tool import create_load_skill_tool
 

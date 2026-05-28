@@ -3,12 +3,24 @@ from typing import List
 from urllib.parse import quote_plus
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import logging as _logging
 import os
 import secrets
+import shutil
 import warnings
 
 # 🔧 延迟导入以避免循环导入：runtime_paths -> logging -> config
 # 将在属性方法中导入
+
+# ── .env 自动引导 ──────────────────────────────────────────────────
+# 首次启动时若 .env 不存在，从 .env.example 复制一份最小化配置
+_BOOT_ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
+_BOOT_ENV_EXAMPLE = _BOOT_ENV_PATH.parent / ".env.example"
+if not _BOOT_ENV_PATH.exists() and _BOOT_ENV_EXAMPLE.exists():
+    shutil.copy2(_BOOT_ENV_EXAMPLE, _BOOT_ENV_PATH)
+    _logging.getLogger("app.config").warning(
+        "已自动从 .env.example 创建 .env，请根据需要调整数据库连接配置"
+    )
 
 # Legacy env var aliases (deprecated): map API_HOST/PORT/DEBUG -> HOST/PORT/DEBUG
 _LEGACY_ENV_ALIASES = {
@@ -148,11 +160,6 @@ class Settings(BaseSettings):
     SESSION_EXPIRE_HOURS: int = Field(default=24)
     CSRF_SECRET: str = Field(default_factory=lambda: _runtime_secret("CSRF_SECRET"))
 
-    # 外部服务配置
-    STOCK_DATA_API_URL: str = Field(default="")
-    STOCK_DATA_API_KEY: str = Field(default="")
-    FINNHUB_API_KEY: str = Field(default="")
-
     # 受信代理 IP 列表（逗号分隔，用于反向代理后获取真实客户端 IP）
     TRUSTED_PROXIES: str = Field(default="127.0.0.1,::1")
 
@@ -210,7 +217,7 @@ class Settings(BaseSettings):
     )
 
     # Tushare基础配置
-    TUSHARE_TOKEN: str = Field(default="", description="Tushare API Token")
+    TUSHARE_TOKEN: str = Field(default="", description="Tushare API Token（DB 优先，.env 兜底）")
     TUSHARE_ENABLED: bool = Field(default=True, description="启用Tushare数据源")
     TUSHARE_TIER: str = Field(default="standard", description="Tushare积分等级 (free/basic/standard/premium/vip)")
     TUSHARE_RATE_LIMIT_SAFETY_MARGIN: float = Field(default=0.8, ge=0.1, le=1.0, description="速率限制安全边际")
@@ -368,18 +375,14 @@ settings = Settings()
 # Docker 容器环境下放宽安全检查（Nginx 反代已保证同源，无需严格 CORS/Host 校验）
 _IS_DOCKER = os.getenv("DOCKER_CONTAINER", "").lower() in ("true", "1", "yes")
 
-# 安全检查：生产环境下必须显式配置密钥；开发环境缺失时给出提示
-# Docker 环境下通过 compose environment 注入默认密钥，降级为警告
+# 安全密钥检查：密钥将自动生成并持久化到 DB（由 SecretService 管理）
+# 此处仅检查并提示，不再阻止启动
 _REQUIRED_SECRETS = ("JWT_SECRET", "CSRF_SECRET")
 
 for _key in _REQUIRED_SECRETS:
     if not os.getenv(_key):
-        if settings.is_production and not _IS_DOCKER:
-            raise RuntimeError(
-                f"安全错误: 生产环境缺少 {_key}，请在 .env 或环境变量中显式配置后再启动！"
-            )
         warnings.warn(
-            f"安全提示: 未配置 {_key}，当前使用运行期随机密钥；服务重启后相关会话将失效。",
+            f"安全提示: 未配置 {_key}，将在首次连接数据库后自动生成并持久化。",
             stacklevel=2,
         )
 

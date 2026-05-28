@@ -3,7 +3,8 @@
 import asyncio
 import logging
 import time
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, Tuple
 
 from app.data.core.domain import DataDomain
 from app.data.core.result import RefreshResult, DomainRefreshResult
@@ -31,6 +32,21 @@ _SUPPORTED_ON_DEMAND_DOMAINS = {
     "margin_trading",
     "dragon_tiger",
     "block_trade",
+}
+
+# 按日期增量刷新的域：{domain: (date_field, default_lookback_days)}
+_INCREMENTAL_DOMAINS = {
+    "daily_quotes": ("trade_date", 60),
+    "daily_indicators": ("trade_date", 60),
+    "adj_factors": ("trade_date", 60),
+    "financial_data": ("report_period", 365),
+    "intraday_quotes": ("datetime", 5),
+    "money_flow": ("trade_date", 60),
+    "margin_trading": ("trade_date", 60),
+    "dragon_tiger": ("trade_date", 60),
+    "block_trade": ("trade_date", 60),
+    "corporate_actions": ("ex_date", 365),
+    "news": ("publish_time", 7),
 }
 
 
@@ -96,6 +112,46 @@ class DataRefreshService:
         result.compute_status()
         return result
 
+    async def _get_incremental_date_range(
+        self, market: str, symbol: str, domain: str,
+    ) -> Tuple[str, str]:
+        """查询 MongoDB 最新记录，计算增量拉取的日期范围。
+
+        Returns:
+            (start_date, end_date) — start_date 为最新记录日期往前 7 天（重叠容错），
+            end_date 为今天。若无历史数据则回退到默认 lookback。
+        """
+        date_field, default_lookback = _INCREMENTAL_DOMAINS[domain]
+
+        try:
+            from app.data.storage.mongo.client import get_motor_db
+            from app.data.storage.mongo.collections import get_collection_name
+
+            db = get_motor_db()
+            coll_name = get_collection_name(domain, market)
+            doc = await db[coll_name].find_one(
+                {"symbol": symbol},
+                {date_field: 1},
+                sort=[(date_field, -1)],
+            )
+
+            if doc and doc.get(date_field):
+                latest = doc[date_field]
+                # 解析日期字符串，往前推 7 天作为重叠窗口
+                if len(str(latest)) >= 10:
+                    latest_date = datetime.strptime(str(latest)[:10], "%Y-%m-%d")
+                else:
+                    latest_date = datetime.strptime(str(latest), "%Y%m%d")
+                start = (latest_date - timedelta(days=7)).strftime("%Y-%m-%d")
+            else:
+                start = (datetime.now(timezone.utc) - timedelta(days=default_lookback)).strftime("%Y-%m-%d")
+        except Exception as e:
+            logger.debug(f"查询最新日期失败，使用默认范围: {e}")
+            start = (datetime.now(timezone.utc) - timedelta(days=default_lookback)).strftime("%Y-%m-%d")
+
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return start, end
+
     async def _refresh_domain(
         self, market: str, symbol: str, domain: str, force: bool, timeout: int
     ) -> DomainRefreshResult:
@@ -126,8 +182,16 @@ class DataRefreshService:
 
         try:
             router = self._get_router()
+
+            # 增量域：只拉取最新记录之后的数据
+            fetch_kwargs = {}
+            if domain in _INCREMENTAL_DOMAINS:
+                start_date, end_date = await self._get_incremental_date_range(market, symbol, domain)
+                fetch_kwargs["start_date"] = start_date
+                fetch_kwargs["end_date"] = end_date
+
             fetch_result = await asyncio.wait_for(
-                router.fetch(market, domain, symbol),
+                router.fetch(market, domain, symbol, **fetch_kwargs),
                 timeout=timeout,
             )
 

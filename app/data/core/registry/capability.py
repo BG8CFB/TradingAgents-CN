@@ -126,3 +126,7 @@ class CapabilityRegistry:
             for source, level in src_map.items():
                 summary[domain][source] = level.value
         return summary
+
+    def get_domains(self, market: str) -> List[str]:
+        """获取指定市场的全部数据域列表。"""
+        return sorted({d for (m, d) in self._capabilities if m == market})

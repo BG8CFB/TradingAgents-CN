@@ -8,7 +8,7 @@ from typing import Optional
 
 import pandas as pd
 
-from app.core.env import get_env
+from app.utils.ds_key_utils import get_datasource_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ async def fetch_news(
     Returns:
         新闻 DataFrame，失败返回 None
     """
-    api_key = get_env("FINNHUB_API_KEY", "")
+    api_key = get_datasource_api_key("finnhub") or ""
     if not api_key:
         logger.debug("Finnhub API Key 未配置")
         return None

@@ -162,7 +162,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Clock, Document, Promotion, Loading, Timer, CopyDocument, VideoPlay, Warning } from '@element-plus/icons-vue'
 import {
-  triggerSync, getSyncStatus, getSyncEvents,
+  triggerSync, getSyncStatus, getSyncEvents, getSourceConfig,
   type SyncCheckpoint, type SyncEvent,
   DOMAIN_LABELS,
 } from '@/api/marketData'
@@ -170,21 +170,20 @@ import type { MarketCode } from '@/api/marketData'
 
 const props = defineProps<{ market: MarketCode }>()
 
-const validDomains = computed(() => {
-  const base = [
-    { value: 'basic_info', label: '基础信息' },
-    { value: 'daily_quotes', label: '日K线' },
-    { value: 'daily_indicators', label: '每日指标' },
-    { value: 'adj_factors', label: '复权因子' },
-    { value: 'financial_data', label: '财务数据' },
-    { value: 'trade_calendar', label: '交易日历' },
-    { value: 'news', label: '新闻' },
-  ]
-  if (props.market !== 'cn') {
-    base.push({ value: 'corporate_actions', label: '公司行为' })
-  }
-  return base
-})
+const availableDomains = ref<string[]>([])
+
+async function loadDomains() {
+  try {
+    const res = await getSourceConfig(props.market)
+    if (res.success && res.data?.capability_matrix) {
+      availableDomains.value = Object.keys(res.data.capability_matrix)
+    }
+  } catch { /* 静默 */ }
+}
+
+const validDomains = computed(() =>
+  availableDomains.value.map(d => ({ value: d, label: DOMAIN_LABELS[d] || d }))
+)
 
 function domainLabel(domain: string) { return DOMAIN_LABELS[domain] || domain }
 function formatTime(iso: string) {
@@ -303,11 +302,12 @@ async function loadEvents() {
 watch(() => props.market, () => {
   checkpoints.value = []
   events.value = []
+  loadDomains()
   loadStatus()
   loadEvents()
 })
 
-onMounted(() => { loadStatus(); loadEvents() })
+onMounted(() => { loadDomains(); loadStatus(); loadEvents() })
 </script>
 
 <style scoped lang="scss">

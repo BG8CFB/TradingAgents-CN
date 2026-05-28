@@ -8,7 +8,7 @@ import os
 import urllib.request
 from typing import Optional
 
-from app.core.env import get_env
+from app.utils.ds_key_utils import get_datasource_api_key
 
 import pandas as pd
 
@@ -33,7 +33,7 @@ async def fetch_financials(
     Returns:
         财务数据 DataFrame，失败返回 None
     """
-    api_key = get_env("ALPHA_VANTAGE_API_KEY", "")
+    api_key = get_datasource_api_key("alpha_vantage") or ""
     if not api_key:
         logger.debug("Alpha Vantage API Key 未配置")
         return None

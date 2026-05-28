@@ -8,8 +8,6 @@ from app.utils.api_key_utils import (
     is_placeholder_api_key,
     is_valid_api_key,
     truncate_api_key,
-    get_env_api_key_for_provider,
-    get_env_api_key_for_datasource,
     should_skip_api_key_update,
 )
 
@@ -94,50 +92,6 @@ class TestTruncateApiKey:
         key = "1234567890123"
         result = truncate_api_key(key)
         assert "..." in result
-
-
-class TestGetEnvApiKeyForProvider:
-    def test_reads_correct_env_var(self):
-        with env_vars({"DEEPSEEK_API_KEY": "sk-test-deepseek"}):
-            result = get_env_api_key_for_provider("deepseek")
-            assert result == "sk-test-deepseek"
-
-    def test_returns_none_for_missing(self):
-        with env_vars({}):
-            os.environ.pop("NONEXISTENT_PROVIDER_API_KEY", None)
-            result = get_env_api_key_for_provider("nonexistent_provider")
-            assert result is None
-
-    def test_returns_none_for_placeholder_value(self):
-        with env_vars({"TESTPROV_API_KEY": "your-api-key"}):
-            result = get_env_api_key_for_provider("testprov")
-            assert result is None
-
-    def test_case_insensitive_provider(self):
-        with env_vars({"DASHSCOPE_API_KEY": "sk-real-key-12345"}):
-            result = get_env_api_key_for_provider("DashScope")
-            assert result == "sk-real-key-12345"
-
-
-class TestGetEnvApiKeyForDatasource:
-    def test_tushare_maps_to_tushare_token(self):
-        with env_vars({"TUSHARE_TOKEN": "real-tushare-token-12345"}):
-            result = get_env_api_key_for_datasource("tushare")
-            assert result == "real-tushare-token-12345"
-
-    def test_finnhub_maps_correctly(self):
-        with env_vars({"FINNHUB_API_KEY": "sk-finnhub-real-123456"}):
-            result = get_env_api_key_for_datasource("finnhub")
-            assert result == "sk-finnhub-real-123456"
-
-    def test_unknown_datasource_returns_none(self):
-        result = get_env_api_key_for_datasource("unknown_source")
-        assert result is None
-
-    def test_returns_none_for_placeholder(self):
-        with env_vars({"TUSHARE_TOKEN": "xxx"}):
-            result = get_env_api_key_for_datasource("tushare")
-            assert result is None
 
 
 class TestShouldSkipApiKeyUpdate:

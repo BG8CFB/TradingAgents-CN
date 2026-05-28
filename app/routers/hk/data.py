@@ -8,21 +8,18 @@ from pydantic import BaseModel
 
 from app.core.response import ok, fail
 from app.data.core.interface import DataInterface
+from app.data.core.registry.capability import CapabilityRegistry
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/hk/data", tags=["HK Data Management"])
 
 _MARKET = "HK"
-_DASHBOARD_DOMAINS = [
-    "basic_info", "daily_quotes", "daily_indicators",
-    "adj_factors", "financial_data", "corporate_actions", "market_quotes", "news",
-]
-_QUALITY_DOMAINS = [
-    "daily_quotes", "daily_indicators", "adj_factors",
-    "financial_data", "basic_info", "corporate_actions", "news",
-]
-_CHECK_DOMAINS = ["daily_quotes", "daily_indicators", "financial_data", "basic_info"]
+
+
+def _all_domains() -> List[str]:
+    """从 CapabilityRegistry 动态获取当前市场的全部数据域。"""
+    return CapabilityRegistry().get_domains(_MARKET)
 
 
 # ---------------------------------------------------------------------------
@@ -65,12 +62,13 @@ async def get_dashboard():
         pass
 
     domain_stats = {}
+    dashboard_domains = _all_domains()
     try:
         from app.services.data_dashboard_service import get_domain_stats
-        domain_stats = await get_domain_stats(_MARKET, _DASHBOARD_DOMAINS)
+        domain_stats = await get_domain_stats(_MARKET, dashboard_domains)
     except Exception as e:
         logger.debug(f"获取HK域统计失败: {e}")
-        domain_stats = {d: {"records": 0, "last_updated": None} for d in _DASHBOARD_DOMAINS}
+        domain_stats = {d: {"records": 0, "last_updated": None} for d in dashboard_domains}
 
     return ok(data={
         "domain_stats": domain_stats,
@@ -111,11 +109,9 @@ async def reset_circuit_breaker(source: str, domain: str):
 
 
 async def _load_priorities_from_db() -> Dict[str, List[str]]:
+    """从 MongoDB 加载用户配置的优先级"""
     di = DataInterface.get_instance()
-    domains = [
-        "daily_quotes", "daily_indicators", "adj_factors",
-        "financial_data", "basic_info", "corporate_actions", "news",
-    ]
+    domains = _all_domains()
     priorities: Dict[str, List[str]] = {}
     for domain in domains:
         try:
@@ -131,10 +127,7 @@ async def _load_priorities_from_db() -> Dict[str, List[str]]:
 async def get_hk_priority_config():
     """获取所有域的数据源优先级配置"""
     di = DataInterface.get_instance()
-    domains = [
-        "daily_quotes", "daily_indicators", "adj_factors",
-        "financial_data", "basic_info", "corporate_actions", "news",
-    ]
+    domains = _all_domains()
     priorities = {}
     for domain in domains:
         try:
@@ -155,7 +148,6 @@ class PriorityUpdateRequest(BaseModel):
 async def update_hk_priority_config(domain: str, request: PriorityUpdateRequest):
     """更新指定域的数据源优先级（持久化到 MongoDB）"""
     try:
-        from app.data.core.registry.capability import CapabilityRegistry
         registry = CapabilityRegistry()
 
         available = registry.get_available_sources(domain, market=_MARKET)
@@ -188,7 +180,6 @@ async def update_hk_priority_config(domain: str, request: PriorityUpdateRequest)
 @router.get("/source-config")
 async def get_source_config():
     """获取数据源配置（能力矩阵 + 用户自定义优先级）"""
-    from app.data.core.registry.capability import CapabilityRegistry
     from app.data.config import load_yaml
 
     default_config = load_yaml("default_priorities.yaml")
@@ -226,10 +217,7 @@ async def get_stock_data(
     """查看单股多域数据"""
     try:
         di = DataInterface.get_instance()
-        domains = [domain] if domain else [
-            "basic_info", "daily_quotes", "daily_indicators",
-            "adj_factors", "financial_data", "corporate_actions", "news",
-        ]
+        domains = [domain] if domain else _all_domains()
 
         result = {}
         for d in domains:
@@ -264,7 +252,7 @@ async def get_quality_overview():
     """数据质量总览"""
     try:
         from app.services.data_quality_service import get_quality_overview as svc_get_overview
-        overview = await svc_get_overview(_MARKET, _QUALITY_DOMAINS)
+        overview = await svc_get_overview(_MARKET, _all_domains())
         return ok(data=overview)
     except Exception as e:
         return fail(message=f"查询失败: {e}", code=500)
@@ -278,7 +266,7 @@ async def trigger_quality_check(
     try:
         from app.services.data_quality_service import check_domain_quality
         results = {}
-        domains = [domain] if domain else _CHECK_DOMAINS
+        domains = [domain] if domain else _all_domains()
         for d in domains:
             try:
                 stats = await check_domain_quality(_MARKET, d)

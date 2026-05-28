@@ -152,7 +152,8 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
                     providers_collection = db.llm_providers
                     provider_doc = providers_collection.find_one({"name": provider})
 
-                    # 🔥 确定 API Key（优先级：模型配置 > 厂家配置 > 环境变量）
+                    # 🔥 确定 API Key（优先级：模型配置 > 厂家配置）
+                    # API Key 仅从数据库读取，不再从环境变量读取
                     api_key = None
                     if model_api_key and model_api_key.strip() and model_api_key != "your-api-key":
                         api_key = model_api_key
@@ -163,13 +164,8 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
                             api_key = provider_api_key
                             logger.info("✅ [同步查询] 使用厂家配置的 API Key")
 
-                    # 如果数据库中没有有效的 API Key，尝试从环境变量获取
                     if not api_key:
-                        api_key = _get_env_api_key_for_provider(provider)
-                        if api_key:
-                            logger.info("✅ [同步查询] 使用环境变量的 API Key")
-                        else:
-                            logger.warning(f"⚠️ [同步查询] 未找到 {provider} 的 API Key")
+                        logger.warning(f"⚠️ [同步查询] 未找到 {provider} 的 API Key，请在 Web UI 配置管理中添加")
 
                     # 确定 backend_url
                     backend_url = None
@@ -213,11 +209,9 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
                         api_key = provider_api_key
                         logger.info(f"✅ [同步查询] 使用厂家 {provider} 的 API Key")
 
-            # 如果厂家配置中没有 API Key，尝试从环境变量获取
+            # API Key 仅从数据库读取
             if not api_key:
-                api_key = _get_env_api_key_for_provider(provider)
-                if api_key:
-                    logger.info("✅ [同步查询] 使用环境变量的 API Key")
+                logger.warning(f"⚠️ [同步查询] 厂家 {provider} 无 API Key，请在 Web UI 配置管理中添加")
 
             result = {
                 "provider": provider,
@@ -230,11 +224,11 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
         except Exception as e:
             logger.warning(f"⚠️ [同步查询] 无法查询厂家配置: {e}")
 
-        # 最后回退到硬编码的默认 URL 和环境变量 API Key
+        # 最后回退到硬编码的默认 URL
         result = {
             "provider": provider,
             "backend_url": _get_default_backend_url(provider),
-            "api_key": _get_env_api_key_for_provider(provider)
+            "api_key": None
         }
         _model_config_cache[model_name] = result
         _model_config_cache_time = _time.time()
@@ -245,34 +239,12 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
         fallback_result = {
             "provider": provider,
             "backend_url": _get_default_backend_url(provider),
-            "api_key": _get_env_api_key_for_provider(provider)
+            "api_key": None
         }
         _model_config_cache[model_name] = fallback_result
         _model_config_cache_time = _time.time()
         return fallback_result
 
-
-def _get_env_api_key_for_provider(provider: str) -> str:
-    """从环境变量获取指定供应商的 API Key"""
-    env_key_map = {
-        "google": "GOOGLE_API_KEY",
-        "dashscope": "DASHSCOPE_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "deepseek": "DEEPSEEK_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-        "siliconflow": "SILICONFLOW_API_KEY",
-        "qianfan": "QIANFAN_API_KEY",
-        "302ai": "AI302_API_KEY",
-    }
-
-    env_key_name = env_key_map.get(provider.lower())
-    if env_key_name:
-        api_key = get_env(env_key_name)
-        if api_key and api_key.strip() and api_key != "your-api-key":
-            return api_key
-
-    return None
 
 
 def _get_default_backend_url(provider: str) -> str:
@@ -337,6 +309,19 @@ def create_analysis_config(
     config["llm_provider"] = llm_provider
     config["debate_llm"] = debate_model
     config["analyst_llm"] = analyst_model
+
+    # DeepSeek 旧模型弃用提醒
+    _DEPRECATED_MODELS = {
+        "deepseek-chat": ("deepseek-v4-flash", "2026/07/24"),
+        "deepseek-reasoner": ("deepseek-v4-pro", "2026/07/24"),
+    }
+    for model_name in [analyst_model, debate_model]:
+        if model_name in _DEPRECATED_MODELS:
+            replacement, date = _DEPRECATED_MODELS[model_name]
+            logger.warning(
+                f"[Deprecation] 模型 '{model_name}' 将于 {date} 弃用，"
+                f"请迁移至 '{replacement}'"
+            )
 
     # 轮次由阶段配置决定
     config["max_debate_rounds"] = 1
@@ -1051,6 +1036,19 @@ class AnalysisService:
                 debate_model = request.parameters.debate_model
             else:
                 analyst_model, debate_model = capability_service.recommend_models()
+
+            # DeepSeek 旧模型弃用提醒
+            _DEPRECATED_MODELS = {
+                "deepseek-chat": ("deepseek-v4-flash", "2026/07/24"),
+                "deepseek-reasoner": ("deepseek-v4-pro", "2026/07/24"),
+            }
+            for _mn in [analyst_model, debate_model]:
+                if _mn in _DEPRECATED_MODELS:
+                    _repl, _date = _DEPRECATED_MODELS[_mn]
+                    logger.warning(
+                        f"[Deprecation] 模型 '{_mn}' 将于 {_date} 弃用，"
+                        f"请迁移至 '{_repl}'"
+                    )
 
             analyst_provider_info = get_provider_and_url_by_model_sync(analyst_model)
             debate_provider_info = get_provider_and_url_by_model_sync(debate_model)

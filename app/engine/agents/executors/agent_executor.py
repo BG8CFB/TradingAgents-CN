@@ -13,6 +13,7 @@
 """
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -34,6 +35,70 @@ from .tool_result_processor import ToolResultProcessor
 logger = get_logger("executors.agent_executor")
 
 DEFAULT_MAX_ITERATIONS = 12
+
+# ── DSML / 伪工具调用泄露检测 ──────────────────────────────────
+# 某些模型（尤其是 DeepSeek 旧版 deepseek-chat）在 bind_tools 场景下，
+# 不通过 API 的 tool_calls 字段返回结构化调用，而是将调用意图以
+# DSML 标签格式（<｜｜DSML｜｜tool_calls>）直接输出到 content 中。
+# 这不是有效的分析报告，需要检测并处理。
+
+_DSML_PATTERN = re.compile(
+    r"<｜｜DSML｜｜|"
+    r"<\|.*?DSML.*?\||"
+    r"<｜｜DSML｜｜tool_calls>",
+    re.IGNORECASE,
+)
+
+# 更广泛的伪工具调用泄露模式（覆盖各种模型的非标准输出）
+_FAKE_TOOL_CALL_PATTERNS = [
+    # DeepSeek DSML 格式
+    r"<｜｜DSML｜｜",
+    r"<｜｜DSML｜｜tool_calls>",
+    r"<｜｜DSML｜｜invoke\s+name=",
+    r"<｜｜DSML｜｜parameter\s+name=",
+    r"<｜｜DSML｜｜/invoke>",
+    r"</｜｜DSML｜｜tool_calls>",
+    # 类似的非标准 function calling 文本输出
+    r"<tool_calling>",
+    r"<function_call>",
+    r"```tool_calls",
+]
+
+
+def _contains_leaked_tool_calls(content: str) -> bool:
+    """检测 content 中是否包含泄露的工具调用格式（如 DSML 标签）
+
+    Returns:
+        True 表示检测到泄露，content 不是有效的分析报告
+    """
+    if not content:
+        return False
+
+    for pattern in _FAKE_TOOL_CALL_PATTERNS:
+        if re.search(pattern, content, re.IGNORECASE):
+            return True
+
+    return False
+
+
+def _clean_leaked_tool_calls(content: str) -> str:
+    """清洗 content 中残留的伪工具调用标签
+
+    仅作为安全兜底，优先使用 _contains_leaked_tool_calls 检测后丢弃整个响应。
+    """
+    if not content:
+        return content
+
+    cleaned = content
+    for pattern in _FAKE_TOOL_CALL_PATTERNS:
+        cleaned = re.sub(pattern + r"[^<]*?(?=</|$)", "", cleaned, flags=re.IGNORECASE)
+
+    # 清除残留的闭合标签
+    cleaned = re.sub(r"</｜｜DSML｜｜[^>]*>", "", cleaned)
+    cleaned = re.sub(r"</tool_calling>", "", cleaned)
+    cleaned = re.sub(r"</function_call>", "", cleaned)
+
+    return cleaned.strip()
 
 
 @dataclass
@@ -107,7 +172,9 @@ class AgentExecutor:
             max_iterations=max_iterations
         )
 
-        # P0 修复：bind_tools 只调用一次
+        # bind_tools：只在有工具时绑定
+        # 注意：空列表 [] 在 Python 中是 falsy，会跳过 bind_tools
+        # 这是正确行为——没有可调用工具时不应绑定
         self._llm_with_tools = llm.bind_tools(tools) if tools else llm
 
         # 工具查找字典
@@ -117,7 +184,7 @@ class AgentExecutor:
 
         logger.info(
             f"🔧 [AgentExecutor] 初始化: max_iterations={max_iterations}, "
-            f"tools={len(tools)}, bind_tools=一次绑定"
+            f"tools={len(tools)}, bind_tools={'已绑定' if tools else '无工具(纯文本模式)'}"
         )
 
     async def execute(
@@ -190,12 +257,62 @@ class AgentExecutor:
 
             # --- 检查是否有工具调用 ---
             if not (hasattr(response, "tool_calls") and response.tool_calls):
+                content = response.content or ""
+
+                # ── DSML / 伪工具调用泄露检测 ──
+                # 某些模型（DeepSeek 旧版）不通过 API 的 tool_calls 返回，
+                # 而是将调用意图以 DSML 标签输出到 content 中。
+                # 这不是有效的分析报告，需要尝试重试或强制总结。
+                if _contains_leaked_tool_calls(content):
+                    logger.warning(
+                        f"🚨 [AgentExecutor] 检测到伪工具调用泄露 (DSML/非标准格式), "
+                        f"迭代 {iteration}, content 前200字符: {content[:200]}"
+                    )
+
+                    # 注入纠正提示，让模型重新生成
+                    messages.append(response)
+                    messages.append(HumanMessage(
+                        content=(
+                            "⚠️ 系统检测到你的回复中包含了工具调用的内部格式标签（如 <｜｜DSML｜｜>），"
+                            "这不是有效的分析报告。\n\n"
+                            "请直接输出完整的分析报告文本。"
+                            "不要再尝试任何工具调用格式。"
+                        )
+                    ))
+
+                    # 给一次重试机会（不绑定工具，强制纯文本输出）
+                    try:
+                        retry_response = await self._invoke_llm_no_tools(messages)
+                        retry_content = retry_response.content or ""
+                        if retry_content and not _contains_leaked_tool_calls(retry_content):
+                            final_report = retry_content
+                            logger.info(
+                                f"✅ [AgentExecutor] 重试成功，报告长度: {len(final_report)} 字符"
+                            )
+                            messages.append(retry_response)
+                            break
+                        else:
+                            logger.warning("⚠️ [AgentExecutor] 重试仍包含泄露，使用强制总结")
+                    except Exception as e:
+                        logger.warning(f"⚠️ [AgentExecutor] 重试调用失败: {e}")
+
+                    # 重试失败 → 强制总结
+                    final_report = await self._force_summary(messages)
+                    return ExecutionResult(
+                        final_report=final_report,
+                        iterations=iteration,
+                        tool_calls_executed=tool_call_count,
+                        forced_stop=True,
+                        messages=messages,
+                    )
+
                 # LLM 自主决定停止 — 正常结束
                 logger.info(
                     f"✅ [AgentExecutor] LLM 自主停止 (迭代 {iteration}), "
-                    f"报告长度: {len(response.content or '')} 字符"
+                    f"报告长度: {len(content)} 字符"
                 )
-                final_report = response.content or ""
+                # 安全兜底：清洗可能残留的标签
+                final_report = _clean_leaked_tool_calls(content)
                 messages.append(response)
                 break
 
@@ -221,9 +338,13 @@ class AgentExecutor:
                 try:
                     final_response = await self._invoke_llm(messages)
                     if not (hasattr(final_response, "tool_calls") and final_response.tool_calls):
-                        final_report = final_response.content or ""
-                        messages.append(final_response)
-                        break
+                        loop_content = final_response.content or ""
+                        if _contains_leaked_tool_calls(loop_content):
+                            logger.warning("🚨 [AgentExecutor] 循环恢复后仍检测到 DSML 泄露，跳过")
+                        else:
+                            final_report = _clean_leaked_tool_calls(loop_content)
+                            messages.append(final_response)
+                            break
                     # LLM 仍然调用工具，强制停止
                     messages.append(final_response)
                 except Exception as e:
@@ -372,6 +493,15 @@ class AgentExecutor:
                     )
                 raise
         return await loop.run_in_executor(None, self._llm_with_tools.invoke, messages)
+
+    async def _invoke_llm_no_tools(self, messages: List[BaseMessage]) -> Any:
+        """调用 LLM（不绑定工具），用于强制纯文本输出的场景
+
+        当模型出现工具调用泄露（DSML 格式等）时，使用不带 bind_tools 的
+        LLM 实例重新调用，确保模型输出纯文本报告而非伪工具调用格式。
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.llm.invoke, messages)
 
     async def _force_summary(self, messages: List[BaseMessage]) -> str:
         """强制生成总结报告"""

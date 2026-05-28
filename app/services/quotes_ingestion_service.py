@@ -249,8 +249,8 @@ class QuotesIngestionService:
             return self._tushare_has_premium or False
 
         try:
-            from app.core.env import get_env
-            token = get_env("TUSHARE_TOKEN")
+            from app.utils.ds_key_utils import get_datasource_api_key
+            token = get_datasource_api_key("tushare")
             if not token or not token.strip():
                 logger.info("Tushare 未配置 Token，跳过权限检测")
                 self._tushare_has_premium = False
@@ -416,23 +416,30 @@ class QuotesIngestionService:
             if symbol6 in ["300750", "000001", "600000"]:
                 logger.info(f"📊 [写入market_quotes] {symbol6} - volume={volume}, amount={q.get('amount')}, source={source}")
 
+            # 仅写入非 None 的字段，避免覆盖已有值
+            set_doc = {
+                "symbol": symbol6,
+                "trade_date": trade_date,
+                "data_source": source,
+                "updated_at": updated_at,
+            }
+            for field, raw_val in [
+                ("close", q.get("close")),
+                ("pct_chg", q.get("pct_chg")),
+                ("amount", q.get("amount")),
+                ("volume", volume),
+                ("open", q.get("open")),
+                ("high", q.get("high")),
+                ("low", q.get("low")),
+                ("pre_close", q.get("pre_close")),
+            ]:
+                if raw_val is not None:
+                    set_doc[field] = raw_val
+
             ops.append(
                 UpdateOne(
                     {"symbol": symbol6},
-                    {"$set": {
-                        "symbol": symbol6,
-                        "close": q.get("close"),
-                        "pct_chg": q.get("pct_chg"),
-                        "amount": q.get("amount"),
-                        "volume": volume,
-                        "open": q.get("open"),
-                        "high": q.get("high"),
-                        "low": q.get("low"),
-                        "pre_close": q.get("pre_close"),
-                        "trade_date": trade_date,
-                        "data_source": source,
-                        "updated_at": updated_at,
-                    }},
+                    {"$set": set_doc},
                     upsert=True,
                 )
             )
@@ -449,8 +456,8 @@ class QuotesIngestionService:
         db = get_mongo_db()
         coll = db[self.collection_name]
 
-        # 查找缺少 pct_chg 的记录
-        cursor = coll.find({"pct_chg": {"$exists": False}}, {"symbol": 1})
+        # 查找缺少 pct_chg 的记录（字段不存在或为 null）
+        cursor = coll.find({"pct_chg": None}, {"symbol": 1})
         missing_symbols = [doc["symbol"] for doc in await cursor.to_list(length=None)]
 
         if not missing_symbols:

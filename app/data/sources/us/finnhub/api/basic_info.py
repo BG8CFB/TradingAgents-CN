@@ -3,12 +3,11 @@ Finnhub US 美股基础信息 API（股票列表）
 """
 import asyncio
 import logging
-import os
 from typing import Optional
 
 import pandas as pd
 
-from app.core.env import get_env
+from app.utils.ds_key_utils import get_datasource_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ async def fetch_stock_list() -> Optional[pd.DataFrame]:
     Returns:
         股票列表 DataFrame，失败返回 None
     """
-    api_key = get_env("FINNHUB_API_KEY", "")
+    api_key = get_datasource_api_key("finnhub")
     if not api_key:
         logger.debug("Finnhub API Key 未配置")
         return None

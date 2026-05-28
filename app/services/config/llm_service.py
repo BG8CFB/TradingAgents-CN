@@ -11,7 +11,6 @@ from typing import List, Optional, Dict, Any
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
-from app.core.env import get_env
 from app.models.config import (
     LLMConfig, LLMProvider
 )
@@ -229,11 +228,6 @@ class LLMService:
                 if provider_data and provider_data.get("api_key"):
                     api_key = provider_data["api_key"]
                     logger.info(f"✅ 从厂家配置获取到API密钥")
-                else:
-                    # 尝试从环境变量获取
-                    api_key = self._get_env_api_key(provider_str)
-                    if api_key:
-                        logger.info(f"✅ 从环境变量获取到API密钥")
 
             if not api_key:
                 return {
@@ -412,35 +406,6 @@ class LLMService:
         """
         return is_valid_api_key(api_key)
 
-    def _get_env_api_key(self, provider_name: str) -> Optional[str]:
-        """从环境变量获取API密钥"""
-        # 环境变量映射表
-        env_key_mapping = {
-            "openai": "OPENAI_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "google": "GOOGLE_API_KEY",
-            "zhipu": "ZHIPU_API_KEY",
-            "deepseek": "DEEPSEEK_API_KEY",
-            "dashscope": "DASHSCOPE_API_KEY",
-            "qianfan": "QIANFAN_API_KEY",
-            "azure": "AZURE_OPENAI_API_KEY",
-            "siliconflow": "SILICONFLOW_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY",
-            # 🆕 聚合渠道
-            "302ai": "AI302_API_KEY",
-            "oneapi": "ONEAPI_API_KEY",
-            "newapi": "NEWAPI_API_KEY",
-            "custom_aggregator": "CUSTOM_AGGREGATOR_API_KEY"
-        }
-
-        env_var = env_key_mapping.get(provider_name)
-        if env_var:
-            api_key = get_env(env_var)
-            # 为了支持本地AI模型，直接返回环境变量中的API Key，不进行验证
-            return api_key
-
-        return None
-
     async def add_llm_provider(self, provider: LLMProvider) -> str:
         """添加大模型厂家"""
         try:
@@ -606,7 +571,8 @@ class LLMService:
 
             for provider_name, config in AGGREGATOR_PROVIDERS.items():
                 # 从环境变量获取 API Key
-                api_key = self._get_env_api_key(provider_name)
+                # LLM API Key 仅从 DB 读取，不再从环境变量读取
+                api_key = None
 
                 # 检查是否已存在
                 existing = await providers_collection.find_one({"name": provider_name})
@@ -742,8 +708,8 @@ class LLMService:
             skipped_count = 0
 
             for provider_config in default_providers:
-                # 从环境变量获取API密钥
-                api_key = self._get_env_api_key(provider_config["name"])
+                # LLM API Key 仅从 DB 读取
+                api_key = None
 
                 # 检查是否已存在
                 existing = await providers_collection.find_one({"name": provider_config["name"]})

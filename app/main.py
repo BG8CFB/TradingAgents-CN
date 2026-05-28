@@ -201,6 +201,17 @@ async def _init_database(logger):
     logger.info("✅ UserService 数据库连接已初始化")
 
 
+async def _init_secrets(logger):
+    """自动生成并持久化安全密钥（JWT/CSRF）"""
+    try:
+        from app.services.secret_service import SecretService
+        secrets = await SecretService.ensure_secrets()
+        if secrets:
+            logger.info(f"✅ 安全密钥已就绪（{len(secrets)} 个）")
+    except Exception as e:
+        logger.warning(f"⚠️  安全密钥初始化失败: {e}，将使用运行期随机密钥")
+
+
 async def _init_system_defaults(logger):
     """系统首次启动初始化（默认用户/配置）"""
     from app.services.system_init_service import SystemInitService
@@ -321,6 +332,7 @@ async def lifespan(app: FastAPI):
     from app.core.async_utils import set_main_loop
     set_main_loop(asyncio.get_event_loop())
 
+    await _init_secrets(logger)
     await _init_system_defaults(logger)
     await _init_config_bridge(logger)
     await _apply_dynamic_settings(logger)

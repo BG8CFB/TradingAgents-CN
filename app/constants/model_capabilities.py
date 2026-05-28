@@ -158,7 +158,7 @@ DEFAULT_MODEL_CAPABILITIES: Dict[str, Dict[str, Any]] = {
     "deepseek-reasoner": {
         "capability_level": 4,
         "suitable_roles": [ModelRole.DEBATE],
-        "features": [ModelFeature.REASONING, ModelFeature.LONG_CONTEXT],
+        "features": [ModelFeature.REASONING, ModelFeature.LONG_CONTEXT, ModelFeature.TOOL_CALLING],
         "performance_metrics": {"speed": 3, "cost": 4, "quality": 4},
         "description": "DeepSeek Reasoner（将于 2026/07/24 弃用，请迁移至 deepseek-v4-pro）"
     },

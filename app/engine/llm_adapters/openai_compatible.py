@@ -56,8 +56,18 @@ def _is_deepseek_thinking_model(provider: str, model_name: str) -> bool:
     """
     if provider != "deepseek":
         return False
-    # 所有 deepseek-* 模型启用补丁（保守策略，无副作用）
     return model_name.startswith("deepseek-")
+
+
+def _is_deepseek_v4_model(provider: str, model_name: str) -> bool:
+    """判断是否为 DeepSeek V4 模型（支持可控思考模式）
+
+    V4 模型支持通过 extra_body={"thinking": {"type": "enabled/disabled"}}
+    显式控制思考模式。旧模型（deepseek-chat、deepseek-reasoner）不支持此参数。
+    """
+    if provider != "deepseek":
+        return False
+    return model_name.startswith("deepseek-v4")
 
 
 class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
@@ -281,8 +291,24 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
 
         仅对 DeepSeek thinking mode 模型生效，不影响其他 provider。
 
-        注意：reasoning_content 的来源是 _create_chat_result 中
-        _inject_reasoning_from_response 方法从原始响应中提取并注入的。
+        ── 为什么需要 monkey-patch ──────────────────────────────
+        LangChain ChatOpenAI 的消息序列化（_convert_message_to_dict）
+        只处理标准 OpenAI 字段，不会将 AIMessage.additional_kwargs
+        中的 reasoning_content 放入请求 dict。而 DeepSeek API 要求在
+        多轮工具调用中回传 assistant 消息的 reasoning_content，
+        否则返回 HTTP 400。
+
+        ── 线程安全权衡 ─────────────────────────────────────────
+        使用全局锁（_patch_lock）保护 patch/unpatch 操作。锁的持有范围
+        覆盖整个 _generate 调用（包括网络 I/O），这意味着：
+        - 同一进程内的多个 DeepSeek 调用会被序列化执行
+        - LangGraph 节点本身是顺序执行的，单次分析任务内无并发问题
+        - 并发风险仅来自同时运行多个分析任务（不同股票）
+        如果未来需要更高并发度，可考虑将 patch 改为 per-instance 方式。
+
+        ── reasoning_content 来源 ───────────────────────────────
+        由 _create_chat_result 中的 _inject_reasoning_from_response
+        从原始 API 响应中提取并注入到 AIMessage.additional_kwargs。
         """
         import langchain_openai.chat_models.base as _lc_openai_base
 
@@ -323,7 +349,7 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
     def _fix_empty_content(
         self, result: ChatResult, messages: List[BaseMessage]
     ) -> None:
-        """回填空的 content — 从 additional_kwargs 中提取 reasoning_content"""
+        """回填空的 content — 处理不同 provider 的特殊情况"""
         provider = getattr(self, "_provider_name", "")
         for gen in result.generations:
             msg = getattr(gen, "message", None)
@@ -332,19 +358,29 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
             content = getattr(msg, "content", None)
             has_tool_calls = bool(getattr(msg, "tool_calls", None))
             if (content is None or content == "") and not has_tool_calls:
-                # 从 additional_kwargs 中提取 reasoning_content
-                # （已由 _inject_reasoning_from_response 注入）
                 reasoning = msg.additional_kwargs.get("reasoning_content")
-                if reasoning:
+
+                if provider == "deepseek":
+                    # DeepSeek 思考模式：content 为空意味着模型只产出了思考链
+                    # 但没有生成最终答案。不应将 reasoning_content 回填到 content，
+                    # 否则 Stage 2/3/4 的辩论论据、投资计划、JSON 输出都会变成思考链。
+                    # 正常情况下 DeepSeek V4 会同时返回 reasoning_content 和 content，
+                    # content 为空是极罕见的边界情况（如 token 耗尽），此处作为安全兜底。
+                    logger.warning(
+                        f"[deepseek] content 为空但存在 reasoning_content "
+                        f"({len(reasoning) if reasoning else 0} 字符)。"
+                        f"模型可能在思考后未生成最终答案。"
+                    )
+                elif reasoning:
+                    # 非 DeepSeek 模型（Ollama 等）保留原有回填逻辑
                     msg.content = reasoning
                     logger.warning(
                         f"[{provider}] 模型返回了 reasoning_content 但 content 为空。"
                         f"已回填思考链内容 ({len(reasoning)} 字符) 作为回复。"
                         f"这通常意味着模型处于 thinking mode 但未生成最终答案。"
                     )
-                # Ollama think 模式需要额外 API 调用获取 reasoning
                 elif provider == "ollama":
-                    # 限制同一 adapter 实例最多调用1次，避免重复开销
+                    # Ollama think 模式需要额外 API 调用获取 reasoning
                     adapter_id = id(self)
                     if _ollama_fetch_count.get(adapter_id, 0) < 1:
                         _ollama_fetch_count[adapter_id] = _ollama_fetch_count.get(adapter_id, 0) + 1

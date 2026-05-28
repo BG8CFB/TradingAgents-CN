@@ -58,6 +58,8 @@ def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
                     "block_trade": ("china_market", "get_block_trade"),
                     "money_flow": ("capital_flow", "get_money_flow"),
                     "margin_trade": ("capital_flow", "get_margin_trade"),
+                    "daily_indicators": ("market", "get_stock_indicators"),
+                    "basic_info": ("fundamentals", "get_stock_basic_info"),
                 }
 
                 mapping = module_map.get(spec.tool_id)
@@ -86,6 +88,8 @@ def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
             except Exception as e:
                 logger.debug(f"设置内置工具元数据失败 ({spec.tool_id}): {e}")
                 pass
+
+            all_tools.append(tool)
 
         except Exception as e:
             logger.error(f"❌ 包装工具 {spec.tool_id} 失败: {e}")

@@ -1,7 +1,7 @@
 [
   {
     "provider": "zhipu",
-    "model_name": "glm-5.1",
+    "model_name": "glm-4",
     "input_price_per_1k": 0.0,
     "output_price_per_1k": 0.0,
     "currency": "CNY"
@@ -9,13 +9,6 @@
   {
     "provider": "deepseek",
     "model_name": "deepseek-v4-flash",
-    "input_price_per_1k": 0.0,
-    "output_price_per_1k": 0.0,
-    "currency": "CNY"
-  },
-  {
-    "provider": "zhipu",
-    "model_name": "glm-5-turbo",
     "input_price_per_1k": 0.0,
     "output_price_per_1k": 0.0,
     "currency": "CNY"

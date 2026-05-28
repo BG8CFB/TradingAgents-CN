@@ -14,94 +14,78 @@ logger = get_logger("agents")
 # ── Provider 注册表 ──────────────────────────────────────────────
 # protocol: "openai" | "anthropic" | "google"
 # base_url: 默认 API 地址（None 表示由调用方传入或从 DB 读取）
-# api_key_env: 对应环境变量名（None 表示不需要 API Key，如 Ollama）
 # allow_no_key: True 表示允许无 API Key（本地模型）
+# API Key 从数据库 llm_providers 集合读取，不再从环境变量读取
 
 PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {
     # ── OpenAI 兼容协议 ──────────────────────────────────────
     "openai": {
         "protocol": "openai",
         "base_url": "https://api.openai.com/v1",
-        "api_key_env": "OPENAI_API_KEY",
     },
     "deepseek": {
         "protocol": "openai",
         "base_url": "https://api.deepseek.com",
-        "api_key_env": "DEEPSEEK_API_KEY",
     },
     "dashscope": {
         "protocol": "openai",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "api_key_env": "DASHSCOPE_API_KEY",
     },
     "zhipu": {
         "protocol": "openai",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "api_key_env": "ZHIPU_API_KEY",
     },
     "qianfan": {
         "protocol": "openai",
         "base_url": "https://qianfan.baidubce.com/v2",
-        "api_key_env": "QIANFAN_API_KEY",
     },
     "siliconflow": {
         "protocol": "openai",
         "base_url": None,
-        "api_key_env": "SILICONFLOW_API_KEY",
     },
     "openrouter": {
         "protocol": "openai",
         "base_url": "https://openrouter.ai/api/v1",
-        "api_key_env": "OPENROUTER_API_KEY",
     },
     "ollama": {
         "protocol": "openai",
         "base_url": "http://localhost:11434/v1",
-        "api_key_env": None,
         "allow_no_key": True,
     },
     "alibaba": {
         "protocol": "openai",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "api_key_env": "DASHSCOPE_API_KEY",
     },
     # 聚合渠道
     "302ai": {
         "protocol": "openai",
         "base_url": None,
-        "api_key_env": "AI302_API_KEY",
     },
     "oneapi": {
         "protocol": "openai",
         "base_url": None,
-        "api_key_env": "ONEAPI_API_KEY",
     },
     "newapi": {
         "protocol": "openai",
         "base_url": None,
-        "api_key_env": "NEWAPI_API_KEY",
     },
     "custom_openai": {
         "protocol": "openai",
         "base_url": None,
-        "api_key_env": "CUSTOM_OPENAI_API_KEY",
     },
     "custom_aggregator": {
         "protocol": "openai",
         "base_url": None,
-        "api_key_env": "CUSTOM_AGGREGATOR_API_KEY",
     },
     # ── Anthropic 协议 ───────────────────────────────────────
     "anthropic": {
         "protocol": "anthropic",
         "base_url": None,
-        "api_key_env": "ANTHROPIC_API_KEY",
     },
     # ── Google 原生协议 ──────────────────────────────────────
     "google": {
         "protocol": "google",
         "base_url": None,
-        "api_key_env": "GOOGLE_API_KEY",
     },
 }
 
@@ -164,6 +148,10 @@ def create_llm(
     protocol = _get_protocol(provider_lower)
     normalized_url = _normalize_base_url(provider_lower, base_url)
 
+    # 合并 provider 级默认参数（最低优先级，调用方 kwargs 可覆盖）
+    provider_kwargs = PROVIDER_DEFAULTS.get(provider_lower, {}).get("provider_kwargs", {})
+    merged_kwargs = {**provider_kwargs, **kwargs}
+
     logger.info(
         f"[Factory] 创建 LLM: provider={provider_lower} model={model} "
         f"protocol={protocol} url={normalized_url or '(default)'}"
@@ -180,7 +168,7 @@ def create_llm(
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout,
-            **kwargs,
+            **merged_kwargs,
         )
 
     if protocol == "anthropic":
@@ -194,7 +182,7 @@ def create_llm(
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout,
-            **kwargs,
+            **merged_kwargs,
         )
 
     # 默认: OpenAI 兼容协议
@@ -208,5 +196,5 @@ def create_llm(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
-        **kwargs,
+        **merged_kwargs,
     )

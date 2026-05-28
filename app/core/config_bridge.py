@@ -1,17 +1,16 @@
 """
 配置桥接模块
-将数据库中的配置桥接到环境变量，供引擎层和 TradingAgents 核心库使用。
 
-Phase 4D 简化说明：
-- 移除了 Step 5（_bridge_system_settings 写回 config/settings.json，文件已废弃）
-- 移除了 Step 6（重初始化 config_manager.mongodb_storage，config_manager 已标记 deprecated）
-- 移除了 Step 7（_sync_pricing_config_from_db 后台任务，定价由 config_service 管理）
-- 保留核心引导逻辑：MongoDB 环境变量、LLM Provider API Key、模型配置、数据源 API Key
+将数据库中的模型配置桥接到环境变量，供引擎层使用。
+
+简化说明（Phase 5 精简后）：
+- API Key 和数据源 Token 已完全由数据库管理，不再桥接到 os.environ
+- 引擎层通过显式参数传入 API Key（来源于 analysis_service 的 DB 查询）
+- 仅保留模型名称和 MongoDB 存储的桥接
 
 安全说明：
-- API Key 通过 os.environ 桥接是引擎层（tradingagents）通过 os.getenv() 读取的必要设计
+- API Key 通过数据库 llm_providers 集合管理，通过 Web UI 配置
 - 日志中不记录 API Key 值，仅记录是否存在
-- 建议：生产环境通过 .env 文件提供密钥，而非数据库存储
 """
 
 import json
@@ -22,12 +21,8 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.database import get_mongo_db
-from app.utils.api_key_utils import is_valid_api_key
 
 logger = logging.getLogger("app.config_bridge")
-
-# 进程内密钥存储，作为 os.environ 的替代读取源
-_api_key_store: dict[str, str] = {}
 
 
 async def bridge_config_to_env() -> bool:
@@ -36,9 +31,7 @@ async def bridge_config_to_env() -> bool:
 
     核心步骤：
     1. 桥接 MongoDB 存储环境变量
-    2. 从 llm_providers 集合桥接厂家 API Key → {PROVIDER}_API_KEY
-    3. 桥接分析师/辩论推理模型 → TRADINGAGENTS_*_MODEL
-    4. 桥接数据源 API Key（Tushare Token、FinnHub Key）
+    2. 桥接分析师/辩论推理模型 → TRADINGAGENTS_*_MODEL
     """
     try:
         logger.info("开始桥接配置到环境变量...")
@@ -61,33 +54,7 @@ async def bridge_config_to_env() -> bool:
         logger.info(f"  MONGODB_DATABASE_NAME={mongodb_db_name}")
         bridged_count += 1
 
-        # ── Step 2：从 llm_providers 集合桥接 API Key ──────────────────
-        try:
-            from app.models.config import LLMProvider
-
-            db = get_mongo_db()
-            providers_data = await db.llm_providers.find({"is_active": True}).to_list(100)
-            providers = [LLMProvider(**d) for d in providers_data]
-            logger.info(f"  从数据库读取到 {len(providers)} 个厂家配置")
-
-            for provider in providers:
-                if not provider.is_active:
-                    continue
-                env_key = f"{provider.name.upper()}_API_KEY"
-                existing = os.getenv(env_key)
-                # .env 文件 > 数据库（仅当环境变量不存在或为占位符时才桥接）
-                if existing and is_valid_api_key(existing):
-                    logger.debug(f"  {env_key}: 使用 .env 值")
-                    bridged_count += 1
-                elif provider.api_key and is_valid_api_key(provider.api_key):
-                    _api_key_store[env_key] = provider.api_key
-                    os.environ[env_key] = provider.api_key
-                    logger.debug(f"  {env_key}: 已从数据库桥接（长度={len(provider.api_key)}）")
-                    bridged_count += 1
-        except Exception as e:
-            logger.error(f"从数据库读取厂家配置失败: {e}", exc_info=True)
-
-        # ── Step 3 & 4：桥接模型配置 + 数据源 API Key ─────────────────
+        # ── Step 2：桥接模型配置 ─────────────────────────────────────
         try:
             from app.services.config_service import config_service
 
@@ -110,22 +77,8 @@ async def bridge_config_to_env() -> bool:
                         os.environ[env_name] = val
                         logger.info(f"  {env_name}={val}")
                         bridged_count += 1
-
-                # 数据源 API Key
-                ds_env_map = {"tushare": "TUSHARE_TOKEN", "finnhub": "FINNHUB_API_KEY"}
-                for ds_config in system_config.data_source_configs:
-                    if not ds_config.enabled or not ds_config.api_key:
-                        continue
-                    if ds_config.api_key.startswith("your_"):
-                        continue
-                    env_key = ds_env_map.get(ds_config.type.value)
-                    if env_key:
-                        _api_key_store[env_key] = ds_config.api_key
-                        os.environ[env_key] = ds_config.api_key
-                        logger.debug(f"  {env_key}: 已从数据库桥接（长度={len(ds_config.api_key)}）")
-                        bridged_count += 1
             else:
-                logger.warning("  未找到激活的系统配置，模型和数据源将使用 .env 降级方案")
+                logger.warning("  未找到激活的系统配置，模型将使用代码默认值")
         except Exception as e:
             logger.error(f"桥接系统配置失败: {e}", exc_info=True)
 
@@ -133,17 +86,10 @@ async def bridge_config_to_env() -> bool:
         return True
     except Exception as e:
         logger.error(f"配置桥接失败: {e}", exc_info=True)
-        logger.warning("TradingAgents 将使用 .env 文件中的配置")
         return False
 
 
 # ── 公共查询接口 ──────────────────────────────────────────────────────
-
-def get_bridged_api_key(provider: str) -> Optional[str]:
-    """获取桥接的 API 密钥，优先从进程内存储读取"""
-    env_key = f"{provider.upper()}_API_KEY"
-    return _api_key_store.get(env_key) or os.environ.get(env_key)
-
 
 def get_bridged_model(model_type: str = "default") -> Optional[str]:
     """获取桥接的模型名称（default / analyst / debate）"""
@@ -157,15 +103,10 @@ def clear_bridged_config():
     """清除桥接的环境变量（用于测试或重新加载）"""
     keys_to_clear = [
         "TRADINGAGENTS_DEFAULT_MODEL", "TRADINGAGENTS_ANALYST_MODEL",
-        "TRADINGAGENTS_DEBATE_MODEL", "TUSHARE_TOKEN", "FINNHUB_API_KEY",
-        "APP_TIMEZONE", "CURRENCY_PREFERENCE",
+        "TRADINGAGENTS_DEBATE_MODEL",
     ]
-    for p in ("OPENAI", "ANTHROPIC", "GOOGLE", "DEEPSEEK", "DASHSCOPE",
-              "QIANFAN", "ZHIPU", "SILICONFLOW", "OPENROUTER"):
-        keys_to_clear.append(f"{p}_API_KEY")
     for key in keys_to_clear:
         os.environ.pop(key, None)
-        _api_key_store.pop(key, None)
     logger.info("已清除所有桥接的配置")
 
 
@@ -177,8 +118,6 @@ async def reload_bridged_config():
 
 
 # ── 定价配置同步（供 llm.py 路由调用）──────────────────────────────────
-# Phase 4D 注：此功能原为 Step 7 后台任务，现保留为 async 函数供路由主动调用。
-# config/pricing.json 仅用于引擎层 cost tracking，从 SystemConfig.llm_configs 生成。
 
 async def sync_pricing_config_now() -> bool:
     """将定价配置写入 config/pricing.json。返回 True 表示成功。"""
@@ -229,7 +168,6 @@ async def sync_pricing_config_now() -> bool:
 
 __all__ = [
     "bridge_config_to_env",
-    "get_bridged_api_key",
     "get_bridged_model",
     "clear_bridged_config",
     "reload_bridged_config",

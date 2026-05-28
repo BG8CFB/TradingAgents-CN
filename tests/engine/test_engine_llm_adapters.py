@@ -10,19 +10,18 @@ from test_infra import env_vars
 
 
 class TestBaseChatAdapterResolveApiKey:
-    """测试 API Key 解析逻辑"""
+    """测试 API Key 解析逻辑
+
+    Phase 5 重构后：resolve_api_key 仅接受显式 api_key 参数，
+    不再从环境变量读取（API Key 通过数据库管理）。
+    """
 
     def test_explicit_api_key_takes_priority(self):
         key = BaseChatAdapter.resolve_api_key("test", api_key="sk-explicit", api_key_env="TEST_KEY")
         assert key == "sk-explicit"
 
-    def test_reads_from_env_when_no_explicit(self):
-        with env_vars({"TEST_ENV_KEY": "sk-env-value"}):
-            key = BaseChatAdapter.resolve_api_key("test", api_key=None, api_key_env="TEST_ENV_KEY")
-            assert key == "sk-env-value"
-
-    def test_returns_none_when_no_key(self):
-        key = BaseChatAdapter.resolve_api_key("test", api_key=None, api_key_env="MISSING_KEY")
+    def test_returns_none_when_no_explicit_key(self):
+        key = BaseChatAdapter.resolve_api_key("test", api_key=None, api_key_env="TEST_KEY")
         assert key is None
 
     def test_returns_none_when_no_env_var(self):
@@ -30,8 +29,13 @@ class TestBaseChatAdapterResolveApiKey:
         assert key is None
 
     def test_rejects_placeholder_api_key(self):
-        with env_vars({"TEST_KEY": "your-api-key"}):
-            key = BaseChatAdapter.resolve_api_key("test", api_key=None, api_key_env="TEST_KEY")
+        key = BaseChatAdapter.resolve_api_key("test", api_key="your-api-key", api_key_env=None)
+        assert key is None
+
+    def test_ignores_env_var_fallback(self):
+        """确认不再从环境变量读取 API Key"""
+        with env_vars({"TEST_ENV_KEY": "sk-env-value"}):
+            key = BaseChatAdapter.resolve_api_key("test", api_key=None, api_key_env="TEST_ENV_KEY")
             assert key is None
 
 
@@ -91,7 +95,7 @@ class TestProviderDefaultsRegistry:
             assert "protocol" in cfg, f"{name} 缺少 protocol 字段"
             assert cfg["protocol"] in ("openai", "anthropic", "google")
 
-    def test_api_key_env_is_string_or_none(self):
+    def test_no_api_key_env_in_defaults(self):
+        """Phase 5 重构后：PROVIDER_DEFAULTS 不再包含 api_key_env（API Key 从数据库读取）"""
         for name, cfg in PROVIDER_DEFAULTS.items():
-            if "api_key_env" in cfg:
-                assert cfg["api_key_env"] is None or isinstance(cfg["api_key_env"], str)
+            assert "api_key_env" not in cfg, f"{name} 不应包含 api_key_env 字段"

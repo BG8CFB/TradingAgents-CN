@@ -129,6 +129,14 @@ export const DOMAIN_LABELS: Record<string, string> = {
   news: '新闻',
   trade_calendar: '交易日历',
   corporate_actions: '公司行为',
+  intraday_quotes: '分时行情',
+  money_flow: '资金流向',
+  margin_trading: '融资融券',
+  dragon_tiger: '龙虎榜',
+  block_trade: '大宗交易',
+  connect_status: '互联互通',
+  southbound_holding: '南向持股',
+  pre_post_market: '盘前盘后',
 }
 
 // ── Dashboard ──

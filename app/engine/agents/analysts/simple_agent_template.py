@@ -5,7 +5,7 @@
 - bind_tools 只在循环外调用一次
 - 集成 LoopDetector 的 6 维循环检测
 - Token 预算控制 + 自动上下文压缩
-- 内置工具预注入（基于 BuiltinToolSpec）+ 不可用工具通知
+- 内置工具数据预注入为 SystemMessage 文本（避免伪造 tool_calls 导致模型混淆）
 """
 
 import asyncio
@@ -48,6 +48,15 @@ def _get_us_company_name(ticker: str) -> str:
     return StockUtils.US_STOCK_NAMES.get(ticker.upper(), f"美股{ticker}")
 
 
+def _get_real_fn(fn):
+    """获取 lazy wrapper 背后的真实函数，用于正确检测异步属性"""
+    if hasattr(fn, '_lazy_module'):
+        import importlib
+        mod = importlib.import_module(fn._lazy_module)
+        return getattr(mod, fn._lazy_func_name)
+    return fn
+
+
 def _resolve_inject_args(
     spec, context: Dict[str, str],
 ) -> Dict[str, Any]:
@@ -67,7 +76,7 @@ def _resolve_inject_args(
     for arg_name, source in spec.inject_args.items():
         if callable(source):
             val = source(context)
-            if val:
+            if val is not None:
                 args[arg_name] = val
         elif isinstance(source, str):
             if source.startswith("start_date_"):
@@ -77,7 +86,7 @@ def _resolve_inject_args(
                 val = context.get("trade_date", "").replace("-", "")
                 if val:
                     args[arg_name] = val
-            elif source in ("ticker",):
+            elif source == "ticker":
                 val = context.get("ticker", "")
                 if val:
                     args[arg_name] = val
@@ -106,10 +115,9 @@ async def _inject_tool_data(
     """
     自动调用内置工具获取数据，并将结果注入到消息上下文中。
 
-    通过在 messages 列表中插入 AIMessage(tool_calls) + ToolMessage(content) 对，
-    模拟工具已执行的结果，使 LLM 在第一轮就能看到预加载数据。
-
-    不可用工具注入"未就绪"通知。
+    通过构建结构化文本的 SystemMessage 注入预加载数据，使 LLM 在第一轮就能看到数据。
+    不使用伪造的 AIMessage(tool_calls) + ToolMessage 格式，避免模型被误导
+    试图调用不存在的工具（尤其影响 DeepSeek 等模型，会触发 DSML 格式泄露）。
     """
     from app.engine.tools.builtin.registry import get_spec_by_id
 
@@ -139,29 +147,9 @@ async def _inject_tool_data(
                 else:
                     cache_hit_names.append(spec.display_name)
 
-    # ── 注入前导说明（区分缓存命中和缓存未命中） ──
+    # ── 收集所有预加载数据 ──
 
-    status_parts = []
-    if cache_hit_names:
-        status_parts.append(f"缓存数据可用（{len(cache_hit_names)}个）：{', '.join(cache_hit_names)}")
-    if cache_miss_names:
-        status_parts.append(
-            f"缓存无数据，已尝试实时获取（{len(cache_miss_names)}个）：{', '.join(cache_miss_names)}\n"
-            "→ 这些数据的数据库缓存为空，已通过工具函数尝试获取，结果在下方展示。"
-            "请根据实际返回的内容判断数据是否可用。"
-        )
-
-    if status_parts:
-        messages.append(SystemMessage(
-            content=(
-                f"【数据预加载状态】\n\n"
-                + "\n\n".join(status_parts) + "\n\n"
-                "已预加载的数据已在上下文中，直接使用即可，无需重新获取。"
-                "若预加载结果显示\"暂无数据\"或\"获取失败\"，请在报告中标注「XX数据获取失败」。"
-            )
-        ))
-
-    # ── 注入可用工具数据 ──
+    data_sections = []
 
     for tool in inject_tools:
         tool_name = getattr(tool, "name", None)
@@ -184,11 +172,9 @@ async def _inject_tool_data(
             continue
 
         try:
-            import uuid
-            call_id = f"pre_{uuid.uuid4().hex[:8]}_{tool_name}"
             logger.info(f"💉 [{agent_name}] 预加载数据: {spec.display_name}({tool_args})")
 
-            if inspect.iscoroutinefunction(spec.fn):
+            if inspect.iscoroutinefunction(_get_real_fn(spec.fn)):
                 result = await spec.fn(**tool_args)
             else:
                 result = await asyncio.wait_for(
@@ -197,25 +183,39 @@ async def _inject_tool_data(
                 )
             result_str = format_tool_result(result)
 
-            messages.append(AIMessage(
-                content="",
-                tool_calls=[{"name": tool_name, "args": tool_args, "id": call_id}]
-            ))
-            messages.append(ToolMessage(
-                content=result_str,
-                tool_call_id=call_id,
-                name=tool_name,
-            ))
+            data_sections.append(f"### {spec.display_name}\n{result_str}")
 
             injected_count += 1
             total_chars += len(result_str)
             logger.info(f"✅ [{agent_name}] 预加载成功: {spec.display_name} ({len(result_str)} 字符)")
         except Exception as e:
             logger.warning(f"⚠️ [{agent_name}] 预加载失败: {spec.display_name}, 错误: {e}")
+            data_sections.append(f"### {spec.display_name}\n⚠️ 数据获取失败: {e}")
             continue
 
     if injected_count > 0:
         logger.info(f"💉 [{agent_name}] 共预加载 {injected_count} 个工具数据, 总计 {total_chars} 字符")
+
+    # ── 构建统一的预加载数据注入消息 ──
+
+    if data_sections:
+        # 区分缓存状态
+        status_parts = []
+        if cache_hit_names:
+            status_parts.append(f"缓存数据可用（{len(cache_hit_names)}个）：{', '.join(cache_hit_names)}")
+        if cache_miss_names:
+            status_parts.append(
+                f"缓存无数据，已尝试实时获取（{len(cache_miss_names)}个）：{', '.join(cache_miss_names)}"
+            )
+
+        header = "【预加载数据】以下数据已提前获取并直接提供给你，无需再调用工具获取。\n"
+        if status_parts:
+            header += "数据状态：" + "；".join(status_parts) + "\n"
+        header += "若数据显示\"暂无数据\"或\"获取失败\"，请在报告中标注「XX数据获取失败」。\n"
+
+        data_content = header + "\n---\n\n" + "\n\n---\n\n".join(data_sections) + "\n\n---"
+
+        messages.append(SystemMessage(content=data_content))
 
 
 def create_simple_agent(

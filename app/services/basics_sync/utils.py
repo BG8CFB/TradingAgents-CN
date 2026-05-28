@@ -21,17 +21,23 @@ def fetch_stock_basic_df():
     import time
     import logging
     from app.data.sources.cn.tushare.api.connection import get_tushare_api
-    from app.core.config import settings
 
     logger = logging.getLogger(__name__)
 
-    # 检查 Tushare 是否启用
-    if not settings.TUSHARE_ENABLED:
-        logger.error("❌ Tushare 数据源已禁用 (TUSHARE_ENABLED=false)")
-        logger.error("💡 请在 .env 文件中设置 TUSHARE_ENABLED=true 或使用多数据源同步服务")
+    # 检查 Tushare 是否可用（DB 优先，.env 兜底）
+    try:
+        from app.utils.ds_key_utils import get_datasource_api_key
+        tushare_available = bool(get_datasource_api_key("tushare"))
+    except Exception:
+        from app.core.config import settings
+        tushare_available = bool(settings.TUSHARE_ENABLED and settings.TUSHARE_TOKEN)
+
+    if not tushare_available:
+        logger.error("❌ Tushare Token 未配置")
+        logger.error("💡 请在 Web UI 配置管理中添加 Tushare Token，或在 .env 中设置 TUSHARE_TOKEN")
         raise RuntimeError(
-            "Tushare is disabled (TUSHARE_ENABLED=false). "
-            "Set TUSHARE_ENABLED=true in .env or use MultiSourceBasicsSyncService."
+            "Tushare Token not configured. "
+            "Please add Tushare Token in Web UI Config Management or set TUSHARE_TOKEN in .env."
         )
 
     conn = get_tushare_api()

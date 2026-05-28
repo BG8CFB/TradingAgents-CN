@@ -51,7 +51,7 @@ def _sanitize_llm_configs(items):
 def _sanitize_datasource_configs(items):
     """脱敏数据源配置"""
     try:
-        from app.utils.api_key_utils import truncate_api_key, get_env_api_key_for_datasource
+        from app.utils.api_key_utils import truncate_api_key
         from app.models.config import DataSourceConfig
 
         result = []
@@ -61,12 +61,7 @@ def _sanitize_datasource_configs(items):
             if db_key:
                 data["api_key"] = truncate_api_key(db_key)
             else:
-                ds_type = data.get("type")
-                if isinstance(ds_type, str):
-                    env_key = get_env_api_key_for_datasource(ds_type)
-                    data["api_key"] = truncate_api_key(env_key) if env_key else None
-                else:
-                    data["api_key"] = None
+                data["api_key"] = None
 
             db_secret = data.get("api_secret")
             data["api_secret"] = truncate_api_key(db_secret) if db_secret else None

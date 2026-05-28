@@ -96,10 +96,7 @@ async def validate_config(current_user: dict = Depends(get_current_user)):
         }
 
         try:
-            from app.utils.api_key_utils import (
-                is_valid_api_key,
-                get_env_api_key_for_provider
-            )
+            from app.utils.api_key_utils import is_valid_api_key
 
             from app.core.config import settings
             from app.models.config import LLMProvider
@@ -109,7 +106,6 @@ async def validate_config(current_user: dict = Depends(get_current_user)):
             logger.info(f"🔍 获取到 {len(llm_providers)} 个大模型厂家")
 
             for provider in llm_providers:
-                # 只验证已启用的厂家
                 if not provider.is_active:
                     continue
 
@@ -119,49 +115,24 @@ async def validate_config(current_user: dict = Depends(get_current_user)):
                     "is_active": provider.is_active,
                     "has_api_key": False,
                     "status": "未配置",
-                    "source": None,  # 标识配置来源（database/environment）
-                    "mongodb_configured": False,  # MongoDB 是否配置
-                    "env_configured": False  # 环境变量是否配置
+                    "source": None,
                 }
 
-                # 为了支持本地AI模型，不再验证API Key有效性
-                db_key_valid = bool(provider.api_key)  # 检查是否非空
-                validation_item["mongodb_configured"] = db_key_valid
-
-                # 检查环境变量中的 API Key
-                env_key = get_env_api_key_for_provider(provider.name)
-                env_key_valid = env_key is not None
-                validation_item["env_configured"] = env_key_valid
+                db_key_valid = bool(provider.api_key)
 
                 if db_key_valid:
-                    # MongoDB 中有 API Key（优先级最高）
                     validation_item["has_api_key"] = True
                     validation_item["status"] = "已配置"
                     validation_item["source"] = "database"
-                elif env_key_valid:
-                    # MongoDB 中没有，但环境变量中有有效的 API Key
-                    validation_item["has_api_key"] = True
-                    validation_item["status"] = "已配置（环境变量）"
-                    validation_item["source"] = "environment"
-                    # 用黄色警告提示用户可以在数据库中配置
-                    mongodb_validation["warnings"].append(
-                        f"大模型厂家 {provider.display_name} 使用环境变量配置，建议在数据库中配置以便统一管理"
-                    )
                 else:
-                    # MongoDB 和环境变量都没有有效的 API Key
                     validation_item["status"] = "未配置"
                     mongodb_validation["warnings"].append(
-                        f"大模型厂家 {provider.display_name} 已启用但未配置有效的 API Key（数据库和环境变量中都未找到）"
+                        f"大模型厂家 {provider.display_name} 已启用但未配置 API Key，请在 Web UI 配置管理中添加"
                     )
 
                 mongodb_validation["llm_providers"].append(validation_item)
 
             # 验证数据源配置
-            from app.utils.api_key_utils import (
-                is_valid_api_key,
-                get_env_api_key_for_datasource
-            )
-
             system_config = await config_service.get_system_config()
             if system_config and system_config.data_source_configs:
                 logger.info(f"🔍 获取到 {len(system_config.data_source_configs)} 个数据源配置")
@@ -177,9 +148,7 @@ async def validate_config(current_user: dict = Depends(get_current_user)):
                         "enabled": ds_config.enabled,
                         "has_api_key": False,
                         "status": "未配置",
-                        "source": None,  # 标识配置来源（database/environment/builtin）
-                        "mongodb_configured": False,  # 新增：MongoDB 是否配置
-                        "env_configured": False  # 新增：环境变量是否配置
+                        "source": None,
                     }
 
                     # 某些数据源不需要 API Key（如 AKShare）
@@ -187,35 +156,15 @@ async def validate_config(current_user: dict = Depends(get_current_user)):
                         validation_item["has_api_key"] = True
                         validation_item["status"] = "已配置（无需密钥）"
                         validation_item["source"] = "builtin"
-                        validation_item["mongodb_configured"] = True
-                        validation_item["env_configured"] = True
                     else:
-                        # 为了支持本地AI模型，不再验证API Key有效性
-                        db_key_valid = bool(ds_config.api_key)  # 检查是否非空
-                        validation_item["mongodb_configured"] = db_key_valid
-
-                        # 检查环境变量中的 API Key
-                        ds_type = ds_config.type.value if hasattr(ds_config.type, 'value') else ds_config.type
-                        env_key = get_env_api_key_for_datasource(ds_type)
-                        env_key_valid = env_key is not None
-                        validation_item["env_configured"] = env_key_valid
+                        db_key_valid = bool(ds_config.api_key)
 
                         if db_key_valid:
-                            # MongoDB 中有 API Key（优先级最高）
                             validation_item["has_api_key"] = True
                             validation_item["status"] = "已配置"
                             validation_item["source"] = "database"
-                        elif env_key_valid:
-                            # MongoDB 中没有，但环境变量中有有效的 API Key
-                            validation_item["has_api_key"] = True
-                            validation_item["status"] = "已配置（环境变量）"
-                            validation_item["source"] = "environment"
-                            # 用黄色警告提示用户可以在数据库中配置
-                            mongodb_validation["warnings"].append(
-                                f"数据源 {ds_config.name} 使用环境变量配置，建议在数据库中配置以便统一管理"
-                            )
                         else:
-                            # MongoDB 和环境变量都没有有效的 API Key
+                            validation_item["status"] = "未配置"
                             validation_item["status"] = "未配置"
                             mongodb_validation["warnings"].append(
                                 f"数据源 {ds_config.name} 已启用但未配置有效的 API Key（数据库和环境变量中都未找到）"

@@ -45,6 +45,9 @@ def get_money_flow(
                 start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
         symbol = ts_code or "market"
+        if ts_code:
+            symbol = ts_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
+                             .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
         try:
             di = DataInterface.get_instance()
             result = run_async(di.read("CN", "money_flow", symbol=symbol,
@@ -97,6 +100,9 @@ def get_margin_trade(
             start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
 
         symbol = ts_code or "market"
+        if ts_code:
+            symbol = ts_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
+                             .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
         try:
             di = DataInterface.get_instance()
             result = run_async(di.read("CN", "margin_trading", symbol=symbol,

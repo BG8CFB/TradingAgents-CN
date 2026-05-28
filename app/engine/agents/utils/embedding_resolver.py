@@ -3,9 +3,10 @@ Embedding Provider 解析器
 
 封装多 provider 的 embedding 初始化降级链：
 DashScope → OpenAI 兼容 → DISABLED
+
+API Key 从数据库 llm_providers 集合读取，不从环境变量读取。
 """
 
-import os
 from dataclasses import dataclass
 from typing import Optional, Any
 
@@ -24,6 +25,21 @@ class EmbeddingConfig:
     fallback_available: bool = False
     fallback_client: Any = None
     fallback_embedding: str = ""
+
+
+def _get_api_key_from_db(provider: str) -> Optional[str]:
+    """从数据库 llm_providers 集合读取 API Key"""
+    try:
+        from app.core.database import get_mongo_db_sync
+        db = get_mongo_db_sync()
+        doc = db.llm_providers.find_one({"name": provider, "is_active": True})
+        if doc and doc.get("api_key"):
+            key = doc["api_key"]
+            if key and key.strip() and not key.startswith("your_"):
+                return key.strip()
+    except Exception as e:
+        logger.debug(f"从 DB 读取 {provider} API Key 失败: {e}")
+    return None
 
 
 def resolve_embedding(provider: str, config: dict) -> EmbeddingConfig:
@@ -51,7 +67,6 @@ def resolve_embedding(provider: str, config: dict) -> EmbeddingConfig:
         )
 
     # 主降级链：DashScope → OpenAI → DISABLED
-    # 大多数 provider 都优先尝试 DashScope embedding
     use_dashscope_providers = {
         "dashscope", "alibaba", "qianfan", "google", "openrouter",
     }
@@ -79,7 +94,7 @@ def _force_openai() -> bool:
 
 def _try_dashscope(provider: str) -> Optional[EmbeddingConfig]:
     """尝试 DashScope embedding"""
-    api_key = get_env("DASHSCOPE_API_KEY")
+    api_key = _get_api_key_from_db("dashscope")
     if not api_key:
         return None
 
@@ -105,8 +120,8 @@ def _try_openai(provider: str, config: dict) -> Optional[EmbeddingConfig]:
     """尝试 OpenAI 兼容 embedding"""
     from openai import OpenAI
 
-    openai_key = get_env("OPENAI_API_KEY")
-    deepseek_key = get_env("DEEPSEEK_API_KEY")
+    openai_key = _get_api_key_from_db("openai")
+    deepseek_key = _get_api_key_from_db("deepseek")
 
     if openai_key:
         base_url = config.get("backend_url", "https://api.openai.com/v1")

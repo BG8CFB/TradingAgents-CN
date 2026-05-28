@@ -60,25 +60,18 @@ async def get_llm_providers(
         from app.utils.api_key_utils import (
             is_valid_api_key,
             truncate_api_key,
-            get_env_api_key_for_provider
         )
 
         providers = await config_service.get_llm_providers()
         result = []
 
         for provider in providers:
-            # 处理 API Key - 为了支持本地AI模型，不再验证有效性
+            # 处理 API Key - 仅从数据库读取
             if provider.api_key:
                 # 数据库中有 API Key，返回缩略版本
                 api_key_display = truncate_api_key(provider.api_key)
             else:
-                # 数据库中没有 API Key，尝试从环境变量读取
-                env_key = get_env_api_key_for_provider(provider.name)
-                if env_key:
-                    # 环境变量中有 API Key，返回缩略版本
-                    api_key_display = truncate_api_key(env_key)
-                else:
-                    api_key_display = None
+                api_key_display = None
 
             # 处理 API Secret - 为了支持本地AI模型，不再验证有效性
             if provider.api_secret:
@@ -485,11 +478,9 @@ async def add_llm_config(
 
         # 如果没有提供API密钥，按优先级获取：厂家配置 → 环境变量
         if not llm_config_data.get('api_key'):
-            from app.utils.api_key_utils import get_env_api_key_for_provider
+            logger.info(f"API密钥为空，从数据库厂家配置获取: {request.provider}")
 
-            logger.info(f"API密钥为空，按优先级获取: {request.provider}")
-
-            # 1. 先从厂家配置获取
+            # 从厂家配置获取 API Key
             providers = await config_service.get_llm_providers()
             logger.info(f"找到 {len(providers)} 个厂家配置")
 
@@ -503,17 +494,9 @@ async def add_llm_config(
                 resolved_key = provider_config.api_key
                 logger.info(f"从厂家配置获取API密钥 (长度: {len(resolved_key)})")
 
-            # 2. 厂家没有则从环境变量获取
-            if not resolved_key:
-                env_key = get_env_api_key_for_provider(request.provider)
-                if env_key:
-                    resolved_key = env_key
-                    logger.info(f"从环境变量获取API密钥 (长度: {len(resolved_key)})")
-
-            # 不强制写入空字符串，保留 None 表示"使用环境变量 fallback"
             llm_config_data['api_key'] = resolved_key or None
             if not resolved_key:
-                logger.info(f"厂家 {request.provider} 无数据库/环境变量API密钥，运行时将从环境变量动态获取")
+                logger.warning(f"厂家 {request.provider} 无 API 密钥，请在 Web UI 配置管理中添加")
         else:
             logger.info(f"使用提供的API密钥 (长度: {len(llm_config_data.get('api_key', ''))})")
 

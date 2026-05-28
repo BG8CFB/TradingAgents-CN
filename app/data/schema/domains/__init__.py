@@ -14,3 +14,8 @@ from app.data.schema.domains.metadata import (
     SyncEventSchema as SyncEventSchema,
     SourceHealthSchema as SourceHealthSchema,
 )
+from app.data.schema.domains.money_flow import MoneyFlowSchema as MoneyFlowSchema
+from app.data.schema.domains.margin_trading import MarginTradingSchema as MarginTradingSchema
+from app.data.schema.domains.dragon_tiger import DragonTigerSchema as DragonTigerSchema
+from app.data.schema.domains.block_trade import BlockTradeSchema as BlockTradeSchema
+from app.data.schema.domains.intraday_quotes import IntradayQuotesSchema as IntradayQuotesSchema

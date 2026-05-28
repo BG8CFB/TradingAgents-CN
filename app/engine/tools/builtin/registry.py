@@ -38,16 +38,26 @@ def _resolve_market_type(ctx: dict) -> str:
 
 
 def _lazy_import(module_path: str, func_name: str) -> Callable:
-    """延迟导入工具函数，避免循环依赖"""
+    """延迟导入工具函数，避免循环依赖
+
+    保留 _lazy_module / _lazy_func_name 元信息，
+    以便调用方通过 inspect 检测真实函数的异步属性。
+    """
+    _real_fn = None
+
     def wrapper(*args, **kwargs):
-        import importlib
-        mod = importlib.import_module(module_path)
-        fn = getattr(mod, func_name)
-        return fn(*args, **kwargs)
+        nonlocal _real_fn
+        if _real_fn is None:
+            import importlib
+            mod = importlib.import_module(module_path)
+            _real_fn = getattr(mod, func_name)
+        return _real_fn(*args, **kwargs)
 
     wrapper.__name__ = func_name
     wrapper.__qualname__ = func_name
     wrapper.__doc__ = ""
+    wrapper._lazy_module = module_path
+    wrapper._lazy_func_name = func_name
     return wrapper
 
 
@@ -95,7 +105,7 @@ def _build_registry() -> List[BuiltinToolSpec]:
             domains=["financial_data"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.fundamentals", "get_company_performance_unified"),
-            inject_args={"stock_code": "ticker"},
+            inject_args={"stock_code": "ticker", "data_type": "indicators"},
             description="公司业绩预告、快报、财务指标、利润表、资产负债表、现金流量表",
         ),
         BuiltinToolSpec(

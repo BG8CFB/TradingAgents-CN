@@ -223,6 +223,14 @@ const DOMAIN_ICON_MAP: Record<string, any> = {
   news: markRaw(ChatDotRound),
   trade_calendar: markRaw(Calendar),
   corporate_actions: markRaw(Document),
+  intraday_quotes: markRaw(DataLine),
+  money_flow: markRaw(Coin),
+  margin_trading: markRaw(DataAnalysis),
+  dragon_tiger: markRaw(Microphone),
+  block_trade: markRaw(DocumentChecked),
+  connect_status: markRaw(Connection),
+  southbound_holding: markRaw(Coin),
+  pre_post_market: markRaw(Monitor),
 }
 
 const DOMAIN_DESCRIPTIONS: Record<string, string> = {
@@ -234,7 +242,15 @@ const DOMAIN_DESCRIPTIONS: Record<string, string> = {
   market_quotes: '盘中实时快照数据缓存，提供当前最新盘口和现价。',
   news: '财经新闻与舆情文本数据，用于大模型情绪分析与事件驱动打分。',
   trade_calendar: '市场开闭市时间表，用于对齐时间序列和排除非交易日。',
-  corporate_actions: '分红、配股等公司行为记录，用于追溯资本变动。'
+  corporate_actions: '分红、配股等公司行为记录，用于追溯资本变动。',
+  intraday_quotes: '分时 Tick/分钟线数据，提供细粒度盘中走势，用于日内分析。',
+  money_flow: '个股及板块主力资金流向数据，用于判断资金动向与热点轮动。',
+  margin_trading: '融资融券余额及买卖数据，衡量市场杠杆与多空力量对比。',
+  dragon_tiger: '龙虎榜营业部买卖明细，用于跟踪游资与机构动向。',
+  block_trade: '大宗交易记录，含成交价、量及买卖方席位信息。',
+  connect_status: '互联互通额度使用情况，监控跨境资金通道状态。',
+  southbound_holding: '南向资金持股明细，反映内地投资者持仓变动。',
+  pre_post_market: '美股盘前盘后交易行情，追踪非常规时段价格波动。',
 }
 
 interface DomainCard {
@@ -263,13 +279,9 @@ const stockDomain = ref<string | undefined>(undefined)
 const stockLoading = ref(false)
 const stockData = ref<any>(null)
 
-const domainOptions = computed(() => [
-  { value: 'basic_info', label: '基础信息' },
-  { value: 'daily_quotes', label: '日K线' },
-  { value: 'daily_indicators', label: '每日指标' },
-  { value: 'adj_factors', label: '复权因子' },
-  { value: 'financial_data', label: '财务数据' },
-])
+const domainOptions = computed(() =>
+  Object.keys(domainStats.value).map(d => ({ value: d, label: domainLabel(d) }))
+)
 
 // 质量评分
 const totalDomains = computed(() => Object.keys(domainStats.value).length)

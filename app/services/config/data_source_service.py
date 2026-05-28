@@ -306,21 +306,14 @@ class DataSourceService:
                                 }
                             }
                     else:
-                        # 数据库中没有有效的 API Key，尝试从环境变量获取
-                        logger.info(f"⚠️  [TEST] No valid API Key in database, trying environment variable")
-                        env_token = get_env('TUSHARE_TOKEN')
-                        if env_token:
-                            api_key = env_token.strip().strip('"').strip("'")
-                            used_env_credentials = True
-                            logger.info(f"🔑 [TEST] Using TUSHARE_TOKEN from environment (length: {len(api_key)})")
-                        else:
-                            logger.error(f"❌ [TEST] No valid API Key in database or environment")
-                            return {
-                                "success": False,
-                                "message": "API Key 无效：数据库和环境变量中均未配置有效的 Token",
-                                "response_time": time.time() - start_time,
-                                "details": None
-                            }
+                        # 数据库中没有有效的 API Key
+                        logger.error(f"❌ [TEST] No valid API Key in database")
+                        return {
+                            "success": False,
+                            "message": "API Key 无效：数据库和 .env 中均未配置有效的 Token，请在 Web UI 配置管理中添加或在 .env 中设置",
+                            "response_time": time.time() - start_time,
+                            "details": None
+                        }
 
                 # 如果 API Key 为空，尝试从数据库或环境变量获取
                 elif not api_key:
@@ -345,18 +338,11 @@ class DataSourceService:
                         used_db_credentials = True
                         logger.info(f"🔑 [TEST] Using API Key from database (length: {len(api_key)})")
                     else:
-                        # 如果数据库中也没有，尝试从环境变量获取
-                        logger.info(f"⚠️  [TEST] No valid API Key in database, trying environment variable")
-                        env_token = get_env('TUSHARE_TOKEN')
-                        if env_token:
-                            api_key = env_token.strip().strip('"').strip("'")
-                            used_env_credentials = True
-                            logger.info(f"🔑 [TEST] Using TUSHARE_TOKEN from environment (length: {len(api_key)})")
-                        else:
-                            logger.error(f"❌ [TEST] No valid API Key in config, database, or environment")
-                            return {
-                                "success": False,
-                                "message": "API Key 无效：配置、数据库和环境变量中均未配置有效的 Token",
+                        # 数据库中没有有效的 API Key
+                        logger.error(f"❌ [TEST] No valid API Key in database")
+                        return {
+                            "success": False,
+                            "message": "API Key 无效：数据库和 .env 中均未配置有效的 Token，请在 Web UI 配置管理中添加或在 .env 中设置",
                                 "response_time": time.time() - start_time,
                                 "details": None
                             }
@@ -608,21 +594,14 @@ class DataSourceService:
                                 }
                             }
                     else:
-                        # 数据库中没有有效的 API Key，尝试从环境变量获取
-                        logger.info(f"⚠️  [TEST] No valid API Key in database, trying environment variable")
-                        env_key = get_env('ALPHA_VANTAGE_API_KEY')
-                        if env_key:
-                            api_key = env_key.strip().strip('"').strip("'")
-                            used_env_credentials = True
-                            logger.info(f"🔑 [TEST] Using ALPHA_VANTAGE_API_KEY from environment (length: {len(api_key)})")
-                        else:
-                            logger.error(f"❌ [TEST] No valid API Key in database or environment")
-                            return {
-                                "success": False,
-                                "message": "API Key 无效：数据库和环境变量中均未配置有效的 API Key",
-                                "response_time": time.time() - start_time,
-                                "details": None
-                            }
+                        # 数据库中没有有效的 API Key
+                        logger.error(f"❌ [TEST] No valid API Key in database")
+                        return {
+                            "success": False,
+                            "message": "API Key 无效：数据库和 .env 中均未配置有效的 API Key，请在 Web UI 配置管理中添加或在 .env 中设置",
+                            "response_time": time.time() - start_time,
+                            "details": None
+                        }
 
                 # 如果 API Key 为空，尝试从数据库或环境变量获取
                 elif not api_key:
@@ -647,18 +626,10 @@ class DataSourceService:
                         used_db_credentials = True
                         logger.info(f"🔑 [TEST] Using API Key from database (length: {len(api_key)})")
                     else:
-                        # 如果数据库中也没有，尝试从环境变量获取
-                        logger.info(f"⚠️  [TEST] No valid API Key in database, trying environment variable")
-                        env_key = get_env('ALPHA_VANTAGE_API_KEY')
-                        if env_key:
-                            api_key = env_key.strip().strip('"').strip("'")
-                            used_env_credentials = True
-                            logger.info(f"🔑 [TEST] Using ALPHA_VANTAGE_API_KEY from environment (length: {len(api_key)})")
-                        else:
-                            logger.error(f"❌ [TEST] No valid API Key in config, database, or environment")
-                            return {
-                                "success": False,
-                                "message": "API Key 无效：配置、数据库和环境变量中均未配置有效的 API Key",
+                        logger.error(f"❌ [TEST] No valid API Key in database")
+                        return {
+                            "success": False,
+                                "message": "API Key 无效：数据库和 .env 中均未配置有效的 API Key，请在 Web UI 配置管理中添加或在 .env 中设置",
                                 "response_time": time.time() - start_time,
                                 "details": None
                             }

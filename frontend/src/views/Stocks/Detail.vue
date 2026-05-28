@@ -117,7 +117,11 @@
             </div>
           </template>
           <div class="kline-container">
-            <v-chart class="k-chart" :option="kOption" autoresize />
+            <v-chart v-if="klineDataLoaded" class="k-chart" :option="kOption" autoresize />
+            <div v-else class="k-chart k-chart-skeleton">
+              <el-icon class="is-loading" :size="24"><Loading /></el-icon>
+              <span>加载K线数据...</span>
+            </div>
             <div class="legend">当前周期：{{ period }} · 数据源：{{ klineSource || '-' }} · 最近：{{ lastKTime || '-' }} · 收：{{ fmtPrice(lastKClose) }}</div>
           </div>
         </el-card>
@@ -358,7 +362,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { TrendCharts, Star, Refresh, Link, Document, Clock, Reading, Delete } from '@element-plus/icons-vue'
+import { TrendCharts, Star, Refresh, Link, Document, Clock, Reading, Delete, Loading } from '@element-plus/icons-vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { stocksApi } from '@/api/stocks'
 import { analysisApi } from '@/api/analysis'
@@ -460,6 +464,7 @@ const kOption = ref<EChartsOption>({
 })
 const lastKTime = ref<string | null>(null)
 const lastKClose = ref<number | null>(null)
+const klineDataLoaded = ref(false)
 
 // 报价（初始化）
 const quote = reactive({
@@ -853,6 +858,7 @@ async function fetchKline() {
         }
       ]
     }
+    klineDataLoaded.value = true
   } catch (e) {
     console.error('获取K线失败', e)
   }
@@ -1265,6 +1271,16 @@ function exportReport() {
 .body { margin-top: 4px; }
 .card-hd { display: flex; align-items: center; justify-content: space-between; }
 .k-chart { height: 320px; }
+.k-chart-skeleton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 4px;
+}
 .legend { margin-top: 8px; font-size: 12px; color: var(--el-text-color-secondary); }
 
 .news-card .news-list { display: flex; flex-direction: column; }

@@ -12,7 +12,18 @@ from app.utils.timezone import now_utc
 
 class FavoritesService:
     """自选股服务类"""
-    
+
+    # 交易所代码 → 中文名映射
+    _EXCHANGE_MAP = {
+        "SSE": "上海证券交易所",
+        "SZSE": "深圳证券交易所",
+        "BSE": "北京证券交易所",
+        "HKEX": "香港交易所",
+        "NYSE": "纽约证券交易所",
+        "NASDAQ": "纳斯达克",
+        "AMEX": "美国证券交易所",
+    }
+
     @staticmethod
     def _infer_board(code: str) -> str:
         """根据股票代码前缀推断板块。"""
@@ -30,6 +41,13 @@ class FavoritesService:
         elif c.startswith(("4", "8")):
             return "北交所"
         return "主板"
+
+    @classmethod
+    def _exchange_display(cls, code: str) -> str:
+        """将交易所代码转为中文显示名。"""
+        if not code or code == "-":
+            return "-"
+        return cls._EXCHANGE_MAP.get(code.upper(), code)
     
     def __init__(self):
         self.db = None
@@ -103,7 +121,7 @@ class FavoritesService:
                 basic_info_coll = db["stock_basic_info"]
                 cursor = basic_info_coll.find(
                     {"symbol": {"$in": codes}, "data_source": preferred_source},
-                    {"symbol": 1, "sse": 1, "market": 1, "_id": 0}
+                    {"symbol": 1, "exchange": 1, "market": 1, "_id": 0}
                 )
                 basic_docs = await cursor.to_list(length=None)
                 basic_map = {str(d.get("symbol")).zfill(6): d for d in (basic_docs or [])}
@@ -112,15 +130,12 @@ class FavoritesService:
                     code = it.get("stock_code")
                     basic = basic_map.get(code)
                     if basic:
-                        # board 优先取 basic_info 中的 market 字段（Tushare 存的是板块名）
-                        # 如果值为市场代码（如 CN/HK/US），则根据代码前缀推断
                         raw_market = basic.get("market", "-")
                         if raw_market in ("CN", "HK", "US", ""):
                             it["board"] = self._infer_board(code)
                         else:
                             it["board"] = raw_market
-                        # sse 字段表示交易所
-                        it["exchange"] = basic.get("sse", "-")
+                        it["exchange"] = self._exchange_display(basic.get("exchange", "-"))
                     else:
                         it["board"] = self._infer_board(code)
                         it["exchange"] = "-"

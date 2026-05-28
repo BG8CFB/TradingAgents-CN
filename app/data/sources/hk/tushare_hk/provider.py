@@ -29,8 +29,8 @@ class TushareHKProvider(BaseProvider):
             return self._api
         try:
             import tushare as ts
-            from app.core.env import get_env
-            token = get_env("TUSHARE_HK_TOKEN") or get_env("TUSHARE_TOKEN")
+            from app.utils.ds_key_utils import get_datasource_api_key
+            token = get_datasource_api_key("tushare")
             if not token:
                 return None
             ts.set_token(token)

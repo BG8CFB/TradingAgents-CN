@@ -6,7 +6,6 @@
 
 import re
 import asyncio
-import concurrent.futures
 from typing import Dict, Tuple, Optional
 from datetime import datetime, timedelta
 from app.utils.time_utils import now_utc, get_current_date, parse_date_aware
@@ -25,6 +24,7 @@ def _get_stock_info_sync(market: str, symbol: str):
     try:
         import pandas as pd
         from app.data.core.interface import DataInterface
+        from app.core.async_utils import run_async
 
         async def _read():
             di = DataInterface.get_instance()
@@ -39,13 +39,7 @@ def _get_stock_info_sync(market: str, symbol: str):
                 return "\n".join(lines)
             return None
 
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, _read()).result()
-        except RuntimeError:
-            return asyncio.run(_read())
+        return run_async(_read())
     except Exception as e:
         logger.debug(f"获取股票数据失败: {e}")
         pass
@@ -57,6 +51,7 @@ def _get_stock_data_sync(market: str, symbol: str, start_date=None, end_date=Non
     try:
         import pandas as pd
         from app.data.core.interface import DataInterface
+        from app.core.async_utils import run_async
 
         async def _read():
             di = DataInterface.get_instance()
@@ -66,13 +61,7 @@ def _get_stock_data_sync(market: str, symbol: str, start_date=None, end_date=Non
                 return pd.DataFrame(data).to_string()
             return None
 
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, _read()).result()
-        except RuntimeError:
-            return asyncio.run(_read())
+        return run_async(_read())
     except Exception as e:
         logger.debug(f"获取股票名称失败: {e}")
         pass
@@ -566,7 +555,7 @@ class StockDataPreparer:
         try:
             # 1. 检查数据库中的数据是否存在和最新
             logger.debug(f"📊 [A股数据-异步] 检查数据库中{stock_code}的数据...")
-            db_check_result = self._check_database_data(stock_code, extended_start_date_str, end_date_str)
+            db_check_result = await self._check_database_data_async(stock_code, extended_start_date_str, end_date_str)
 
             # 2. 如果数据不存在或不是最新，自动触发同步（使用异步方法）
             if not db_check_result["has_data"] or not db_check_result["is_latest"]:
@@ -648,35 +637,14 @@ class StockDataPreparer:
                 suggestion="请检查网络连接或数据源配置"
             )
 
-    def _check_database_data(self, stock_code: str, start_date: str, end_date: str) -> Dict:
-        """
-        检查数据库中的数据是否存在和最新
-
-        Returns:
-            Dict: {
-                "has_data": bool,  # 是否有数据
-                "is_latest": bool,  # 是否最新（包含最近交易日）
-                "record_count": int,  # 记录数
-                "latest_date": str,  # 最新数据日期
-                "message": str  # 检查结果消息
-            }
-        """
+    async def _check_database_data_async(self, stock_code: str, start_date: str, end_date: str) -> Dict:
+        """异步版本：检查数据库中的数据是否存在和最新"""
         try:
             from app.data.core.interface import DataInterface
-
-            async def _query():
-                di = DataInterface.get_instance()
-                result = await di.read("CN", "daily_quotes", symbol=stock_code,
-                                       start_date=start_date, end_date=end_date)
-                return result.get("data")
-
-            try:
-                loop = asyncio.get_running_loop()
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    records = pool.submit(asyncio.run, _query()).result()
-            except RuntimeError:
-                records = asyncio.run(_query())
+            di = DataInterface.get_instance()
+            result = await di.read("CN", "daily_quotes", symbol=stock_code,
+                                   start_date=start_date, end_date=end_date)
+            records = result.get("data")
 
             if not records or not isinstance(records, list) or len(records) == 0:
                 return {
@@ -738,28 +706,16 @@ class StockDataPreparer:
                 "message": f"检查失败: {str(e)}"
             }
 
+    def _check_database_data(self, stock_code: str, start_date: str, end_date: str) -> Dict:
+        """同步版本：通过 run_async 桥接到异步版本"""
+        from app.core.async_utils import run_async
+        return run_async(self._check_database_data_async(stock_code, start_date, end_date))
+
     def _trigger_data_sync_sync(self, stock_code: str, start_date: str, end_date: str) -> Dict:
-        """
-        触发数据同步（同步包装器）
-        在同步上下文中调用异步同步方法
-
-        🔥 兼容 asyncio.to_thread() 调用：
-        - 如果在 asyncio.to_thread() 创建的线程中运行，创建新的事件循环
-        - 避免 "attached to a different loop" 错误
-        """
-        import asyncio
-
+        """触发数据同步（同步包装器），通过 run_async 桥接到异步版本"""
         try:
-            coro = self._trigger_data_sync_async(stock_code, start_date, end_date)
-
-            try:
-                asyncio.get_running_loop()
-                logger.info("🔍 [数据同步] 检测到正在运行的事件循环，切换到独立线程执行异步同步任务")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(asyncio.run, coro)
-                    return future.result()
-            except RuntimeError:
-                return asyncio.run(coro)
+            from app.core.async_utils import run_async
+            return run_async(self._trigger_data_sync_async(stock_code, start_date, end_date))
         except Exception as e:
             logger.error(f"❌ [数据同步] 同步包装器失败: {e}", exc_info=True)
             return {
@@ -789,7 +745,7 @@ class StockDataPreparer:
             logger.info(f"🔄 [数据同步] 开始同步{stock_code}的数据（历史+财务+实时）...")
 
             # 1. 从数据库获取数据源优先级
-            priority_order = self._get_data_source_priority_for_sync(stock_code)
+            priority_order = await self._get_data_source_priority_async(stock_code)
             logger.info(f"📊 [数据同步] 数据源优先级: {priority_order}")
 
             # 2. 通过 DataInterface 同步
@@ -870,41 +826,25 @@ class StockDataPreparer:
                 "realtime_synced": False
             }
 
-    def _get_data_source_priority_for_sync(self, stock_code: str) -> list:
-        """
-        获取数据源优先级（用于同步）
-
-        Returns:
-            list: 数据源列表，按优先级排序 ['tushare', 'akshare', 'baostock']
-        """
+    async def _get_data_source_priority_async(self, stock_code: str) -> list:
+        """异步版本：获取数据源优先级"""
         try:
             from app.data.core.interface import DataInterface
-
-            async def _get_priority():
-                di = DataInterface.get_instance()
-                config = await di.get_config("CN", "daily_quotes")
-                if config and "sources" in config:
-                    return config["sources"]
-                return None
-
-            try:
-                loop = asyncio.get_running_loop()
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    priority_order = pool.submit(asyncio.run, _get_priority()).result()
-            except RuntimeError:
-                priority_order = asyncio.run(_get_priority())
-
-            if priority_order:
-                logger.info(f"✅ [数据源优先级] 从数据库获取: {priority_order}")
-                return priority_order
+            di = DataInterface.get_instance()
+            config = await di.get_config("CN", "daily_quotes")
+            if config and "sources" in config:
+                logger.info(f"✅ [数据源优先级] 从数据库获取: {config['sources']}")
+                return config["sources"]
             else:
                 logger.warning(f"⚠️ [数据源优先级] 未找到配置，使用默认顺序")
-                return ['tushare', 'akshare', 'baostock']
-
         except Exception as e:
             logger.error(f"❌ [数据源优先级] 获取失败: {e}")
-            return ['tushare', 'akshare', 'baostock']
+        return ['tushare', 'akshare', 'baostock']
+
+    def _get_data_source_priority_for_sync(self, stock_code: str) -> list:
+        """同步版本：通过 run_async 桥接到异步版本"""
+        from app.core.async_utils import run_async
+        return run_async(self._get_data_source_priority_async(stock_code))
 
     def _prepare_hk_stock_data(self, stock_code: str, period_days: int,
                               analysis_date: str) -> StockDataPreparationResult:
@@ -949,12 +889,10 @@ class StockDataPreparer:
                 return await di.read("HK", "basic_info", symbol=hk_code)
 
             try:
-                loop = asyncio.get_running_loop()
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    info_result = pool.submit(asyncio.run, _get_hk_info()).result()
-            except RuntimeError:
-                info_result = asyncio.run(_get_hk_info())
+                from app.core.async_utils import run_async
+                info_result = run_async(_get_hk_info())
+            except Exception:
+                info_result = None
 
             info_doc = info_result.get("data") if info_result else None
 
@@ -993,11 +931,10 @@ class StockDataPreparer:
                                      start_date=start_date_str, end_date=end_date_str)
 
             try:
-                loop = asyncio.get_running_loop()
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    quotes_result = pool.submit(asyncio.run, _get_hk_quotes()).result()
-            except RuntimeError:
-                quotes_result = asyncio.run(_get_hk_quotes())
+                from app.core.async_utils import run_async
+                quotes_result = run_async(_get_hk_quotes())
+            except Exception:
+                quotes_result = None
 
             quotes_data = quotes_result.get("data") if quotes_result else None
 

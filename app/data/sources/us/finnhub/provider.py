@@ -2,13 +2,12 @@
 
 import asyncio
 import logging
-import os
 from datetime import datetime
 from typing import Optional
 
 import pandas as pd
 
-from app.core.env import get_env
+from app.utils.ds_key_utils import get_datasource_api_key
 
 from app.data.sources.base.provider import BaseProvider
 
@@ -17,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 def _get_finnhub_client():
     import finnhub
-    api_key = get_env("FINNHUB_API_KEY", "")
+    api_key = get_datasource_api_key("finnhub")
     if not api_key:
-        raise RuntimeError("Finnhub API Key 未配置")
+        raise RuntimeError("Finnhub API Key 未配置，请在 Web UI 配置管理中添加")
     return finnhub.Client(api_key=api_key)
 
 
@@ -36,7 +35,7 @@ class FinnhubUSProvider(BaseProvider):
     def is_available(self) -> bool:
         try:
             import finnhub  # noqa: F401
-            return bool(get_env("FINNHUB_API_KEY", ""))
+            return bool(get_datasource_api_key("finnhub"))
         except ImportError:
             return False
 

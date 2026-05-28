@@ -90,58 +90,21 @@ class TestStartupValidator:
         assert isinstance(result, ValidationResult)
         assert result.success is True
 
-    def test_validate_detects_missing_required(self):
-        """缺少必需配置时验证失败（JWT_SECRET 通过 os.getenv 检查）"""
-        import os
+    def test_validate_recommended_configs_infra_only(self):
+        """推荐配置仅包含基础设施项（MONGODB_HOST/PORT/DB, REDIS_HOST/PORT）"""
+        recommended_keys = [c.key for c in StartupValidator.RECOMMENDED_CONFIGS]
+        assert "MONGODB_HOST" in recommended_keys
+        assert "MONGODB_PORT" in recommended_keys
+        assert "REDIS_HOST" in recommended_keys
+        assert "REDIS_PORT" in recommended_keys
+        # LLM API Key 和数据源 Token 不再在推荐配置中
+        assert "DEEPSEEK_API_KEY" not in recommended_keys
+        assert "DASHSCOPE_API_KEY" not in recommended_keys
+        assert "TUSHARE_TOKEN" not in recommended_keys
 
-        validator = StartupValidator()
-        original = os.environ.get("JWT_SECRET")
-        os.environ.pop("JWT_SECRET", None)
-        try:
-            validator._validate_required_configs()
-            assert len(validator.result.missing_required) > 0
-        finally:
-            if original is not None:
-                os.environ["JWT_SECRET"] = original
-
-    def test_validate_recommended_configs(self):
-        """缺少推荐配置时加入 missing_recommended"""
-        from app.core.config import settings
-        import app.core.startup_validator as sv_mod
-
-        validator = StartupValidator()
-
-        saved_tushare = settings.TUSHARE_TOKEN
-        original_settings = sv_mod.settings
-        try:
-            # DEEPSEEK_API_KEY 和 DASHSCOPE_API_KEY 不在 Settings 模型中，
-            # getattr(settings, ...) 默认返回 None，天然视为缺失。
-            # 只需将 TUSHARE_TOKEN 设为空字符串（占位值）使其被判定为缺失。
-            settings.TUSHARE_TOKEN = ""
-            sv_mod.settings = settings
-
-            validator._validate_recommended_configs()
-            assert len(validator.result.missing_recommended) >= 3
-        finally:
-            settings.TUSHARE_TOKEN = saved_tushare
-            sv_mod.settings = original_settings
-
-    def test_validate_detects_invalid_jwt_secret_too_short(self):
-        """JWT_SECRET 格式不正确时被检测到（通过 os.getenv 检查）"""
-        import os
-
-        validator = StartupValidator()
-        original = os.environ.get("JWT_SECRET")
-        os.environ["JWT_SECRET"] = "short"
-        try:
-            validator._validate_required_configs()
-            invalid_keys = [c.key for c, _ in validator.result.invalid_configs]
-            assert "JWT_SECRET" in invalid_keys
-        finally:
-            if original is not None:
-                os.environ["JWT_SECRET"] = original
-            else:
-                os.environ.pop("JWT_SECRET", None)
+    def test_required_configs_is_empty(self):
+        """必需配置为空（JWT_SECRET 已改为自动生成，不再需要手动配置）"""
+        assert StartupValidator.REQUIRED_CONFIGS == []
 
     def test_validate_detects_unconfigured_jwt_secret(self):
         """检查 JWT_SECRET 未在环境变量中配置时产生警告"""
@@ -193,21 +156,6 @@ class TestStartupValidator:
         assert validator("-1") is False
         assert validator("abc") is False
         assert validator("") is False
-
-    def test_validate_jwt_length_validator(self):
-        jwt_config = None
-        for c in StartupValidator.REQUIRED_CONFIGS:
-            if c.key == "JWT_SECRET":
-                jwt_config = c
-                break
-
-        assert jwt_config is not None
-        validator = jwt_config.validator
-
-        assert validator("a" * 16) is True
-        assert validator("this-is-a-valid-jwt-secret-key") is True
-        assert validator("short") is False
-        assert validator("a" * 15) is False
 
 
 class TestRaiseIfFailed:

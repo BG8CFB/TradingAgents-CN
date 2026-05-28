@@ -105,6 +105,46 @@ class TushareCNProvider(BaseProvider):
         from .api.daily_quotes import fetch_realtime_batch
         return await fetch_realtime_batch(self._get_conn())
 
+    async def get_money_flow(
+        self, symbol: str, start_date: str = None, end_date: str = None, **kwargs
+    ) -> Optional[pd.DataFrame]:
+        from .api.money_flow import fetch_money_flow
+        ts_code = self._to_ts_code(symbol)
+        return await fetch_money_flow(self._get_conn(), ts_code, start_date, end_date)
+
+    async def get_margin_trading(
+        self, symbol: str, start_date: str = None, end_date: str = None, **kwargs
+    ) -> Optional[pd.DataFrame]:
+        from .api.margin_trading import fetch_margin_detail
+        ts_code = self._to_ts_code(symbol)
+        return await fetch_margin_detail(self._get_conn(), ts_code, start_date, end_date)
+
+    async def get_dragon_tiger(
+        self, symbol: str = None, trade_date: str = None,
+        start_date: str = None, end_date: str = None, **kwargs
+    ) -> Optional[pd.DataFrame]:
+        from .api.dragon_tiger import fetch_dragon_tiger
+        ts_code = self._to_ts_code(symbol) if symbol else None
+        return await fetch_dragon_tiger(
+            self._get_conn(), trade_date=trade_date,
+            start_date=start_date, end_date=end_date, ts_code=ts_code,
+        )
+
+    async def get_block_trade(
+        self, symbol: str = None, start_date: str = None, end_date: str = None, **kwargs
+    ) -> Optional[pd.DataFrame]:
+        from .api.block_trade import fetch_block_trade
+        ts_code = self._to_ts_code(symbol) if symbol else None
+        return await fetch_block_trade(self._get_conn(), ts_code=ts_code,
+                                       start_date=start_date, end_date=end_date)
+
+    async def get_intraday_quotes(
+        self, symbol: str, freq: str = "30min", **kwargs
+    ) -> Optional[pd.DataFrame]:
+        from .api.intraday_quotes import fetch_intraday_quotes
+        ts_code = self._to_ts_code(symbol)
+        return await fetch_intraday_quotes(self._get_conn(), ts_code, freq=freq)
+
     @staticmethod
     def _to_ts_code(symbol: str) -> str:
         code = str(symbol).zfill(6)

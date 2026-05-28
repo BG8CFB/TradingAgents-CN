@@ -6,6 +6,7 @@ from pymongo import UpdateOne
 
 from app.data.storage.mongo.client import get_motor_db
 from app.data.storage.mongo.collections import get_collection_name
+from app.data.storage.mongo.bulk_utils import batched_bulk_write
 
 
 class BasicInfoRepo:
@@ -27,8 +28,7 @@ class BasicInfoRepo:
             ))
         if not ops:
             return 0
-        result = await coll.bulk_write(ops, ordered=False)
-        return result.upserted_count + result.modified_count
+        return await batched_bulk_write(coll, ops)
 
     async def get_by_symbol(self, symbol: str, market: str) -> Optional[Dict]:
         db = get_motor_db()

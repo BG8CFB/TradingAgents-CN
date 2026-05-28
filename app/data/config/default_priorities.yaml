@@ -9,11 +9,11 @@ CN:
   financial_data: [tushare, akshare]
   market_quotes: [tushare, akshare]
   news: [tushare, akshare]
-  intraday_quotes: [akshare]
-  money_flow: [akshare]
-  margin_trading: [akshare]
-  dragon_tiger: [akshare]
-  block_trade: [akshare]
+  intraday_quotes: [tushare, akshare]
+  money_flow: [tushare, akshare]
+  margin_trading: [tushare, akshare]
+  dragon_tiger: [tushare, akshare]
+  block_trade: [tushare, akshare]
 
 HK:
   basic_info: [tushare_hk, akshare_hk, yfinance_hk]

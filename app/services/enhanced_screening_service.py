@@ -119,6 +119,44 @@ class EnhancedScreeningService:
                 except Exception as enrich_err:
                     logger.warning(f"实时行情富集失败（已忽略）: {enrich_err}")
 
+                # 回退：从 daily_quotes 补齐 pct_chg / close / amount
+                missing_pct = [it for it in items if it.get("pct_chg") is None]
+                if missing_pct:
+                    try:
+                        dq_coll = db[get_collection_name("daily_quotes", "CN")]
+                        missing_codes = [str(it.get("symbol")).zfill(6) for it in missing_pct if it.get("symbol")]
+                        if missing_codes:
+                            pipeline = [
+                                {"$match": {"symbol": {"$in": missing_codes}}},
+                                {"$sort": {"trade_date": -1}},
+                                {"$group": {
+                                    "_id": "$symbol",
+                                    "pct_chg": {"$first": "$pct_chg"},
+                                    "close": {"$first": "$close"},
+                                    "amount": {"$first": "$amount"},
+                                }},
+                            ]
+                            dq_map = {}
+                            async for doc in dq_coll.aggregate(pipeline):
+                                k = str(doc.get("_id")).zfill(6)
+                                dq_map[k] = doc
+                            enriched = 0
+                            for it in missing_pct:
+                                key = str(it.get("symbol")).zfill(6)
+                                dq = dq_map.get(key)
+                                if not dq:
+                                    continue
+                                if it.get("pct_chg") is None and dq.get("pct_chg") is not None:
+                                    it["pct_chg"] = dq["pct_chg"]
+                                if it.get("close") is None and dq.get("close") is not None:
+                                    it["close"] = dq["close"]
+                                if it.get("amount") is None and dq.get("amount") is not None:
+                                    it["amount"] = dq["amount"]
+                                enriched += 1
+                            logger.info(f"[screening] daily_quotes 回退补齐: {enriched}/{len(missing_pct)} 条")
+                    except Exception as dq_err:
+                        logger.warning(f"daily_quotes 回退补齐失败（已忽略）: {dq_err}")
+
             # 计算耗时
             took_ms = int((time.time() - start_time) * 1000)
 

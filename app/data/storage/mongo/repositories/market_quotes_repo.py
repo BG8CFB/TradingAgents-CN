@@ -6,6 +6,7 @@ from pymongo import UpdateOne
 
 from app.data.storage.mongo.client import get_motor_db
 from app.data.storage.mongo.collections import get_collection_name
+from app.data.storage.mongo.bulk_utils import batched_bulk_write
 
 
 class MarketQuotesRepo:
@@ -24,8 +25,6 @@ class MarketQuotesRepo:
             update_doc = {"$set": rec}
             new_updated = rec.get("last_updated")
             if new_updated:
-                # 使用 $max 将 last_updated 比较下推到 MongoDB 服务端：
-                # 仅当新值 > 已有值时才更新 last_updated，同时用 $set 覆盖其他字段。
                 update_doc = {
                     "$set": {k: v for k, v in rec.items() if k != "last_updated"},
                     "$max": {"last_updated": new_updated},
@@ -33,8 +32,7 @@ class MarketQuotesRepo:
             ops.append(UpdateOne(filter_doc, update_doc, upsert=True))
         if not ops:
             return 0
-        result = await coll.bulk_write(ops, ordered=False)
-        return result.upserted_count + result.modified_count
+        return await batched_bulk_write(coll, ops)
 
     async def get_by_symbol(self, symbol: str, market: str) -> Optional[Dict]:
         db = get_motor_db()

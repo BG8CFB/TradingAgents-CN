@@ -37,40 +37,21 @@ router = APIRouter(tags=["Config"])
 def _sanitize_datasource_configs(items):
     """
     脱敏数据源配置，返回缩略的 API Key
-
-    逻辑：
-    1. 如果数据库中有有效的 API Key，返回缩略版本
-    2. 如果数据库中没有，尝试从环境变量读取并返回缩略版本
-    3. 如果都没有，返回 None
+    API Key 仅从数据库读取。
     """
     try:
-        from app.utils.api_key_utils import (
-            is_valid_api_key,
-            truncate_api_key,
-            get_env_api_key_for_datasource
-        )
+        from app.utils.api_key_utils import truncate_api_key
 
         result = []
         for item in items:
             data = item.model_dump()
 
-            # 处理 API Key - 为了支持本地AI模型，不再验证有效性
+            # 处理 API Key - 仅从数据库读取
             db_key = data.get("api_key")
             if db_key:
-                # 数据库中有 API Key，返回缩略版本
                 data["api_key"] = truncate_api_key(db_key)
             else:
-                # 数据库中没有 API Key，尝试从环境变量读取
-                ds_type = data.get("type")
-                if isinstance(ds_type, str):
-                    env_key = get_env_api_key_for_datasource(ds_type)
-                    if env_key:
-                        # 环境变量中有 API Key，返回缩略版本
-                        data["api_key"] = truncate_api_key(env_key)
-                    else:
-                        data["api_key"] = None
-                else:
-                    data["api_key"] = None
+                data["api_key"] = None
 
             # 处理 API Secret - 为了支持本地AI模型，不再验证有效性
             db_secret = data.get("api_secret")
