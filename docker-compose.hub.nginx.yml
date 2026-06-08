@@ -98,7 +98,9 @@ services:
       REFRESH_TOKEN_EXPIRE_DAYS: "30"
       CSRF_SECRET: ${CSRF_SECRET:-docker-csrf-secret-key-change-in-production-2024}
       BCRYPT_ROUNDS: "12"
-      CORS_ORIGINS: "*"
+      CORS_ORIGINS: "${ALLOWED_ORIGINS:-*}"
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-*}"
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-*}"
       # ── AI 模型 API 密钥（可选，通过 .env 或环境变量配置） ──
       DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
       DASHSCOPE_ENABLED: "${DASHSCOPE_ENABLED:-false}"

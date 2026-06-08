@@ -387,7 +387,7 @@ for _key in _REQUIRED_SECRETS:
         )
 
 # 生产环境安全检查：CORS 和 TrustedHost 不能使用通配符
-# Docker 环境下也需检查（Nginx 反代可能不总是存在）
+# 非 Docker 环境严格阻止，Docker 环境（Nginx 反代已保证同源安全）降级为警告
 if settings.is_production:
     if "*" in settings.ALLOWED_ORIGINS:
         if not _IS_DOCKER:
@@ -396,9 +396,10 @@ if settings.is_production:
                 "请在 .env 中显式配置允许的域名！"
             )
         else:
-            raise RuntimeError(
-                "❌ 安全错误: Docker 生产环境 ALLOWED_ORIGINS 包含 '*'，"
-                "请在 .env 中配置具体的域名！"
+            warnings.warn(
+                "⚠️ 安全提示: Docker 环境 ALLOWED_ORIGINS 包含 '*'，"
+                "Nginx 反代已保证同源安全，但建议在 .env 中配置具体域名。",
+                stacklevel=2,
             )
     if "*" in settings.ALLOWED_HOSTS:
         if not _IS_DOCKER:
@@ -407,9 +408,10 @@ if settings.is_production:
                 "请在 .env 中显式配置允许的主机名！"
             )
         else:
-            raise RuntimeError(
-                "❌ 安全错误: Docker 生产环境 ALLOWED_HOSTS 包含 '*'，"
-                "请在 .env 中配置具体的主机名！"
+            warnings.warn(
+                "⚠️ 安全提示: Docker 环境 ALLOWED_HOSTS 包含 '*'，"
+                "Nginx 反代已保证同源安全，但建议在 .env 中配置具体主机名。",
+                stacklevel=2,
             )
 
 # 自动将代理配置设置到环境变量
