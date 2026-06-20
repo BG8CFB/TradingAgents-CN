@@ -24,18 +24,50 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve lowercase image names
+        id: ref
+        run: |
+          OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          echo "backend=ghcr.io/${OWNER_LC}/tradingagents-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/${OWNER_LC}/tradingagents-frontend" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        if: ${{ inputs.dry_run != 'true' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ inputs.dry_run != 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Re-tag latest to the keep version
+        if: ${{ inputs.dry_run != 'true' }}
+        run: |
+          set -e
+          KEEP="${{ inputs.keep_tags }}"
+          KEEP_TAG=$(echo "$KEEP" | tr ',' '\n' | grep -v '^latest$' | grep -v '^$' | head -1)
+          echo "Promoting latest to point to: $KEEP_TAG"
+          for img in ${{ steps.ref.outputs.backend }} ${{ steps.ref.outputs.frontend }}; do
+            echo "=== $img ==="
+            SOURCE_DIGEST=$(docker buildx imagetools inspect "$img:$KEEP_TAG" --format '{{.Manifest.Digest}}')
+            echo "Source digest for $KEEP_TAG: $SOURCE_DIGEST"
+            docker buildx imagetools create -t "$img:latest" "$img@$SOURCE_DIGEST"
+            docker buildx imagetools inspect "$img:latest" --format '{{.Manifest.Digest}}' || true
+          done
+
       - name: Delete old package versions
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const owner = context.repo.owner;
             const keepTags = '${{ inputs.keep_tags }}'
               .split(',')
               .map(t => t.trim())
               .filter(Boolean);
             const dryRun = '${{ inputs.dry_run }}' === 'true';
-            core.info(`Owner: ${owner}`);
             core.info(`Keep tags: ${JSON.stringify(keepTags)}`);
             core.info(`Dry run: ${dryRun}`);
 
@@ -44,7 +76,6 @@ jobs:
               { name: 'tradingagents-frontend', type: 'container' },
             ];
 
-            // user-scoped packages API: /user/packages/{package_type}/{package_name}/versions
             for (const pkg of packages) {
               core.info(`\n=== ${pkg.name} ===`);
               let cursor = 1;
@@ -93,3 +124,4 @@ jobs:
               }
             }
             core.info('\nDone.');
+
