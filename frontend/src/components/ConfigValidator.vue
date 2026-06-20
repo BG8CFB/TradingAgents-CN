@@ -408,7 +408,9 @@ const updateConfigItems = () => {
   const recommendedKeys = [
     { key: 'DEEPSEEK_API_KEY', name: 'DeepSeek API', description: 'DeepSeek 大模型 API 密钥', help: '用于 AI 分析功能' },
     { key: 'DASHSCOPE_API_KEY', name: '通义千问 API', description: '阿里云通义千问 API 密钥', help: '用于 AI 分析功能' },
-    { key: 'TUSHARE_TOKEN', name: 'Tushare Token', description: 'Tushare 数据源 Token', help: '用于获取专业A股数据' }
+    { key: 'TUSHARE_CN_TOKEN', name: 'Tushare A 股 Token', description: 'A 股 Tushare Token（回退到 TUSHARE_TOKEN）', help: '用于获取专业A股数据' },
+    { key: 'TUSHARE_HK_TOKEN', name: 'Tushare 港股 Token', description: '港股 Tushare Token（积分 ≥ 2000）', help: '用于获取港股数据' },
+    { key: 'TUSHARE_US_TOKEN', name: 'Tushare 美股 Token', description: '美股 Tushare Token（积分 ≥ 120）', help: '用于获取美股数据' }
   ]
 
   recommendedConfigs.value = recommendedKeys.map(item => {

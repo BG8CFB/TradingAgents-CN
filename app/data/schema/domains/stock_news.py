@@ -25,4 +25,4 @@ class StockNewsSchema(CommonFields):
     def compute_hash(title: str, publish_time: str) -> str:
         """计算内容哈希用于去重。"""
         raw = f"{title}|{publish_time}"
-        return hashlib.md5(raw.encode("utf-8")).hexdigest()
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()

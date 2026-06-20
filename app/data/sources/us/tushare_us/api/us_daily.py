@@ -13,21 +13,11 @@ from app.data.sources.base.mappers import (
     map_network_exception,
     map_tushare_code,
 )
+from app.data.sources.us.tushare_us.code_resolver import get_us_ts_code
 
 logger = logging.getLogger(__name__)
 
 _DOMAIN = "daily_quotes"
-
-
-def _to_us_ts_code(symbol: str) -> str:
-    """将普通 ticker 转换为 Tushare US ts_code 格式。
-
-    AAPL → AAPL.O (NASDAQ 默认)
-    """
-    symbol = symbol.upper().strip()
-    if "." in symbol:
-        return symbol
-    return f"{symbol}.O"
 
 
 async def fetch_daily_quotes(
@@ -49,7 +39,7 @@ async def fetch_daily_quotes(
     """
     if api is None:
         return None
-    us_code = _to_us_ts_code(ts_code)
+    us_code = await get_us_ts_code(ts_code, api=api)
     try:
         df = await asyncio.to_thread(
             api.us_daily,

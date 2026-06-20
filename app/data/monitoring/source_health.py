@@ -3,12 +3,18 @@
 import logging
 import threading
 import time
+from collections import deque
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Deque, Dict, List, Optional, Tuple
 
 from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
 
 logger = logging.getLogger(__name__)
+
+# 滑动窗口长度（秒）：success_rate_1h / avg_latency_1h 反映最近 1 小时的真实窗口
+_WINDOW_SECONDS = 3600
+# 单 key 最多保留多少条事件，避免极端流量下内存膨胀
+_MAX_EVENTS_PER_KEY = 10000
 
 
 class SourceHealthMonitor:
@@ -29,7 +35,8 @@ class SourceHealthMonitor:
             return
         self._initialized = True
         self._stats: Dict[str, Dict] = {}
-        # (market, source, domain) -> {success, failure, last_success, last_failure, avg_latency_ms}
+        # 滑动窗口事件：(market, source, domain) → deque[(ts, success, latency_ms)]
+        self._events: Dict[str, Deque[Tuple[float, bool, int]]] = {}
         self._stats_lock = threading.Lock()
         self._repo = MetadataRepo()
         self._flush_interval = 30
@@ -59,6 +66,7 @@ class SourceHealthMonitor:
     ):
         """记录一次数据源调用。"""
         key = f"{market}:{source}:{domain}"
+        now = time.time()
         with self._stats_lock:
             if key not in self._stats:
                 self._stats[key] = {
@@ -75,6 +83,7 @@ class SourceHealthMonitor:
                     "consecutive_failures": 0,
                     "circuit_state": "closed",
                 }
+                self._events[key] = deque(maxlen=_MAX_EVENTS_PER_KEY)
 
             s = self._stats[key]
             s["call_count"] += 1
@@ -93,6 +102,13 @@ class SourceHealthMonitor:
                 s["consecutive_failures"] = s.get("consecutive_failures", 0) + 1
                 if error:
                     s["last_error"] = error
+
+            events = self._events[key]
+            events.append((now, success, latency_ms))
+            # 摊销清理：丢弃窗口外的事件，避免下一次 compute 时 O(N) 扫描
+            cutoff = now - _WINDOW_SECONDS
+            while events and events[0][0] < cutoff:
+                events.popleft()
 
     def get_health(self, market: str, source: str, domain: str) -> Optional[Dict]:
         """获取健康度数据。"""
@@ -120,23 +136,43 @@ class SourceHealthMonitor:
             else 0
         )
 
-        # 注意：success_rate_1h / avg_latency_1h 实际是进程生命周期内的累计值，
-        # 并非最近 1 小时窗口值。保留旧字段名以兼容前端与 schema；
-        # 同时提供 *_total 别名以准确表达语义，便于后续迁移。
+        # 真实滑动窗口：扫描最近 _WINDOW_SECONDS 内的事件，计算窗口内成功率与平均延迟
+        key = f"{stats['market']}:{stats['source']}:{stats['domain']}"
+        events = self._events.get(key)
+        window_success = 0
+        window_total = 0
+        window_latency_sum = 0
+        if events:
+            now = time.time()
+            cutoff = now - _WINDOW_SECONDS
+            for ts, ok, lat in events:
+                if ts >= cutoff:
+                    window_total += 1
+                    if ok:
+                        window_success += 1
+                    window_latency_sum += lat
+        success_rate_1h = (
+            window_success / window_total if window_total > 0 else 0.0
+        )
+        avg_latency_1h = (
+            window_latency_sum / window_total if window_total > 0 else 0.0
+        )
+
         return {
             "market": stats["market"],
             "source": stats["source"],
             "domain": stats["domain"],
             "circuit_state": stats.get("circuit_state", "closed"),
             "success_rate": round(success_rate, 4),
-            "success_rate_1h": round(success_rate, 4),
+            "success_rate_1h": round(success_rate_1h, 4),
             "success_rate_total": round(success_rate, 4),
             "success_count": stats["success_count"],
             "failure_count": stats["failure_count"],
             "avg_latency_ms": round(avg_latency, 1),
-            "avg_latency_1h": round(avg_latency, 1),
+            "avg_latency_1h": round(avg_latency_1h, 1),
             "avg_latency_total": round(avg_latency, 1),
             "total_calls": stats["call_count"],
+            "total_calls_1h": window_total,
             "consecutive_failures": stats.get("consecutive_failures", 0),
             "open_count": stats.get("open_count", 0),
             "last_success_at": stats["last_success_at"],

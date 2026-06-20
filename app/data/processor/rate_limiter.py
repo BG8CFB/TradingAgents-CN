@@ -224,3 +224,44 @@ class RateLimiter:
                 return True
             await asyncio.sleep(min(wait, 1.0))
         return False
+
+    async def release(self, source: str, domain: str = "") -> bool:
+        """归还最近一次 ``acquire`` 扣减的配额。
+
+        使用场景：调用方成功 acquire 后，因为熔断/前置校验失败而没有真正发起
+        请求，此时应归还配额，避免熔断期间白白消耗 rate_limiter 令牌。
+
+        Returns:
+            True 表示成功归还；False 表示当前没有可归还的计数器（如 fail-open 模式下
+            使用内存 deque，或在 Redis 路径上 try_decrement 失败）。
+        """
+        limits = self._limits.get(source)
+        if not limits:
+            return False
+
+        # fail-open 模式：从内存 deque 右端弹出最近一条（仅当最后一条属于本次窗口）
+        state_lock = self._ensure_state_lock()
+        async with state_lock:
+            fail_open = self._fail_open_mode
+
+        if fail_open:
+            deque_ = self._memory_counters.get(source)
+            if deque_:
+                try:
+                    deque_.pop()
+                    return True
+                except IndexError:
+                    return False
+            return False
+
+        # 正常路径：通知 Redis 计数器回退一次
+        counter = self._counters.get(source)
+        if not counter:
+            return False
+        try:
+            return await counter.try_decrement(f"ratelimit:{source}")
+        except Exception as exc:
+            logger.debug(
+                f"[ratelimit] release 失败 source={source}/{domain}: {exc}"
+            )
+            return False

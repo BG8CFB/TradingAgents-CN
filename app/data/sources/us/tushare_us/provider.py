@@ -1,6 +1,7 @@
-"""Tushare US Provider — 与 CN Tushare 共用 TUSHARE_TOKEN，积分门槛 ≥ 120。
+"""Tushare US Provider — 使用独立 TUSHARE_US_TOKEN，积分门槛 ≥ 120。
 
-Token 说明：通过 get_datasource_api_key("tushare") 读取，与 CN/HK 共用同一账号。
+Token：独立读取 TUSHARE_US_TOKEN（回退到 TUSHARE_TOKEN），
+与 A 股 / 港股的凭据与积分完全隔离。
 仅覆盖主要美股 + 中概股，维护白名单。不支持公司行为和新闻。
 """
 
@@ -30,7 +31,7 @@ class TushareUSProvider(BaseProvider):
         try:
             import tushare as ts
 
-            token = get_datasource_api_key("tushare")
+            token = get_datasource_api_key("tushare_us")
             if not token:
                 return None
             ts.set_token(token)
@@ -103,7 +104,8 @@ class TushareUSProvider(BaseProvider):
         api = self._get_api()
         if not api:
             return None
-        ts_code = self._to_us_ts_code(symbol)
+        from app.data.sources.us.tushare_us.code_resolver import get_us_ts_code
+        ts_code = await get_us_ts_code(symbol, api=api)
         try:
             return await asyncio.to_thread(
                 lambda: api.us_daily(
@@ -122,7 +124,8 @@ class TushareUSProvider(BaseProvider):
         api = self._get_api()
         if not api:
             return None
-        ts_code = self._to_us_ts_code(symbol)
+        from app.data.sources.us.tushare_us.code_resolver import get_us_ts_code
+        ts_code = await get_us_ts_code(symbol, api=api)
         try:
             return await asyncio.to_thread(
                 lambda: api.us_daily_adj(
@@ -141,7 +144,8 @@ class TushareUSProvider(BaseProvider):
         api = self._get_api()
         if not api:
             return None
-        ts_code = self._to_us_ts_code(symbol)
+        from app.data.sources.us.tushare_us.code_resolver import get_us_ts_code
+        ts_code = await get_us_ts_code(symbol, api=api)
         try:
             return await asyncio.to_thread(
                 lambda: api.us_adjfactor(
@@ -165,21 +169,20 @@ class TushareUSProvider(BaseProvider):
         api = self._get_api()
         if not api:
             return None
-        ts_code = self._to_us_ts_code(symbol)
+        from app.data.sources.us.tushare_us.code_resolver import get_us_ts_code
+        ts_code = await get_us_ts_code(symbol, api=api)
+        stmt = statement_type or "income"
         try:
-            if statement_type == "income" or not statement_type:
-                return await asyncio.to_thread(lambda: api.us_income(ts_code=ts_code))
-            elif statement_type == "balance":
-                return await asyncio.to_thread(
-                    lambda: api.us_balancesheet(ts_code=ts_code)
-                )
-            elif statement_type == "cashflow":
-                return await asyncio.to_thread(lambda: api.us_cashflow(ts_code=ts_code))
-            elif statement_type == "indicator":
-                return await asyncio.to_thread(
-                    lambda: api.us_fina_indicator(ts_code=ts_code)
-                )
-            return await asyncio.to_thread(lambda: api.us_income(ts_code=ts_code))
+            from app.data.sources.us.tushare_us.api.us_financials import (
+                fetch_financial_data,
+            )
+            return await fetch_financial_data(
+                api,
+                ts_code,
+                statement_type=stmt,
+                start_date=start_date or None,
+                end_date=end_date or None,
+            )
         except Exception as e:
             logger.debug(f"Tushare US 财务失败 {symbol}: {e}")
             return None
@@ -193,12 +196,3 @@ class TushareUSProvider(BaseProvider):
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> pd.DataFrame:
         raise NotImplementedError(f"{self.name} 不支持 get_news")
-
-    @staticmethod
-    def _to_us_ts_code(symbol: str) -> str:
-        """AAPL → AAPL.O, BABA → BABA.N"""
-        symbol = symbol.upper().strip()
-        # 简单启发式: 大多数美股 ticker 直接加 .O
-        if "." in symbol:
-            return symbol
-        return f"{symbol}.O"

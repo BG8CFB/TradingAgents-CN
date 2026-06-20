@@ -23,11 +23,13 @@ logger = logging.getLogger(__name__)
 
 _DOMAIN = "market_quotes"
 
+TENCENT_QUOTE_HOST = "https://qt.gtimg.cn"
+
 
 async def fetch_market_quotes(symbols: List[str]) -> Optional[pd.DataFrame]:
     """获取港股准实时行情快照。
 
-    通过腾讯财经接口 http://qt.gtimg.cn/q= 获取实时行情。
+    通过腾讯财经接口 https://qt.gtimg.cn/q= 获取实时行情。
     响应为 GBK 编码的文本，以 ~ 分隔各字段。
 
     Raises
@@ -60,7 +62,7 @@ async def fetch_market_quotes(symbols: List[str]) -> Optional[pd.DataFrame]:
     try:
         # 构造请求代码列表: r_hk00700,r_hk00001,...
         codes = ",".join([f"r_hk{str(s).zfill(5)}" for s in symbols])
-        url = f"http://qt.gtimg.cn/q={codes}"
+        url = f"{TENCENT_QUOTE_HOST}/q={codes}"
 
         def _fetch():
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})

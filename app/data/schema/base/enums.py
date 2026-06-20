@@ -68,6 +68,7 @@ class RefreshStatus(str, Enum):
     PARTIAL = "partial"
     TIMEOUT = "timeout"
     FAILED = "failed"
+    SKIPPED = "skipped"  # 锁被另一刷新占用，本域本轮不执行
 
 
 class FreshnessState(str, Enum):

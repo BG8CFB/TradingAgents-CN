@@ -36,6 +36,8 @@ async def fetch_news(
     limit: int = 10,
     hours_back: int = 24,
     src: str = None,
+    start_date: str = None,
+    end_date: str = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """获取股票/市场新闻（多策略回退）
 
@@ -44,14 +46,23 @@ async def fetch_news(
     1. news 快讯（全市场，支持按 symbol 文本匹配）
     2. major_news 长篇通讯（带标题和 URL，质量更高）
     3. cctv_news 新闻联播（权威来源兜底）
+
+    日期范围参数语义：
+    - 未提供 start_date/end_date：默认按 ``hours_back``（24h）拉取"最近 N 小时"的新闻。
+    - 显式提供 start_date/end_date：视为闭区间 [start_date, end_date] 过滤，覆盖
+      ``hours_back`` 行为；区间内新闻按 ``publish_time`` 字段做内存过滤。
+
+    日期格式：``YYYY-MM-DD``（可带时间后缀 ``YYYY-MM-DD HH:MM:SS``）。
     """
     if not conn.is_available():
         return None
     try:
+        # 显式日期范围覆盖 hours_back；未提供时维持"最近 N 小时"默认行为。
+        date_range_filter = bool(start_date or end_date)
         end_time = now_utc()
         start_time = end_time - timedelta(hours=hours_back)
-        start_date = start_time.strftime("%Y-%m-%d %H:%M:%S")
-        end_date = end_time.strftime("%Y-%m-%d %H:%M:%S")
+        fetch_start = start_date or start_time.strftime("%Y-%m-%d %H:%M:%S")
+        fetch_end = end_date or end_time.strftime("%Y-%m-%d %H:%M:%S")
 
         all_news: List[Dict[str, Any]] = []
         seen_titles: set = set()
@@ -68,17 +79,17 @@ async def fetch_news(
                 return _deduplicate_and_sort(all_news, limit)
 
         # 策略 1: news 快讯
-        fast_news = await _fetch_news_fast(conn, symbol, start_date, end_date, src, limit)
+        fast_news = await _fetch_news_fast(conn, symbol, fetch_start, fetch_end, src, limit)
         for item in fast_news:
             if item["title"] not in seen_titles:
                 seen_titles.add(item["title"])
                 all_news.append(item)
 
         if len(all_news) >= limit:
-            return _deduplicate_and_sort(all_news, limit)
+            return _finalize(all_news, limit, date_range_filter, start_date, end_date)
 
         # 策略 2: major_news 长篇通讯
-        major_items = await _fetch_major_news(conn, start_date, end_date, limit)
+        major_items = await _fetch_major_news(conn, fetch_start, fetch_end, limit)
         if major_items:
             for item in major_items:
                 if item["title"] not in seen_titles:
@@ -86,7 +97,7 @@ async def fetch_news(
                     all_news.append(item)
 
         if len(all_news) >= limit:
-            return _deduplicate_and_sort(all_news, limit)
+            return _finalize(all_news, limit, date_range_filter, start_date, end_date)
 
         # 策略 3: cctv_news 新闻联播
         cctv_items = await _fetch_cctv_news(conn, limit)
@@ -99,7 +110,7 @@ async def fetch_news(
         if not all_news:
             return []
 
-        return _deduplicate_and_sort(all_news, limit)
+        return _finalize(all_news, limit, date_range_filter, start_date, end_date)
 
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
         # 编排逻辑中触发的网络异常：透传给上层 retry_policy
@@ -112,6 +123,69 @@ async def fetch_news(
             raise mapped
         # 子策略函数已有自己的 try/except，到这里通常意味着编排逻辑本身出错
         raise DataSourceUnavailableError("tushare", _DOMAIN, str(exc))
+
+
+def _finalize(
+    news_list: List[Dict[str, Any]],
+    limit: int,
+    date_range_filter: bool,
+    start_date: Optional[str],
+    end_date: Optional[str],
+) -> List[Dict[str, Any]]:
+    """按日期范围过滤（若启用）后去重排序。"""
+    if not date_range_filter:
+        return _deduplicate_and_sort(news_list, limit)
+    filtered = [
+        n for n in news_list
+        if _publish_time_in_range(n.get("publish_time"), start_date, end_date)
+    ]
+    return _deduplicate_and_sort(filtered, limit)
+
+
+def _publish_time_in_range(
+    publish_time: Any, start_date: Optional[str], end_date: Optional[str]
+) -> bool:
+    """判断 publish_time 是否落在 [start_date, end_date] 闭区间内。
+
+    publish_time 可能是 datetime 或字符串；start/end_date 接受 YYYY-MM-DD
+    或带时间后缀，统一取 date 部分做比较。
+    """
+    if publish_time is None:
+        return False
+    if isinstance(publish_time, datetime):
+        pt_date = publish_time.date()
+    else:
+        pt_date = _strict_date(publish_time)
+        if pt_date is None:
+            return False
+    if start_date:
+        sd = _strict_date(start_date)
+        if sd and pt_date < sd:
+            return False
+    if end_date:
+        ed = _strict_date(end_date)
+        if ed and pt_date > ed:
+            return False
+    return True
+
+
+def _strict_date(value: Any) -> Optional[Any]:
+    """严格解析日期；解析失败返回 None（不 fallback 到当前时间）。
+
+    支持格式：``YYYY-MM-DD``、``YYYY-MM-DD HH:MM:SS``、``YYYYMMDD``。
+    返回 ``date`` 对象。
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y%m%d"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 async def _fetch_targeted_news(

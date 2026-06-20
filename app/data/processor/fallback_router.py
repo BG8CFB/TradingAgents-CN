@@ -6,7 +6,10 @@ import threading
 import time
 from typing import Dict, List, Optional
 
-from app.data.processor.circuit_breaker import CircuitBreaker
+from app.data.processor.circuit_breaker import (
+    CircuitBreaker,
+    load_source_cooldown_config,
+)
 from app.data.processor.rate_limiter import RateLimiter
 from app.data.processor.retry_policy import RetryPolicy
 from app.data.processor.normalizer import Normalizer
@@ -87,7 +90,7 @@ class FallbackRouter:
     ):
         self._registry = registry
         self._priority = priority
-        self._circuit = circuit_breaker or CircuitBreaker()
+        self._circuit = circuit_breaker or self._create_default_circuit_breaker()
         self._rate_limiter = rate_limiter or self._create_default_rate_limiter()
         self._normalizer = Normalizer()
         self._validator = Validator()
@@ -107,6 +110,16 @@ class FallbackRouter:
     def reset_instance(cls) -> None:
         """重置单例（仅测试用）。"""
         reset_singleton()
+
+    @staticmethod
+    def _create_default_circuit_breaker() -> CircuitBreaker:
+        """从 source_limits.yaml 加载熔断冷却阶梯并构造 CircuitBreaker。"""
+        try:
+            steps_by_source = load_source_cooldown_config()
+        except Exception as e:
+            logger.warning(f"加载熔断冷却配置失败，使用默认阶梯: {e}")
+            steps_by_source = {}
+        return CircuitBreaker(source_cooldown_config=steps_by_source)
 
     @staticmethod
     def _create_default_rate_limiter() -> RateLimiter:
@@ -178,7 +191,9 @@ class FallbackRouter:
             allowed, wait = await self._rate_limiter.acquire(source_name, domain)
             if not allowed:
                 await asyncio.sleep(wait)
+                # 等待期间熔断可能已被其他调用方触发；此时不应消耗已扣配额，归还之
                 if self._circuit.is_open(source_name, domain):
+                    await self._rate_limiter.release(source_name, domain)
                     continue
 
             provider, adapter = await self._get_provider_adapter(market, source_name)

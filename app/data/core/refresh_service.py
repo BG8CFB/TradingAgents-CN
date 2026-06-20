@@ -10,6 +10,7 @@ from app.data.core.domain import DataDomain
 from app.data.core.result import RefreshResult, DomainRefreshResult
 from app.data.core.registry.capability import CapabilityRegistry
 from app.data.core.registry.priority import PriorityConfig
+from app.data.schema.base.enums import RefreshStatus
 from app.data.storage.redis.locks import DistributedLock
 from app.data.storage.cache.memory_cache import TTLCache
 
@@ -181,8 +182,10 @@ class DataRefreshService:
         lock = DistributedLock(f"lock:{market}:{domain}:{symbol}", ttl=timeout)
         acquired = await lock.acquire_with_wait(max_wait=5)
         if not acquired:
-            dr.status = "failed"
-            dr.error = "获取刷新锁超时"
+            # 另一刷新正在持有该 (market, domain, symbol) 锁——这是预期并发去重，
+            # 不是失败。标记为 skipped 以避免被误判为 PARTIAL/FAILED。
+            dr.status = RefreshStatus.SKIPPED.value
+            dr.error = "另一刷新正在进行"
             dr.latency_ms = int((time.time() - start) * 1000)
             return dr
 

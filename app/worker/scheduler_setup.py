@@ -48,12 +48,15 @@ async def register_jobs(scheduler: AsyncIOScheduler, basics_sync_service, run_ba
 
     # ── Basics sync（多数据源基础信息同步）──
     preferred_sources = None
-    # 检查 Tushare 是否可用（DB 优先，.env 兜底）
+    # 检查 Tushare 是否可用（DB 优先，.env 兜底；A 股优先 TUSHARE_CN_TOKEN，回退 TUSHARE_TOKEN）
     try:
         from app.utils.ds_key_utils import get_datasource_api_key
         tushare_available = bool(get_datasource_api_key("tushare"))
     except Exception:
-        tushare_available = bool(settings.TUSHARE_ENABLED and settings.TUSHARE_TOKEN)
+        tushare_available = bool(
+            settings.TUSHARE_ENABLED
+            and (settings.TUSHARE_CN_TOKEN or settings.TUSHARE_TOKEN)
+        )
 
     if tushare_available:
         preferred_sources = ["tushare", "akshare", "baostock"]

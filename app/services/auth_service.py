@@ -1,15 +1,20 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import hashlib
 import jwt
 import logging
 import uuid
 from pydantic import BaseModel
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
+
 class TokenData(BaseModel):
     sub: str
     exp: int
     type: str = "access"
+
 
 class AuthService:
     @staticmethod
@@ -37,8 +42,6 @@ class AuthService:
 
     @staticmethod
     def verify_token(token: str) -> Optional[TokenData]:
-        logger = logging.getLogger(__name__)
-
         try:
             # jwt.decode 内部已自动处理过期检查，过期时抛出 ExpiredSignatureError
             payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
@@ -79,3 +82,70 @@ class AuthService:
             return payload.get("jti")
         except Exception:
             return None
+
+    @staticmethod
+    def _token_hash(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    async def add_token_to_blacklist(
+        token: str, ttl_seconds: int
+    ) -> bool:
+        """把 token 写入 Redis 黑名单（logout / refresh_token 轮换）。
+
+        Returns:
+            True 表示写入成功；False 表示 Redis 不可用或 token 为空。
+        """
+        if not token:
+            return False
+        try:
+            from app.data.storage.redis.client import get_redis
+            redis = get_redis()
+            if not redis:
+                return False
+            await redis.set(
+                f"token_blacklist:{AuthService._token_hash(token)}",
+                "1",
+                ex=ttl_seconds,
+            )
+            return True
+        except Exception as exc:
+            logger.debug(f"token 黑名单写入失败: {exc}")
+            return False
+
+    @staticmethod
+    async def is_token_blacklisted(
+        token: str, *, fail_closed: bool = False
+    ) -> bool:
+        """检查 token 是否在黑名单中。
+
+        Args:
+            token: 待检查的 JWT
+            fail_closed: True 时 Redis 异常即视为"已撤销"（refresh 路径用）；
+                         False 时返回 False（登录路径用，避免 Redis 抖动锁死用户）。
+        """
+        if not token:
+            return False
+        try:
+            from app.data.storage.redis.client import get_redis
+            redis = get_redis()
+            if not redis:
+                if fail_closed:
+                    logger.warning(
+                        "Redis 不可用且 fail_closed=True，拒绝 token"
+                    )
+                    return True
+                return False
+            return bool(
+                await redis.get(
+                    f"token_blacklist:{AuthService._token_hash(token)}"
+                )
+            )
+        except Exception as exc:
+            logger.debug(f"token 黑名单检查失败: {exc}")
+            if fail_closed:
+                logger.warning(
+                    f"token 黑名单检查异常 fail_closed=True，拒绝 token: {exc}"
+                )
+                return True
+            return False

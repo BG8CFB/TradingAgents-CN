@@ -1,9 +1,16 @@
-"""熔断器 — 按 source × domain 粒度隔离故障。"""
+"""熔断器 — 按 source × domain 粒度隔离故障。
+
+冷却阶梯支持按数据源配置（从 source_limits.yaml 读取）：
+- 每个源可独立设置 ``circuit_initial_cooldown`` 与 ``circuit_max_cooldown``
+- 阶梯自动从 initial → max 生成（3 档：initial、initial*2、max）
+- 未配置的源回退到全局默认 [60, 120, 300, 600]
+- 错误类型倍率继续叠加（1x ~ 5x），封顶 3600s
+"""
 
 import logging
 import threading
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from app.data.schema.base.enums import CircuitState
 from app.data.sources.base.error_codes import DataErrorCode
@@ -12,9 +19,12 @@ logger = logging.getLogger(__name__)
 
 FAILURE_THRESHOLD = 3
 WINDOW_SECONDS = 300
-COOLDOWN_STEPS = [60, 120, 300, 600]
+# 全局默认冷却阶梯（向后兼容旧测试与未配置源）
+COOLDOWN_STEPS: List[int] = [60, 120, 300, 600]
 # half-open 探测请求挂起超过该时长视为卡死，允许新探测通过
 _HALF_OPEN_PROBE_TIMEOUT = 60.0
+# 单源冷却时间绝对上限
+_ABSOLUTE_MAX_COOLDOWN = 3600
 
 _ERROR_COOLDOWN_MULTIPLIERS = {
     DataErrorCode.RATE_LIMITED: 2,
@@ -29,24 +39,87 @@ _ERROR_COOLDOWN_MULTIPLIERS = {
 }
 
 
-class CircuitBreaker:
-    """三态熔断器: Closed → Open → HalfOpen。"""
+def _build_cooldown_steps(initial: int, max_cooldown: int) -> List[int]:
+    """根据 initial 与 max 生成单调递增的三档冷却阶梯。
 
-    def __init__(self):
+    阶梯含义：第 1 次熔断用 initial，第 2 次用 initial*2，
+    第 3 次及以后直接用 max_cooldown。
+    """
+    initial = max(1, int(initial))
+    max_cooldown = max(initial, int(max_cooldown))
+    mid = min(initial * 2, max_cooldown)
+    return [initial, mid, max_cooldown]
+
+
+def load_source_cooldown_config() -> Dict[str, List[int]]:
+    """从 source_limits.yaml 读取每个源的冷却阶梯。
+
+    YAML 字段（由本文档熔断参数表维护）：
+        circuit_initial_cooldown: 初始冷却秒数
+        circuit_max_cooldown:     最大冷却秒数
+
+    Returns:
+        dict[source_name -> [initial, mid, max]]，读取失败或未配置返回空 dict。
+    """
+    import yaml
+    from pathlib import Path
+
+    config_path = Path(__file__).parent.parent / "config" / "source_limits.yaml"
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            limits_config = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning(f"加载熔断冷却配置失败，使用默认阶梯: {e}")
+        return {}
+
+    result: Dict[str, List[int]] = {}
+    for source, cfg in limits_config.items():
+        if not isinstance(cfg, dict):
+            continue
+        initial = cfg.get("circuit_initial_cooldown")
+        max_cd = cfg.get("circuit_max_cooldown")
+        if initial is None or max_cd is None:
+            continue
+        result[source] = _build_cooldown_steps(int(initial), int(max_cd))
+    return result
+
+
+class CircuitBreaker:
+    """三态熔断器: Closed → Open → HalfOpen。
+
+    可选传入 ``source_cooldown_config`` 按 source 定制冷却阶梯，
+    未提供时通过 :func:`load_source_cooldown_config` 自动加载，
+    加载失败或源缺失则回退到 :data:`COOLDOWN_STEPS`。
+    """
+
+    def __init__(self, source_cooldown_config: Optional[Dict[str, List[int]]] = None):
         self._states: Dict[Tuple[str, str], dict] = {}
         self._lock = threading.Lock()
         # 记录探测开始时间戳；超时未回调则视为卡死，允许新探测
         self._half_open_probing: Dict[Tuple[str, str], float] = {}
+        # 按 source 定制的冷却阶梯；None 表示未启用定制，使用全局默认
+        if source_cooldown_config is None:
+            try:
+                source_cooldown_config = load_source_cooldown_config()
+            except Exception as e:
+                logger.warning(f"熔断冷却配置加载失败，全部源使用默认阶梯: {e}")
+                source_cooldown_config = {}
+        self._source_steps: Dict[str, List[int]] = source_cooldown_config or {}
+
+    def _get_steps(self, source: str) -> List[int]:
+        """返回该 source 应使用的冷却阶梯。"""
+        return self._source_steps.get(source) or COOLDOWN_STEPS
 
     def _get_state(self, source: str, domain: str) -> dict:
         key = (source, domain)
         if key not in self._states:
+            steps = self._get_steps(source)
             self._states[key] = {
                 "state": CircuitState.CLOSED,
                 "failures": [],
                 "trip_count": 0,
                 "opened_at": 0,
-                "cooldown": COOLDOWN_STEPS[0],
+                "cooldown": steps[0],
                 "last_success": 0,
             }
         return self._states[key]
@@ -124,14 +197,18 @@ class CircuitBreaker:
     ) -> None:
         """触发熔断。注意：必须在 self._lock 内调用（由 record_failure 持有锁）。"""
         state = self._get_state(source, domain)
+        steps = self._get_steps(source)
         state["state"] = CircuitState.OPEN
         state["opened_at"] = time.time()
         state["trip_count"] += 1
 
-        idx = min(state["trip_count"] - 1, len(COOLDOWN_STEPS) - 1)
-        base_cooldown = COOLDOWN_STEPS[idx]
+        idx = min(state["trip_count"] - 1, len(steps) - 1)
+        base_cooldown = steps[idx]
         multiplier = _ERROR_COOLDOWN_MULTIPLIERS.get(error_code, 1)
-        state["cooldown"] = min(int(base_cooldown * multiplier), 3600)
+        # 上限取该源阶梯最大值与全局绝对上限的较小者（保底不超过 1 小时）
+        source_cap = steps[-1]
+        cap = min(source_cap, _ABSOLUTE_MAX_COOLDOWN)
+        state["cooldown"] = min(int(base_cooldown * multiplier), cap)
 
         logger.warning(
             f"熔断器打开: {source}/{domain}, 冷却 {state['cooldown']}s (错误: {error_code})"
@@ -146,9 +223,10 @@ class CircuitBreaker:
         """手动重置熔断器到 Closed 状态。"""
         with self._lock:
             state = self._get_state(source, domain)
+            steps = self._get_steps(source)
             state["state"] = CircuitState.CLOSED
             state["failures"] = []
             state["trip_count"] = 0
             state["opened_at"] = 0
-            state["cooldown"] = COOLDOWN_STEPS[0]
+            state["cooldown"] = steps[0]
             logger.info(f"熔断器已重置: {source}/{domain}")

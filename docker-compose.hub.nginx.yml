@@ -124,7 +124,11 @@ services:
       OPENROUTER_ENABLED: "${OPENROUTER_ENABLED:-false}"
       # ── 数据源 API 密钥（可选，也可通过 Web UI 配置） ──
       TUSHARE_TOKEN: "${TUSHARE_TOKEN:-}"
+      TUSHARE_CN_TOKEN: "${TUSHARE_CN_TOKEN:-}"
+      TUSHARE_HK_TOKEN: "${TUSHARE_HK_TOKEN:-}"
+      TUSHARE_US_TOKEN: "${TUSHARE_US_TOKEN:-}"
       FINNHUB_API_KEY: "${FINNHUB_API_KEY:-}"
+      ALPHA_VANTAGE_API_KEY: "${ALPHA_VANTAGE_API_KEY:-}"
       # ── 首次管理员（仅首次启动用） ──
       INITIAL_ADMIN_USERNAME: "${INITIAL_ADMIN_USERNAME:-admin}"
       INITIAL_ADMIN_EMAIL: "${INITIAL_ADMIN_EMAIL:-admin@tradingagents.cn}"

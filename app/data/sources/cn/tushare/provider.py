@@ -96,7 +96,13 @@ class TushareCNProvider(BaseProvider):
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> pd.DataFrame:
         from .api.news import fetch_news
-        result = await fetch_news(self._get_conn(), symbol=symbol, limit=50)
+        result = await fetch_news(
+            self._get_conn(),
+            symbol=symbol,
+            limit=50,
+            start_date=start_date or None,
+            end_date=end_date or None,
+        )
         if result and isinstance(result, list):
             return pd.DataFrame(result)
         return None

@@ -47,6 +47,12 @@ class TushareConnection:
             logger.debug(f"从数据库读取 Token 失败: {e}")
         return None
 
+    def _resolve_env_token(self) -> Optional[str]:
+        """读取 A 股 Tushare Token：优先 TUSHARE_CN_TOKEN，回退 TUSHARE_TOKEN。"""
+        if settings.TUSHARE_CN_TOKEN:
+            return settings.TUSHARE_CN_TOKEN
+        return settings.TUSHARE_TOKEN or None
+
     def connect_sync(self) -> bool:
         """同步连接到 Tushare"""
         if not TUSHARE_AVAILABLE:
@@ -54,7 +60,7 @@ class TushareConnection:
             return False
 
         db_token = self._get_token_from_database()
-        env_token = settings.TUSHARE_TOKEN
+        env_token = self._resolve_env_token()
 
         for token, source in [(db_token, "database"), (env_token, "env")]:
             if not token:

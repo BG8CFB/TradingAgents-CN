@@ -1,11 +1,11 @@
-"""AKShare HK Provider — 调用 AKShare 港股 API。"""
+"""AKShare HK Provider — 委托 api/ 子模块调用 AKShare 港股 API。"""
 
-import asyncio
 import logging
 
 import pandas as pd
 
 from app.data.sources.base.provider import BaseProvider
+from app.data.sources.base.exceptions import DataNotFoundError, DataSourceError
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +34,11 @@ class AKShareHKProvider(BaseProvider):
 
     async def get_stock_list(self, **kwargs) -> pd.DataFrame:
         try:
-            import akshare as ak
-            df = await asyncio.to_thread(ak.stock_hk_spot_em)
-            return df
+            from app.data.sources.hk.akshare_hk.api.basic_info import fetch_stock_list
+            return await fetch_stock_list()
+        except (DataNotFoundError, DataSourceError) as e:
+            logger.debug(f"AKShare-HK 股票列表失败: {e}")
+            return None
         except Exception as e:
             logger.error(f"AKShare-HK 股票列表失败: {e}")
             return None
@@ -45,17 +47,13 @@ class AKShareHKProvider(BaseProvider):
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> pd.DataFrame:
         try:
-            import akshare as ak
-            normalized = _normalize_hk_symbol(symbol)
-            df = await asyncio.to_thread(ak.stock_hk_daily, symbol=normalized, adjust="qfq")
-            if df is None or df.empty:
-                return None
-            # 日期过滤
-            date_col = "日期" if "日期" in df.columns else "date"
-            if date_col in df.columns:
-                df[date_col] = pd.to_datetime(df[date_col])
-                df = df[(df[date_col] >= start_date) & (df[date_col] <= end_date)]
-            return df
+            from app.data.sources.hk.akshare_hk.api.daily_quotes import (
+                fetch_daily_quotes,
+            )
+            return await fetch_daily_quotes(symbol, start_date, end_date)
+        except (DataNotFoundError, DataSourceError) as e:
+            logger.debug(f"AKShare-HK 行情失败 {symbol}: {e}")
+            return None
         except Exception as e:
             logger.error(f"AKShare-HK 行情失败 {symbol}: {e}")
             return None
@@ -64,10 +62,14 @@ class AKShareHKProvider(BaseProvider):
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> pd.DataFrame:
         try:
-            import akshare as ak
+            from app.data.sources.hk.akshare_hk.api.corporate_actions import (
+                fetch_corporate_actions,
+            )
             normalized = _normalize_hk_symbol(symbol)
-            df = await asyncio.to_thread(ak.stock_hk_ggcgy_em, symbol=normalized)
-            return df
+            return await fetch_corporate_actions(normalized)
+        except (DataNotFoundError, DataSourceError) as e:
+            logger.debug(f"AKShare-HK 公司行为失败 {symbol}: {e}")
+            return None
         except Exception as e:
             logger.debug(f"AKShare-HK 公司行为失败 {symbol}: {e}")
             return None
@@ -78,14 +80,15 @@ class AKShareHKProvider(BaseProvider):
         # 市场级新闻（symbol=None）：复用 CN 的全球财经快讯（覆盖港股）
         if not symbol:
             from app.data.sources.cn.akshare.api.news import fetch_market_news
-            import pandas as pd
             result = await fetch_market_news(limit=100)
             return pd.DataFrame(result) if result else None
         try:
-            import akshare as ak
+            from app.data.sources.hk.akshare_hk.api.news import fetch_news
             normalized = _normalize_hk_symbol(symbol)
-            df = await asyncio.to_thread(ak.stock_hk_notice_report, symbol=normalized)
-            return df
+            return await fetch_news(normalized)
+        except (DataNotFoundError, DataSourceError) as e:
+            logger.debug(f"AKShare-HK 新闻失败 {symbol}: {e}")
+            return None
         except Exception as e:
             logger.debug(f"AKShare-HK 新闻失败 {symbol}: {e}")
             return None

@@ -19,10 +19,23 @@ logger = logging.getLogger(__name__)
 _DOMAIN = "financial_data"
 
 
+def _compact_date(value: Optional[str]) -> Optional[str]:
+    """ISO YYYY-MM-DD → Tushare YYYYMMDD；空值返回 None。"""
+    if not value:
+        return None
+    cleaned = str(value).strip().replace("-", "")
+    if not cleaned:
+        return None
+    return cleaned
+
+
 async def fetch_financial_data(
     api,
     ts_code: str,
     statement_type: str = "income",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    period: Optional[str] = None,
 ) -> Optional[pd.DataFrame]:
     """获取港股财务报表数据。
 
@@ -40,6 +53,11 @@ async def fetch_financial_data(
         Tushare 格式港股代码，如 "0700.HK"。
     statement_type : str
         报表类型: income / balance / cashflow / indicator。
+    start_date, end_date : Optional[str]
+        ISO 格式日期（YYYY-MM-DD）。按 Tushare 的公告日 ``ann_date`` 过滤
+        （"在该区间内披露的报表"语义最稳定）。两端皆闭区间；未提供则不传。
+    period : Optional[str]
+        报告期末月（YYYYMMDD），如 "20231231"。用于精确指定单期报表。
 
     Returns
     -------
@@ -60,8 +78,18 @@ async def fetch_financial_data(
         logger.error(f"Tushare HK 不支持的财务接口: {method_name}")
         return None
 
+    params = {"ts_code": ts_code}
+    start_compact = _compact_date(start_date)
+    end_compact = _compact_date(end_date)
+    if start_compact:
+        params["start_date"] = start_compact
+    if end_compact:
+        params["end_date"] = end_compact
+    if period:
+        params["period"] = _compact_date(period)
+
     try:
-        df = await asyncio.to_thread(lambda: method(ts_code=ts_code))
+        df = await asyncio.to_thread(lambda: method(**params))
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
         raise map_network_exception(exc, "tushare_hk", _DOMAIN)
     except Exception as exc:

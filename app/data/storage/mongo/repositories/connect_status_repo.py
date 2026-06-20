@@ -45,4 +45,4 @@ class ConnectStatusRepo:
     async def get_latest(self, market: str) -> Optional[Dict]:
         db = get_motor_db()
         coll = db[get_collection_name("connect_status", market)]
-        return await coll.find_one({"_id": 0}, sort=[("trade_date", -1)])
+        return await coll.find_one({}, {"_id": 0}, sort=[("trade_date", -1)])

@@ -101,71 +101,14 @@ class CreateUserRequest(BaseModel):
 async def _add_token_to_blacklist(
     token: str, ttl_days: int = 7, *, ttl_seconds: Optional[int] = None
 ) -> bool:
-    """把 token 写入 Redis 黑名单（用于 logout / refresh_token 轮换）。
-
-    黑名单 key 形如 ``token_blacklist:{sha256_hash}``，TTL 与 token 剩余有效期对齐。
-
-    TTL 指定方式（二选一，``ttl_seconds`` 优先）：
-        - ``ttl_seconds``：直接指定秒数。用于 access_token（TTL=60分钟+缓冲），
-          避免把"分钟级"token 写入"天级"黑名单造成 Redis 无谓堆积。
-        - ``ttl_days``：便捷参数，内部换算为秒。用于 refresh_token（TTL=7天）。
-
-    Args:
-        token: 要拉黑的 token 原文
-        ttl_days: 黑名单保留天数（当 ``ttl_seconds`` 未指定时使用）
-        ttl_seconds: 黑名单保留秒数（优先于 ``ttl_days``）
-
-    Returns:
-        True 表示写入成功；False 表示 Redis 不可用（业务流程允许继续，验证时再判断）
-    """
-    if not token:
-        return False
-    import hashlib
+    """把 token 写入黑名单（委托 AuthService，见 services/auth_service.py）。"""
     effective_ttl = ttl_seconds if ttl_seconds is not None else ttl_days * 24 * 3600
-    try:
-        from app.data.storage.redis.client import get_redis
-        redis = get_redis()
-        if not redis:
-            return False
-        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        await redis.set(
-            f"token_blacklist:{token_hash}",
-            "1",
-            ex=effective_ttl,
-        )
-        return True
-    except Exception as exc:
-        logger.debug(f"token 黑名单写入失败: {exc}")
-        return False
+    return await AuthService.add_token_to_blacklist(token, ttl_seconds=effective_ttl)
 
 
 async def _is_token_blacklisted(token: str, *, fail_closed: bool = False) -> bool:
-    """检查 token 是否在黑名单中。
-
-    Args:
-        token: 待检查的 JWT
-        fail_closed: True 时 Redis 异常即视为"已撤销"（refresh 路径用）；
-                     False 时返回 False（登录路径用，避免 Redis 抖动锁死用户）。
-    """
-    if not token:
-        return False
-    import hashlib
-    try:
-        from app.data.storage.redis.client import get_redis
-        redis = get_redis()
-        if not redis:
-            if fail_closed:
-                logger.warning("Redis 不可用且 fail_closed=True，拒绝 refresh token")
-                return True
-            return False
-        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        return bool(await redis.get(f"token_blacklist:{token_hash}"))
-    except Exception as exc:
-        logger.debug(f"token 黑名单检查失败: {exc}")
-        if fail_closed:
-            logger.warning(f"token 黑名单检查异常 fail_closed=True，拒绝 token: {exc}")
-            return True
-        return False
+    """检查 token 是否在黑名单中（委托 AuthService）。"""
+    return await AuthService.is_token_blacklisted(token, fail_closed=fail_closed)
 
 
 async def get_current_user(authorization: Optional[str] = Header(default=None)) -> dict:

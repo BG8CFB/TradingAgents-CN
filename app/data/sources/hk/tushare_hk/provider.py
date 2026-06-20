@@ -1,7 +1,7 @@
-"""Tushare HK Provider — 调用 Tushare 港股 API。
+"""Tushare HK Provider — 委托 api/ 子模块调用 Tushare 港股 API。
 
-Token 说明：与 CN Tushare 共用同一 TUSHARE_TOKEN（Tushare 同一账号支持多市场，
-积分共享）。通过 get_datasource_api_key("tushare") 读取。
+Token：独立读取 TUSHARE_HK_TOKEN（回退到 TUSHARE_TOKEN），
+与 A 股 / 美股的凭据与积分完全隔离。
 积分门槛 ≥ 2000。
 覆盖: 基础信息 / 行情 / 复权 / 财务 / 南向持股。
 不支持: 公司行为 / 新闻（必须由 AKShare HK 承担）。
@@ -13,7 +13,12 @@ import logging
 import pandas as pd
 
 from app.data.sources.base.provider import BaseProvider
-from app.data.sources.base.exceptions import TokenInvalidError, InsufficientCreditsError
+from app.data.sources.base.exceptions import (
+    DataNotFoundError,
+    DataSourceError,
+    TokenInvalidError,
+    InsufficientCreditsError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +37,7 @@ class TushareHKProvider(BaseProvider):
             import tushare as ts
             from app.utils.ds_key_utils import get_datasource_api_key
 
-            token = get_datasource_api_key("tushare")
+            token = get_datasource_api_key("tushare_hk")
             if not token:
                 return None
             ts.set_token(token)
@@ -73,7 +78,11 @@ class TushareHKProvider(BaseProvider):
         if not api:
             return None
         try:
-            return await asyncio.to_thread(lambda: api.hk_basic())
+            from app.data.sources.hk.tushare_hk.api.hk_basic import fetch_stock_list
+            return await fetch_stock_list(api)
+        except (DataNotFoundError, DataSourceError) as e:
+            logger.debug(f"Tushare HK 股票列表失败: {e}")
+            return None
         except Exception as e:
             logger.error(f"Tushare HK 股票列表失败: {e}")
             return None
@@ -89,11 +98,15 @@ class TushareHKProvider(BaseProvider):
         if not api:
             return None
         try:
-            return await asyncio.to_thread(
-                lambda: api.hk_tradecal(
-                    exchange=exchange, start_date=start_date, end_date=end_date
-                )
+            from app.data.sources.hk.tushare_hk.api.hk_tradecal import (
+                fetch_trade_calendar,
             )
+            return await fetch_trade_calendar(
+                api, exchange=exchange, start_date=start_date, end_date=end_date
+            )
+        except (DataNotFoundError, DataSourceError) as e:
+            logger.debug(f"Tushare HK 交易日历失败: {e}")
+            return None
         except Exception as e:
             logger.error(f"Tushare HK 交易日历失败: {e}")
             return None
@@ -106,13 +119,11 @@ class TushareHKProvider(BaseProvider):
             return None
         ts_code = self._to_hk_ts_code(symbol)
         try:
-            return await asyncio.to_thread(
-                lambda: api.hk_daily(
-                    ts_code=ts_code,
-                    start_date=start_date.replace("-", ""),
-                    end_date=end_date.replace("-", ""),
-                )
-            )
+            from app.data.sources.hk.tushare_hk.api.hk_daily import fetch_daily_quotes
+            return await fetch_daily_quotes(api, ts_code, start_date, end_date)
+        except (DataNotFoundError, DataSourceError) as e:
+            logger.debug(f"Tushare HK 行情失败 {symbol}: {e}")
+            return None
         except Exception as e:
             logger.error(f"Tushare HK 行情失败 {symbol}: {e}")
             return None
@@ -125,15 +136,15 @@ class TushareHKProvider(BaseProvider):
             return None
         ts_code = self._to_hk_ts_code(symbol)
         try:
-            return await asyncio.to_thread(
-                lambda: api.hk_daily_adj(
-                    ts_code=ts_code,
-                    start_date=start_date.replace("-", ""),
-                    end_date=end_date.replace("-", ""),
-                )
+            from app.data.sources.hk.tushare_hk.api.hk_daily_adj import (
+                fetch_daily_adj,
             )
-        except Exception as e:
+            return await fetch_daily_adj(api, ts_code, start_date, end_date)
+        except (DataNotFoundError, DataSourceError) as e:
             logger.debug(f"Tushare HK 每日指标失败 {symbol}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Tushare HK 每日指标失败 {symbol}: {e}")
             return None
 
     async def get_adj_factors(
@@ -144,15 +155,15 @@ class TushareHKProvider(BaseProvider):
             return None
         ts_code = self._to_hk_ts_code(symbol)
         try:
-            return await asyncio.to_thread(
-                lambda: api.hk_adjfactor(
-                    ts_code=ts_code,
-                    start_date=start_date.replace("-", ""),
-                    end_date=end_date.replace("-", ""),
-                )
+            from app.data.sources.hk.tushare_hk.api.hk_adjfactor import (
+                fetch_adj_factors,
             )
-        except Exception as e:
+            return await fetch_adj_factors(api, ts_code, start_date, end_date)
+        except (DataNotFoundError, DataSourceError) as e:
             logger.debug(f"Tushare HK 复权因子失败 {symbol}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Tushare HK 复权因子失败 {symbol}: {e}")
             return None
 
     async def get_financial_data(
@@ -167,23 +178,23 @@ class TushareHKProvider(BaseProvider):
         if not api:
             return None
         ts_code = self._to_hk_ts_code(symbol)
+        stmt = statement_type or "income"
         try:
-            if statement_type == "income" or not statement_type:
-                return await asyncio.to_thread(lambda: api.hk_income(ts_code=ts_code))
-            elif statement_type == "balance":
-                return await asyncio.to_thread(
-                    lambda: api.hk_balancesheet(ts_code=ts_code)
-                )
-            elif statement_type == "cashflow":
-                return await asyncio.to_thread(lambda: api.hk_cashflow(ts_code=ts_code))
-            elif statement_type == "indicator":
-                return await asyncio.to_thread(
-                    lambda: api.hk_fina_indicator(ts_code=ts_code)
-                )
-            else:
-                return await asyncio.to_thread(lambda: api.hk_income(ts_code=ts_code))
-        except Exception as e:
+            from app.data.sources.hk.tushare_hk.api.hk_financials import (
+                fetch_financial_data,
+            )
+            return await fetch_financial_data(
+                api,
+                ts_code,
+                statement_type=stmt,
+                start_date=start_date or None,
+                end_date=end_date or None,
+            )
+        except (DataNotFoundError, DataSourceError) as e:
             logger.debug(f"Tushare HK 财务失败 {symbol}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Tushare HK 财务失败 {symbol}: {e}")
             return None
 
     async def get_news(
@@ -201,7 +212,13 @@ class TushareHKProvider(BaseProvider):
         if not api:
             return None
         try:
-            return await asyncio.to_thread(lambda: api.rt_hk_k())
+            from app.data.sources.hk.tushare_hk.api.rt_hk_k import (
+                fetch_realtime_quotes,
+            )
+            return await fetch_realtime_quotes(api)
+        except (DataNotFoundError, DataSourceError) as e:
+            logger.debug(f"Tushare HK 实时行情失败: {e}")
+            return None
         except Exception as e:
             logger.debug(f"Tushare HK 实时行情失败: {e}")
             return None

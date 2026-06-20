@@ -2,12 +2,13 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
 from app.utils.ds_key_utils import get_datasource_api_key
 
+from app.data.core.market import get_market_timezone
 from app.data.sources.base.provider import BaseProvider
 
 logger = logging.getLogger(__name__)
@@ -56,19 +57,26 @@ class FinnhubUSProvider(BaseProvider):
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> pd.DataFrame:
         try:
+            # 美股交易日按 America/New_York 时区定义。Finnhub candle timestamp 是
+            # UTC epoch seconds（指向美东交易日的零时），需转 ET 取 date；同时
+            # end_ts 取 end_date+1 天的 UTC 午夜，确保闭区间包含 end_date 当天。
+            et_tz = get_market_timezone("US")
+            utc = timezone.utc
+
             def _fetch():
                 client = _get_finnhub_client()
-                # Finnhub 返回的 candle timestamp 是 UTC 秒，查询边界也用 UTC 午夜，
-                # 避免宿主机时区导致日期偏移。
-                start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
-                end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+                start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=utc).timestamp())
+                end_ts = int((
+                    datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=utc) + timedelta(days=1)
+                ).timestamp())
                 candles = client.stock_candles(symbol.upper(), "D", start_ts, end_ts)
                 if not candles or candles.get("s") != "ok":
                     return None
                 records = []
                 for i in range(len(candles["t"])):
+                    trade_date = datetime.fromtimestamp(candles["t"][i], tz=utc).astimezone(et_tz).strftime("%Y-%m-%d")
                     records.append({
-                        "trade_date": datetime.fromtimestamp(candles["t"][i], tz=timezone.utc).strftime("%Y-%m-%d"),
+                        "trade_date": trade_date,
                         "open": candles["o"][i], "high": candles["h"][i],
                         "low": candles["l"][i], "close": candles["c"][i],
                         "volume": candles["v"][i], "symbol": symbol.upper(),

@@ -185,6 +185,46 @@ class SlidingWindowCounter:
             current_list.append(now)
             return True, 0.0
 
+    async def try_decrement(self, key: str) -> bool:
+        """回退一次 ``try_increment`` 占用的配额。
+
+        典型场景：调用方 acquire 成功后，因熔断 / 前置校验失败而没有真正发请求，
+        调用此方法归还令牌，避免对后续请求过度限流。
+
+        实现说明：
+        - Redis 路径：使用 ``ZPOPMIN`` 删除 score 最大（最近加入）的一条。由于
+          ZSET 不保留 caller 上下文，无法保证删的就是"本次 acquire 加的那条"，
+          但在熔断去重场景下，调用方不会真正发请求，归还一份近似等价于"本次
+          acquire 从未发生"，足以避免配额虚耗。
+        - 内存路径：用 ``pop()`` 删除 list 末尾（最近 append 的那条），语义匹配。
+
+        Returns:
+            True 表示成功删除一条；False 表示窗口内无记录可删。
+        """
+        now = time.time()
+        cutoff = now - self.window_seconds
+
+        try:
+            redis = None
+            try:
+                from app.data.storage.redis.client import get_redis
+                redis = get_redis()
+            except Exception as e:
+                logger.debug(f"获取 Redis 连接失败: {e}")
+
+            if redis:
+                removed = await redis.zpopmin(key, count=1)
+                return bool(removed)
+        except Exception as e:
+            logger.debug(f"Redis try_decrement 失败，降级内存: {e}")
+
+        with _memory_counters_lock:
+            _memory_counters[key] = [t for t in _memory_counters[key] if t > cutoff]
+            if not _memory_counters[key]:
+                return False
+            _memory_counters[key].pop()
+            return True
+
 
 class RateLimiterQuota:
     """Tushare Token 哈希配额聚合。"""

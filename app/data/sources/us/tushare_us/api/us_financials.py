@@ -1,5 +1,5 @@
 """
-Tushare US 美股财务数据 API（利润表/资产负债表/现金流量表）
+Tushare US 美股财务数据 API — 多表联合（利润表/资产负债表/现金流量表/财务指标）。
 """
 import asyncio
 import logging
@@ -19,55 +19,77 @@ logger = logging.getLogger(__name__)
 _DOMAIN = "financial_data"
 
 
-def _to_us_ts_code(symbol: str) -> str:
-    """将普通 ticker 转换为 Tushare US ts_code 格式。
-
-    AAPL → AAPL.O (NASDAQ 默认)
-    """
-    symbol = symbol.upper().strip()
-    if "." in symbol:
-        return symbol
-    return f"{symbol}.O"
+def _compact_date(value: Optional[str]) -> Optional[str]:
+    """ISO YYYY-MM-DD → Tushare YYYYMMDD；空值返回 None。"""
+    if not value:
+        return None
+    cleaned = str(value).strip().replace("-", "")
+    if not cleaned:
+        return None
+    return cleaned
 
 
 async def fetch_financial_data(
     api,
     ts_code: str,
     statement_type: str = "income",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    period: Optional[str] = None,
 ) -> Optional[pd.DataFrame]:
     """获取美股财务报表数据。
 
-    根据 statement_type 调用不同的 Tushare US 财务接口：
-    - "income" → api.us_income()（利润表）
-    - "balance" → api.us_balancesheet()（资产负债表）
-    - "cashflow" → api.us_cashflow()（现金流量表）
+    根据 statement_type 路由到对应的 Tushare US 接口：
+    - income     → api.us_income()
+    - balance    → api.us_balancesheet()
+    - cashflow   → api.us_cashflow()
+    - indicator  → api.us_fina_indicator()
 
-    Args:
-        api: tushare pro_api 实例
-        ts_code: 股票代码，如 "AAPL" 或 "AAPL.O"
-        statement_type: 报表类型 ("income"/"balance"/"cashflow")
+    Parameters
+    ----------
+    api : tushare.pro_api
+        已初始化的 Tushare pro_api 实例。
+    ts_code : str
+        Tushare 格式美股代码，如 "AAPL.O"。
+    statement_type : str
+        报表类型: income / balance / cashflow / indicator。
+    start_date, end_date : Optional[str]
+        ISO 格式日期（YYYY-MM-DD）。按 Tushare 的公告日 ``ann_date`` 过滤
+        （"在该区间内披露的报表"语义最稳定）。两端皆闭区间；未提供则不传。
+    period : Optional[str]
+        报告期末月（YYYYMMDD），如 "20231231"。用于精确指定单期报表。
 
-    Returns:
-        财务数据 DataFrame，失败返回 None
+    Returns
+    -------
+    Optional[pd.DataFrame]
+        原始 DataFrame，字段因报表类型不同而异。
     """
     if api is None:
         return None
-    us_code = _to_us_ts_code(ts_code)
-
     api_method_map = {
         "income": "us_income",
         "balance": "us_balancesheet",
         "cashflow": "us_cashflow",
+        "indicator": "us_fina_indicator",
     }
     method_name = api_method_map.get(statement_type, "us_income")
-
     method = getattr(api, method_name, None)
     if method is None:
-        logger.error(f"Tushare US 不支持的方法: {method_name}")
+        logger.error(f"Tushare US 不支持的财务接口: {method_name}")
         return None
 
+    params = {"ts_code": ts_code}
+    start_compact = _compact_date(start_date)
+    end_compact = _compact_date(end_date)
+    if start_compact:
+        params["start_date"] = start_compact
+    if end_compact:
+        params["end_date"] = end_compact
+    if period:
+        params["period"] = _compact_date(period)
+
     try:
-        df = await asyncio.to_thread(method, ts_code=us_code)
+        df = await asyncio.to_thread(lambda: method(**params))
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
         raise map_network_exception(exc, "tushare_us", _DOMAIN)
     except Exception as exc:
@@ -76,14 +98,14 @@ async def fetch_financial_data(
         if mapped is not None:
             raise mapped
         raise DataSourceUnavailableError(
-            "tushare_us", _DOMAIN, f"ts_code={us_code} ({statement_type}): {exc}"
+            "tushare_us", _DOMAIN, f"ts_code={ts_code} ({statement_type}): {exc}"
         )
 
     if is_empty_result(df):
-        logger.warning(f"Tushare US 财务数据返回空数据: {us_code} ({statement_type})")
+        logger.warning(f"Tushare US 财务数据返回空数据: {ts_code} ({statement_type})")
         raise DataNotFoundError(
-            "tushare_us", _DOMAIN, f"{us_code} ({statement_type}) 无数据"
+            "tushare_us", _DOMAIN, f"{ts_code} ({statement_type}) 无数据"
         )
 
-    logger.info(f"Tushare US 财务数据 ({statement_type}): {us_code} {len(df)} 条")
+    logger.info(f"Tushare US 财务数据({statement_type}): {ts_code} {len(df)} 条")
     return df

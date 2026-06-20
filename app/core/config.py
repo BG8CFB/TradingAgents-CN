@@ -281,7 +281,12 @@ class Settings(BaseSettings):
     )
 
     # Tushare基础配置
-    TUSHARE_TOKEN: str = Field(default="", description="Tushare API Token（DB 优先，.env 兜底）")
+    # 旧字段保留作为兜底：若三市场专属 Token 未配置，回退到 TUSHARE_TOKEN
+    TUSHARE_TOKEN: str = Field(default="", description="Tushare API Token 兜底字段（市场专属 Token 未配置时使用）")
+    # 三市场独立 Token — 实现真正的凭据隔离与积分池隔离
+    TUSHARE_CN_TOKEN: str = Field(default="", description="A 股 Tushare Token（优先于 TUSHARE_TOKEN）")
+    TUSHARE_HK_TOKEN: str = Field(default="", description="港股 Tushare Token（优先于 TUSHARE_TOKEN；积分门槛 ≥ 2000）")
+    TUSHARE_US_TOKEN: str = Field(default="", description="美股 Tushare Token（优先于 TUSHARE_TOKEN；积分门槛 ≥ 120）")
     TUSHARE_ENABLED: bool = Field(default=True, description="启用Tushare数据源")
     TUSHARE_TIER: str = Field(default="standard", description="Tushare积分等级 (free/basic/standard/premium/vip)")
     TUSHARE_RATE_LIMIT_SAFETY_MARGIN: float = Field(default=0.8, ge=0.1, le=1.0, description="速率限制安全边际")

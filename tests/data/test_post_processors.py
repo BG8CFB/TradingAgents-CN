@@ -177,8 +177,10 @@ class TestPeriodAggregatorMonthly:
         assert PeriodAggregator._month_key("2024-03-15") == "2024-03"
 
     def test_week_key_iso_format(self):
+        # N1 修复：_week_key 改用"本周一日期"作为 group key（替代跨年不稳定的 %Y-W%W）
+        # 2024-01-15 是周一，所以 key 就是 "2024-01-15"
         key = PeriodAggregator._week_key("2024-01-15")
-        assert key.startswith("2024-W")
+        assert key == "2024-01-15"
 
 
 # ── AdjFactorCalculator 测试 ──────────────────────────────

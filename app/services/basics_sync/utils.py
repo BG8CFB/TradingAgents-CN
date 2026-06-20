@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def fetch_stock_basic_df():
     """
     从 Tushare 获取股票基础列表（DataFrame格式），要求已正确配置并连接。
-    依赖环境变量：TUSHARE_ENABLED=true 且 .env 中提供 TUSHARE_TOKEN。
+    依赖环境变量：TUSHARE_ENABLED=true 且 .env 中提供 TUSHARE_CN_TOKEN（回退 TUSHARE_TOKEN）。
 
     注意：这是一个同步函数，会等待 Tushare 连接完成。
     """
@@ -31,14 +31,17 @@ def fetch_stock_basic_df():
         tushare_available = bool(get_datasource_api_key("tushare"))
     except Exception:
         from app.core.config import settings
-        tushare_available = bool(settings.TUSHARE_ENABLED and settings.TUSHARE_TOKEN)
+        tushare_available = bool(
+            settings.TUSHARE_ENABLED
+            and (settings.TUSHARE_CN_TOKEN or settings.TUSHARE_TOKEN)
+        )
 
     if not tushare_available:
         logger.error("❌ Tushare Token 未配置")
-        logger.error("💡 请在 Web UI 配置管理中添加 Tushare Token，或在 .env 中设置 TUSHARE_TOKEN")
+        logger.error("💡 请在 Web UI 配置管理中添加 Tushare Token，或在 .env 中设置 TUSHARE_CN_TOKEN")
         raise RuntimeError(
             "Tushare Token not configured. "
-            "Please add Tushare Token in Web UI Config Management or set TUSHARE_TOKEN in .env."
+            "Please add Tushare Token in Web UI Config Management or set TUSHARE_CN_TOKEN in .env."
         )
 
     conn = get_tushare_api()
@@ -57,12 +60,12 @@ def fetch_stock_basic_df():
     if not getattr(conn, "connected", False) or conn.api is None:
         logger.error(f"❌ Tushare 连接失败（等待 {max_wait_seconds}s 后超时）")
         logger.error("💡 请检查：")
-        logger.error("   1. .env 文件中配置了有效的 TUSHARE_TOKEN")
+        logger.error("   1. .env 文件中配置了有效的 TUSHARE_CN_TOKEN（或 TUSHARE_TOKEN）")
         logger.error("   2. Tushare Token 未过期且有足够的积分")
         logger.error("   3. 网络连接正常")
         raise RuntimeError(
             f"Tushare not connected after waiting {max_wait_seconds}s. "
-            "Check TUSHARE_TOKEN in .env and ensure it's valid."
+            "Check TUSHARE_CN_TOKEN in .env and ensure it's valid."
         )
 
     logger.info("✅ Tushare 已连接，开始获取股票列表...")

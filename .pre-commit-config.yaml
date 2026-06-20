@@ -9,6 +9,14 @@ repos:
         types: [python]
         pass_filenames: false
 
+      # 禁止路由层直接依赖 storage 层（redis / cache / mongo）—— 必须走 service 层
+      - id: no-storage-in-routers
+        name: No storage imports in routers
+        entry: bash -c 'grep -rn "from app\.data\.storage\.\(redis\|cache\|mongo\)" app/routers/ | grep -v __pycache__ && exit 1 || exit 0'
+        language: system
+        types: [python]
+        pass_filenames: false
+
       # 禁止 os.getenv 散落（仅允许配置层和工具模块）
       - id: no-bare-os-getenv
         name: No os.getenv outside config modules
