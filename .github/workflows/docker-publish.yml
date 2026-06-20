@@ -10,10 +10,8 @@ permissions:
   contents: read
   packages: write
 
-env:
-  IMAGE_BACKEND: ghcr.io/${{ github.repository_owner }}/tradingagents-backend
-  IMAGE_FRONTEND: ghcr.io/${{ github.repository_owner }}/tradingagents-frontend
-
+# GHCR 镜像名必须全小写，而 GitHub 用户名可能含大写字母。
+# 在 job level 用 step 把 owner 转小写后赋给 JOB_ENV，避免硬编码。
 jobs:
   build:
     name: Build ${{ matrix.image }} (${{ matrix.platform }})
@@ -46,6 +44,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve lowercase image names
+        id: ref
+        run: |
+          OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          if [ "${{ matrix.image }}" = "backend" ]; then
+            echo "name=ghcr.io/${OWNER_LC}/tradingagents-backend" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=ghcr.io/${OWNER_LC}/tradingagents-frontend" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -55,15 +63,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Resolve image name
-        id: ref
-        run: |
-          if [ "${{ matrix.image }}" = "backend" ]; then
-            echo "name=${{ env.IMAGE_BACKEND }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=${{ env.IMAGE_FRONTEND }}" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Build and push by-digest
         id: build
@@ -101,21 +100,22 @@ jobs:
       matrix:
         image: [backend, frontend]
     steps:
+      - name: Resolve lowercase image name
+        id: ref
+        run: |
+          OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          if [ "${{ matrix.image }}" = "backend" ]; then
+            echo "name=ghcr.io/${OWNER_LC}/tradingagents-backend" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=ghcr.io/${OWNER_LC}/tradingagents-frontend" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Resolve image name
-        id: ref
-        run: |
-          if [ "${{ matrix.image }}" = "backend" ]; then
-            echo "name=${{ env.IMAGE_BACKEND }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=${{ env.IMAGE_FRONTEND }}" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Download all digests for ${{ matrix.image }}
         uses: actions/download-artifact@v4
