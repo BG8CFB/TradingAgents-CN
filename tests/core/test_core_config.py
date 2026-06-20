@@ -10,6 +10,8 @@ import warnings
 import pytest
 from test_infra import env_vars
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 class TestSettingsDefaults:
     """测试 Settings 类的默认值"""
@@ -244,27 +246,58 @@ class TestLegacyEnvAliases:
 
 
 class TestProductionSecurityChecks:
-    """测试生产环境下的导入期安全检查"""
+    """测试生产环境下的导入期安全检查。
 
-    def test_docker_production_rejects_wildcard_allowed_hosts(self):
-        """Docker 生产环境下 ALLOWED_HOSTS 不能包含 '*'"""
-        module_name = "app.core.config"
-        original_module = sys.modules.get(module_name)
+    使用 subprocess 隔离执行，避免 sys.modules.pop + importlib.import_module
+    污染主测试进程的 settings 单例（曾导致 test_pr2_core_security 状态漂移）。
+    """
 
-        with env_vars(
-            {
-                "DEBUG": "false",
-                "DOCKER_CONTAINER": "true",
-                "ALLOWED_ORIGINS": '["https://example.com"]',
-                "ALLOWED_HOSTS": '["*"]',
-                "JWT_SECRET": "test-jwt-secret",
-                "CSRF_SECRET": "test-csrf-secret",
-            }
-        ):
-            sys.modules.pop(module_name, None)
-            with pytest.raises(RuntimeError, match="ALLOWED_HOSTS"):
-                importlib.import_module(module_name)
+    def _run_config_import(self, env: dict):
+        """在子进程中执行 `import app.core.config`，返回 (returncode, stdout, stderr)。"""
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "-c", "import app.core.config"],
+            env={**os.environ, **env},
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT,
+        )
+        return result.returncode, result.stdout, result.stderr
 
-        sys.modules.pop(module_name, None)
-        if original_module is not None:
-            sys.modules[module_name] = original_module
+    def test_docker_production_warns_on_wildcard_allowed_hosts(self):
+        """Docker 生产环境下 ALLOWED_HOSTS 含 '*' 时降级为警告（Nginx 反代已保证同源安全）。
+
+        历史：465e9948 把 Docker 环境 '*' 从 RuntimeError 改为 warnings.warn，
+        对齐"容器内 Nginx 反代已保证同源安全"的实际部署模型。
+        子进程里 warnings 走 stderr，returncode=0 表示未 raise。
+        """
+        rc, stdout, stderr = self._run_config_import({
+            "DEBUG": "false",
+            "DOCKER_CONTAINER": "true",
+            "ALLOWED_ORIGINS": '["https://example.com"]',
+            "ALLOWED_HOSTS": '["*"]',
+            "JWT_SECRET": "test-jwt-secret",
+            "CSRF_SECRET": "test-csrf-secret",
+        })
+        assert rc == 0, f"Docker 生产环境不应 raise，但子进程退出码={rc}\nstderr:\n{stderr}"
+        assert "ALLOWED_HOSTS" in stderr and "*" in stderr, (
+            f"期望 stderr 含 ALLOWED_HOSTS 和 '*' 的警告，实际:\n{stderr}"
+        )
+
+    def test_non_docker_production_rejects_wildcard_allowed_hosts(self):
+        """非 Docker 生产环境下 ALLOWED_HOSTS 含 '*' 必须抛 RuntimeError。
+
+        Docker 环境降级为警告（见上一测试），裸机生产环境仍严格阻止。
+        """
+        rc, stdout, stderr = self._run_config_import({
+            "DEBUG": "false",
+            "DOCKER_CONTAINER": "",
+            "ALLOWED_ORIGINS": '["https://example.com"]',
+            "ALLOWED_HOSTS": '["*"]',
+            "JWT_SECRET": "test-jwt-secret",
+            "CSRF_SECRET": "test-csrf-secret",
+        })
+        assert rc != 0, f"非 Docker 生产环境应 raise RuntimeError，但子进程正常退出\nstderr:\n{stderr}"
+        assert "ALLOWED_HOSTS" in stderr, (
+            f"期望 stderr 含 ALLOWED_HOSTS 错误，实际:\n{stderr}"
+        )

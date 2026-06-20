@@ -56,6 +56,53 @@ def event_loop() -> Generator:
 
 
 # ============================================================
+# 单例状态隔离 — 防止测试间互相污染
+# ============================================================
+
+# 捕获 settings 单例的初始 DEBUG 值，用于每个测试自动还原。
+# pydantic-settings 的 settings 是进程级单例，测试中 settings.DEBUG = X
+# 如果不还原，会影响后续依赖该状态的测试（典型现象：本地 .env DEBUG=true
+# 与 CI 无 .env DEBUG=false 行为分歧，见 test_pr2_core_security / test_core_response）。
+_INITIAL_DEBUG: bool | None = None
+
+
+@pytest.fixture(autouse=True)
+def _restore_settings_debug():
+    """每个测试结束后自动还原 settings.DEBUG 到初始值，并清除 YAML 配置缓存。
+
+    autouse=True 无需测试显式声明使用；作用域 function 级（默认）。
+    pydantic-settings 的 settings 是进程级单例，测试中 settings.DEBUG = X
+    如果不还原，会影响后续依赖该状态的测试。
+
+    load_yaml 使用 functools.lru_cache 缓存 freshness_rules.yaml 等配置，
+    如果某个测试 monkeypatch 了 _CONFIG_DIR 或修改了 YAML 文件，缓存会
+    持续到进程结束——这里主动清缓存，确保每个测试从磁盘读到最新内容。
+    """
+    global _INITIAL_DEBUG
+    from app.core.config import settings as _settings
+
+    if _INITIAL_DEBUG is None:
+        _INITIAL_DEBUG = _settings.DEBUG
+    else:
+        _settings.DEBUG = _INITIAL_DEBUG
+
+    try:
+        from app.data.config import load_yaml
+        load_yaml.cache_clear()
+    except Exception:
+        pass
+
+    yield
+
+    _settings.DEBUG = _INITIAL_DEBUG
+    try:
+        from app.data.config import load_yaml
+        load_yaml.cache_clear()
+    except Exception:
+        pass
+
+
+# ============================================================
 # 核心模块 Fixtures
 # ============================================================
 

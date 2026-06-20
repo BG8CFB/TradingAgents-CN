@@ -124,21 +124,37 @@ class TestSafeErrorMessage:
     """测试 safe_error_message() 安全错误消息函数"""
 
     def test_debug_mode_returns_detailed_message(self):
-        """DEBUG 模式下返回详细错误消息"""
-        from app.core.response import safe_error_message
+        """DEBUG 模式下返回详细错误消息。
 
-        error = ValueError("数据库连接失败")
-        result = safe_error_message(error)
-        assert "数据库连接失败" in result
-        assert "操作失败" in result
+        显式设置 settings.DEBUG=True，避免依赖本地 .env 状态——CI 上无 .env，
+        DEBUG 默认 False 会导致 safe_error_message 走生产分支返回通用消息。
+        """
+        from app.core.response import safe_error_message
+        from app.core.config import settings
+
+        original_debug = settings.DEBUG
+        settings.DEBUG = True
+        try:
+            error = ValueError("数据库连接失败")
+            result = safe_error_message(error)
+            assert "数据库连接失败" in result
+            assert "操作失败" in result
+        finally:
+            settings.DEBUG = original_debug
 
     def test_debug_mode_with_custom_default(self):
         from app.core.response import safe_error_message
+        from app.core.config import settings
 
-        error = RuntimeError("服务不可用")
-        result = safe_error_message(error, default="服务异常")
-        assert "服务异常" in result
-        assert "服务不可用" in result
+        original_debug = settings.DEBUG
+        settings.DEBUG = True
+        try:
+            error = RuntimeError("服务不可用")
+            result = safe_error_message(error, default="服务异常")
+            assert "服务异常" in result
+            assert "服务不可用" in result
+        finally:
+            settings.DEBUG = original_debug
 
     def test_debug_false_returns_generic_message(self):
         """DEBUG=False 时返回通用错误消息"""
