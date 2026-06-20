@@ -1,0 +1,95 @@
+name: GHCR Cleanup (one-shot)
+
+# 一次性清理 workflow：删除 GHCR 上除 KEEP_TAGS 外的所有旧版本
+# 触发：仅手动 workflow_dispatch，跑完即可删除此文件
+# 权限：需要 packages: write + delete（用于删除 user-scoped package version）
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_tags:
+        description: '逗号分隔要保留的 tag（默认 latest,v1.3.3）'
+        required: false
+        default: 'latest,v1.3.3'
+      dry_run:
+        description: '只列出待删除版本，不实际删除（true/false）'
+        required: false
+        default: 'true'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old package versions
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const keepTags = '${{ inputs.keep_tags }}'
+              .split(',')
+              .map(t => t.trim())
+              .filter(Boolean);
+            const dryRun = '${{ inputs.dry_run }}' === 'true';
+            core.info(`Owner: ${owner}`);
+            core.info(`Keep tags: ${JSON.stringify(keepTags)}`);
+            core.info(`Dry run: ${dryRun}`);
+
+            const packages = [
+              { name: 'tradingagents-backend', type: 'container' },
+              { name: 'tradingagents-frontend', type: 'container' },
+            ];
+
+            // user-scoped packages API: /user/packages/{package_type}/{package_name}/versions
+            for (const pkg of packages) {
+              core.info(`\n=== ${pkg.name} ===`);
+              let cursor = 1;
+              let all = [];
+              while (true) {
+                const res = await github.request(
+                  'GET /user/packages/{package_type}/{package_name}/versions',
+                  {
+                    package_type: pkg.type,
+                    package_name: pkg.name,
+                    page: cursor,
+                    per_page: 100,
+                  }
+                );
+                if (!res.data || res.data.length === 0) break;
+                all = all.concat(res.data);
+                if (res.data.length < 100) break;
+                cursor++;
+              }
+              core.info(`Found ${all.length} versions`);
+
+              for (const v of all) {
+                const tags = (v.metadata && v.metadata.container && v.metadata.container.tags) || [];
+                const keep = tags.some(t => keepTags.includes(t));
+                core.info(
+                  `  id=${v.id} tags=${JSON.stringify(tags)} created=${v.created_at} keep=${keep}`
+                );
+                if (keep) continue;
+                if (dryRun) {
+                  core.info(`    [DRY] would delete version ${v.id}`);
+                } else {
+                  try {
+                    await github.request(
+                      'DELETE /user/packages/{package_type}/{package_name}/versions/{version_id}',
+                      {
+                        package_type: pkg.type,
+                        package_name: pkg.name,
+                        version_id: v.id,
+                      }
+                    );
+                    core.info(`    deleted version ${v.id}`);
+                  } catch (e) {
+                    core.warning(`    failed to delete version ${v.id}: ${e.message}`);
+                  }
+                }
+              }
+            }
+            core.info('\nDone.');
