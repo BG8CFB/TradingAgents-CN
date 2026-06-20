@@ -1,9 +1,10 @@
-# Frontend Dockerfile for Vue 3 + Vite app (TradingAgents-CN v1.3.2)
+# Frontend Dockerfile for Vue 3 + Vite app (TradingAgents-CN v1.3.3)
 # 前后端分离架构 - 前端服务
 
 # 构建阶段：使用Node.js 22.x（与项目开发环境一致）
 # 使用 1ms.run 镜像源加速下载
-FROM docker.m.daocloud.io/library/node:22-alpine AS build
+# 锁定到 22.11.0-alpine3.20（patch + minor 固定，便于复现且允许补丁更新）
+FROM docker.m.daocloud.io/library/node:22.11.0-alpine3.20 AS build
 
 ENV NODE_ENV=production
 WORKDIR /app/frontend
@@ -26,7 +27,8 @@ RUN npx vite build
 
 # 运行阶段：使用Nginx提供静态文件服务
 # 使用 1ms.run 镜像源加速下载
-FROM docker.m.daocloud.io/library/nginx:alpine AS runtime
+# 锁定到 1.27.3-alpine（minor 固定）
+FROM docker.m.daocloud.io/library/nginx:1.27.3-alpine AS runtime
 
 # 设置时区环境变量
 ENV TZ=Asia/Shanghai

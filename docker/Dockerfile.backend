@@ -1,12 +1,18 @@
-# Backend Dockerfile for FastAPI service (TradingAgents-CN v1.3.2)
+# Backend Dockerfile for FastAPI service (TradingAgents-CN v1.3.3)
 # 前后端分离架构 - 后端服务
 # 支持多架构: amd64, arm64
+#
+# 多阶段构建说明：
+#   stage 1 (builder)  - 安装编译工具链 + pip install，产物 /opt/venv
+#   stage 2 (runtime)  - 只装运行时系统依赖（含 PDF 工具链：pandoc / wkhtmltopdf / xvfb / 中文字体）
+#                        复制 venv + Node.js（MCP 服务器依赖）+ 应用代码
+# PDF 工具链是不可拆卸的硬依赖，但被隔离在 runtime 阶段，不污染 builder
 
-# 使用 Debian Bookworm (稳定版) 而不是 Trixie (测试版)
-# 使用 1ms.run 镜像源加速下载
-FROM docker.m.daocloud.io/library/python:3.12-slim-bookworm
+# ───────────────────────────────────────────────────────────────
+# Stage 1: builder — 编译 Python 依赖
+# ───────────────────────────────────────────────────────────────
+FROM docker.m.daocloud.io/library/python:3.12-slim-bookworm AS builder
 
-# 获取构建架构信息
 ARG TARGETARCH
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -16,20 +22,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# 创建必需的目录并安装系统依赖
-# - curl: 健康检查
-# - pandoc: 使用 Debian 官方包（稳定版本，避免网络问题）
-# - wkhtmltopdf: 使用 Debian 官方包（用于 PDF 生成）
-# - 中文字体: 用于 PDF 中文显示
-# 注意：编译工具（gcc 等）在 pip install 完成后清理以减小攻击面
-RUN mkdir -p /app/runtime /app/config && \
-    # 配置 apt 重试和超时
-    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
+# builder 阶段安装编译工具链（不带入 runtime）
+RUN echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
     echo 'Acquire::http::Timeout "30";' >> /etc/apt/apt.conf.d/80-retries && \
     echo 'Acquire::https::Timeout "30";' >> /etc/apt/apt.conf.d/80-retries && \
-    # 替换为阿里云镜像源以加速构建（针对 Debian 12 Bookworm）
     sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
-    # 更新软件源，允许失败后继续
     (apt-get update || apt-get update || apt-get update) && \
     apt-get install -y --no-install-recommends \
         build-essential \
@@ -42,24 +39,81 @@ RUN mkdir -p /app/runtime /app/config && \
         libffi-dev \
         ca-certificates \
         curl \
-        fontconfig \
-        fonts-noto-cjk \
-        wget \
-        xvfb \
-        # 时区数据包（确保时区正确配置）
-        tzdata \
-        # 直接使用 apt 安装 pandoc 和 wkhtmltopdf，避免 GitHub 下载问题
-        pandoc \
-        wkhtmltopdf && \
-    # 配置时区符号链接（确保 TZ 环境变量生效）
-    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
-    echo $TZ > /etc/timezone && \
-    # 更新字体缓存
-    fc-cache -fv && \
+        wget && \
     rm -rf /var/lib/apt/lists/*
+
+# 把依赖装到独立 venv，方便整目录复制到 runtime
+RUN python -m venv --copies /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # 复制pyproject.toml和README.md（pip安装需要）
 COPY pyproject.toml README.md ./
+
+# 安装Python依赖到 venv
+# 1. 使用阿里云镜像加速下载
+# 2. 优先使用预编译的二进制wheel包（--prefer-binary），加速 ARM 构建
+# 3. 带 shell 重试逻辑，防止偶发网络中断导致整个构建失败
+# 4. uv/uvx 用于 Python MCP 服务器
+# 5. pdfkit 用于 PDF 导出（需要 runtime 阶段的 wkhtmltopdf 二进制）
+RUN pip install --upgrade pip --retries 5 --timeout 120 \
+        -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
+    for i in 1 2 3; do \
+        pip install --prefer-binary --retries 5 --timeout 120 --no-cache-dir . \
+            -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && break || \
+        echo "pip install attempt $i failed, retrying..." && sleep 10; \
+    done && \
+    pip install --prefer-binary --retries 5 --timeout 120 pdfkit uv \
+        -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
+# ───────────────────────────────────────────────────────────────
+# Stage 2: runtime — 最终镜像
+# ───────────────────────────────────────────────────────────────
+FROM docker.m.daocloud.io/library/python:3.12-slim-bookworm AS runtime
+
+ARG TARGETARCH
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Asia/Shanghai \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+# 安装运行时系统依赖（含 PDF 工具链 — 不可删除）
+# - curl: 健康检查
+# - pandoc: apt 官方稳定版，用于文档转换
+# - wkhtmltopdf: PDF 生成（pdfkit 的后端）
+# - xvfb + xauth: 无显示环境运行 wkhtmltopdf（xvfb-run 依赖 xauth）
+# - fonts-noto-cjk: 中文字体（PDF 中文显示）
+# - fontconfig: 字体缓存
+# - tzdata: 时区数据
+# - xz-utils: 解压 Node.js tarball（MCP 服务器依赖）
+# 不装编译工具链（gcc/make/cmake），缩小攻击面与镜像体积
+RUN mkdir -p /app/runtime /app/config && \
+    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::http::Timeout "30";' >> /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::https::Timeout "30";' >> /etc/apt/apt.conf.d/80-retries && \
+    sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
+    (apt-get update || apt-get update || apt-get update) && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        fontconfig \
+        fonts-noto-cjk \
+        tzdata \
+        pandoc \
+        wkhtmltopdf \
+        xvfb \
+        xauth \
+        xz-utils && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone && \
+    fc-cache -fv && \
+    rm -rf /var/lib/apt/lists/*
+
+# 从 builder 复制完整 venv
+COPY --from=builder /opt/venv /opt/venv
 
 # 安装 Node.js（用于基于 Node 的 MCP 服务器）
 # 固定 v20.18.0 以确保可重复构建
@@ -72,32 +126,6 @@ RUN set -eux; \
     curl -fsSL "https://registry.npmmirror.com/-/binary/node/${NODE_VERSION}/node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
     | tar -xJ -C /usr/local --strip-components=1; \
     npm config set registry https://registry.npmmirror.com
-
-# 安装Python依赖
-# 优化说明：
-# 1. 使用阿里云镜像加速下载
-# 2. 优先使用预编译的二进制wheel包（--prefer-binary）
-# 3. 避免从源码编译，大幅提升ARM架构构建速度
-# 4. 安装 PDF 导出工具: pdfkit
-# 5. 安装 uv 和 uvx（用于 Python MCP 服务器）
-# 6. 使用 --retries 和 --no-cache-dir 增强网络可靠性
-# 7. 带 shell 重试逻辑，防止偶发网络中断导致整个构建失败
-RUN pip install --upgrade pip --retries 5 --timeout 120 -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
-    for i in 1 2 3; do \
-        pip install --prefer-binary --retries 5 --timeout 120 --no-cache-dir . \
-            -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && break || \
-        echo "pip install attempt $i failed, retrying..." && sleep 10; \
-    done && \
-    pip install --prefer-binary --retries 5 --timeout 120 pdfkit \
-        -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
-    pip install --prefer-binary --retries 5 --timeout 120 uv \
-        -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com && \
-    # 清理编译工具，减小最终镜像体积和攻击面
-    apt-get update && \
-    apt-get remove -y --purge build-essential gcc g++ make cmake libssl-dev libffi-dev python3-dev && \
-    apt-get autoremove -y --purge && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # 复制后端代码和必需模块
 COPY app ./app

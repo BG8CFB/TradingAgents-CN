@@ -40,6 +40,24 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+.ruff_cache/
+
+# uv.lock 仅作为依赖参考；镜像内用 pip install 解析 pyproject.toml
+uv.lock
+
+# 运行时产物（容器内会重新创建 runtime/）
+runtime/
+
+# 本地原始数据（不应进镜像）
+data/
+
+# Claude / AI 工具临时产物
+.ai_temp/
+.claude/
+
+# 静态分析/类型检查缓存
+.pyre/
+.pytype/
 
 # 虚拟环境
 venv/
@@ -80,6 +98,7 @@ frontend/coverage/
 .DS_Store
 *.sublime-project
 *.sublime-workspace
+.cursor/
 
 # 日志文件
 *.log

@@ -15,14 +15,36 @@ env:
   IMAGE_FRONTEND: ghcr.io/${{ github.repository_owner }}/tradingagents-frontend
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.image }} (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            dockerfile: docker/Dockerfile.backend
+            platform: linux/amd64
+            runner: ubuntu-latest
+            slug: linux-amd64
+          - image: backend
+            dockerfile: docker/Dockerfile.backend
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            slug: linux-arm64
+          - image: frontend
+            dockerfile: docker/Dockerfile.frontend
+            platform: linux/amd64
+            runner: ubuntu-latest
+            slug: linux-amd64
+          - image: frontend
+            dockerfile: docker/Dockerfile.frontend
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            slug: linux-arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -34,41 +56,110 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Backend tags
-        id: meta_backend
+      - name: Resolve image name
+        id: ref
+        run: |
+          if [ "${{ matrix.image }}" = "backend" ]; then
+            echo "name=${{ env.IMAGE_BACKEND }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ env.IMAGE_FRONTEND }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push by-digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          outputs: type=image,name=${{ steps.ref.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.slug }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.slug }}
+
+      - name: Export digest artifact
+        run: |
+          mkdir -p ./digests
+          echo "${{ steps.build.outputs.digest }}" > "./digests/${{ matrix.image }}-${{ matrix.slug }}.txt"
+          cat "./digests/${{ matrix.image }}-${{ matrix.slug }}.txt"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}-${{ matrix.slug }}
+          path: ./digests/${{ matrix.image }}-${{ matrix.slug }}.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge ${{ matrix.image }} manifest
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [backend, frontend]
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image name
+        id: ref
+        run: |
+          if [ "${{ matrix.image }}" = "backend" ]; then
+            echo "name=${{ env.IMAGE_BACKEND }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ env.IMAGE_FRONTEND }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all digests for ${{ matrix.image }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.image }}-*
+          path: ./digests
+          merge-multiple: true
+
+      - name: Assemble manifest sources
+        id: sources
+        run: |
+          set -e
+          MANIFEST_SOURCES=""
+          while IFS= read -r f; do
+            d=$(tr -d '[:space:]' < "$f")
+            MANIFEST_SOURCES="$MANIFEST_SOURCES ${{ steps.ref.outputs.name }}@$d"
+          done < <(ls ./digests/*.txt)
+          echo "sources=$MANIFEST_SOURCES" >> "$GITHUB_OUTPUT"
+          echo "Manifest sources:$MANIFEST_SOURCES"
+
+      - name: Resolve tag
+        id: tag
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_BACKEND }}
+          images: ${{ steps.ref.outputs.name }}
           tags: |
             type=ref,event=tag
             type=raw,value=latest
 
-      - name: Build and push backend
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.backend
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta_backend.outputs.tags }}
-          labels: ${{ steps.meta_backend.outputs.labels }}
+      - name: Create multi-arch manifest
+        run: |
+          set -e
+          TAG_ARGS=""
+          IFS=',' read -ra TAG_LIST <<< "${{ steps.tag.outputs.tags }}"
+          for t in "${TAG_LIST[@]}"; do
+            TAG_ARGS="$TAG_ARGS -t $t"
+          done
+          echo "Creating manifest with tags: $TAG_ARGS"
+          echo "Sources:${{ steps.sources.outputs.sources }}"
+          docker buildx imagetools create $TAG_ARGS ${{ steps.sources.outputs.sources }}
 
-      - name: Frontend tags
-        id: meta_frontend
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_FRONTEND }}
-          tags: |
-            type=ref,event=tag
-            type=raw,value=latest
-
-      - name: Build and push frontend
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.frontend
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta_frontend.outputs.tags }}
-          labels: ${{ steps.meta_frontend.outputs.labels }}
-
+      - name: Inspect final image
+        run: |
+          for t in $(echo '${{ steps.tag.outputs.tags }}' | tr ',' ' '); do
+            echo "=== $t ==="
+            docker buildx imagetools inspect "$t" || true
+          done
