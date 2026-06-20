@@ -64,6 +64,7 @@ jobs:
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
+        id: install_python
         with:
           python-version: '3.12'
 
@@ -74,8 +75,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv venv
+          # 显式传入 setup-python 提供的 3.12 解释器，避免 uv venv 选到系统 Python 3.10
+          # （Python 3.10 的 datetime.fromisoformat 不支持 "Z" 后缀，导致 Freshness 测试失败）
+          uv venv --python "${{ steps.install_python.outputs.python-path }}"
           . .venv/bin/activate
+          python --version
           uv pip install -e .
           uv pip install pytest pytest-asyncio hypothesis httpx
 

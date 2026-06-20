@@ -269,7 +269,10 @@ class Reader:
             return FreshnessState.UNKNOWN
 
         try:
-            updated = datetime.fromisoformat(updated_at)
+            # Python 3.10 及更早版本的 datetime.fromisoformat 不支持 "Z" 后缀，
+            # 需要先归一化；3.11+ 原生支持，这里统一兼容两种形式。
+            iso_str = updated_at.replace("Z", "+00:00") if updated_at.endswith("Z") else updated_at
+            updated = datetime.fromisoformat(iso_str)
             if updated.tzinfo is None:
                 updated = updated.replace(tzinfo=timezone.utc)
             now = datetime.now(timezone.utc)
