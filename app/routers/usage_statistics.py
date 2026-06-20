@@ -4,11 +4,10 @@
 
 import logging
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
 
 from app.routers.auth_db import get_current_user, require_admin
-from app.models.config import UsageRecord, UsageStatistics
 from app.services.usage_statistics_service import usage_statistics_service
 from app.core.response import safe_error_message
 
@@ -32,13 +31,17 @@ async def get_usage_records(
         start_dt = datetime.fromisoformat(start_date) if start_date else None
         end_dt = datetime.fromisoformat(end_date) if end_date else None
 
-        # 获取记录
+        # 获取记录：admin 看全部，普通用户仅看自己
+        is_admin = bool(current_user.get("is_admin"))
+        user_id_filter = None if is_admin else str(current_user.get("id", ""))
+
         records = await usage_statistics_service.get_usage_records(
             provider=provider,
             model_name=model_name,
             start_date=start_dt,
             end_date=end_dt,
-            limit=limit
+            limit=limit,
+            user_id=user_id_filter,
         )
 
         return {
@@ -147,7 +150,7 @@ async def delete_old_records(
 
         return {
             "success": True,
-            "message": f"删除旧记录成功",
+            "message": "删除旧记录成功",
             "data": {"deleted_count": deleted_count}
         }
     except Exception as e:

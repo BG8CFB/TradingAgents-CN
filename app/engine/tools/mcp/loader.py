@@ -16,15 +16,12 @@ import atexit
 import logging
 import os
 import time
-from datetime import datetime
-from app.utils.time_utils import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, TYPE_CHECKING
 
 from app.engine.tools.mcp.config_utils import (
     DEFAULT_CONFIG_FILE,
     MCPServerConfig,
-    MCPServerType,
     get_config_path,
     load_mcp_config,
     resolve_command,
@@ -172,7 +169,7 @@ class MCPToolLoaderFactory:
         将所有参数定义（名称、类型、是否必需、描述、默认值、枚举）整合到工具描述中，
         确保 LLM 能够获得完整的工具信息。
         """
-        tool_name = getattr(tool, 'name', 'unknown')
+        getattr(tool, 'name', 'unknown')
         original_desc = getattr(tool, 'description', '')
         args_schema = getattr(tool, 'args_schema', None)
 
@@ -1161,23 +1158,24 @@ class MCPToolLoaderFactory:
     # 资源清理
     # ------------------------------------------------------------------
     def _register_cleanup(self) -> None:
-        """注册 atexit 清理函数"""
+        """注册 atexit 清理函数。
+
+        原实现用 asyncio.get_event_loop()（Python 3.12+ 已弃用）+ is_running()
+        检查存在反逻辑 bug：在主线程退出阶段通常没有 running loop，但原代码会
+        在 is_running() 为 True 时新建 loop（这条件永远不会触发）。直接用
+        ``asyncio.run()`` 创建一次性 loop 是 atexit 场景下的标准模式。
+        """
         if self._cleanup_registered:
             return
 
         def _cleanup_mcp_resources():
             """进程退出时清理 MCP 子进程"""
             try:
-                import asyncio
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        loop = asyncio.new_event_loop()
-                    loader = get_mcp_loader_factory()
-                    if loader:
-                        loop.run_until_complete(loader.close_all())
-                except RuntimeError:
-                    pass
+                loader = get_mcp_loader_factory()
+                if loader:
+                    # atexit 阶段没有 running loop；asyncio.run 创建临时 loop
+                    # 执行 close() 后自动关闭，符合 Python 3.9+ 推荐模式
+                    asyncio.run(loader.close())
                 logger.info("[MCP] atexit 清理完成")
             except Exception as e:
                 logger.warning(f"[MCP] atexit 清理失败: {e}")
@@ -1199,12 +1197,22 @@ class MCPToolLoaderFactory:
         logger.info("[MCP] 开始清理资源...")
 
         # 停止健康检查任务（如果有）
+        # atexit 场景下 asyncio.run() 会创建临时 loop，此时 _health_check_task 可能
+        # 绑定到原主 loop，跨 loop cancel/await 会抛 RuntimeError，需防御
         if self._health_check_task and not self._health_check_task.done():
-            self._health_check_task.cancel()
             try:
-                await self._health_check_task
-            except asyncio.CancelledError:
-                pass
+                self._health_check_task.cancel()
+                try:
+                    await self._health_check_task
+                except asyncio.CancelledError:
+                    pass
+                except RuntimeError as re:
+                    if "bound to a different loop" in str(re):
+                        logger.warning(f"[MCP] 健康检查任务跨 loop，跳过 await: {re}")
+                    else:
+                        raise
+            except Exception as e:
+                logger.warning(f"[MCP] 健康检查任务清理失败: {e}")
             logger.info("[MCP] 健康检查任务已停止")
 
         # 关闭所有 ping 会话
@@ -1248,53 +1256,28 @@ class MCPToolLoaderFactory:
         return False
 
     def __enter__(self):
-        """同步上下文管理器入口（用于兼容）"""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                import threading
-                result_future = concurrent.futures.Future()
+        """同步上下文管理器已弃用。
 
-                def run_init():
-                    loop.call_soon_threadsafe(
-                        lambda: asyncio.ensure_future(self.initialize_connections()).add_done_callback(
-                            lambda f: result_future.set_result(f.result())
-                        )
-                    )
-                    return result_future.result(timeout=30)
-
-                thread = threading.Thread(target=run_init, daemon=True)
-                thread.start()
-                thread.join(timeout=30)
-            else:
-                asyncio.run(self.initialize_connections())
-        except Exception as e:
-            logger.warning(f"同步上下文管理器初始化失败: {e}")
-        return self
+        MCP 加载器在 FastAPI lifespan 中已通过 __aenter__/__aexit__ 完成异步初始化。
+        保留同步版本会导致嵌套事件循环风险（asyncio.run inside running loop）。
+        如需在同步上下文中使用，请改用 app.core.async_utils.run_async()。
+        """
+        raise NotImplementedError(
+            "MCPToolLoaderFactory 同步上下文已弃用 — 请使用 'async with' 或 run_async()。"
+            "初始化已在 FastAPI lifespan 中通过异步上下文完成。"
+        )
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """同步上下文管理器出口"""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(self.close())
-            else:
-                asyncio.run(self.close())
-        except Exception as e:
-            logger.warning(f"同步上下文管理器清理失败: {e}")
-        return False
+        """同步上下文管理器已弃用 — 见 __enter__ 文档。"""
+        raise NotImplementedError(
+            "MCPToolLoaderFactory 同步上下文已弃用 — 请使用 'async with' 或 run_async()。"
+        )
 
     def close_all(self):
-        """同步关闭所有连接。"""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(self.close())
-            else:
-                asyncio.run(self.close())
-        except Exception as e:
-            logger.warning(f"同步关闭失败: {e}")
+        """同步关闭已弃用 — 请改用 await self.close() 或 run_async(self.close())。"""
+        raise NotImplementedError(
+            "MCPToolLoaderFactory.close_all() 已弃用 — 请使用 'await self.close()' 或 run_async()。"
+        )
 
 
 # 全局单例

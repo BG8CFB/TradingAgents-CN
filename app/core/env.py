@@ -35,7 +35,7 @@ def get_env(key: str, default: Any = None) -> Any:
         val = getattr(settings, key, None)
         if val is not None and val != "":
             return val
-    except Exception as e:
+    except Exception:
         pass
 
     return default

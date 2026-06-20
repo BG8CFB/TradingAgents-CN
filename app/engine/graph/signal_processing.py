@@ -37,10 +37,10 @@ def _extract_json(text: str) -> str:
         i += 1
     return text[start:]
 
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI  # noqa: E402 (intentional late import)
 
-from app.utils.logging_init import get_logger
-from app.utils.tool_logging import log_graph_module
+from app.utils.logging_init import get_logger  # noqa: E402 (intentional late import)
+from app.utils.tool_logging import log_graph_module  # noqa: E402 (intentional late import)
 logger = get_logger("graph.signal_processing")
 
 # 共享的价格提取正则模式
@@ -101,7 +101,7 @@ class SignalProcessor:
 
         market_info = StockUtils.get_market_info(stock_symbol)
         is_china = market_info['is_china']
-        is_hk = market_info['is_hk']
+        market_info['is_hk']
         currency = market_info['currency_name']
         currency_symbol = market_info['currency_symbol']
 
@@ -146,13 +146,13 @@ class SignalProcessor:
 
         # 验证messages内容
         if not messages or len(messages) == 0:
-            logger.error(f"❌ [SignalProcessor] messages为空")
+            logger.error("❌ [SignalProcessor] messages为空")
             return self._get_default_decision()
         
         # 验证human消息内容
         human_content = messages[1][1] if len(messages) > 1 else ""
         if not human_content or len(human_content.strip()) == 0:
-            logger.error(f"❌ [SignalProcessor] human消息内容为空")
+            logger.error("❌ [SignalProcessor] human消息内容为空")
             return self._get_default_decision()
 
         logger.debug(f"🔍 [SignalProcessor] 准备调用LLM，消息数量: {len(messages)}, 信号长度: {len(full_signal)}")
@@ -196,7 +196,7 @@ class SignalProcessor:
 
                     if target_price is None or target_price == "null" or target_price == "":
                         target_price = None
-                        logger.warning(f"🔍 [SignalProcessor] 未能提取到目标价格")
+                        logger.warning("🔍 [SignalProcessor] 未能提取到目标价格")
                 else:
                     # 确保价格是数值类型
                     try:
@@ -209,7 +209,7 @@ class SignalProcessor:
                         logger.debug(f"🔍 [SignalProcessor] 处理后的目标价格: {target_price}")
                     except (ValueError, TypeError):
                         target_price = None
-                        logger.warning(f"🔍 [SignalProcessor] 价格转换失败，设置为None")
+                        logger.warning("🔍 [SignalProcessor] 价格转换失败，设置为None")
 
                 result = {
                     'action': action,

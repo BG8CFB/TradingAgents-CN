@@ -9,7 +9,6 @@ import gzip
 import asyncio
 import subprocess
 import shutil
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 import logging
 
@@ -18,7 +17,7 @@ from bson import ObjectId
 from app.core.database import get_mongo_db
 from app.core.config import settings
 from .serialization import serialize_document
-from app.utils.timezone import now_utc, format_date_compact, format_iso
+from app.utils.timezone import now_utc, format_date_compact
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +286,7 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
 
     # 🔥 新格式：包含 export_info 和 data 的字典
     if isinstance(data, dict) and "export_info" in data and "data" in data:
-        logger.info(f"📦 检测到新版多集合导出文件（包含 export_info）")
+        logger.info("📦 检测到新版多集合导出文件（包含 export_info）")
         export_info = data.get("export_info", {})
         logger.info(f"📋 导出信息: 创建时间={export_info.get('created_at')}, 集合数={len(export_info.get('collections', []))}")
 
@@ -367,7 +366,7 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
         collection_obj = db[collection]
 
         if not isinstance(data, list):
-            logger.info(f"🔍 [单集合模式] 数据不是列表，转换为列表")
+            logger.info("🔍 [单集合模式] 数据不是列表，转换为列表")
             data = [data]
 
         logger.info(f"🔍 [单集合模式] 准备插入 {len(data)} 条文档")

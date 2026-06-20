@@ -12,14 +12,15 @@ PDF 导出需要额外工具:
 import logging
 import os
 import tempfile
-from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-# 检查依赖是否可用
-try:
-    import markdown
+# 检查依赖是否可用（用 find_spec 做能力探测，避免在模块顶层 import 重量级可选依赖）
+from importlib.util import find_spec  # noqa: E402 (intentional late import)
+
+_EXPORT_DEPS_AVAILABLE = find_spec("pypandoc") is not None and find_spec("markdown") is not None
+if _EXPORT_DEPS_AVAILABLE:
     import pypandoc
 
     # 检查 pandoc 是否可用
@@ -32,10 +33,11 @@ try:
         logger.warning("⚠️ Pandoc 不可用，Word 和 PDF 导出功能将不可用")
 
     EXPORT_AVAILABLE = True
-except ImportError as e:
+else:
     EXPORT_AVAILABLE = False
     PANDOC_AVAILABLE = False
-    logger.warning(f"⚠️ 导出功能依赖包缺失: {e}")
+    missing = [name for name in ("pypandoc", "markdown") if find_spec(name) is None]
+    logger.warning(f"⚠️ 导出功能依赖包缺失: {', '.join(missing)}")
     logger.info("💡 请安装: pip install pypandoc markdown")
 
 # 检查 pdfkit（唯一的 PDF 生成工具）

@@ -58,7 +58,6 @@ async def get_llm_providers(
     """获取所有大模型厂家"""
     try:
         from app.utils.api_key_utils import (
-            is_valid_api_key,
             truncate_api_key,
         )
 
@@ -467,7 +466,7 @@ async def add_llm_config(
 ):
     """添加或更新大模型配置"""
     try:
-        logger.info(f"添加/更新大模型配置开始")
+        logger.info("添加/更新大模型配置开始")
         logger.info(f"厂家: {request.provider}, 模型: {request.model_name}")
 
         # 创建LLM配置
@@ -535,7 +534,7 @@ async def add_llm_config(
         # 尝试创建LLMConfig对象
         try:
             llm_config = LLMConfig(**llm_config_data)
-            logger.info(f"LLMConfig对象创建成功")
+            logger.info("LLMConfig对象创建成功")
         except Exception as e:
             logger.error(f"LLMConfig对象创建失败: {e}")
             logger.error(f"失败的数据: {llm_config_data}")
@@ -554,7 +553,7 @@ async def add_llm_config(
             try:
                 from app.core.config_bridge import sync_pricing_config_now
                 await sync_pricing_config_now()
-                logger.info(f"定价配置已同步到 tradingagents")
+                logger.info("定价配置已同步到 tradingagents")
             except Exception as e:
                 logger.warning(f"同步定价配置失败: {e}")
 
@@ -572,7 +571,7 @@ async def add_llm_config(
                 logger.debug(f"记录操作日志失败: {_log_err}")
             return {"message": "大模型配置更新成功", "model_name": llm_config.model_name}
         else:
-            logger.error(f"大模型配置保存失败")
+            logger.error("大模型配置保存失败")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="大模型配置更新失败"
@@ -607,7 +606,7 @@ async def delete_llm_config(
             try:
                 from app.core.config_bridge import sync_pricing_config_now
                 await sync_pricing_config_now()
-                logger.info(f"定价配置已同步到 tradingagents")
+                logger.info("定价配置已同步到 tradingagents")
             except Exception as e:
                 logger.warning(f"同步定价配置失败: {e}")
 

@@ -27,7 +27,7 @@ if sys.platform == 'win32':
             import ctypes
             ctypes.windll.kernel32.SetConsoleCP(65001)
             ctypes.windll.kernel32.SetConsoleOutputCP(65001)
-        except Exception as e:
+        except Exception:
             pass
 
     except Exception as e:
@@ -70,30 +70,17 @@ def check_env_file():
                 env_found = True
 
                 # 读取并显示部分内容（隐藏敏感信息）
-                # 采用"已知安全键白名单"策略：仅对明确安全的配置项显示值，其余一律脱敏
+                # 使用 app.core.config.redact_env_line 共享函数（与 main.py 保持一致）
                 try:
+                    from app.core.config import redact_env_line
                     with open(env_path, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
                     logger.info(f"📄 .env文件内容预览 (共{len(lines)}行):")
 
-                    # 已知安全的环境变量名（值不包含敏感信息）
-                    SAFE_KEYS = frozenset({
-                        'DEBUG', 'LOG_LEVEL', 'HOST', 'PORT',
-                        'TIMEZONE', 'MONGODB_DATABASE', 'REDIS_DB',
-                        'MONGODB_PORT', 'REDIS_PORT',
-                        'PYTHONIOENCODING', 'PYTHONUTF8',
-                        'QUOTES_INGEST_INTERVAL_SECONDS',
-                    })
-
                     for i, line in enumerate(lines[:10]):  # 只显示前10行
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            key = line.split('=')[0].strip() if '=' in line else ''
-                            if key in SAFE_KEYS:
-                                logger.debug(f"  {line}")
-                            else:
-                                # 所有未在白名单中的变量一律隐藏值
-                                logger.debug(f"  {key}=***")
+                        line_stripped = line.strip()
+                        if line_stripped and not line_stripped.startswith('#'):
+                            logger.debug(f"  {redact_env_line(line_stripped)}")
                     if len(lines) > 10:
                         logger.debug(f"  ... (还有{len(lines) - 10}行)")
                 except Exception as e:
@@ -129,13 +116,16 @@ def main():
     logger.info(f"🐛 Debug Mode: {settings.DEBUG}")
     logger.info(f"📚 API Docs: http://{settings.HOST}:{settings.PORT}/docs" if settings.DEBUG else "📚 API Docs: Disabled in production")
     
-    # 打印关键配置信息
+    # 打印关键配置信息（使用共享 is_using_default_secret 检查）
+    from app.core.config import is_using_default_secret
+    jwt_using_default = is_using_default_secret("JWT_SECRET")
+
     logger.info("🔧 关键配置信息:")
     logger.info(f"  📊 MongoDB: {settings.MONGODB_HOST}:{settings.MONGODB_PORT}/{settings.MONGODB_DATABASE}")
     logger.info(f"  🔴 Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}")
-    logger.info(f"  🔐 JWT Secret: {'已配置' if settings.JWT_SECRET != 'change-me-in-production' else '⚠️ 使用默认值'}")
+    logger.info(f"  🔐 JWT Secret: {'⚠️ 使用默认值' if jwt_using_default else '已配置'}")
     logger.info(f"  📝 日志级别: {settings.LOG_LEVEL}")
-    
+
     # 检查环境变量加载状态
     logger.info("🌍 环境变量加载状态:")
     env_vars_to_check = [
@@ -144,7 +134,7 @@ def main():
         ('MONGODB_DATABASE', settings.MONGODB_DATABASE, 'tradingagents'),
         ('REDIS_HOST', settings.REDIS_HOST, 'localhost'),
         ('REDIS_PORT', str(settings.REDIS_PORT), '6379'),
-        ('JWT_SECRET', '***' if settings.JWT_SECRET != 'change-me-in-production' else settings.JWT_SECRET, 'change-me-in-production')
+        ('JWT_SECRET', '⚠️ 默认值' if jwt_using_default else '***', 'change-me-in-production')
     ]
     
     for env_name, current_value, default_value in env_vars_to_check:

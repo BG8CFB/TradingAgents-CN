@@ -70,7 +70,7 @@ class ScreeningParams:
     order_by: Optional[List[Dict[str, str]]] = None  # [{field, direction}]
 
 
-import logging
+import logging  # noqa: E402 (intentional late import)
 logger = logging.getLogger("agents")
 
 class ScreeningService:
@@ -110,25 +110,10 @@ class ScreeningService:
 
                 # 如需要基础行情/技术指标才取K线
                 if need_base:
-                    import asyncio
-                    loop = None
-                    try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_closed():
-                            loop = None
-                    except RuntimeError:
-                        pass
-                    if loop and loop.is_running():
-                        import concurrent.futures
-                        with concurrent.futures.ThreadPoolExecutor() as pool:
-                            raw_records = pool.submit(
-                                asyncio.run,
-                                reader.get_data("CN", code, "daily_quotes", start_date=start_s, end_date=end_s)
-                            ).result()
-                    else:
-                        raw_records = asyncio.run(
-                            reader.get_data("CN", code, "daily_quotes", start_date=start_s, end_date=end_s)
-                        )
+                    from app.core.async_utils import run_async
+                    raw_records = run_async(
+                        reader.get_data("CN", code, "daily_quotes", start_date=start_s, end_date=end_s)
+                    )
                     raw_data = raw_records[0] if raw_records else None
                     if not raw_data:
                         continue
@@ -170,25 +155,10 @@ class ScreeningService:
                     passes = self._evaluate_conditions(dfc, conditions)
                 elif need_fund and not need_base and not need_tech:
                     # 仅基本面条件：通过新接口读取
-                    import asyncio
+                    from app.core.async_utils import run_async
                     try:
-                        loop = None
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_closed():
-                                loop = None
-                        except RuntimeError:
-                            pass
                         _di = DataInterface.get_instance()
-                        if loop and loop.is_running():
-                            import concurrent.futures
-                            with concurrent.futures.ThreadPoolExecutor() as pool:
-                                fund_data = pool.submit(
-                                    asyncio.run,
-                                    _di.read("CN", "financial_data", symbol=code)
-                                ).result()
-                        else:
-                            fund_data = asyncio.run(_di.read("CN", "financial_data", symbol=code))
+                        fund_data = run_async(_di.read("CN", "financial_data", symbol=code))
                         snap = fund_data.get("data")
                     except Exception as e:
                         logger.debug(f"获取财务数据失败: {e}")

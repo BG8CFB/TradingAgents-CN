@@ -73,7 +73,7 @@
         <template #title>系统配置</template>
         <el-menu-item index="/settings/config">配置管理</el-menu-item>
         <el-menu-item index="/settings/mcp">MCP 管理</el-menu-item>
-        <el-menu-item index="/settings/mcp-tools">数据工具</el-menu-item>
+        <el-menu-item index="/settings/skills">技能管理</el-menu-item>
         <el-menu-item index="/settings/agents">智能体管理</el-menu-item>
         <el-menu-item index="/settings/cache">缓存管理</el-menu-item>
         <el-menu-item index="/settings/usage">使用统计</el-menu-item>

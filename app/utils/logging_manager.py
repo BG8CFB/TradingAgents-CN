@@ -6,11 +6,10 @@
 
 import logging
 import logging.handlers
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional
 import json
 import toml
 from app.core.env import get_env

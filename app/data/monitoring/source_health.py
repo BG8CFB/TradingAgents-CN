@@ -48,8 +48,13 @@ class SourceHealthMonitor:
         self._flush_to_mongo()
 
     def record_call(
-        self, market: str, source: str, domain: str,
-        success: bool, latency_ms: int = 0, error: Optional[str] = None,
+        self,
+        market: str,
+        source: str,
+        domain: str,
+        success: bool,
+        latency_ms: int = 0,
+        error: Optional[str] = None,
         circuit_state: str = "closed",
     ):
         """记录一次数据源调用。"""
@@ -57,10 +62,15 @@ class SourceHealthMonitor:
         with self._stats_lock:
             if key not in self._stats:
                 self._stats[key] = {
-                    "market": market, "source": source, "domain": domain,
-                    "success_count": 0, "failure_count": 0,
-                    "total_latency_ms": 0, "call_count": 0,
-                    "last_success_at": None, "last_failure_at": None,
+                    "market": market,
+                    "source": source,
+                    "domain": domain,
+                    "success_count": 0,
+                    "failure_count": 0,
+                    "total_latency_ms": 0,
+                    "call_count": 0,
+                    "last_success_at": None,
+                    "last_failure_at": None,
                     "last_error": None,
                     "consecutive_failures": 0,
                     "circuit_state": "closed",
@@ -104,8 +114,15 @@ class SourceHealthMonitor:
     def _compute_health(self, stats: Dict) -> Dict:
         total = stats["success_count"] + stats["failure_count"]
         success_rate = stats["success_count"] / total if total > 0 else 0.0
-        avg_latency = stats["total_latency_ms"] / stats["call_count"] if stats["call_count"] > 0 else 0
+        avg_latency = (
+            stats["total_latency_ms"] / stats["call_count"]
+            if stats["call_count"] > 0
+            else 0
+        )
 
+        # 注意：success_rate_1h / avg_latency_1h 实际是进程生命周期内的累计值，
+        # 并非最近 1 小时窗口值。保留旧字段名以兼容前端与 schema；
+        # 同时提供 *_total 别名以准确表达语义，便于后续迁移。
         return {
             "market": stats["market"],
             "source": stats["source"],
@@ -113,10 +130,12 @@ class SourceHealthMonitor:
             "circuit_state": stats.get("circuit_state", "closed"),
             "success_rate": round(success_rate, 4),
             "success_rate_1h": round(success_rate, 4),
+            "success_rate_total": round(success_rate, 4),
             "success_count": stats["success_count"],
             "failure_count": stats["failure_count"],
             "avg_latency_ms": round(avg_latency, 1),
             "avg_latency_1h": round(avg_latency, 1),
+            "avg_latency_total": round(avg_latency, 1),
             "total_calls": stats["call_count"],
             "consecutive_failures": stats.get("consecutive_failures", 0),
             "open_count": stats.get("open_count", 0),
@@ -154,6 +173,7 @@ class SourceHealthMonitor:
 
         try:
             from app.core.async_utils import run_async, get_main_loop
+
             main_loop = get_main_loop()
             # 主循环未运行（启动前/关闭中/热重载），跳过刷入避免 Motor 循环冲突
             if main_loop is None or not main_loop.is_running():

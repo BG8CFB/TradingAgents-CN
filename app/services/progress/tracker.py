@@ -15,8 +15,7 @@ from app.utils.runtime_paths import get_data_dir
 
 logger = logging.getLogger("app.services.progress.tracker")
 
-from dataclasses import dataclass, asdict
-from datetime import datetime
+from dataclasses import dataclass, asdict  # noqa: E402 (intentional late import)
 
 
 @dataclass
@@ -112,7 +111,7 @@ class RedisProgressTracker:
             # 检查REDIS_ENABLED环境变量
             redis_enabled = get_env('REDIS_ENABLED', 'false').lower() == 'true'
             if not redis_enabled:
-                logger.info(f"📊 [Redis进度] Redis未启用，使用文件存储")
+                logger.info("📊 [Redis进度] Redis未启用，使用文件存储")
                 return False
 
             import redis

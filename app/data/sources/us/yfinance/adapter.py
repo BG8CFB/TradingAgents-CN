@@ -173,18 +173,21 @@ class YFinanceUSAdapter(BaseAdapter):
         results = []
         for _, row in df.iterrows():
             get = row.get
-            title = get("title", "") or get("title", "")
-            publish_time = get("publish_time", "") or get("datetime", "")
+            title = get("title", "") or get("标题", "")
+            publish_time = (
+                get("publish_time", "") or get("发布时间", "") or get("datetime", "")
+            )
             content_hash = StockNewsSchema.compute_hash(title, str(publish_time)) if title else None
+            raw_symbol = str(get("symbol", ""))
             results.append(StockNewsSchema(
-                symbol=str(get("symbol", "")).upper(),
+                symbol=raw_symbol.upper() if raw_symbol else "",
                 market="US",
                 data_source="yfinance",
                 title=title,
-                content=get("content") or get("summary"),
+                content=get("content") or get("摘要", "") or get("summary"),
                 content_hash=content_hash,
-                source=get("source") or get("publisher", ""),
+                source=get("source") or get("来源", "") or get("publisher", ""),
                 publish_time=publish_time,
-                url=get("url") or get("link"),
+                url=get("url") or get("链接", "") or get("link"),
             ))
         return results

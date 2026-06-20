@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from app.core.env import get_env

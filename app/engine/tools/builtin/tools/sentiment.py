@@ -2,10 +2,9 @@
 情绪分析工具 - 股票市场情绪分析数据
 """
 import logging
-from datetime import datetime
 
-from app.utils.time_utils import now_utc, get_current_date
-from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.utils.time_utils import now_utc
+from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.core.async_utils import run_async
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ def get_stock_sentiment(
         market_info = StockUtils.get_market_info(stock_code)
         is_china = market_info['is_china']
         is_hk = market_info['is_hk']
-        is_us = market_info['is_us']
+        market_info['is_us']
 
         result_data = []
 
@@ -51,9 +50,12 @@ def get_stock_sentiment(
 
                 for news in news_list:
                     s = news.get('sentiment', 'neutral')
-                    if s == 'positive': positive += 1
-                    elif s == 'negative': negative += 1
-                    else: neutral += 1
+                    if s == 'positive':
+                        positive += 1
+                    elif s == 'negative':
+                        negative += 1
+                    else:
+                        neutral += 1
 
                 total = positive + negative + neutral
                 score = (positive - negative) / total if total > 0 else 0

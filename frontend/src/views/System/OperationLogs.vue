@@ -307,7 +307,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Document,
@@ -337,6 +337,9 @@ const totalLogs = ref(0)
 // 图表引用
 const actionTypeChart = ref()
 const operationTrendChart = ref()
+
+// echarts 实例缓存：复用而非每次新建
+const chartInstances: { actionType?: echarts.ECharts; operationTrend?: echarts.ECharts } = {}
 
 // 筛选表单
 const filterForm = reactive({
@@ -507,32 +510,36 @@ const renderCharts = () => {
 
   // 操作类型分布图
   if (actionTypeChart.value) {
-    const chart1 = echarts.init(actionTypeChart.value)
+    if (!chartInstances.actionType) {
+      chartInstances.actionType = echarts.init(actionTypeChart.value)
+    }
 
     const pieData = Object.entries(statsData.value.action_type_distribution).map(([type, count]) => ({
       value: count,
       name: getActionTypeName(type)
     }))
 
-    chart1.setOption({
+    chartInstances.actionType.setOption({
       tooltip: { trigger: 'item' },
       series: [{
         type: 'pie',
         radius: '60%',
         data: pieData
       }]
-    })
+    }, true)
   }
 
   // 操作趋势图
   if (operationTrendChart.value) {
-    const chart2 = echarts.init(operationTrendChart.value)
+    if (!chartInstances.operationTrend) {
+      chartInstances.operationTrend = echarts.init(operationTrendChart.value)
+    }
 
     const hourlyData = statsData.value.hourly_distribution
     const hours = hourlyData.map(item => item.hour)
     const counts = hourlyData.map(item => item.count)
 
-    chart2.setOption({
+    chartInstances.operationTrend.setOption({
       tooltip: { trigger: 'axis' },
       xAxis: {
         type: 'category',
@@ -545,13 +552,28 @@ const renderCharts = () => {
         smooth: true,
         areaStyle: {}
       }]
-    })
+    }, true)
   }
+}
+
+// 窗口尺寸变化时重绘图表
+const handleResize = () => {
+  chartInstances.actionType?.resize()
+  chartInstances.operationTrend?.resize()
 }
 
 // 生命周期
 onMounted(() => {
   loadLogs()
+  window.addEventListener('resize', handleResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+  chartInstances.actionType?.dispose()
+  chartInstances.operationTrend?.dispose()
+  chartInstances.actionType = undefined
+  chartInstances.operationTrend = undefined
 })
 </script>
 

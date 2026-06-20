@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import Optional
 
 import pandas as pd
 
@@ -34,19 +33,12 @@ class YFinanceHKProvider(BaseProvider):
         except ImportError:
             return False
 
-    async def get_stock_list(self, **kwargs) -> Optional[pd.DataFrame]:
-        try:
-            import yfinance as yf
-            # 获取恒指成分股作为基础列表
-            await asyncio.to_thread(lambda: yf.download("^HSI", period="5d"))
-            return None  # yfinance 不支持全市场列表
-        except Exception as e:
-            logger.debug(f"yfinance HK连通性检查失败: {e}")
-            return None
+    async def get_stock_list(self, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_stock_list")
 
     async def get_daily_quotes(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         try:
             import yfinance as yf
             hk_symbol = _to_yfinance_symbol(symbol)
@@ -67,7 +59,7 @@ class YFinanceHKProvider(BaseProvider):
 
     async def get_corporate_actions(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         try:
             import yfinance as yf
             hk_symbol = _to_yfinance_symbol(symbol)
@@ -107,7 +99,7 @@ class YFinanceHKProvider(BaseProvider):
     async def get_financial_data(
         self, symbol: str, start_date: str, end_date: str,
         statement_type: str = "", **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         try:
             import yfinance as yf
             hk_symbol = _to_yfinance_symbol(symbol)

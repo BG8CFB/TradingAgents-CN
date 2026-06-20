@@ -4,7 +4,7 @@
 """
 
 import re
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 from enum import Enum
 
 # 导入统一日志系统

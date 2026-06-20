@@ -1,0 +1,31 @@
+schema_version: "1.0"
+skill_name: technical-screening
+
+entrypoints:
+  - name: calc-indicators
+    display_name: 计算技术指标
+    description: 计算给定股票的技术指标（MA/MACD/RSI/KDJ/布林带），返回 JSON。当 LLM 需要量化技术面分析时调用。
+    module: scripts.entry
+    function: calc_indicators
+    inject_args:
+      ticker: "ticker"
+      trade_date: "trade_date"
+      periods: "60"
+    markets: [CN, HK, US]
+    domains: [daily_quotes]
+    allowed-tools: [daily_quotes]
+
+dependencies:
+  python:
+    - package: mplfinance
+      version: ">=0.12.10b0"
+      note: "用于 K 线图渲染；安装失败时脚本自动降级为纯文本输出"
+  system:
+    - description: "无系统级依赖（mplfinance 是纯 Python）"
+
+env: []
+
+source:
+  type: local
+  url: ""
+  commit: ""

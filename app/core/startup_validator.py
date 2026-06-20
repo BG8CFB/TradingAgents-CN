@@ -164,20 +164,48 @@ class StartupValidator:
                 logger.debug(f"✅ {config.key}: 已配置")
     
     def _check_security_configs(self):
-        """检查安全配置"""
+        """检查安全配置（与 main.py 共用 is_using_default_secret 共享函数）"""
+        is_production = not bool(getattr(settings, "DEBUG", True))
+
         # 检查密钥是否为运行时随机生成（用户未显式配置）
+        from app.core.config import is_using_default_secret
+
         for secret_key in ("JWT_SECRET", "CSRF_SECRET"):
             # 必须使用 os.getenv 而非 get_env，因为 get_env 会返回 settings 中的
-            # 运行时生成值（secrets.token_urlsafe），导致 if not 条件永远不成立
-            if not os.getenv(secret_key):
+            # 运行时生成值（secrets.token_urlsafe），导致验证被绕过
+            env_value = os.getenv(secret_key, "")
+
+            if not env_value:
                 self.result.warnings.append(
-                    f"{secret_key} 未在环境变量中配置，使用运行期随机值；"
-                    f"服务重启后相关会话将失效，建议在 .env 中显式设置。"
+                    f"{secret_key} 未在环境变量中显式配置（将由 SecretService 自动生成并持久化）；"
+                    f"建议在 .env 中显式设置以便多 worker 提前一致。"
                 )
+                continue
+
+            if is_using_default_secret(secret_key):
+                if is_production:
+                    # 生产环境直接拒绝启动
+                    self.result.invalid_configs.append(
+                        (
+                            ConfigItem(
+                                key=secret_key,
+                                level=ConfigLevel.REQUIRED,
+                                description="生产环境禁止使用默认/示例密钥",
+                            ),
+                            "使用了不安全的默认占位符（docker-*/change-me 等），请改为强随机值",
+                        )
+                    )
+                    logger.error(
+                        f"❌ {secret_key} 在生产模式下使用了不安全默认值，启动被拒绝"
+                    )
+                else:
+                    self.result.warnings.append(
+                        f"{secret_key} 使用了不安全默认值（{env_value[:16]}...），"
+                        f"仅开发模式允许，生产部署前必须替换。"
+                    )
 
         # 检查是否在生产环境使用DEBUG模式
-        debug = getattr(settings, "DEBUG", True)
-        if not debug:
+        if is_production:
             logger.info("生产环境模式")
         else:
             logger.info("开发环境模式（DEBUG=true）")

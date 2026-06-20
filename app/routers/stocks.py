@@ -265,7 +265,6 @@ async def get_kline(
 
     # A股：从 MongoDB 获取日线数据，按需聚合周K/月K
     code_padded = normalized_code
-    adj_norm = None if adj in (None, "none", "", "null") else adj
     items = []
     source = None
 
@@ -466,7 +465,7 @@ async def get_news(code: str, days: int = 30, limit: int = 50, include_announcem
             service = await get_news_data_service()
 
             # 计算时间范围
-            hours_back = days * 24
+            days * 24
 
             # 🔥 不设置 start_time 限制，直接查询最新的 N 条新闻
             # 因为数据库中的新闻可能不是最近几天的，而是历史数据

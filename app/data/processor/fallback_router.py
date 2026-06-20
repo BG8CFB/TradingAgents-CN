@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 import time
 from typing import Dict, List, Optional
 
@@ -19,8 +20,38 @@ from app.data.sources.base.provider import BaseProvider
 logger = logging.getLogger(__name__)
 
 
+# 进程级单例 — 同一进程内所有调用方共享同一份熔断器 / 限流器状态
+_instance: Optional["FallbackRouter"] = None
+_instance_lock = threading.Lock()
+
+
+def _ensure_singleton() -> "FallbackRouter":
+    """获取进程级 FallbackRouter 单例。
+
+    所有调用方（refresh_service / sync_job / multi_source_basics_sync /
+    domain_sync）共享同一份 circuit_breaker + rate_limiter 状态。
+    """
+    global _instance
+    if _instance is None:
+        with _instance_lock:
+            if _instance is None:
+                _instance = FallbackRouter(
+                    CapabilityRegistry(),
+                    PriorityConfig(),
+                )
+    return _instance
+
+
+def reset_singleton() -> None:
+    """测试场景下重置单例（生产代码不应调用）。"""
+    global _instance
+    with _instance_lock:
+        _instance = None
+
+
 class FetchResult:
     """单次获取结果。"""
+
     def __init__(self):
         self.success: bool = False
         self.records: List[Dict] = []
@@ -28,6 +59,7 @@ class FetchResult:
         self.fallback_from: Optional[str] = None
         self.error: Optional[str] = None
         self.latency_ms: int = 0
+        self.validation_errors: Optional[Dict] = None
 
     @property
     def data(self) -> List[Dict]:
@@ -35,7 +67,15 @@ class FetchResult:
 
 
 class FallbackRouter:
-    """回退路由器 — 选源 → 重试 → 降级 → 标准化 → 校验。"""
+    """回退路由器 — 选源 → 重试 → 降级 → 标准化 → 校验。
+
+    建议使用 ``FallbackRouter.get_instance()`` 获取进程级单例，
+    以便与 sync_job / refresh_service 等调用方共享熔断器与限流器状态。
+
+    Note:
+        单例状态保存在模块级 ``_instance`` / ``_instance_lock``（见文件顶部），
+        类内部不再重复定义，避免双状态分裂。
+    """
 
     def __init__(
         self,
@@ -53,6 +93,20 @@ class FallbackRouter:
         self._validator = Validator()
         self._health_monitor = SourceHealthMonitor()
         self._retry_max_retries = retry_max_retries
+
+    @classmethod
+    def get_instance(cls) -> "FallbackRouter":
+        """获取进程级单例（首次调用时构造，后续复用）。
+
+        保证 sync_job、refresh_service、multi_source_basics_sync、
+        domain_sync 等所有调用方共享同一份熔断器 + 限流器状态。
+        """
+        return _ensure_singleton()
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """重置单例（仅测试用）。"""
+        reset_singleton()
 
     @staticmethod
     def _create_default_rate_limiter() -> RateLimiter:
@@ -83,8 +137,12 @@ class FallbackRouter:
         return limiter
 
     async def fetch(
-        self, market: str, domain: str, symbol: str,
-        start_date: str = "1970-01-01", end_date: str = "2099-12-31",
+        self,
+        market: str,
+        domain: str,
+        symbol: str,
+        start_date: str = "1970-01-01",
+        end_date: str = "2099-12-31",
         preferred_sources: Optional[List[str]] = None,
     ) -> FetchResult:
         """从最优数据源获取并处理数据。"""
@@ -92,11 +150,18 @@ class FallbackRouter:
         start = time.time()
 
         priority_list = await self._priority.get_priority(market, domain)
-        sources = self._registry.get_ordered_sources(market, domain, user_priority=priority_list)
+        sources = self._registry.get_ordered_sources(
+            market, domain, user_priority=priority_list
+        )
         if preferred_sources:
             preferred_order = {name: i for i, name in enumerate(preferred_sources)}
             original_order = {name: i for i, name in enumerate(sources)}
-            sources.sort(key=lambda name: (preferred_order.get(name, 999), original_order.get(name, 999)))
+            sources.sort(
+                key=lambda name: (
+                    preferred_order.get(name, 999),
+                    original_order.get(name, 999),
+                )
+            )
 
         if not sources:
             result.error = f"无可用数据源: {market}/{domain}"
@@ -123,7 +188,13 @@ class FallbackRouter:
             retry_policy = RetryPolicy(max_retries=self._retry_max_retries)
             try:
                 raw_data = await retry_policy.execute_with_retry(
-                    self._fetch_raw, provider, domain, symbol, start_date, end_date, default_exchange
+                    self._fetch_raw,
+                    provider,
+                    domain,
+                    symbol,
+                    start_date,
+                    end_date,
+                    default_exchange,
                 )
 
                 # 批量模式不支持 → 静默跳过，不记录失败
@@ -131,12 +202,18 @@ class FallbackRouter:
                     logger.debug(f"源 {source_name}/{domain} 不支持批量模式，跳过")
                     continue
 
-                if raw_data is None or (hasattr(raw_data, 'empty') and raw_data.empty):
+                if raw_data is None or (hasattr(raw_data, "empty") and raw_data.empty):
                     self._circuit.record_failure(source_name, domain)
                     self._health_monitor.record_call(
-                        market, source_name, domain, success=False,
-                        latency_ms=int((time.time() - start) * 1000), error="empty data",
-                        circuit_state=self._circuit.get_state(source_name, domain).value,
+                        market,
+                        source_name,
+                        domain,
+                        success=False,
+                        latency_ms=int((time.time() - start) * 1000),
+                        error="empty data",
+                        circuit_state=self._circuit.get_state(
+                            source_name, domain
+                        ).value,
                     )
                     fallback_chain.append(source_name)
                     continue
@@ -145,25 +222,53 @@ class FallbackRouter:
                 if not records:
                     self._circuit.record_failure(source_name, domain)
                     self._health_monitor.record_call(
-                        market, source_name, domain, success=False,
-                        latency_ms=int((time.time() - start) * 1000), error="normalize empty",
-                        circuit_state=self._circuit.get_state(source_name, domain).value,
+                        market,
+                        source_name,
+                        domain,
+                        success=False,
+                        latency_ms=int((time.time() - start) * 1000),
+                        error="normalize empty",
+                        circuit_state=self._circuit.get_state(
+                            source_name, domain
+                        ).value,
                     )
                     fallback_chain.append(source_name)
                     continue
 
                 valid, errors = self._validator.validate(records, domain, market)
 
+                # 校验剔除的记录不等于源故障：仍记 success，但记录 warning 供排查
+                dropped = len(records) - len(valid)
+                if errors:
+                    logger.warning(
+                        "数据校验剔除 %d/%d 条记录: market=%s domain=%s source=%s errors=%s",
+                        dropped,
+                        len(records),
+                        market,
+                        domain,
+                        source_name,
+                        errors[:5],
+                    )
+
                 self._circuit.record_success(source_name, domain)
                 result.latency_ms = int((time.time() - start) * 1000)
                 self._health_monitor.record_call(
-                    market, source_name, domain, success=True,
+                    market,
+                    source_name,
+                    domain,
+                    success=True,
                     latency_ms=result.latency_ms,
                     circuit_state="closed",
                 )
                 result.success = True
                 result.records = valid
                 result.source = source_name
+                if errors:
+                    result.validation_errors = {
+                        "dropped": dropped,
+                        "total": len(records),
+                        "samples": errors[:5],
+                    }
                 if fallback_chain:
                     result.fallback_from = " → ".join(fallback_chain)
                 return result
@@ -171,17 +276,29 @@ class FallbackRouter:
             except DataSourceError as e:
                 self._circuit.record_failure(source_name, domain, e.code)
                 self._health_monitor.record_call(
-                    market, source_name, domain, success=False,
-                    latency_ms=int((time.time() - start) * 1000), error=str(e),
+                    market,
+                    source_name,
+                    domain,
+                    success=False,
+                    latency_ms=int((time.time() - start) * 1000),
+                    error=str(e),
                     circuit_state=self._circuit.get_state(source_name, domain).value,
                 )
                 fallback_chain.append(source_name)
                 logger.warning(f"源 {source_name}/{domain} 失败: {e}")
+            except NotImplementedError as e:
+                # 源不支持该域（Provider 未覆写基类方法）：静默跳过，不记录失败
+                # 避免错误地影响断路器状态和重试逻辑
+                logger.debug(f"源 {source_name}/{domain} 不支持该域，跳过: {e}")
             except Exception as e:
                 self._circuit.record_failure(source_name, domain)
                 self._health_monitor.record_call(
-                    market, source_name, domain, success=False,
-                    latency_ms=int((time.time() - start) * 1000), error=str(e),
+                    market,
+                    source_name,
+                    domain,
+                    success=False,
+                    latency_ms=int((time.time() - start) * 1000),
+                    error=str(e),
                     circuit_state=self._circuit.get_state(source_name, domain).value,
                 )
                 fallback_chain.append(source_name)
@@ -191,16 +308,30 @@ class FallbackRouter:
         result.latency_ms = int((time.time() - start) * 1000)
         return result
 
-    async def _fetch_raw(self, provider, domain: str, symbol: str, start: str, end: str, exchange: str = "SSE"):
+    async def _fetch_raw(
+        self,
+        provider,
+        domain: str,
+        symbol: str,
+        start: str,
+        end: str,
+        exchange: str = "SSE",
+    ):
         method_map = {
             "basic_info": lambda: provider.get_stock_list(),
             "trade_calendar": lambda: provider.get_trade_calendar(exchange, start, end),
             "daily_quotes": lambda: provider.get_daily_quotes(symbol, start, end),
-            "daily_indicators": lambda: self._fetch_daily_indicators(provider, symbol, start, end),
+            "daily_indicators": lambda: self._fetch_daily_indicators(
+                provider, symbol, start, end
+            ),
             "financial_data": lambda: provider.get_financial_data(symbol, start, end),
             "adj_factors": lambda: provider.get_adj_factors(symbol, start, end),
-            "corporate_actions": lambda: provider.get_corporate_actions(symbol, start, end),
-            "news": lambda: provider.get_news(symbol, start, end),
+            "corporate_actions": lambda: provider.get_corporate_actions(
+                symbol, start, end
+            ),
+            "news": lambda: provider.get_news(
+                None if symbol == "__all__" else symbol, start, end
+            ),
             "market_quotes": lambda: provider.get_market_quotes([symbol]),
             "intraday_quotes": lambda: provider.get_intraday_quotes(symbol, start, end),
             "money_flow": lambda: provider.get_money_flow(symbol, start, end),
@@ -216,7 +347,9 @@ class FallbackRouter:
     # 批量模式不支持时返回此 sentinel，调用链应跳过而非记录失败
     _BATCH_NOT_SUPPORTED = object()
 
-    async def _fetch_daily_indicators(self, provider, symbol: str, start: str, end: str):
+    async def _fetch_daily_indicators(
+        self, provider, symbol: str, start: str, end: str
+    ):
         """获取每日指标：per-symbol 模式或按日期批量模式。"""
         if symbol == "__all__":
             # 批量同步模式：使用 trade_date 参数一次获取全市场
@@ -229,7 +362,10 @@ class FallbackRouter:
 
             # 如果 end 是默认值（2099），使用今天日期
             from datetime import date
-            trade_date = end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")
+
+            trade_date = (
+                end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")
+            )
             return await provider.get_daily_indicators_batch(trade_date)
         return await provider.get_daily_indicators(symbol, start, end)
 
@@ -237,12 +373,15 @@ class FallbackRouter:
         try:
             if market == "CN":
                 from app.data.sources.cn import get_cn_provider, get_cn_adapter
+
                 return get_cn_provider(source_name), get_cn_adapter(source_name)
             elif market == "HK":
                 from app.data.sources.hk import get_hk_provider, get_hk_adapter
+
                 return get_hk_provider(source_name), get_hk_adapter(source_name)
             elif market == "US":
                 from app.data.sources.us import get_us_provider, get_us_adapter
+
                 return get_us_provider(source_name), get_us_adapter(source_name)
         except Exception as e:
             logger.debug(f"获取 Provider/Adapter 失败: {e}")

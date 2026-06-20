@@ -66,17 +66,6 @@ export interface OperationLogStatsResponse {
   message: string
 }
 
-// 创建操作日志请求
-export interface CreateOperationLogRequest {
-  action_type: string
-  action: string
-  details?: Record<string, any>
-  success?: boolean
-  error_message?: string
-  duration_ms?: number
-  session_id?: string
-}
-
 // 清空日志请求
 export interface ClearLogsRequest {
   days?: number
@@ -121,28 +110,6 @@ export class OperationLogsApi {
   }
 
   /**
-   * 获取操作日志详情
-   */
-  static getOperationLogDetail(logId: string): Promise<{
-    success: boolean
-    data: OperationLog
-    message: string
-  }> {
-    return ApiClient.get(`/api/operation-logs/${logId}`)
-  }
-
-  /**
-   * 创建操作日志
-   */
-  static createOperationLog(data: CreateOperationLogRequest): Promise<{
-    success: boolean
-    data: { log_id: string }
-    message: string
-  }> {
-    return ApiClient.post('/api/operation-logs/create', data)
-  }
-
-  /**
    * 清空操作日志
    */
   static clearOperationLogs(data: ClearLogsRequest = {}): Promise<ClearLogsResponse> {
@@ -164,7 +131,7 @@ export class OperationLogsApi {
     if (params.action_type) queryParams.append('action_type', params.action_type)
 
     const url = `/api/operation-logs/export/csv${queryParams.toString() ? '?' + queryParams.toString() : ''}`
-    const response = await ApiClient.get(url, { responseType: 'blob' } as any)
+    const response = await ApiClient.get(url, undefined, { responseType: 'blob' })
     return response as unknown as Blob
   }
 }

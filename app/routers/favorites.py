@@ -4,11 +4,10 @@
 
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 import logging
 
 from app.routers.auth_db import get_current_user
-from app.models.user import User, FavoriteStock
 from app.services.favorites_service import favorites_service
 from app.core.response import ok, safe_error_message
 
@@ -18,14 +17,30 @@ router = APIRouter(prefix="/api/favorites", tags=["Favorites"])
 
 
 class AddFavoriteRequest(BaseModel):
-    """添加自选股请求"""
-    stock_code: str
+    """添加自选股请求。
+
+    symbol 是主字段（6 位代码），stock_code 为兼容字段。
+    至少二选一；同时提供时以 symbol 为准。
+    """
+    symbol: Optional[str] = None
+    stock_code: Optional[str] = None  # 兼容旧前端
     stock_name: str
     market: str = "A股"
     tags: List[str] = []
     notes: str = ""
     alert_price_high: Optional[float] = None
     alert_price_low: Optional[float] = None
+
+    @model_validator(mode="after")
+    def _resolve_code(self):
+        if not (self.symbol or self.stock_code):
+            raise ValueError("symbol 或 stock_code 至少需要提供一个")
+        # 统一回填 stock_code 供下游 service 使用
+        if not self.stock_code:
+            self.stock_code = self.symbol
+        if not self.symbol:
+            self.symbol = self.stock_code
+        return self
 
 
 class UpdateFavoriteRequest(BaseModel):
@@ -88,7 +103,7 @@ async def add_favorite(
             )
 
         # 添加到自选股
-        logger.info(f"➕ 开始添加自选股...")
+        logger.info("➕ 开始添加自选股...")
         success = await favorites_service.add_favorite(
             user_id=current_user["id"],
             stock_code=request.stock_code,
@@ -105,7 +120,7 @@ async def add_favorite(
         if success:
             return ok({"stock_code": request.stock_code}, "添加成功")
         else:
-            logger.error(f"❌ 添加失败: success=False")
+            logger.error("❌ 添加失败: success=False")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="添加失败"

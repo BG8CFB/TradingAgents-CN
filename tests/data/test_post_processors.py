@@ -194,25 +194,44 @@ class TestAdjFactorCalculator:
         assert self.calc.calculate_from_corporate_actions([]) == []
 
     def test_cash_dividend_reduces_factor(self):
+        """现金分红：factor = (prev_close - amount) / prev_close
+
+        prev_close=100, amount=0.5 → 0.995
+        """
+        actions = [
+            {"symbol": "AAPL", "ex_date": "2024-03-15", "action_type": "cash_dividend",
+             "amount": 0.5, "prev_close": 100.0, "market": "US", "updated_at": "2024-03-15"},
+        ]
+        result = self.calc.calculate_from_corporate_actions(actions)
+        assert len(result) == 1
+        assert result[0]["adj_factor"] < 1.0
+        assert abs(result[0]["adj_factor"] - 0.995) < 0.001
+        assert result[0]["symbol"] == "AAPL"
+        assert result[0]["trade_date"] == "2024-03-15"
+        assert result[0]["data_source"] == "local_derived"
+
+    def test_cash_dividend_without_prev_close_skipped(self):
+        """缺 prev_close 时跳过该 action（公式无法应用）。"""
         actions = [
             {"symbol": "AAPL", "ex_date": "2024-03-15", "action_type": "cash_dividend",
              "amount": 0.5, "market": "US", "updated_at": "2024-03-15"},
         ]
         result = self.calc.calculate_from_corporate_actions(actions)
-        assert len(result) == 1
-        assert result[0]["adj_factor"] < 1.0
-        assert result[0]["symbol"] == "AAPL"
-        assert result[0]["trade_date"] == "2024-03-15"
-        assert result[0]["data_source"] == "local_derived"
+        assert result == []
 
     def test_special_dividend_reduces_factor(self):
+        """特别分红：factor = (prev_close - amount) / prev_close
+
+        prev_close=100, amount=2.0 → 0.98
+        """
         actions = [
             {"symbol": "AAPL", "ex_date": "2024-06-01", "action_type": "special_dividend",
-             "amount": 2.0, "market": "US", "updated_at": "2024-06-01"},
+             "amount": 2.0, "prev_close": 100.0, "market": "US", "updated_at": "2024-06-01"},
         ]
         result = self.calc.calculate_from_corporate_actions(actions)
         assert len(result) == 1
         assert result[0]["adj_factor"] < 1.0
+        assert abs(result[0]["adj_factor"] - 0.98) < 0.001
 
     def test_stock_split_adjusts_factor(self):
         actions = [
@@ -231,22 +250,45 @@ class TestAdjFactorCalculator:
         assert result[0]["adj_factor"] == 0.2
 
     def test_bonus_issue_adjusts_factor(self):
+        """送股：factor *= ratio_from / (ratio_from + ratio_to)
+
+        ratio_from=10, ratio_to=1 → factor *= 10/11 ≈ 0.909091
+        （旧错误公式是 ratio_to/(ratio_from+ratio_to)=1/11 ≈ 0.0909）
+        """
         actions = [
             {"symbol": "0700", "ex_date": "2024-05-01", "action_type": "bonus_issue",
              "ratio_from": 10, "ratio_to": 1, "market": "HK", "updated_at": "2024-05-01"},
         ]
         result = self.calc.calculate_from_corporate_actions(actions)
-        assert result[0]["adj_factor"] == round(1 / 11, 6)
+        assert result[0]["adj_factor"] == round(10 / 11, 6)
 
     def test_rights_issue_adjusts_factor(self):
+        """配股：factor *= (ratio_from*prev_close + ratio_to*rights_price) / ((ratio_from+ratio_to)*prev_close)
+
+        ratio_from=10, ratio_to=1, prev_close=80, rights_price=50
+        → factor *= (10*80 + 1*50) / (11*80) = 850/880 ≈ 0.965909
+        （旧公式缺 prev_close 加权，分母错误）
+        """
+        actions = [
+            {"symbol": "0700", "ex_date": "2024-07-01", "action_type": "rights_issue",
+             "ratio_from": 10, "ratio_to": 1, "rights_price": 50.0,
+             "prev_close": 80.0,
+             "market": "HK", "updated_at": "2024-07-01"},
+        ]
+        result = self.calc.calculate_from_corporate_actions(actions)
+        assert len(result) == 1
+        assert result[0]["adj_factor"] < 1.0  # 配股价低于市价 → factor 减小
+        assert abs(result[0]["adj_factor"] - round(850 / 880, 6)) < 0.0001
+
+    def test_rights_issue_without_prev_close_skipped(self):
+        """缺 prev_close 时跳过 rights_issue。"""
         actions = [
             {"symbol": "0700", "ex_date": "2024-07-01", "action_type": "rights_issue",
              "ratio_from": 10, "ratio_to": 1, "rights_price": 50.0,
              "market": "HK", "updated_at": "2024-07-01"},
         ]
         result = self.calc.calculate_from_corporate_actions(actions)
-        assert len(result) == 1
-        assert result[0]["adj_factor"] != 1.0
+        assert result == []
 
     def test_multiple_actions_cumulative(self):
         actions = [
@@ -284,14 +326,17 @@ class TestAdjFactorCalculator:
         result = self.calc.calculate_from_corporate_actions(actions)
         assert result[0]["adj_factor"] == 1.0
 
-    def test_zero_ratio_from_falls_back_to_one(self):
-        """ratio_from=0 时 `or 1` 回退为 1，factor *= ratio_to/1 = 4.0。"""
+    def test_zero_ratio_from_skips_action(self):
+        """ratio_from=0 时公式无法应用（视为无效 action），跳过。
+
+        旧行为用 `or 1` 兜底为 1，但 mask 了数据质量问题，新公式严格跳过。
+        """
         actions = [
             {"symbol": "AAPL", "ex_date": "2024-03-15", "action_type": "stock_split",
              "ratio_from": 0, "ratio_to": 4, "market": "US", "updated_at": "2024-03-15"},
         ]
         result = self.calc.calculate_from_corporate_actions(actions)
-        assert result[0]["adj_factor"] == 4.0
+        assert result == []
 
     def test_unknown_action_type_no_effect(self):
         actions = [
@@ -316,13 +361,27 @@ class TestAdjFactorCalculator:
         assert "data_source" in rec
         assert "updated_at" in rec
 
-    def test_fore_adj_factor_equals_adj_factor(self):
+    def test_fore_adj_factor_normalized_to_one(self):
+        """前复权因子按"最新一日 = 1.0"归一化。
+
+        文档契约（adj_factor_calculator.py:30-33）：
+        - ``adj_factor``：向后复权因子，保留原始累积值
+        - ``fore_adj_factor``：前复权因子，归一化使最新一日 = 1.0
+
+        单次分红场景：prev_close=100, amount=0.5
+        → 向后因子 factor = (100-0.5)/100 = 0.995
+        → 归一化后 fore_adj_factor = 0.995/0.995 = 1.0（最新一日为基准）
+        """
         actions = [
             {"symbol": "AAPL", "ex_date": "2024-03-15", "action_type": "cash_dividend",
-             "amount": 0.5, "market": "US", "updated_at": "2024-03-15"},
+             "amount": 0.5, "prev_close": 100.0, "market": "US", "updated_at": "2024-03-15"},
         ]
         result = self.calc.calculate_from_corporate_actions(actions)
-        assert result[0]["fore_adj_factor"] == result[0]["adj_factor"]
+        assert len(result) == 1
+        # 最新一日（也是唯一一条）前复权因子必须归一化为 1.0
+        assert result[0]["fore_adj_factor"] == 1.0
+        # 向后因子保留原始累积值 0.995
+        assert result[0]["adj_factor"] == 0.995
 
     def test_default_market_is_us(self):
         actions = [

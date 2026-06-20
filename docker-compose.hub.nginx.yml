@@ -2,11 +2,17 @@
 # 纯镜像拉取部署 — 用户无需克隆代码仓库，只需此文件即可一键启动
 #
 # 使用方法：
-#   1. 下载此文件到任意目录
-#   2. (可选) 在同目录创建 .env 文件覆盖默认值（见下方"可选配置"）
+#   1. 下载此文件和 deploy/.env.example 到任意部署目录
+#   2. (可选) cp deploy/.env.example .env 并修改密码/Token
+#      不创建 .env 也能启动，所有变量都有合理默认值
 #   3. 启动: docker compose -f docker-compose.hub.nginx.yml up -d
 #   4. 访问: http://localhost:8080
 #   5. 默认管理员: admin / admin123（首次登录后请修改密码）
+#
+# 配置加载优先级（高 → 低）：
+#   1. 部署目录 .env（用户显式配置）
+#   2. 本文件 ${VAR:-default} 的 default（内联默认值）
+#   3. 应用代码默认值
 #
 # 镜像来源: GitHub Container Registry (ghcr.io)
 # 推送 tag 时由 GitHub Actions 自动构建发布
@@ -91,17 +97,18 @@ services:
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-tradingagents123}
       REDIS_URL: "redis://:${REDIS_PASSWORD:-tradingagents123}@redis:6379/0"
-      # 安全配置（生产环境请通过 .env 覆盖）
-      JWT_SECRET: ${JWT_SECRET:-docker-jwt-secret-key-change-in-production-2024}
+      # 安全密钥：留空则首次启动自动生成并持久化到 DB（推荐）
+      # 如需固定密钥，在部署目录 .env 中设置 JWT_SECRET / CSRF_SECRET
+      JWT_SECRET: "${JWT_SECRET:-}"
+      CSRF_SECRET: "${CSRF_SECRET:-}"
       JWT_ALGORITHM: "HS256"
       ACCESS_TOKEN_EXPIRE_MINUTES: "480"
       REFRESH_TOKEN_EXPIRE_DAYS: "30"
-      CSRF_SECRET: ${CSRF_SECRET:-docker-csrf-secret-key-change-in-production-2024}
       BCRYPT_ROUNDS: "12"
       CORS_ORIGINS: "${ALLOWED_ORIGINS:-*}"
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-*}"
       ALLOWED_HOSTS: "${ALLOWED_HOSTS:-*}"
-      # ── AI 模型 API 密钥（可选，通过 .env 或环境变量配置） ──
+      # ── AI 模型 API 密钥（可选，通过 .env 或 Web UI 配置） ──
       DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
       DASHSCOPE_ENABLED: "${DASHSCOPE_ENABLED:-false}"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
@@ -115,13 +122,13 @@ services:
       BAIDU_ENABLED: "${BAIDU_ENABLED:-false}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       OPENROUTER_ENABLED: "${OPENROUTER_ENABLED:-false}"
-      # ── 数据源 API 密钥（可选） ──
+      # ── 数据源 API 密钥（可选，也可通过 Web UI 配置） ──
       TUSHARE_TOKEN: "${TUSHARE_TOKEN:-}"
-      TUSHARE_ENABLED: "${TUSHARE_ENABLED:-false}"
-      AKSHARE_ENABLED: "${AKSHARE_ENABLED:-true}"
-      BAOSTOCK_ENABLED: "${BAOSTOCK_ENABLED:-true}"
       FINNHUB_API_KEY: "${FINNHUB_API_KEY:-}"
-      FINNHUB_ENABLED: "${FINNHUB_ENABLED:-false}"
+      # ── 首次管理员（仅首次启动用） ──
+      INITIAL_ADMIN_USERNAME: "${INITIAL_ADMIN_USERNAME:-admin}"
+      INITIAL_ADMIN_EMAIL: "${INITIAL_ADMIN_EMAIL:-admin@tradingagents.cn}"
+      INITIAL_ADMIN_PASSWORD: "${INITIAL_ADMIN_PASSWORD:-admin123}"
     depends_on:
       mongodb:
         condition: service_healthy

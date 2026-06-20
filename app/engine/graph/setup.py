@@ -1,14 +1,18 @@
 # TradingAgents/graph/setup.py
 
-from typing import Dict, Any, Callable
+from typing import Dict, Any
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph, START
 
-from app.engine.agents.analysts.dynamic_analyst import (
-    ProgressManager  # 进度管理器
-)
-from app.engine.agents import *
+from app.engine.agents.analysts.simple_agent_factory import SimpleAgentFactory
+from app.engine.agents.stage_2.bear_researcher import create_bear_researcher
+from app.engine.agents.stage_2.bull_researcher import create_bull_researcher
+from app.engine.agents.stage_2.research_manager import create_research_manager
+from app.engine.agents.stage_2.trader import create_trader
+from app.engine.agents.stage_3.aggressive_debator import create_risky_debator
+from app.engine.agents.stage_3.conservative_debator import create_safe_debator
+from app.engine.agents.stage_3.neutral_debator import create_neutral_debator
+from app.engine.agents.stage_3.risk_manager import create_risk_manager
 from app.engine.agents.utils.agent_states import AgentState
 from app.engine.agents.utils.agent_utils import Toolkit
 

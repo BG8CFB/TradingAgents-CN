@@ -66,6 +66,7 @@ class PeriodAggregationJob(PostProcessingJob):
         from app.data.processor.post_processors.period_aggregator import PeriodAggregator
         from app.data.storage.mongo.collections import get_collection_name
         from app.data.storage.mongo.client import get_motor_db
+        from pymongo import UpdateOne
 
         aggregator = PeriodAggregator()
         db = get_motor_db()
@@ -74,32 +75,25 @@ class PeriodAggregationJob(PostProcessingJob):
 
         # 读取近 2 年的日线数据（足够覆盖周线/月线聚合）
         cutoff = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
+        # 用按 symbol 排序的 cursor + per-symbol 流式聚合，避免 to_list(length=None)
+        # 在大市场（数千 symbol × 数百交易日）下导致内存峰值过高
         cursor = coll.find(
             {"trade_date": {"$gte": cutoff}, "period": {"$in": ["daily", None]}},
             {"_id": 0},
         ).sort("symbol", 1)
-        daily_records = await cursor.to_list(length=None)
-        if not daily_records:
-            return 0
-
-        # 按 symbol 分组
-        groups: dict[str, list] = {}
-        for rec in daily_records:
-            sym = rec.get("symbol", "UNKNOWN")
-            groups.setdefault(sym, []).append(rec)
 
         total = 0
-        from pymongo import UpdateOne
+        current_sym: str | None = None
+        group_buf: list = []
 
-        for sym, records in groups.items():
+        async def _flush(sym: str, records: list) -> int:
+            """聚合单个 symbol 的日线数据并写入。"""
             if self.period == "weekly":
                 aggregated = aggregator.aggregate_to_weekly(records)
             else:
                 aggregated = aggregator.aggregate_to_monthly(records)
-
             if not aggregated:
-                continue
-
+                return 0
             ops = []
             for rec in aggregated:
                 td = rec.get("trade_date")
@@ -110,9 +104,25 @@ class PeriodAggregationJob(PostProcessingJob):
                     {"$set": rec},
                     upsert=True,
                 ))
-            if ops:
-                result = await coll.bulk_write(ops, ordered=False)
-                total += result.upserted_count + result.modified_count
+            if not ops:
+                return 0
+            result = await coll.bulk_write(ops, ordered=False)
+            return result.upserted_count + result.modified_count
+
+        async for rec in cursor:
+            sym = rec.get("symbol", "UNKNOWN")
+            if current_sym is None:
+                current_sym = sym
+            if sym != current_sym:
+                if group_buf:
+                    total += await _flush(current_sym, group_buf)
+                current_sym = sym
+                group_buf = []
+            group_buf.append(rec)
+
+        # flush 最后一个 symbol
+        if current_sym is not None and group_buf:
+            total += await _flush(current_sym, group_buf)
 
         return total
 
@@ -129,34 +139,32 @@ class AdjFactorCalcJob(PostProcessingJob):
 
     async def _run(self) -> int:
         from app.data.processor.post_processors.adj_factor_calculator import AdjFactorCalculator
+        from app.data.processor.post_processors.prev_close_lookup import PrevCloseLookup
         from app.data.storage.mongo.collections import get_collection_name
         from app.data.storage.mongo.client import get_motor_db
         from pymongo import UpdateOne
 
         calculator = AdjFactorCalculator()
         db = get_motor_db()
+        # T-1 收盘价查询器：corporate_actions 缺 prev_close 时回退查 daily_quotes
+        prev_close_lookup = PrevCloseLookup(db, self.market)
 
-        # 读取所有公司行为
+        # 按 symbol 排序流式读取 + per-symbol 推导，避免 to_list(length=None)
         ca_coll = db[get_collection_name("corporate_actions", self.market)]
-        cursor = ca_coll.find({}, {"_id": 0}).sort("ex_date", 1)
-        actions = await cursor.to_list(length=None)
-        if not actions:
-            return 0
-
-        # 按 symbol 分组
-        groups: dict[str, list] = {}
-        for act in actions:
-            sym = act.get("symbol", "UNKNOWN")
-            groups.setdefault(sym, []).append(act)
+        cursor = ca_coll.find({}, {"_id": 0}).sort("symbol", 1)
 
         total = 0
         adj_coll = db[get_collection_name("adj_factors", self.market)]
 
-        for sym, sym_actions in groups.items():
-            adj_records = calculator.calculate_from_corporate_actions(sym_actions)
-            if not adj_records:
-                continue
+        current_sym: str | None = None
+        group_buf: list = []
 
+        async def _flush(sym: str, sym_actions: list) -> int:
+            adj_records = await calculator.calculate_from_corporate_actions_async(
+                sym_actions, lookup=prev_close_lookup,
+            )
+            if not adj_records:
+                return 0
             ops = []
             for rec in adj_records:
                 td = rec.get("trade_date")
@@ -167,8 +175,23 @@ class AdjFactorCalcJob(PostProcessingJob):
                     {"$set": rec},
                     upsert=True,
                 ))
-            if ops:
-                result = await adj_coll.bulk_write(ops, ordered=False)
-                total += result.upserted_count + result.modified_count
+            if not ops:
+                return 0
+            result = await adj_coll.bulk_write(ops, ordered=False)
+            return result.upserted_count + result.modified_count
+
+        async for act in cursor:
+            sym = act.get("symbol", "UNKNOWN")
+            if current_sym is None:
+                current_sym = sym
+            if sym != current_sym:
+                if group_buf:
+                    total += await _flush(current_sym, group_buf)
+                current_sym = sym
+                group_buf = []
+            group_buf.append(act)
+
+        if current_sym is not None and group_buf:
+            total += await _flush(current_sym, group_buf)
 
         return total

@@ -12,7 +12,6 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 import concurrent.futures
 
-from app.core.env import get_env
 from app.engine.graph.trading_graph import TradingAgentsGraph
 from app.engine.default_config import DEFAULT_CONFIG
 from app.utils.runtime_paths import get_analysis_results_dir
@@ -21,8 +20,13 @@ from app.utils.stock_utils import StockUtils
 from app.utils.dataflow_utils import get_trading_date_range
 
 from app.models.analysis import (
-    AnalysisParameters, AnalysisTask, AnalysisBatch,
-    AnalysisStatus, BatchStatus, SingleAnalysisRequest, BatchAnalysisRequest
+    AnalysisParameters,
+    AnalysisTask,
+    AnalysisBatch,
+    AnalysisStatus,
+    BatchStatus,
+    SingleAnalysisRequest,
+    BatchAnalysisRequest,
 )
 from app.models.user import PyObjectId
 from app.models.notification import NotificationCreate
@@ -34,7 +38,10 @@ from app.services.progress.tracker import RedisProgressTracker, get_progress_by_
 from app.services.config_service import config_service
 from app.services.config_provider import provider as config_provider
 from app.services.memory_state_manager import get_memory_state_manager, TaskStatus
-from app.services.progress.log_handler import register_analysis_tracker, unregister_analysis_tracker
+from app.services.progress.log_handler import (
+    register_analysis_tracker,
+    unregister_analysis_tracker,
+)
 from app.services.websocket_manager import get_websocket_manager
 from app.core.config import settings
 from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_iso
@@ -48,27 +55,20 @@ logger = logging.getLogger("app.services.analysis_service")
 # 股票基础信息获取（用于补充显示名称）
 try:
     _di = DataInterface.get_instance()
+
     def _get_stock_info_safe(stock_code: str):
-        """获取股票基础信息的安全封装"""
-        import asyncio
+        """获取股票基础信息的安全封装。
+
+        使用 :func:`app.core.async_utils.run_async` 统一处理同步→异步桥接：
+        - worker thread 上下文 → run_coroutine_threadsafe 调度到主循环
+        - 纯脚本上下文 → asyncio.run 创建新循环
+        - 主线程事件循环中调用 → 抛 RuntimeError 指引改用 await
+        """
+        from app.core.async_utils import run_async
+
         try:
-            loop = None
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_closed():
-                    loop = None
-            except RuntimeError:
-                pass
-            if loop and loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    result = pool.submit(
-                        asyncio.run,
-                        _di.read("CN", "basic_info", symbol=stock_code)
-                    ).result()
-            else:
-                result = asyncio.run(_di.read("CN", "basic_info", symbol=stock_code))
-            return result.get("data")
+            result = run_async(_di.read("CN", "basic_info", symbol=stock_code))
+            return result.get("data") if result else None
         except Exception as e:
             logger.debug(f"获取股票信息失败: {e}")
             return None
@@ -79,6 +79,18 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 # Helper Functions (from simple_analysis_service.py)
 # -----------------------------------------------------------------------------
+
+# 历史任务状态 → 面向用户的消息（避免 "任务completed中..." 这类拼接错误）
+_TASK_STATUS_MESSAGES: Dict[str, str] = {
+    "pending": "任务排队中…",
+    "queued": "任务排队中…",
+    "running": "任务分析中…",
+    "completed": "任务已完成",
+    "failed": "任务执行失败",
+    "cancelled": "任务已取消",
+    "canceled": "任务已取消",
+}
+
 
 async def get_provider_by_model_name(model_name: str) -> str:
     """
@@ -94,7 +106,11 @@ async def get_provider_by_model_name(model_name: str) -> str:
         # 在LLM配置中查找匹配的模型
         for llm_config in system_config.llm_configs:
             if llm_config.model_name == model_name:
-                provider = llm_config.provider.value if hasattr(llm_config.provider, 'value') else str(llm_config.provider)
+                provider = (
+                    llm_config.provider.value
+                    if hasattr(llm_config.provider, "value")
+                    else str(llm_config.provider)
+                )
                 logger.info(f"✅ 从数据库找到模型 {model_name} 的供应商: {provider}")
                 return provider
 
@@ -115,23 +131,53 @@ def get_provider_by_model_name_sync(model_name: str) -> str:
     return provider_info["provider"]
 
 
-# 同步查询缓存：减少对 MongoDB 的直接查询频率
-_model_config_cache: Dict[str, dict] = {}
-_model_config_cache_time: float = 0
-_MODEL_CONFIG_CACHE_TTL: float = 60.0  # 60 秒 TTL
+# 模型能力元数据缓存（仅缓存 provider + backend_url，绝不缓存明文 API Key）。
+# API Key 通过独立路径 _resolve_api_key_sync() 实时从 DB 读取，避免明文密钥长期驻留内存。
+from app.core.lru_cache import BoundedLRUCache  # noqa: E402 (intentional late import)
+
+_model_metadata_cache: BoundedLRUCache = BoundedLRUCache(
+    maxsize=32, ttl=300, name="model_metadata_cache"
+)
+_MODEL_API_KEY_PLACEHOLDER = "__resolved_at_runtime__"
+
+
+def _resolve_api_key_sync(
+    db, provider: str, model_api_key: Optional[str]
+) -> Optional[str]:
+    """实时从 MongoDB 解析 API Key（模型配置优先，厂家配置兜底）。
+
+    返回明文 API Key 或 None。不缓存——密钥每次调用都从 DB 实时读取。
+    """
+    if model_api_key and model_api_key.strip() and model_api_key != "your-api-key":
+        return model_api_key.strip()
+    provider_doc = db.llm_providers.find_one({"name": provider})
+    if provider_doc and provider_doc.get("api_key"):
+        provider_api_key = provider_doc["api_key"]
+        if (
+            provider_api_key
+            and provider_api_key.strip()
+            and provider_api_key != "your-api-key"
+        ):
+            return provider_api_key.strip()
+    return None
 
 
 def get_provider_and_url_by_model_sync(model_name: str) -> dict:
     """
-    根据模型名称从数据库配置中查找对应的供应商和 API URL（同步版本，带缓存）
-    """
-    import time as _time
-    global _model_config_cache, _model_config_cache_time
+    根据模型名称从数据库配置中查找对应的供应商和 API URL（同步版本，带元数据缓存）
 
-    # 缓存命中检查
-    now = _time.time()
-    if model_name in _model_config_cache and (now - _model_config_cache_time) < _MODEL_CONFIG_CACHE_TTL:
-        return _model_config_cache[model_name]
+    安全策略：
+    - 缓存仅保存 provider + backend_url（不可敏感元数据）
+    - api_key 通过占位符返回，调用方需通过 _resolve_api_key_sync 实时解析
+    """
+    cached = _model_metadata_cache.get(model_name)
+    if cached:
+        api_key = _resolve_api_key_sync(get_mongo_db_sync(), cached["provider"], None)
+        return {
+            "provider": cached["provider"],
+            "backend_url": cached["backend_url"],
+            "api_key": api_key,
+        }
 
     try:
         db = get_mongo_db_sync()
@@ -146,47 +192,50 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
                 if config_dict.get("model_name") == model_name:
                     provider = config_dict.get("provider")
                     api_base = config_dict.get("api_base")
-                    model_api_key = config_dict.get("api_key")  # 🔥 获取模型配置的 API Key
+                    model_api_key = config_dict.get("api_key")
 
-                    # 从 llm_providers 集合中查找厂家配置
                     providers_collection = db.llm_providers
                     provider_doc = providers_collection.find_one({"name": provider})
 
-                    # 🔥 确定 API Key（优先级：模型配置 > 厂家配置）
-                    # API Key 仅从数据库读取，不再从环境变量读取
-                    api_key = None
-                    if model_api_key and model_api_key.strip() and model_api_key != "your-api-key":
-                        api_key = model_api_key
-                        logger.info("✅ [同步查询] 使用模型配置的 API Key")
-                    elif provider_doc and provider_doc.get("api_key"):
-                        provider_api_key = provider_doc["api_key"]
-                        if provider_api_key and provider_api_key.strip() and provider_api_key != "your-api-key":
-                            api_key = provider_api_key
-                            logger.info("✅ [同步查询] 使用厂家配置的 API Key")
+                    # 实时解析 API Key（不缓存）
+                    api_key = _resolve_api_key_sync(db, provider, model_api_key)
 
                     if not api_key:
-                        logger.warning(f"⚠️ [同步查询] 未找到 {provider} 的 API Key，请在 Web UI 配置管理中添加")
+                        logger.warning(
+                            f"⚠️ [同步查询] 未找到 {provider} 的 API Key，请在 Web UI 配置管理中添加"
+                        )
 
                     # 确定 backend_url
                     backend_url = None
                     if api_base:
                         backend_url = api_base
-                        logger.info(f"✅ [同步查询] 模型 {model_name} 使用自定义 API: {api_base}")
+                        logger.info(
+                            f"✅ [同步查询] 模型 {model_name} 使用自定义 API: {api_base}"
+                        )
                     elif provider_doc and provider_doc.get("default_base_url"):
                         backend_url = provider_doc["default_base_url"]
-                        logger.info(f"✅ [同步查询] 模型 {model_name} 使用厂家默认 API: {backend_url}")
+                        logger.info(
+                            f"✅ [同步查询] 模型 {model_name} 使用厂家默认 API: {backend_url}"
+                        )
                     else:
                         backend_url = _get_default_backend_url(provider)
-                        logger.warning(f"⚠️ [同步查询] 厂家 {provider} 没有配置 default_base_url，使用硬编码默认值")
+                        logger.warning(
+                            f"⚠️ [同步查询] 厂家 {provider} 没有配置 default_base_url，使用硬编码默认值"
+                        )
 
-                    result = {
+                    # 仅缓存 provider + backend_url 元数据
+                    _model_metadata_cache.set(
+                        model_name,
+                        {
+                            "provider": provider,
+                            "backend_url": backend_url,
+                        },
+                    )
+                    return {
                         "provider": provider,
                         "backend_url": backend_url,
-                        "api_key": api_key
+                        "api_key": api_key,
                     }
-                    _model_config_cache[model_name] = result
-                    _model_config_cache_time = _time.time()
-                    return result
         logger.warning(f"⚠️ [同步查询] 数据库中未找到模型 {model_name}，使用默认映射")
         provider = _get_default_provider_by_model(model_name)
 
@@ -196,31 +245,31 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
             provider_doc = providers_collection.find_one({"name": provider})
 
             backend_url = _get_default_backend_url(provider)
-            api_key = None
-
             if provider_doc:
                 if provider_doc.get("default_base_url"):
                     backend_url = provider_doc["default_base_url"]
-                    logger.info(f"✅ [同步查询] 使用厂家 {provider} 的 default_base_url: {backend_url}")
+                    logger.info(
+                        f"✅ [同步查询] 使用厂家 {provider} 的 default_base_url: {backend_url}"
+                    )
 
-                if provider_doc.get("api_key"):
-                    provider_api_key = provider_doc["api_key"]
-                    if provider_api_key and provider_api_key.strip() and provider_api_key != "your-api-key":
-                        api_key = provider_api_key
-                        logger.info(f"✅ [同步查询] 使用厂家 {provider} 的 API Key")
-
-            # API Key 仅从数据库读取
+            api_key = _resolve_api_key_sync(db, provider, None)
             if not api_key:
-                logger.warning(f"⚠️ [同步查询] 厂家 {provider} 无 API Key，请在 Web UI 配置管理中添加")
+                logger.warning(
+                    f"⚠️ [同步查询] 厂家 {provider} 无 API Key，请在 Web UI 配置管理中添加"
+                )
 
-            result = {
+            _model_metadata_cache.set(
+                model_name,
+                {
+                    "provider": provider,
+                    "backend_url": backend_url,
+                },
+            )
+            return {
                 "provider": provider,
                 "backend_url": backend_url,
-                "api_key": api_key
+                "api_key": api_key,
             }
-            _model_config_cache[model_name] = result
-            _model_config_cache_time = _time.time()
-            return result
         except Exception as e:
             logger.warning(f"⚠️ [同步查询] 无法查询厂家配置: {e}")
 
@@ -228,10 +277,15 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
         result = {
             "provider": provider,
             "backend_url": _get_default_backend_url(provider),
-            "api_key": None
+            "api_key": None,
         }
-        _model_config_cache[model_name] = result
-        _model_config_cache_time = _time.time()
+        _model_metadata_cache.set(
+            model_name,
+            {
+                "provider": provider,
+                "backend_url": result["backend_url"],
+            },
+        )
         return result
     except Exception as e:
         logger.error(f"❌ [同步查询] 查找模型供应商失败: {e}")
@@ -239,12 +293,16 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
         fallback_result = {
             "provider": provider,
             "backend_url": _get_default_backend_url(provider),
-            "api_key": None
+            "api_key": None,
         }
-        _model_config_cache[model_name] = fallback_result
-        _model_config_cache_time = _time.time()
+        _model_metadata_cache.set(
+            model_name,
+            {
+                "provider": provider,
+                "backend_url": fallback_result["backend_url"],
+            },
+        )
         return fallback_result
-
 
 
 def _get_default_backend_url(provider: str) -> str:
@@ -260,37 +318,46 @@ def _get_default_backend_url(provider: str) -> str:
         "302ai": "https://api.302.ai/v1",
     }
 
-    url = default_urls.get(provider, "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    url = default_urls.get(
+        provider, "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    )
     return url
 
 
 def _get_default_provider_by_model(model_name: str) -> str:
     """根据模型名称返回默认的供应商映射"""
     model_provider_map = {
-        'qwen-turbo': 'dashscope',
-        'qwen-plus': 'dashscope',
-        'qwen-max': 'dashscope',
-        'qwen-plus-latest': 'dashscope',
-        'qwen-max-longcontext': 'dashscope',
-        'gpt-3.5-turbo': 'openai',
-        'gpt-4': 'openai',
-        'gpt-4-turbo': 'openai',
-        'gpt-4o': 'openai',
-        'gpt-4o-mini': 'openai',
-        'gemini-pro': 'google',
-        'gemini-2.0-flash': 'google',
-        'gemini-2.0-flash-thinking-exp': 'google',
-        'deepseek-chat': 'deepseek',
-        'deepseek-coder': 'deepseek',
-        'deepseek-v4-flash': 'deepseek',
-        'deepseek-v4-pro': 'deepseek',
-        'deepseek-reasoner': 'deepseek',
-        'glm-4': 'zhipu',
-        'glm-3-turbo': 'zhipu',
-        'chatglm3-6b': 'zhipu'
+        "qwen-turbo": "dashscope",
+        "qwen-plus": "dashscope",
+        "qwen-max": "dashscope",
+        "qwen-plus-latest": "dashscope",
+        "qwen-max-longcontext": "dashscope",
+        "gpt-3.5-turbo": "openai",
+        "gpt-4": "openai",
+        "gpt-4-turbo": "openai",
+        "gpt-4o": "openai",
+        "gpt-4o-mini": "openai",
+        "gemini-pro": "google",
+        "gemini-2.0-flash": "google",
+        "gemini-2.0-flash-thinking-exp": "google",
+        "deepseek-chat": "deepseek",
+        "deepseek-coder": "deepseek",
+        "deepseek-v4-flash": "deepseek",
+        "deepseek-v4-pro": "deepseek",
+        "deepseek-reasoner": "deepseek",
+        "glm-4": "zhipu",
+        "glm-3-turbo": "zhipu",
+        "chatglm3-6b": "zhipu",
     }
-    provider = model_provider_map.get(model_name, 'dashscope')
+    provider = model_provider_map.get(model_name, "dashscope")
     return provider
+
+
+# DeepSeek 旧模型弃用提醒（模块级常量，避免重复定义）
+_DEPRECATED_MODELS = {
+    "deepseek-chat": ("deepseek-v4-flash", "2026/07/24"),
+    "deepseek-reasoner": ("deepseek-v4-pro", "2026/07/24"),
+}
 
 
 def create_analysis_config(
@@ -310,11 +377,6 @@ def create_analysis_config(
     config["debate_llm"] = debate_model
     config["analyst_llm"] = analyst_model
 
-    # DeepSeek 旧模型弃用提醒
-    _DEPRECATED_MODELS = {
-        "deepseek-chat": ("deepseek-v4-flash", "2026/07/24"),
-        "deepseek-reasoner": ("deepseek-v4-pro", "2026/07/24"),
-    }
     for model_name in [analyst_model, debate_model]:
         if model_name in _DEPRECATED_MODELS:
             replacement, date = _DEPRECATED_MODELS[model_name]
@@ -376,6 +438,7 @@ def create_analysis_config(
 # AnalysisService Class
 # -----------------------------------------------------------------------------
 
+
 class AnalysisService:
     """股票分析服务类 - 整合版"""
 
@@ -384,11 +447,17 @@ class AnalysisService:
         self._trading_graph_cache = {}
         self.memory_manager = get_memory_state_manager()
         self._progress_trackers: Dict[str, RedisProgressTracker] = {}
-        self._stock_name_cache: Dict[str, str] = {}
-        # 线程池
-        self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+        # 有界 LRU 缓存（防止高频查询任务下内存无限增长）
+        from app.core.lru_cache import BoundedLRUCache
+
+        self._stock_name_cache = BoundedLRUCache(maxsize=512, name="stock_name_cache")
+        # 线程池上限可配置（settings.ANALYSIS_THREAD_POOL_SIZE）
+        pool_workers = getattr(settings, "ANALYSIS_THREAD_POOL_SIZE", 3)
+        self._thread_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=pool_workers
+        )
         atexit.register(self._shutdown_pool)
-        logger.info("🔧 [服务初始化] 线程池最大并发数: 3")
+        logger.info(f"🔧 [服务初始化] 线程池最大并发数: {pool_workers}")
 
         # 队列和统计服务
         try:
@@ -426,7 +495,7 @@ class AnalysisService:
                 status=TaskStatus.RUNNING,
                 progress=progress,
                 message=message,
-                current_step=message
+                current_step=message,
             )
             db = get_mongo_db()
             await db.analysis_tasks.update_one(
@@ -436,9 +505,9 @@ class AnalysisService:
                         "progress": progress,
                         "current_step": message,
                         "message": message,
-                        "updated_at": now_utc()
+                        "updated_at": now_utc(),
                     }
-                }
+                },
             )
         except Exception as e:
             logger.warning(f"⚠️ [异步更新] 失败: {e}")
@@ -447,8 +516,9 @@ class AnalysisService:
         """解析股票名称（带缓存）"""
         if not code:
             return ""
-        if code in self._stock_name_cache:
-            return self._stock_name_cache[code]
+        cached = self._stock_name_cache.get(code)
+        if cached:
+            return cached
         name = None
         try:
             if _get_stock_info_safe:
@@ -459,7 +529,7 @@ class AnalysisService:
             logger.debug(f"解析股票名称失败: {e}")
         if not name:
             name = f"股票{code}"
-        self._stock_name_cache[code] = name
+        self._stock_name_cache.set(code, name)
         return name
 
     def _enrich_stock_names(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -473,7 +543,8 @@ class AnalysisService:
                 code = t.get("stock_code") or t.get("stock_symbol")
                 name = t.get("stock_name")
                 if not name and code:
-                    t["stock_name"] = self._stock_name_cache.get(code, f"股票{code}")
+                    cached = self._stock_name_cache.get(code)
+                    t["stock_name"] = cached if cached else f"股票{code}"
         except Exception as e:
             logger.warning(f"⚠️ 补齐股票名称时出现异常: {e}")
         return tasks
@@ -484,7 +555,9 @@ class AnalysisService:
             if user_id == "admin":
                 try:
                     db = get_mongo_db()
-                    admin_doc = await db.users.find_one({"username": "admin"}, {"_id": 1})
+                    admin_doc = await db.users.find_one(
+                        {"username": "admin"}, {"_id": 1}
+                    )
                     if admin_doc:
                         return PyObjectId(admin_doc["_id"])
                 except Exception as e:
@@ -508,20 +581,23 @@ class AnalysisService:
     def _get_sync_mongo_db(self):
         """获取同步 MongoDB 数据库连接（使用全局统一管理）"""
         from app.core.database import get_mongo_db_sync
+
         return get_mongo_db_sync()
 
     def _get_trading_graph(self, config: Dict[str, Any]) -> TradingAgentsGraph:
         """获取或创建TradingAgents实例 (每次创建新实例以保证线程安全)"""
         selected = config.get("selected_analysts") or []
         if not selected:
-            raise ValueError("selected_analysts 不能为空，请先在阶段1配置分析师后再发起任务。")
+            raise ValueError(
+                "selected_analysts 不能为空，请先在阶段1配置分析师后再发起任务。"
+            )
         return TradingAgentsGraph(
-            selected_analysts=selected,
-            debug=config.get("debug", False),
-            config=config
+            selected_analysts=selected, debug=config.get("debug", False), config=config
         )
 
-    def _auto_enable_mcp(self, config: Dict[str, Any], selected_tool_ids: Optional[List[str]] = None) -> None:
+    def _auto_enable_mcp(
+        self, config: Dict[str, Any], selected_tool_ids: Optional[List[str]] = None
+    ) -> None:
         """
         自动为分析任务注入 MCP 工具加载器：
         - 若用户未显式开启 MCP，但外部 MCP 工具可用，则启用并绑定 loader
@@ -557,9 +633,7 @@ class AnalysisService:
     # -------------------------------------------------------------------------
 
     async def create_analysis_task(
-        self,
-        user_id: str,
-        request: SingleAnalysisRequest
+        self, user_id: str, request: SingleAnalysisRequest
     ) -> Dict[str, Any]:
         """创建分析任务（立即返回，不执行分析）"""
         try:
@@ -575,7 +649,9 @@ class AnalysisService:
                 task_id=task_id,
                 user_id=user_id,
                 stock_code=stock_code,
-                parameters=request.parameters.model_dump() if request.parameters else {},
+                parameters=request.parameters.model_dump()
+                if request.parameters
+                else {},
                 stock_name=self._resolve_stock_name(stock_code),
             )
 
@@ -586,17 +662,19 @@ class AnalysisService:
                 db = get_mongo_db()
                 await db.analysis_tasks.update_one(
                     {"task_id": task_id},
-                    {"$setOnInsert": {
-                        "task_id": task_id,
-                        "user_id": user_id,
-                        "stock_code": code,
-                        "stock_symbol": code,
-                        "stock_name": name,
-                        "status": "pending",
-                        "progress": 0,
-                        "created_at": now_utc(),
-                    }},
-                    upsert=True
+                    {
+                        "$setOnInsert": {
+                            "task_id": task_id,
+                            "user_id": user_id,
+                            "stock_code": code,
+                            "stock_symbol": code,
+                            "stock_name": name,
+                            "status": "pending",
+                            "progress": 0,
+                            "created_at": now_utc(),
+                        }
+                    },
+                    upsert=True,
                 )
             except Exception as e:
                 logger.error(f"❌ 创建任务时写入MongoDB失败: {e}")
@@ -604,7 +682,7 @@ class AnalysisService:
             return {
                 "task_id": task_id,
                 "status": "pending",
-                "message": "任务已创建，等待执行"
+                "message": "任务已创建，等待执行",
             }
 
         except Exception as e:
@@ -612,10 +690,7 @@ class AnalysisService:
             raise
 
     async def execute_analysis_background(
-        self,
-        task_id: str,
-        user_id: str,
-        request: SingleAnalysisRequest
+        self, task_id: str, user_id: str, request: SingleAnalysisRequest
     ):
         """在后台执行分析任务 (Core Logic)"""
         stock_code = request.get_symbol()
@@ -625,15 +700,20 @@ class AnalysisService:
 
             # 验证股票代码
             from app.utils.stock_validator import prepare_stock_data_async
-            market_type = request.parameters.market_type if request.parameters else "A股"
-            analysis_date = request.parameters.analysis_date if request.parameters else None
-            
+
+            market_type = (
+                request.parameters.market_type if request.parameters else "A股"
+            )
+            analysis_date = (
+                request.parameters.analysis_date if request.parameters else None
+            )
+
             if analysis_date and isinstance(analysis_date, datetime):
-                analysis_date = analysis_date.strftime('%Y-%m-%d')
+                analysis_date = analysis_date.strftime("%Y-%m-%d")
             elif analysis_date and isinstance(analysis_date, str):
                 try:
-                    parsed_date = datetime.strptime(analysis_date, '%Y-%m-%d')
-                    analysis_date = parsed_date.strftime('%Y-%m-%d')
+                    parsed_date = datetime.strptime(analysis_date, "%Y-%m-%d")
+                    analysis_date = parsed_date.strftime("%Y-%m-%d")
                 except ValueError:
                     analysis_date = format_date_short(now_config_tz())
 
@@ -641,15 +721,20 @@ class AnalysisService:
                 stock_code=stock_code,
                 market_type=market_type,
                 period_days=30,
-                analysis_date=analysis_date
+                analysis_date=analysis_date,
             )
 
             if not validation_result.is_valid:
                 error_msg = f"❌ 股票代码无效: {validation_result.error_message}"
                 await self.memory_manager.update_task_status(
-                    task_id=task_id, status=AnalysisStatus.FAILED, progress=0, error_message=error_msg
+                    task_id=task_id,
+                    status=AnalysisStatus.FAILED,
+                    progress=0,
+                    error_message=error_msg,
                 )
-                await self._update_task_status(task_id, AnalysisStatus.FAILED, 0, error_message=error_msg)
+                await self._update_task_status(
+                    task_id, AnalysisStatus.FAILED, 0, error_message=error_msg
+                )
                 return
 
             # 创建Redis进度跟踪器
@@ -662,10 +747,22 @@ class AnalysisService:
 
             # 阶段配置（与前端保持一致，交易员始终执行）
             phase_config = {
-                "phase2_enabled": getattr(request.parameters, "phase2_enabled", False) if request.parameters else False,
-                "phase2_debate_rounds": getattr(request.parameters, "phase2_debate_rounds", 2) if request.parameters else 1,
-                "phase3_enabled": getattr(request.parameters, "phase3_enabled", False) if request.parameters else False,
-                "phase3_debate_rounds": getattr(request.parameters, "phase3_debate_rounds", 2) if request.parameters else 1,
+                "phase2_enabled": getattr(request.parameters, "phase2_enabled", False)
+                if request.parameters
+                else False,
+                "phase2_debate_rounds": getattr(
+                    request.parameters, "phase2_debate_rounds", 2
+                )
+                if request.parameters
+                else 1,
+                "phase3_enabled": getattr(request.parameters, "phase3_enabled", False)
+                if request.parameters
+                else False,
+                "phase3_debate_rounds": getattr(
+                    request.parameters, "phase3_debate_rounds", 2
+                )
+                if request.parameters
+                else 1,
                 "phase4_enabled": True,
                 "phase4_debate_rounds": 1,
             }
@@ -676,7 +773,9 @@ class AnalysisService:
                 else []
             )
             if not selected_analysts:
-                raise ValueError("selected_analysts 不能为空，请先在阶段1配置并选择分析师。")
+                raise ValueError(
+                    "selected_analysts 不能为空，请先在阶段1配置并选择分析师。"
+                )
 
             def progress_callback(data):
                 """进度更新回调：通过 WebSocket 广播消息"""
@@ -692,12 +791,11 @@ class AnalysisService:
                         "progress": data.get("progress_percentage"),
                         "message": data.get("last_message"),
                         "current_step": data.get("current_step"),
-                        "steps": data.get("steps")
+                        "steps": data.get("steps"),
                     }
                     # 在主循环中调度发送任务
                     asyncio.run_coroutine_threadsafe(
-                        ws_manager.send_progress_update(task_id, message),
-                        loop
+                        ws_manager.send_progress_update(task_id, message), loop
                     )
                 except Exception as e:
                     logger.error(f"WebSocket 广播失败: {e}")
@@ -710,7 +808,7 @@ class AnalysisService:
                     llm_provider=_get_default_provider_by_model(
                         getattr(request.parameters, "analyst_model", "qwen-turbo")
                     ),
-                    on_update=progress_callback
+                    on_update=progress_callback,
                 )
 
             progress_tracker = await asyncio.to_thread(create_progress_tracker)
@@ -718,9 +816,16 @@ class AnalysisService:
             register_analysis_tracker(task_id, progress_tracker)
 
             # 更新初始状态
-            await asyncio.to_thread(progress_tracker.update_progress, {"progress_percentage": 10, "last_message": "🚀 开始股票分析"})
+            await asyncio.to_thread(
+                progress_tracker.update_progress,
+                {"progress_percentage": 10, "last_message": "🚀 开始股票分析"},
+            )
             await self.memory_manager.update_task_status(
-                task_id=task_id, status=TaskStatus.RUNNING, progress=10, message="分析开始...", current_step="initialization"
+                task_id=task_id,
+                status=TaskStatus.RUNNING,
+                progress=10,
+                message="分析开始...",
+                current_step="initialization",
             )
             await self._update_task_status(task_id, AnalysisStatus.PROCESSING, 10)
 
@@ -728,43 +833,53 @@ class AnalysisService:
             selected_mcp_tools = []
             if request.parameters:
                 selected_mcp_tools = (
-                    getattr(request.parameters, "mcp_tool_ids", None) or
-                    getattr(request.parameters, "mcp_tools", []) or
-                    []
+                    getattr(request.parameters, "mcp_tool_ids", None)
+                    or getattr(request.parameters, "mcp_tools", [])
+                    or []
                 )
                 if selected_mcp_tools:
                     logger.info(f"MCP工具选择: {selected_mcp_tools}")
 
             # 执行实际分析
             result = await self._execute_analysis_sync(
-                task_id, 
-                user_id, 
-                request, 
+                task_id,
+                user_id,
+                request,
                 progress_tracker,
-                mcp_tool_ids=selected_mcp_tools
+                mcp_tool_ids=selected_mcp_tools,
             )
 
             # 完成
             await asyncio.to_thread(progress_tracker.mark_completed)
-            
+
             # 保存结果
             await self._save_analysis_results_complete(task_id, result)
 
             # 更新完成状态
             await self.memory_manager.update_task_status(
-                task_id=task_id, status=TaskStatus.COMPLETED, progress=100, message="分析完成", current_step="completed", result_data=result
+                task_id=task_id,
+                status=TaskStatus.COMPLETED,
+                progress=100,
+                message="分析完成",
+                current_step="completed",
+                result_data=result,
             )
             await self._update_task_status(task_id, AnalysisStatus.COMPLETED, 100)
 
             # 发送通知
             try:
                 from app.services.notifications_service import get_notifications_service
+
                 svc = get_notifications_service()
                 summary = str(result.get("summary", ""))[:120]
                 await svc.create_and_publish(
                     payload=NotificationCreate(
-                        user_id=str(user_id), type='analysis', title=f"{stock_code} 分析完成",
-                        content=summary, link=f"/stocks/{stock_code}", source='analysis'
+                        user_id=str(user_id),
+                        type="analysis",
+                        title=f"{stock_code} 分析完成",
+                        content=summary,
+                        link=f"/stocks/{stock_code}",
+                        source="analysis",
                     )
                 )
             except Exception as e:
@@ -775,7 +890,11 @@ class AnalysisService:
             if progress_tracker:
                 progress_tracker.mark_failed(str(e))
             await self.memory_manager.update_task_status(
-                task_id=task_id, status=TaskStatus.FAILED, progress=0, message="分析失败", error_message=str(e)
+                task_id=task_id,
+                status=TaskStatus.FAILED,
+                progress=0,
+                message="分析失败",
+                error_message=str(e),
             )
             await self._update_task_status(task_id, AnalysisStatus.FAILED, 0, str(e))
         finally:
@@ -787,7 +906,9 @@ class AnalysisService:
     # Compatibility Methods (for API Router)
     # -------------------------------------------------------------------------
 
-    async def submit_single_analysis(self, user_id: str, request: SingleAnalysisRequest) -> Dict[str, Any]:
+    async def submit_single_analysis(
+        self, user_id: str, request: SingleAnalysisRequest
+    ) -> Dict[str, Any]:
         """
         提交单股分析任务 (兼容旧 AnalysisService 接口)
         注意：这个方法现在只是 create_analysis_task 的别名，
@@ -795,23 +916,27 @@ class AnalysisService:
         """
         return await self.create_analysis_task(user_id, request)
 
-    async def submit_batch_analysis(self, user_id: str, request: BatchAnalysisRequest) -> Dict[str, Any]:
+    async def submit_batch_analysis(
+        self, user_id: str, request: BatchAnalysisRequest
+    ) -> Dict[str, Any]:
         """提交批量分析任务 (保留原功能)"""
         try:
             batch_id = str(uuid.uuid4())
             converted_user_id = await self._convert_user_id_async(user_id)
-            
+
             # 读取配置
             effective_settings = await config_provider.get_effective_system_settings()
             params = request.parameters or AnalysisParameters()
-            
-            if not getattr(params, 'analyst_model', None):
-                params.analyst_model = effective_settings.get("analyst_model", "qwen-turbo")
-            if not getattr(params, 'debate_model', None):
+
+            if not getattr(params, "analyst_model", None):
+                params.analyst_model = effective_settings.get(
+                    "analyst_model", "qwen-turbo"
+                )
+            if not getattr(params, "debate_model", None):
                 params.debate_model = effective_settings.get("debate_model", "qwen-max")
 
             stock_symbols = request.get_symbols()
-            
+
             batch = AnalysisBatch(
                 batch_id=batch_id,
                 user_id=converted_user_id,
@@ -819,7 +944,7 @@ class AnalysisService:
                 description=request.description,
                 total_tasks=len(stock_symbols),
                 parameters=params,
-                status=BatchStatus.PENDING
+                status=BatchStatus.PENDING,
             )
 
             tasks = []
@@ -832,36 +957,42 @@ class AnalysisService:
                     symbol=symbol,
                     stock_code=symbol,
                     parameters=batch.parameters,
-                    status=AnalysisStatus.PENDING
+                    status=AnalysisStatus.PENDING,
                 )
                 tasks.append(task)
-            
+
             db = get_mongo_db()
             await db.analysis_batches.insert_one(batch.dict(by_alias=True))
-            await db.analysis_tasks.insert_many([task.dict(by_alias=True) for task in tasks])
-            
+            await db.analysis_tasks.insert_many(
+                [task.dict(by_alias=True) for task in tasks]
+            )
+
             for task in tasks:
                 queue_params = task.parameters.dict() if task.parameters else {}
-                queue_params.update({
-                    "task_id": task.task_id,
-                    "symbol": task.symbol,
-                    "stock_code": task.symbol,
-                    "user_id": str(task.user_id),
-                    "batch_id": task.batch_id,
-                    "created_at": task.created_at.isoformat() if task.created_at else None
-                })
+                queue_params.update(
+                    {
+                        "task_id": task.task_id,
+                        "symbol": task.symbol,
+                        "stock_code": task.symbol,
+                        "user_id": str(task.user_id),
+                        "batch_id": task.batch_id,
+                        "created_at": task.created_at.isoformat()
+                        if task.created_at
+                        else None,
+                    }
+                )
                 await self.queue_service.enqueue_task(
                     user_id=str(converted_user_id),
                     symbol=task.symbol,
                     params=queue_params,
-                    batch_id=task.batch_id
+                    batch_id=task.batch_id,
                 )
-            
+
             return {
                 "batch_id": batch_id,
                 "total_tasks": len(tasks),
                 "status": BatchStatus.PENDING,
-                "message": f"已提交{len(tasks)}个分析任务到队列"
+                "message": f"已提交{len(tasks)}个分析任务到队列",
             }
         except Exception as e:
             logger.error(f"提交批量分析任务失败: {e}")
@@ -887,7 +1018,7 @@ class AnalysisService:
         user_id: str,
         request: SingleAnalysisRequest,
         progress_tracker: Optional[RedisProgressTracker] = None,
-        mcp_tool_ids: Optional[List[str]] = None
+        mcp_tool_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """同步执行分析（在共享线程池中运行）"""
         loop = asyncio.get_running_loop()
@@ -898,7 +1029,7 @@ class AnalysisService:
             user_id,
             request,
             progress_tracker,
-            mcp_tool_ids or []
+            mcp_tool_ids or [],
         )
         return result
 
@@ -924,12 +1055,15 @@ class AnalysisService:
 
         # 传入 domains=None，由 DataRefreshService 拉取全部支持的域
         di = DataInterface.get_instance()
-        result = run_async(di.refresh(
-            market, symbol,
-            domains=None,   # None = 全部支持的域
-            force=False,    # 有缓存就跳过
-            timeout=60,
-        ))
+        result = run_async(
+            di.refresh(
+                market,
+                symbol,
+                domains=None,  # None = 全部支持的域
+                force=False,  # 有缓存就跳过
+                timeout=60,
+            )
+        )
 
         # 记录结果摘要
         domain_statuses = {}
@@ -938,12 +1072,16 @@ class AnalysisService:
             if dr.status == "failed":
                 logger.warning(f"📊 [数据预拉取] {domain} 失败: {dr.error}")
             else:
-                logger.info(f"📊 [数据预拉取] {domain}: {dr.status} ({dr.record_count} 条, {dr.latency_ms}ms)")
+                logger.info(
+                    f"📊 [数据预拉取] {domain}: {dr.status} ({dr.record_count} 条, {dr.latency_ms}ms)"
+                )
 
         refreshed = sum(1 for s in domain_statuses.values() if s == "refreshed")
         fresh = sum(1 for s in domain_statuses.values() if s == "fresh")
         failed = sum(1 for s in domain_statuses.values() if s in ("failed", "timeout"))
-        logger.info(f"📊 [数据预拉取] 完成: {refreshed} 个域刷新, {fresh} 个域已是最新, {failed} 个域失败")
+        logger.info(
+            f"📊 [数据预拉取] 完成: {refreshed} 个域刷新, {fresh} 个域已是最新, {failed} 个域失败"
+        )
 
         return domain_statuses
 
@@ -953,7 +1091,7 @@ class AnalysisService:
         user_id: str,
         request: SingleAnalysisRequest,
         progress_tracker: Optional[RedisProgressTracker] = None,
-        mcp_tool_ids: Optional[List[str]] = None
+        mcp_tool_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """同步执行分析的具体实现"""
         # 任务级 MCP 管理器（用于隔离和管理 MCP 工具状态）
@@ -962,7 +1100,11 @@ class AnalysisService:
         try:
             from app.utils.logging_init import setup_logging
             from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
-            from app.engine.tools.mcp.task_manager import get_task_mcp_manager, remove_task_mcp_manager
+            from app.engine.tools.mcp.task_manager import (
+                get_task_mcp_manager,
+                remove_task_mcp_manager,
+            )
+
             setup_logging()
 
             # 创建任务级 MCP 管理器
@@ -973,11 +1115,17 @@ class AnalysisService:
             def update_progress_sync(progress: int, message: str, step: str):
                 try:
                     if progress_tracker:
-                        progress_tracker.update_progress({"progress_percentage": progress, "last_message": message})
+                        progress_tracker.update_progress(
+                            {"progress_percentage": progress, "last_message": message}
+                        )
 
                     # 1. 更新内存状态（同步）
                     self.memory_manager.update_task_status_sync(
-                        task_id=task_id, status=TaskStatus.RUNNING, progress=progress, message=message, current_step=step
+                        task_id=task_id,
+                        status=TaskStatus.RUNNING,
+                        progress=progress,
+                        message=message,
+                        current_step=step,
                     )
 
                     # 2. 更新MongoDB（同步复用连接，避免频繁创建）
@@ -985,7 +1133,14 @@ class AnalysisService:
                     if sync_db is not None:
                         sync_db.analysis_tasks.update_one(
                             {"task_id": task_id},
-                            {"$set": {"progress": progress, "current_step": step, "message": message, "updated_at": now_utc()}}
+                            {
+                                "$set": {
+                                    "progress": progress,
+                                    "current_step": step,
+                                    "message": message,
+                                    "updated_at": now_utc(),
+                                }
+                            },
                         )
                 except Exception as e:
                     logger.warning(f"⚠️ [Sync] 更新进度失败: {e}")
@@ -996,10 +1151,14 @@ class AnalysisService:
             selected_analysts = []
             if request.parameters:
                 selected_analysts = [
-                    str(a).strip() for a in getattr(request.parameters, "selected_analysts", []) if a
+                    str(a).strip()
+                    for a in getattr(request.parameters, "selected_analysts", [])
+                    if a
                 ]
             if not selected_analysts:
-                raise ValueError("selected_analysts 不能为空，请先在阶段1配置并选择分析师。")
+                raise ValueError(
+                    "selected_analysts 不能为空，请先在阶段1配置并选择分析师。"
+                )
 
             # 通过配置文件映射规范化（兼容 slug / 简短ID / 中文名），保持顺序去重
             try:
@@ -1009,7 +1168,11 @@ class AnalysisService:
                 for key in selected_analysts:
                     mapped = key
                     if key in lookup:
-                        mapped = lookup[key].get("slug") or lookup[key].get("internal_key") or key
+                        mapped = (
+                            lookup[key].get("slug")
+                            or lookup[key].get("internal_key")
+                            or key
+                        )
                     if mapped and mapped not in seen:
                         normalized.append(mapped)
                         seen.add(mapped)
@@ -1018,13 +1181,18 @@ class AnalysisService:
                 logger.warning(f"⚠️ 规范化分析师列表失败，使用原始输入: {e}")
 
             if not selected_analysts:
-                raise ValueError("selected_analysts 不能为空，请先在阶段1配置并选择分析师。")
+                raise ValueError(
+                    "selected_analysts 不能为空，请先在阶段1配置并选择分析师。"
+                )
 
             # 🔍 调试日志：打印最终的分析师列表
             logger.info(f"📋 [分析师选择] 最终分析师列表: {selected_analysts}")
 
             # 模型选择逻辑
-            from app.services.model_capability_service import get_model_capability_service
+            from app.services.model_capability_service import (
+                get_model_capability_service,
+            )
+
             capability_service = get_model_capability_service()
 
             if (
@@ -1038,10 +1206,6 @@ class AnalysisService:
                 analyst_model, debate_model = capability_service.recommend_models()
 
             # DeepSeek 旧模型弃用提醒
-            _DEPRECATED_MODELS = {
-                "deepseek-chat": ("deepseek-v4-flash", "2026/07/24"),
-                "deepseek-reasoner": ("deepseek-v4-pro", "2026/07/24"),
-            }
             for _mn in [analyst_model, debate_model]:
                 if _mn in _DEPRECATED_MODELS:
                     _repl, _date = _DEPRECATED_MODELS[_mn]
@@ -1053,7 +1217,7 @@ class AnalysisService:
             analyst_provider_info = get_provider_and_url_by_model_sync(analyst_model)
             debate_provider_info = get_provider_and_url_by_model_sync(debate_model)
             analyst_provider = analyst_provider_info["provider"]
-            
+
             # 获取市场类型 - 优先使用 StockUtils 自动识别
             if request.parameters and request.parameters.market_type:
                 market_type = request.parameters.market_type
@@ -1061,27 +1225,29 @@ class AnalysisService:
                 try:
                     # 自动识别市场类型
                     market_info = StockUtils.get_market_info(request.get_symbol())
-                    if market_info.get('is_china'):
+                    if market_info.get("is_china"):
                         market_type = "A股"
-                    elif market_info.get('is_hk'):
+                    elif market_info.get("is_hk"):
                         market_type = "港股"
-                    elif market_info.get('is_us'):
+                    elif market_info.get("is_us"):
                         market_type = "美股"
                     else:
                         market_type = "A股"  # 默认兜底
-                    logger.info(f"📊 [自动识别] 股票 {request.get_symbol()} 市场类型: {market_type}")
+                    logger.info(
+                        f"📊 [自动识别] 股票 {request.get_symbol()} 市场类型: {market_type}"
+                    )
                 except Exception as e:
                     logger.warning(f"⚠️ 无法识别股票市场类型: {e}，使用默认值 'A股'")
                     market_type = "A股"
-            
+
             config = create_analysis_config(
                 selected_analysts=selected_analysts,
                 analyst_model=analyst_model,
                 debate_model=debate_model,
                 llm_provider=analyst_provider,
-                market_type=market_type
+                market_type=market_type,
             )
-            
+
             # 注入MCP工具加载器（惰性加载，避免提前长连接）
             selected_mcp_tools: List[str] = []
             if mcp_tool_ids:
@@ -1101,7 +1267,9 @@ class AnalysisService:
                         factory = get_mcp_loader_factory()
                         config["enable_mcp"] = True
                         # 仅加载外部 MCP 工具，避免本地 MCP 工具重复注册
-                        config["mcp_tool_loader"] = factory.create_loader(selected_mcp_tools, include_local=False)
+                        config["mcp_tool_loader"] = factory.create_loader(
+                            selected_mcp_tools, include_local=False
+                        )
                         config["mcp_tool_ids"] = selected_mcp_tools
                         logger.info(f"配置MCP工具加载器: {len(selected_mcp_tools)}个")
                     except Exception as e:
@@ -1109,12 +1277,20 @@ class AnalysisService:
 
             # 若未显式选择但外部 MCP 工具已配置，则自动启用
             self._auto_enable_mcp(config, selected_mcp_tools)
-                
+
             if request.parameters:
-                config["phase2_enabled"] = getattr(request.parameters, "phase2_enabled", False)
-                config["phase2_debate_rounds"] = getattr(request.parameters, "phase2_debate_rounds", 2)
-                config["phase3_enabled"] = getattr(request.parameters, "phase3_enabled", False)
-                config["phase3_debate_rounds"] = getattr(request.parameters, "phase3_debate_rounds", 2)
+                config["phase2_enabled"] = getattr(
+                    request.parameters, "phase2_enabled", False
+                )
+                config["phase2_debate_rounds"] = getattr(
+                    request.parameters, "phase2_debate_rounds", 2
+                )
+                config["phase3_enabled"] = getattr(
+                    request.parameters, "phase3_enabled", False
+                )
+                config["phase3_debate_rounds"] = getattr(
+                    request.parameters, "phase3_debate_rounds", 2
+                )
                 config["phase4_enabled"] = True
                 config["phase4_debate_rounds"] = 1
             else:
@@ -1129,7 +1305,7 @@ class AnalysisService:
             # 统一轮次配置到 ConditionalLogic
             config["max_debate_rounds"] = config.get("phase2_debate_rounds", 1)
             config["max_risk_discuss_rounds"] = config.get("phase3_debate_rounds", 1)
-            
+
             # 注入模型 provider 路由信息
             config["analyst_provider"] = analyst_provider
             config["debate_provider"] = debate_provider_info["provider"]
@@ -1153,8 +1329,11 @@ class AnalysisService:
                 _market = _market_map.get(market_type, "CN")
                 _cache = AvailabilityCache.get_instance()
                 from app.core.async_utils import run_async
+
                 run_async(_cache.compute(_market, BUILTIN_TOOL_REGISTRY))
-                logger.info(f"📊 [工具可用性] 市场={_market}, 结果={_cache.all_results}")
+                logger.info(
+                    f"📊 [工具可用性] 市场={_market}, 结果={_cache.all_results}"
+                )
             except Exception as _e:
                 logger.warning(f"⚠️ [工具可用性] 预计算失败（不影响分析）: {_e}")
 
@@ -1169,52 +1348,70 @@ class AnalysisService:
                 run_async(_cache.compute(_market, BUILTIN_TOOL_REGISTRY))
                 logger.info(f"📊 [工具可用性] 预拉取后重新计算: {_cache.all_results}")
             except Exception as _prefetch_err:
-                logger.warning(f"⚠️ [数据预拉取] 失败（不影响分析，使用现有数据）: {_prefetch_err}")
+                logger.warning(
+                    f"⚠️ [数据预拉取] 失败（不影响分析，使用现有数据）: {_prefetch_err}"
+                )
             update_progress_sync(20, "📊 数据预拉取完成", "data_prefetch_done")
 
             # 🔥 添加时间戳日志，精确定位耗时
             import time
+
             graph_init_start = time.time()
             logger.info("⏱️ [性能追踪] 开始创建 TradingAgentsGraph...")
 
             trading_graph = self._get_trading_graph(config)
 
             graph_init_elapsed = time.time() - graph_init_start
-            logger.info(f"⏱️ [性能追踪] TradingAgentsGraph 创建完成，耗时: {graph_init_elapsed:.2f} 秒 ({graph_init_elapsed/60:.2f} 分钟)")
+            logger.info(
+                f"⏱️ [性能追踪] TradingAgentsGraph 创建完成，耗时: {graph_init_elapsed:.2f} 秒 ({graph_init_elapsed / 60:.2f} 分钟)"
+            )
 
             if graph_init_elapsed > 60:
-                logger.warning("⚠️ [性能瓶颈] TradingAgentsGraph 初始化耗时超过 1 分钟！这是主要性能瓶颈！")
+                logger.warning(
+                    "⚠️ [性能瓶颈] TradingAgentsGraph 初始化耗时超过 1 分钟！这是主要性能瓶颈！"
+                )
 
             start_time = now_config_tz()
             analysis_date = format_date_short(now_config_tz())
             if request.parameters and request.parameters.analysis_date:
                 ad = request.parameters.analysis_date
-                if isinstance(ad, datetime): analysis_date = ad.strftime("%Y-%m-%d")
-                elif isinstance(ad, str): analysis_date = ad
+                if isinstance(ad, datetime):
+                    analysis_date = ad.strftime("%Y-%m-%d")
+                elif isinstance(ad, str):
+                    analysis_date = ad
 
             # 🔧 智能日期范围处理：获取最近10天的数据，自动处理周末/节假日
-            data_start_date, data_end_date = get_trading_date_range(analysis_date, lookback_days=10)
-            logger.info(f"📅 分析目标日期: {analysis_date}, 数据范围: {data_start_date} 至 {data_end_date}")
+            data_start_date, data_end_date = get_trading_date_range(
+                analysis_date, lookback_days=10
+            )
+            logger.info(
+                f"📅 分析目标日期: {analysis_date}, 数据范围: {data_start_date} 至 {data_end_date}"
+            )
 
-            update_progress_sync(10, "🤖 开始多智能体协作分析", "agent_analysis")
+            update_progress_sync(25, "🤖 开始多智能体协作分析", "agent_analysis")
 
             # 进度回调 - 动态从配置文件加载，基于选择的智能体计算进度
             selected_analysts_for_progress = config.get("selected_analysts", [])
-            node_progress_map = DynamicAnalystFactory.build_progress_map(selected_analysts=selected_analysts_for_progress)
+            node_progress_map = DynamicAnalystFactory.build_progress_map(
+                selected_analysts=selected_analysts_for_progress
+            )
 
             def graph_progress_callback(message: str):
                 try:
-                    if not progress_tracker: return
+                    if not progress_tracker:
+                        return
                     progress_pct = node_progress_map.get(message)
                     if progress_pct is not None:
-                        current_progress = progress_tracker.progress_data.get('progress_percentage', 0)
+                        current_progress = progress_tracker.progress_data.get(
+                            "progress_percentage", 0
+                        )
                         if int(progress_pct) > current_progress:
                             # 优先使用同步更新
                             update_progress_sync(int(progress_pct), message, message)
                         else:
-                            progress_tracker.update_progress({'last_message': message})
+                            progress_tracker.update_progress({"last_message": message})
                     else:
-                        progress_tracker.update_progress({'last_message': message})
+                        progress_tracker.update_progress({"last_message": message})
                 except Exception as e:
                     logger.debug(f"进度回调更新失败: {e}")
 
@@ -1223,7 +1420,7 @@ class AnalysisService:
                 request.stock_code,
                 analysis_date,
                 progress_callback=graph_progress_callback,
-                task_id=task_id
+                task_id=task_id,
             )
 
             update_progress_sync(90, "处理分析结果...", "result_processing")
@@ -1234,17 +1431,21 @@ class AnalysisService:
 
             # 提取结构化总结
             structured_summary = state.get("structured_summary") or {}
-            
+
             # 优先从结构化总结中获取摘要和建议
             summary_text = ""
             if structured_summary and structured_summary.get("analysis_summary"):
                 summary_text = structured_summary.get("analysis_summary")
             elif isinstance(decision, dict):
                 summary_text = str(decision.get("summary", ""))[:200]
-                
+
             recommendation_text = ""
-            if structured_summary and structured_summary.get("investment_recommendation"):
-                recommendation_text = structured_summary.get("investment_recommendation")
+            if structured_summary and structured_summary.get(
+                "investment_recommendation"
+            ):
+                recommendation_text = structured_summary.get(
+                    "investment_recommendation"
+                )
             elif isinstance(decision, dict):
                 recommendation_text = str(decision.get("recommendation", ""))
 
@@ -1257,16 +1458,24 @@ class AnalysisService:
                 "market_type": market_type,
                 "summary": summary_text,
                 "recommendation": recommendation_text,
-                "confidence_score": decision.get("confidence_score", 0.0) if isinstance(decision, dict) else 0.0,
-                "risk_level": decision.get("risk_level", "中等") if isinstance(decision, dict) else "中等",
+                "confidence_score": decision.get("confidence_score", 0.0)
+                if isinstance(decision, dict)
+                else 0.0,
+                "risk_level": decision.get("risk_level", "中等")
+                if isinstance(decision, dict)
+                else "中等",
                 "detailed_analysis": decision,
                 "execution_time": execution_time,
                 "state": state,
-                "structured_summary": structured_summary, # 🔥 显式添加到顶层结果
+                "structured_summary": structured_summary,  # 🔥 显式添加到顶层结果
                 "reports": reports,  # 🔥 添加提取的报告
                 "decision": decision,
-                "model_info": decision.get('model_info', 'Unknown') if isinstance(decision, dict) else 'Unknown',
-                "analysts": request.parameters.selected_analysts if request.parameters else [],
+                "model_info": decision.get("model_info", "Unknown")
+                if isinstance(decision, dict)
+                else "Unknown",
+                "analysts": request.parameters.selected_analysts
+                if request.parameters
+                else [],
             }
             return result
 
@@ -1278,16 +1487,31 @@ class AnalysisService:
             # 清理任务级 MCP 管理器
             if task_mcp_manager is not None:
                 try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(remove_task_mcp_manager(task_id))
-                    logger.info(f"🔧 [任务管理器] 已调度清理任务级 MCP 管理器: {task_id}")
+                    # 探测当前是否有运行中的事件循环（无则抛 RuntimeError）
+                    asyncio.get_running_loop()
+                    # 用 task_registry 持强引用，避免 task 被 GC 中断
+                    from app.core.task_registry import task_registry
+
+                    task_registry.register(
+                        remove_task_mcp_manager(task_id),
+                        name=f"mcp_cleanup_{task_id}",
+                        critical=False,
+                    )
+                    logger.info(
+                        f"🔧 [任务管理器] 已调度清理任务级 MCP 管理器: {task_id}"
+                    )
                 except RuntimeError:
-                    # 无运行中的事件循环时，直接从全局字典移除
+                    # 无运行中的事件循环（worker thread）：同步从 LRU 失效
+                    # BoundedLRUCache.invalidate 会触发 on_evict 回调，
+                    # 但 on_evict 内部 get_running_loop 也会抛 RuntimeError 被吞掉，
+                    # 此时只能依赖 OS 回收进程资源
                     try:
-                        from app.engine.tools.mcp.task_manager import _task_managers, _managers_thread_lock
-                        with _managers_thread_lock:
-                            _task_managers.pop(task_id, None)
-                        logger.info(f"🔧 [任务管理器] 已同步清理任务级 MCP 管理器: {task_id}")
+                        from app.engine.tools.mcp.task_manager import _task_managers
+
+                        _task_managers.invalidate(task_id)
+                        logger.info(
+                            f"🔧 [任务管理器] 已同步失效任务级 MCP 管理器: {task_id}"
+                        )
                     except Exception as e:
                         logger.warning(f"⚠️ [任务管理器] 同步清理失败: {e}")
                 except Exception as e:
@@ -1305,10 +1529,16 @@ class AnalysisService:
 
         # 1. 动态发现所有 *_report 字段和已知非 _report 后缀的报告字段
         known_non_report_keys = [
-            "trader_investment_plan", "investment_plan", "final_trade_decision"
+            "trader_investment_plan",
+            "investment_plan",
+            "final_trade_decision",
         ]
 
-        report_keys_found = [k for k in state.keys() if k.endswith("_report") or k in known_non_report_keys]
+        report_keys_found = [
+            k
+            for k in state.keys()
+            if k.endswith("_report") or k in known_non_report_keys
+        ]
         logger.info(f"[报告提取] state中发现的报告键: {report_keys_found}")
 
         for key in state.keys():
@@ -1317,35 +1547,43 @@ class AnalysisService:
                 if content:
                     if isinstance(content, str):
                         reports[key] = content
-                    elif hasattr(content, "content") and isinstance(content.content, str):
+                    elif hasattr(content, "content") and isinstance(
+                        content.content, str
+                    ):
                         reports[key] = content.content
                     else:
                         try:
                             reports[key] = str(content)
                         except Exception as e:
-                            logger.warning(f"[报告提取] 无法提取报告 {key}: 类型={type(content)}, 错误: {e}")
+                            logger.warning(
+                                f"[报告提取] 无法提取报告 {key}: 类型={type(content)}, 错误: {e}"
+                            )
 
         logger.info(f"[报告提取] 根级报告: {list(reports.keys())}")
 
         # 2. 提取 investment_debate_state (多空博弈)
-        if "investment_debate_state" in state and isinstance(state["investment_debate_state"], dict):
+        if "investment_debate_state" in state and isinstance(
+            state["investment_debate_state"], dict
+        ):
             inv_state = state["investment_debate_state"]
             for state_key, report_key in {
                 "bull_history": "bull_researcher",
                 "bear_history": "bear_researcher",
-                "judge_decision": "research_team_decision"
+                "judge_decision": "research_team_decision",
             }.items():
                 if state_key in inv_state and inv_state[state_key]:
                     reports[report_key] = inv_state[state_key]
 
         # 3. 提取 risk_debate_state (风险管理)
-        if "risk_debate_state" in state and isinstance(state["risk_debate_state"], dict):
+        if "risk_debate_state" in state and isinstance(
+            state["risk_debate_state"], dict
+        ):
             risk_state = state["risk_debate_state"]
             for state_key, report_key in {
                 "risky_history": "risky_analyst",
                 "safe_history": "safe_analyst",
                 "neutral_history": "neutral_analyst",
-                "judge_decision": "risk_management_decision"
+                "judge_decision": "risk_management_decision",
             }.items():
                 if state_key in risk_state and risk_state[state_key]:
                     reports[report_key] = risk_state[state_key]
@@ -1353,7 +1591,9 @@ class AnalysisService:
         # 4. 从 reports 字典中提取 (动态添加的智能体)
         if "reports" in state and isinstance(state["reports"], dict):
             dynamic_reports = state["reports"]
-            logger.info(f"[报告提取] 从 reports 字典发现 {len(dynamic_reports)} 个: {list(dynamic_reports.keys())}")
+            logger.info(
+                f"[报告提取] 从 reports 字典发现 {len(dynamic_reports)} 个: {list(dynamic_reports.keys())}"
+            )
             for key, content in dynamic_reports.items():
                 if key not in reports and content:
                     reports[key] = content if isinstance(content, str) else str(content)
@@ -1361,9 +1601,15 @@ class AnalysisService:
         # 5. 从 messages 列表中提取 (最终兜底)
         if "messages" in state and isinstance(state["messages"], list):
             from langchain_core.messages import AIMessage
+
             messages_reports_count = 0
             for msg in reversed(state["messages"]):
-                if isinstance(msg, AIMessage) and hasattr(msg, "name") and msg.name and msg.name.endswith("_report"):
+                if (
+                    isinstance(msg, AIMessage)
+                    and hasattr(msg, "name")
+                    and msg.name
+                    and msg.name.endswith("_report")
+                ):
                     report_key = msg.name
                     if report_key not in reports:
                         content = msg.content
@@ -1371,7 +1617,9 @@ class AnalysisService:
                             reports[report_key] = content
                             messages_reports_count += 1
             if messages_reports_count > 0:
-                logger.info(f"[报告提取] 从消息历史中恢复了 {messages_reports_count} 个报告")
+                logger.info(
+                    f"[报告提取] 从消息历史中恢复了 {messages_reports_count} 个报告"
+                )
 
         return reports
 
@@ -1386,48 +1634,69 @@ class AnalysisService:
         if result:
             redis_progress = get_progress_by_id(task_id)
             if redis_progress:
-                result.update({
-                    'progress': redis_progress.get('progress_percentage', result.get('progress', 0)),
-                    'message': redis_progress.get('last_message', result.get('message', '')),
-                    'steps': redis_progress.get('steps', [])
-                })
+                result.update(
+                    {
+                        "progress": redis_progress.get(
+                            "progress_percentage", result.get("progress", 0)
+                        ),
+                        "message": redis_progress.get(
+                            "last_message", result.get("message", "")
+                        ),
+                        "steps": redis_progress.get("steps", []),
+                    }
+                )
         return result
 
-    async def list_all_tasks(self, status: Optional[str] = None, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
+    async def list_all_tasks(
+        self, status: Optional[str] = None, limit: int = 20, offset: int = 0
+    ) -> List[Dict[str, Any]]:
         """获取所有任务列表 (数据库 + 内存状态合并)"""
-        # 兼容性处理：processing -> running
-        if status == "processing":
+        # 兼容性处理：processing/running 统一查询
+        if status in ("processing", "running"):
             status = "running"
-        
+
         # 构建查询条件
         query = {}
-        if status:
+        if status == "running":
+            query["status"] = {"$in": ["running", "pending", "processing"]}
+        elif status:
             query["status"] = status
-        
+
         try:
             db = get_mongo_db()
-            cursor = db.analysis_tasks.find(query).sort("created_at", -1).skip(offset).limit(limit)
+            cursor = (
+                db.analysis_tasks.find(query)
+                .sort("created_at", -1)
+                .skip(offset)
+                .limit(limit)
+            )
             db_tasks = await cursor.to_list(length=limit)
-            
+
             results = []
             for task in db_tasks:
                 if "_id" in task:
                     task["_id"] = str(task["_id"])
-                
+
                 task_id = task.get("task_id")
                 if task_id:
                     memory_task = await self.memory_manager.get_task_dict(task_id)
                     if memory_task:
                         task["status"] = memory_task.get("status", task.get("status"))
-                        task["progress"] = memory_task.get("progress", task.get("progress"))
-                        task["message"] = memory_task.get("message", task.get("message"))
-                        task["current_step"] = memory_task.get("current_step", task.get("current_step"))
-                
+                        task["progress"] = memory_task.get(
+                            "progress", task.get("progress")
+                        )
+                        task["message"] = memory_task.get(
+                            "message", task.get("message")
+                        )
+                        task["current_step"] = memory_task.get(
+                            "current_step", task.get("current_step")
+                        )
+
                 results.append(task)
-            
+
             enriched = self._enrich_stock_names(results)
             return self._serialize_for_response(enriched)
-            
+
         except Exception as e:
             logger.error(f"❌ 获取所有任务列表失败 (DB): {e}")
             status_enum = None
@@ -1436,28 +1705,43 @@ class AnalysisService:
                     status_enum = TaskStatus(status)
                 except ValueError:
                     logger.warning(f"⚠️ 无效的任务状态过滤: {status}")
-            
-            tasks = await self.memory_manager.list_all_tasks(status=status_enum, limit=limit, offset=offset)
+
+            tasks = await self.memory_manager.list_all_tasks(
+                status=status_enum, limit=limit, offset=offset
+            )
             enriched = self._enrich_stock_names(tasks)
             return self._serialize_for_response(enriched)
 
-    async def list_user_tasks(self, user_id: str, status: Optional[str] = None, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
+    async def list_user_tasks(
+        self,
+        user_id: str,
+        status: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
         """获取用户任务列表 (数据库 + 内存状态合并)"""
-        # 兼容性处理：processing -> running
-        if status == "processing":
+        # 兼容性处理：processing/running 统一查询
+        if status in ("processing", "running"):
             status = "running"
-            
+
         # 构建查询条件
         query = {"user_id": user_id}
-        if status:
+        if status == "running":
+            query["status"] = {"$in": ["running", "pending", "processing"]}
+        elif status:
             query["status"] = status
-            
+
         try:
             db = get_mongo_db()
             # 按创建时间倒序
-            cursor = db.analysis_tasks.find(query).sort("created_at", -1).skip(offset).limit(limit)
+            cursor = (
+                db.analysis_tasks.find(query)
+                .sort("created_at", -1)
+                .skip(offset)
+                .limit(limit)
+            )
             db_tasks = await cursor.to_list(length=limit)
-            
+
             # 批量获取内存中的实时状态（一次加锁，替代逐条查询）
             task_ids = [t.get("task_id") for t in db_tasks if t.get("task_id")]
             memory_map = self.memory_manager.batch_get_task_dicts(task_ids)
@@ -1473,17 +1757,19 @@ class AnalysisService:
                     task["status"] = memory_task.get("status", task.get("status"))
                     task["progress"] = memory_task.get("progress", task.get("progress"))
                     task["message"] = memory_task.get("message", task.get("message"))
-                    task["current_step"] = memory_task.get("current_step", task.get("current_step"))
+                    task["current_step"] = memory_task.get(
+                        "current_step", task.get("current_step")
+                    )
 
                 results.append(task)
-            
+
             # 如果数据库返回为空，可能是因为所有数据都在内存中（极少见情况，例如DB写入失败但内存成功）
             # 或者如果是刚启动，DB 为空也是正常的。
             # 这里我们只返回 DB 的结果，因为 create_analysis_task 保证了先写 DB。
-            
+
             enriched = self._enrich_stock_names(results)
             return self._serialize_for_response(enriched)
-            
+
         except Exception as e:
             logger.error(f"❌ 获取用户任务列表失败 (DB): {e}")
             # 降级：如果 DB 失败，尝试返回内存中的数据
@@ -1493,12 +1779,9 @@ class AnalysisService:
                     status_enum = TaskStatus(status)
                 except ValueError:
                     pass
-                    
+
             tasks = await self.memory_manager.list_user_tasks(
-                user_id=user_id, 
-                status=status_enum, 
-                limit=limit, 
-                offset=offset
+                user_id=user_id, status=status_enum, limit=limit, offset=offset
             )
             enriched = self._enrich_stock_names(tasks)
             return self._serialize_for_response(enriched)
@@ -1512,7 +1795,7 @@ class AnalysisService:
         symbol: Optional[str] = None,
         market_type: Optional[str] = None,
         page: int = 1,
-        page_size: int = 20
+        page_size: int = 20,
     ) -> Dict[str, Any]:
         """查询用户任务列表（支持复杂筛选与分页）"""
         # 兼容性处理
@@ -1521,25 +1804,25 @@ class AnalysisService:
 
         # 构建查询条件
         query = {"user_id": user_id}
-        
+
         if status:
             if status == "running":
                 # 前端"进行中"包括 processing, running, pending
                 query["status"] = {"$in": ["running", "pending", "processing"]}
             else:
                 query["status"] = status
-            
+
         if symbol:
             # 同时匹配 symbol 和 stock_code
             query["$or"] = [
                 {"symbol": symbol},
                 {"stock_code": symbol},
-                {"stock_symbol": symbol}
+                {"stock_symbol": symbol},
             ]
-            
+
         if market_type:
             query["parameters.market_type"] = market_type
-            
+
         # 时间范围查询
         date_query = {}
         if start_date:
@@ -1554,26 +1837,33 @@ class AnalysisService:
             try:
                 e_date = datetime.strptime(end_date, "%Y-%m-%d")
                 # 结束日期加一天，包含当天
-                e_date = e_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                e_date = e_date.replace(
+                    hour=23, minute=59, second=59, microsecond=999999
+                )
                 date_query["$lte"] = e_date
             except Exception as e:
                 logger.debug(f"日期解析失败: end_date={end_date}: {e}")
                 pass
-                
+
         if date_query:
             query["created_at"] = date_query
 
         try:
             db = get_mongo_db()
-            
+
             # 获取总数
             total = await db.analysis_tasks.count_documents(query)
-            
+
             # 分页查询
             skip = (page - 1) * page_size
-            cursor = db.analysis_tasks.find(query).sort("created_at", -1).skip(skip).limit(page_size)
+            cursor = (
+                db.analysis_tasks.find(query)
+                .sort("created_at", -1)
+                .skip(skip)
+                .limit(page_size)
+            )
             db_tasks = await cursor.to_list(length=page_size)
-            
+
             # 批量获取内存中的实时状态（一次加锁，替代逐条查询）
             task_ids = [t.get("task_id") for t in db_tasks if t.get("task_id")]
             memory_map = self.memory_manager.batch_get_task_dicts(task_ids)
@@ -1589,24 +1879,30 @@ class AnalysisService:
                     task["status"] = memory_task.get("status", task.get("status"))
                     task["progress"] = memory_task.get("progress", task.get("progress"))
                     task["message"] = memory_task.get("message", task.get("message"))
-                    task["current_step"] = memory_task.get("current_step", task.get("current_step"))
+                    task["current_step"] = memory_task.get(
+                        "current_step", task.get("current_step")
+                    )
 
                 results.append(task)
 
             enriched_tasks = self._enrich_stock_names(results)
-            
-            return self._serialize_for_response({
-                "tasks": enriched_tasks,
-                "total": total,
-                "page": page,
-                "page_size": page_size
-            })
-            
+
+            return self._serialize_for_response(
+                {
+                    "tasks": enriched_tasks,
+                    "total": total,
+                    "page": page,
+                    "page_size": page_size,
+                }
+            )
+
         except Exception as e:
             logger.error(f"❌ 查询用户任务列表失败 (DB): {e}")
             # 降级处理：使用 list_user_tasks 获取并手动过滤（不太精确但可用）
-            all_tasks = await self.list_user_tasks(user_id, status, limit=1000) # 获取最近1000条
-            
+            all_tasks = await self.list_user_tasks(
+                user_id, status, limit=1000
+            )  # 获取最近1000条
+
             # 手动过滤
             filtered = []
             for t in all_tasks:
@@ -1614,30 +1910,41 @@ class AnalysisService:
                     s = t.get("symbol") or t.get("stock_code") or t.get("stock_symbol")
                     if s != symbol:
                         continue
-                if market_type and t.get("parameters", {}).get("market_type") != market_type:
+                if (
+                    market_type
+                    and t.get("parameters", {}).get("market_type") != market_type
+                ):
                     continue
                 filtered.append(t)
-                
+
             # 手动分页
             start = (page - 1) * page_size
             paginated = filtered[start : start + page_size]
-            
-            return self._serialize_for_response({
-                "tasks": paginated,
-                "total": len(filtered),
-                "page": page,
-                "page_size": page_size
-            })
 
-    async def cleanup_zombie_tasks(self, max_running_hours: int = 2) -> Dict[str, Any]:
-        """清理僵尸任务"""
-        return await self.memory_manager.cleanup_zombie_tasks(max_running_hours)
+            return self._serialize_for_response(
+                {
+                    "tasks": paginated,
+                    "total": len(filtered),
+                    "page": page,
+                    "page_size": page_size,
+                }
+            )
 
-    async def _update_task_status(self, task_id: str, status: AnalysisStatus, progress: int, error_message: str = None):
+    async def _update_task_status(
+        self,
+        task_id: str,
+        status: AnalysisStatus,
+        progress: int,
+        error_message: str = None,
+    ):
         """更新任务状态到MongoDB"""
         try:
             db = get_mongo_db()
-            update_data = {"status": status, "progress": progress, "updated_at": now_utc()}
+            update_data = {
+                "status": status,
+                "progress": progress,
+                "updated_at": now_utc(),
+            }
             if status == AnalysisStatus.PROCESSING and progress == 10:
                 update_data["started_at"] = now_utc()
             elif status == AnalysisStatus.COMPLETED:
@@ -1645,14 +1952,20 @@ class AnalysisService:
             elif status == AnalysisStatus.FAILED:
                 update_data["last_error"] = error_message
                 update_data["completed_at"] = now_utc()
-            await db.analysis_tasks.update_one({"task_id": task_id}, {"$set": update_data})
+            await db.analysis_tasks.update_one(
+                {"task_id": task_id}, {"$set": update_data}
+            )
         except Exception as e:
             logger.error(f"❌ 更新任务状态失败: {task_id} - {e}")
 
-    async def _save_analysis_results_complete(self, task_id: str, result: Dict[str, Any]):
+    async def _save_analysis_results_complete(
+        self, task_id: str, result: Dict[str, Any]
+    ):
         """完整的分析结果保存"""
         try:
-            stock_symbol = result.get('stock_symbol') or result.get('stock_code', 'UNKNOWN')
+            stock_symbol = result.get("stock_symbol") or result.get(
+                "stock_code", "UNKNOWN"
+            )
             # 1. 保存到本地
             await self._save_modular_reports_to_data_dir(result, stock_symbol)
             # 2. 保存到数据库 (Web Style)
@@ -1660,23 +1973,25 @@ class AnalysisService:
         except Exception as e:
             logger.error(f"❌ 保存结果失败: {e}")
 
-    async def _save_modular_reports_to_data_dir(self, result: Dict[str, Any], stock_symbol: str) -> Dict[str, str]:
+    async def _save_modular_reports_to_data_dir(
+        self, result: Dict[str, Any], stock_symbol: str
+    ) -> Dict[str, str]:
         """保存分模块报告到data目录 - 完全采用web目录的文件结构"""
         try:
             # 使用统一的路径获取方式
             runtime_base = settings.RUNTIME_BASE_DIR
             results_dir = get_analysis_results_dir(runtime_base)
 
-            analysis_date_raw = result.get('analysis_date', now_config_tz())
-            
+            analysis_date_raw = result.get("analysis_date", now_config_tz())
+
             # 确保 analysis_date 是字符串格式
             if isinstance(analysis_date_raw, datetime):
-                analysis_date_str = analysis_date_raw.strftime('%Y-%m-%d')
+                analysis_date_str = analysis_date_raw.strftime("%Y-%m-%d")
             elif isinstance(analysis_date_raw, str):
                 # 如果已经是字符串，检查格式
                 try:
                     # 尝试解析日期字符串，确保格式正确
-                    datetime.strptime(analysis_date_raw, '%Y-%m-%d')
+                    datetime.strptime(analysis_date_raw, "%Y-%m-%d")
                     analysis_date_str = analysis_date_raw
                 except ValueError:
                     # 如果格式不正确，使用当前日期
@@ -1684,47 +1999,50 @@ class AnalysisService:
             else:
                 # 其他类型，使用当前日期
                 analysis_date_str = format_date_short(now_config_tz())
-            
+
             stock_dir = results_dir / stock_symbol / analysis_date_str
             reports_dir = stock_dir / "reports"
             await asyncio.to_thread(reports_dir.mkdir, parents=True, exist_ok=True)
-            
+
             # 创建message_tool.log文件 - 与web目录保持一致（线程池中执行避免阻塞事件循环）
             log_file = stock_dir / "message_tool.log"
             await asyncio.to_thread(log_file.touch, exist_ok=True)
-            
+
             # 获取已提取的报告
-            reports = result.get('reports', {})
+            reports = result.get("reports", {})
             saved_files = {}
-            
+
             # 🔥 动态从配置文件获取报告标题映射
             known_report_titles = {
                 # 非第1阶段的固定报告（这些不是动态分析师）
-                'investment_plan': '投资决策报告',
-                'trader_investment_plan': '交易计划报告',
-                'bull_researcher': '看涨研究报告',
-                'bear_researcher': '看跌研究报告',
-                'research_team_decision': '研究团队决策报告',
-                'risky_analyst': '激进风险分析报告',
-                'safe_analyst': '保守风险分析报告',
-                'neutral_analyst': '中性风险分析报告',
-                'risk_management_decision': '风险管理团队决策报告',
-                'risk_manager_decision': '风险管理团队决策报告',
+                "investment_plan": "投资决策报告",
+                "trader_investment_plan": "交易计划报告",
+                "bull_researcher": "看涨研究报告",
+                "bear_researcher": "看跌研究报告",
+                "research_team_decision": "研究团队决策报告",
+                "risky_analyst": "激进风险分析报告",
+                "safe_analyst": "保守风险分析报告",
+                "neutral_analyst": "中性风险分析报告",
+                "risk_management_decision": "风险管理团队决策报告",
+                "risk_manager_decision": "风险管理团队决策报告",
             }
-            
+
             # 从配置文件动态加载第1阶段分析师的报告标题
             try:
-                from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+                from app.engine.agents.analysts.dynamic_analyst import (
+                    DynamicAnalystFactory,
+                )
+
                 for agent in DynamicAnalystFactory.get_all_agents():
-                    slug = agent.get('slug', '')
-                    name = agent.get('name', '')
+                    slug = agent.get("slug", "")
+                    name = agent.get("name", "")
                     if slug and name:
                         internal_key = slug.replace("-analyst", "").replace("-", "_")
                         report_key = f"{internal_key}_report"
                         known_report_titles[report_key] = f"{name}报告"
             except Exception as e:
                 logger.warning(f"⚠️ 无法从配置文件加载报告标题: {e}")
-            
+
             # 🔥 动态保存所有报告（包括新添加的智能体报告）
             for report_key, report_content in reports.items():
                 try:
@@ -1733,66 +2051,82 @@ class AnalysisService:
                         filename = f"{report_key}.md"
                         # 获取友好标题，如果没有则使用 key 的格式化版本
                         title = known_report_titles.get(
-                            report_key, 
-                            report_key.replace('_', ' ').title() + '报告'
+                            report_key, report_key.replace("_", " ").title() + "报告"
                         )
-                        
+
                         file_path = reports_dir / filename
-                        await asyncio.to_thread(file_path.write_text, report_content, encoding='utf-8')
-                        
+                        await asyncio.to_thread(
+                            file_path.write_text, report_content, encoding="utf-8"
+                        )
+
                         saved_files[report_key] = str(file_path)
                         logger.info(f"✅ 保存模块报告: {file_path} ({title})")
                 except Exception as e:
                     logger.warning(f"⚠️ 保存模块 {report_key} 失败: {e}")
-            
+
             # 保存最终决策报告 - 完全按照web目录的方式
-            decision = result.get('decision', {})
+            decision = result.get("decision", {})
             if decision:
                 decision_content = f"# {stock_symbol} 最终投资决策\n\n"
                 if isinstance(decision, dict):
                     decision_content += "## 投资建议\n\n"
                     decision_content += f"**行动**: {decision.get('action', 'N/A')}\n\n"
-                    decision_content += f"**置信度**: {decision.get('confidence', 0):.1%}\n\n"
-                    decision_content += f"**风险评分**: {decision.get('risk_score', 0):.1%}\n\n"
-                    decision_content += f"**目标价位**: {decision.get('target_price', 'N/A')}\n\n"
+                    decision_content += (
+                        f"**置信度**: {decision.get('confidence', 0):.1%}\n\n"
+                    )
+                    decision_content += (
+                        f"**风险评分**: {decision.get('risk_score', 0):.1%}\n\n"
+                    )
+                    decision_content += (
+                        f"**目标价位**: {decision.get('target_price', 'N/A')}\n\n"
+                    )
                     decision_content += f"## 分析推理\n\n{decision.get('reasoning', '暂无分析推理')}\n\n"
                 else:
                     decision_content += f"{str(decision)}\n\n"
-                
+
                 decision_file = reports_dir / "final_trade_decision.md"
-                await asyncio.to_thread(decision_file.write_text, decision_content, encoding='utf-8')
-                saved_files['final_trade_decision'] = str(decision_file)
-            
+                await asyncio.to_thread(
+                    decision_file.write_text, decision_content, encoding="utf-8"
+                )
+                saved_files["final_trade_decision"] = str(decision_file)
+
             # 保存分析元数据文件 - 完全按照web目录的方式
             metadata = {
-                'stock_symbol': stock_symbol,
-                'analysis_date': analysis_date_str,
-                'timestamp': format_iso(now_config_tz()),
-                'analysts': result.get('analysts', []),
-                'status': 'completed',
-                'reports_count': len(saved_files),
-                'report_types': list(saved_files.keys())
+                "stock_symbol": stock_symbol,
+                "analysis_date": analysis_date_str,
+                "timestamp": format_iso(now_config_tz()),
+                "analysts": result.get("analysts", []),
+                "status": "completed",
+                "reports_count": len(saved_files),
+                "report_types": list(saved_files.keys()),
             }
-            
+
             metadata_file = reports_dir.parent / "analysis_metadata.json"
             await asyncio.to_thread(
                 metadata_file.write_text,
                 json.dumps(metadata, ensure_ascii=False, indent=2),
-                encoding='utf-8'
+                encoding="utf-8",
             )
-                
+
             return saved_files
         except Exception as e:
             logger.error(f"❌ 保存分模块报告失败: {e}")
             return {}
 
-    async def _save_analysis_result_web_style(self, task_id: str, result: Dict[str, Any]):
+    async def _save_analysis_result_web_style(
+        self, task_id: str, result: Dict[str, Any]
+    ):
         """保存分析结果 (Web Style)"""
         try:
             db = get_mongo_db()
-            stock_symbol = result.get('stock_symbol') or result.get('stock_code', 'UNKNOWN')
+            stock_symbol = result.get("stock_symbol") or result.get(
+                "stock_code", "UNKNOWN"
+            )
             timestamp = now_utc()
-            analysis_id = result.get('analysis_id') or f"{stock_symbol}_{timestamp.strftime('%Y%m%d_%H%M%S')}"
+            analysis_id = (
+                result.get("analysis_id")
+                or f"{stock_symbol}_{timestamp.strftime('%Y%m%d_%H%M%S')}"
+            )
 
             # 处理 reports，确保为字符串内容，避免空值
             raw_reports = result.get("reports") or {}
@@ -1810,18 +2144,28 @@ class AnalysisService:
                         cleaned_reports[key] = content
 
             # 关键字段兜底
-            analysis_date = result.get('analysis_date') or timestamp.strftime('%Y-%m-%d')
+            analysis_date = result.get("analysis_date") or timestamp.strftime(
+                "%Y-%m-%d"
+            )
             summary = result.get("summary", "")
             recommendation = result.get("recommendation", "")
             risk_level = result.get("risk_level", "中等")
             confidence_score = result.get("confidence_score", 0.0)
             key_points = result.get("key_points") or []
             analysts = result.get("analysts") or result.get("selected_analysts") or []
-            model_info = result.get("model_info") or result.get("llm_model") or "Unknown"
-            tokens_used = result.get("tokens_used") or result.get("token_usage", {}).get("total_tokens", 0)
+            model_info = (
+                result.get("model_info") or result.get("llm_model") or "Unknown"
+            )
+            tokens_used = result.get("tokens_used") or result.get(
+                "token_usage", {}
+            ).get("total_tokens", 0)
             execution_time = result.get("execution_time", 0)
             structured_summary = result.get("structured_summary") or {}
-            market_type = result.get("market_type") or result.get("parameters", {}).get("market_type") or "A股"
+            market_type = (
+                result.get("market_type")
+                or result.get("parameters", {}).get("market_type")
+                or "A股"
+            )
 
             document = {
                 "analysis_id": analysis_id,
@@ -1845,7 +2189,7 @@ class AnalysisService:
                 "model_info": model_info,
                 "tokens_used": tokens_used,
                 "execution_time": execution_time,
-                "source": result.get("source", "analysis_service")
+                "source": result.get("source", "analysis_service"),
             }
 
             # 写入报告集合
@@ -1854,20 +2198,26 @@ class AnalysisService:
             # 更新任务集合中的结果，携带 report_id 便于前端关联
             document_for_task = {**document, "_id": insert_result.inserted_id}
             await db.analysis_tasks.update_one(
-                {"task_id": task_id},
-                {"$set": {"result": document_for_task}}
+                {"task_id": task_id}, {"$set": {"result": document_for_task}}
             )
         except Exception as e:
             logger.error(f"❌ 保存DB结果失败: {e}")
-
 
     # -------------------------------------------------------------------------
     # Router-facing Methods (added for analysis.py DB abstraction)
     # -------------------------------------------------------------------------
 
-    async def get_task_with_status_fallback(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def get_task_with_status_fallback(
+        self,
+        task_id: str,
+        user_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         获取任务状态，依次尝试：内存 → analysis_tasks 集合 → analysis_reports 集合。
+
+        Args:
+            task_id: 任务 ID
+            user_id: 可选用户 ID。非 None 时仅返回该用户拥有的任务（admin 路径传 None 跳过校验）。
 
         Returns:
             包含 "source" 字段标记数据来源的字典（mongodb_tasks / mongodb_reports），
@@ -1876,44 +2226,71 @@ class AnalysisService:
         # 1) 先走现有的 get_task_status（内存 + Redis 进度）
         result = await self.get_task_status(task_id)
         if result:
-            return result
+            # 内存命中后仍要校验所有权：admin (user_id=None) 直通；普通用户需匹配
+            if user_id is None:
+                return result
+            owner = result.get("user_id")
+            if owner is None or owner == user_id:
+                return result
+            logger.warning(
+                f"⚠️ 用户 {user_id} 越权访问任务状态 task_id={task_id} (owner={owner})"
+            )
+            return None
 
-        # 2) 从 analysis_tasks 集合查找
+        # 2) 从 analysis_tasks 集合查找（带 user_id 过滤）
+        # 老数据兼容：早期记录可能不含 user_id 字段，用 $or 兜底放行无主任务
         try:
             db = get_mongo_db()
-            task_result = await db.analysis_tasks.find_one({"task_id": task_id})
+            filter_doc: Dict[str, Any] = {"task_id": task_id}
+            if user_id is not None:
+                filter_doc["$or"] = [
+                    {"user_id": user_id},
+                    {"user_id": {"$exists": False}},
+                    {"user_id": None},
+                ]
+            task_result = await db.analysis_tasks.find_one(filter_doc)
         except Exception as e:
-            logger.warning(f"⚠️ get_task_with_status_fallback 查询 analysis_tasks 失败: {e}")
+            logger.warning(
+                f"⚠️ get_task_with_status_fallback 查询 analysis_tasks 失败: {e}"
+            )
             task_result = None
 
         if task_result:
             status = task_result.get("status", "pending")
             progress = task_result.get("progress", 0)
             start_time = task_result.get("started_at") or task_result.get("created_at")
-            current_time = now_utc()
-            elapsed_time = 0
-            if start_time:
-                elapsed_time = (current_time - start_time).total_seconds()
+            end_time = task_result.get("completed_at")
+            elapsed_time = 0.0
+            # 仅对进行中的任务计算已耗时长；已完成/失败/取消任务用 start/end 区间
+            if start_time and status in {"pending", "running"}:
+                end_ref = end_time or now_utc()
+                elapsed_time = (end_ref - start_time).total_seconds()
+            elif start_time and end_time:
+                elapsed_time = (end_time - start_time).total_seconds()
+
+            message = _TASK_STATUS_MESSAGES.get(status, "任务进行中…")
 
             return {
                 "task_id": task_id,
                 "status": status,
                 "progress": progress,
-                "message": f"任务{status}中...",
+                "message": message,
                 "current_step": status,
                 "start_time": start_time,
-                "end_time": task_result.get("completed_at"),
+                "end_time": end_time,
                 "elapsed_time": elapsed_time,
                 "remaining_time": 0,
                 "estimated_total_time": 0,
                 "symbol": task_result.get("symbol") or task_result.get("stock_code"),
-                "stock_code": task_result.get("symbol") or task_result.get("stock_code"),
-                "stock_symbol": task_result.get("symbol") or task_result.get("stock_code"),
+                "stock_code": task_result.get("symbol")
+                or task_result.get("stock_code"),
+                "stock_symbol": task_result.get("symbol")
+                or task_result.get("stock_code"),
                 "source": "mongodb_tasks",
             }
 
-        # 3) 尝试通过 analysis_id 兜底查找 analysis_reports
-        report = await self._find_report_by_task_id(task_id)
+        # 3) 尝试通过 analysis_id 兜底查找 analysis_reports（同样带 user_id 过滤）
+        report = await self._find_report_by_task_id(task_id, user_id)
         if report:
             start_time = report.get("created_at")
             end_time = report.get("updated_at")
@@ -1939,46 +2316,91 @@ class AnalysisService:
 
         return None
 
-    async def _find_report_by_task_id(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def _find_report_by_task_id(
+        self,
+        task_id: str,
+        user_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         从 analysis_reports 中根据 task_id 查找报告。
         兼容旧数据：如果直接查不到，通过 analysis_tasks.result.analysis_id 兜底。
+
+        Args:
+            task_id: 任务 ID
+            user_id: 可选用户 ID，用于所有权过滤。非 None 时仅返回该用户的报告。
         """
         try:
             db = get_mongo_db()
-            report = await db.analysis_reports.find_one({"task_id": task_id})
+            filter_doc: Dict[str, Any] = {"task_id": task_id}
+            if user_id is not None:
+                # 老数据兼容：早期记录可能不含 user_id 字段
+                filter_doc["$or"] = [
+                    {"user_id": user_id},
+                    {"user_id": {"$exists": False}},
+                    {"user_id": None},
+                ]
+            report = await db.analysis_reports.find_one(filter_doc)
             if report:
                 return report
 
-            # 兼容旧数据
+            # 兼容旧数据：analysis_reports 旧记录可能不含 user_id，回退到 analysis_tasks 查 analysis_id
+            tasks_filter: Dict[str, Any] = {"task_id": task_id}
+            if user_id is not None:
+                tasks_filter["$or"] = [
+                    {"user_id": user_id},
+                    {"user_id": {"$exists": False}},
+                    {"user_id": None},
+                ]
             tasks_doc = await db.analysis_tasks.find_one(
-                {"task_id": task_id},
-                {"result.analysis_id": 1}
+                tasks_filter, {"result.analysis_id": 1}
             )
             if tasks_doc:
                 analysis_id = tasks_doc.get("result", {}).get("analysis_id")
                 if analysis_id:
-                    return await db.analysis_reports.find_one({"analysis_id": analysis_id})
+                    return await db.analysis_reports.find_one(
+                        {"analysis_id": analysis_id}
+                    )
         except Exception as e:
             logger.warning(f"⚠️ _find_report_by_task_id 失败: {e}")
         return None
 
-    async def get_task_result_data(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def get_task_result_data(
+        self,
+        task_id: str,
+        user_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         获取任务的完整分析结果数据。
 
         查询顺序：内存 → analysis_reports（按 task_id / analysis_id）→ analysis_tasks.result。
+
+        Args:
+            task_id: 任务 ID
+            user_id: 可选用户 ID，非 None 时仅返回该用户拥有的任务结果（admin 传 None）。
 
         Returns:
             结果字典（含 "source" 标记），或 None。
         """
         # 1) 内存中获取
         task_status = await self.get_task_status(task_id)
-        if task_status and task_status.get("status") == "completed" and task_status.get("result_data"):
-            return task_status["result_data"]
+        if (
+            task_status
+            and task_status.get("status") == "completed"
+            and task_status.get("result_data")
+        ):
+            # 内存命中同样校验所有权
+            if user_id is None:
+                return task_status["result_data"]
+            owner = task_status.get("user_id")
+            if owner is None or owner == user_id:
+                return task_status["result_data"]
+            logger.warning(
+                f"⚠️ 用户 {user_id} 越权读取任务结果 task_id={task_id} (owner={owner})"
+            )
+            return None
 
         # 2) 从 analysis_reports 获取
-        mongo_result = await self._find_report_by_task_id(task_id)
+        mongo_result = await self._find_report_by_task_id(task_id, user_id)
         if mongo_result:
             result_data = {
                 "analysis_id": mongo_result.get("analysis_id"),
@@ -2002,18 +2424,33 @@ class AnalysisService:
             }
             return result_data
 
-        # 3) 从 analysis_tasks.result 兜底
+        # 3) 从 analysis_tasks.result 兜底（同样带 user_id 过滤 + 老数据兼容）
         try:
             db = get_mongo_db()
+            fallback_filter: Dict[str, Any] = {"task_id": task_id}
+            if user_id is not None:
+                fallback_filter["$or"] = [
+                    {"user_id": user_id},
+                    {"user_id": {"$exists": False}},
+                    {"user_id": None},
+                ]
             tasks_doc = await db.analysis_tasks.find_one(
-                {"task_id": task_id},
-                {"result": 1, "symbol": 1, "stock_code": 1, "created_at": 1, "completed_at": 1}
+                fallback_filter,
+                {
+                    "result": 1,
+                    "symbol": 1,
+                    "stock_code": 1,
+                    "created_at": 1,
+                    "completed_at": 1,
+                },
             )
             if tasks_doc and tasks_doc.get("result"):
                 r = tasks_doc["result"] or {}
                 symbol = (
-                    tasks_doc.get("symbol") or tasks_doc.get("stock_code") or
-                    r.get("stock_symbol") or r.get("stock_code")
+                    tasks_doc.get("symbol")
+                    or tasks_doc.get("stock_code")
+                    or r.get("stock_symbol")
+                    or r.get("stock_code")
                 )
                 return {
                     "analysis_id": r.get("analysis_id"),
@@ -2038,11 +2475,15 @@ class AnalysisService:
                     "source": "analysis_tasks",
                 }
         except Exception as e:
-            logger.warning(f"⚠️ get_task_result_data 从 analysis_tasks.result 兜底失败: {e}")
+            logger.warning(
+                f"⚠️ get_task_result_data 从 analysis_tasks.result 兜底失败: {e}"
+            )
 
         return None
 
-    async def mark_task_failed(self, task_id: str, error_message: str = "用户手动标记为失败") -> bool:
+    async def mark_task_failed(
+        self, task_id: str, error_message: str = "用户手动标记为失败"
+    ) -> bool:
         """
         将任务标记为失败（内存 + MongoDB 同步更新）。
         """
@@ -2059,12 +2500,14 @@ class AnalysisService:
             db = get_mongo_db()
             result = await db.analysis_tasks.update_one(
                 {"task_id": task_id},
-                {"$set": {
-                    "status": "failed",
-                    "last_error": error_message,
-                    "completed_at": now_utc(),
-                    "updated_at": now_utc(),
-                }},
+                {
+                    "$set": {
+                        "status": "failed",
+                        "last_error": error_message,
+                        "completed_at": now_utc(),
+                        "updated_at": now_utc(),
+                    }
+                },
             )
             return result.modified_count > 0
         except Exception as e:
@@ -2093,7 +2536,9 @@ class AnalysisService:
             logger.error(f"❌ validate_task_ownership 查询失败: {e}")
             return False
 
-    async def delete_task_by_id(self, task_id: str, user_id: Optional[str] = None) -> bool:
+    async def delete_task_by_id(
+        self, task_id: str, user_id: Optional[str] = None
+    ) -> bool:
         """
         从内存和数据库中删除任务记录。
 
@@ -2152,16 +2597,27 @@ class AnalysisService:
                 query["market_type"] = market_type
 
             total = await db.analysis_reports.count_documents(query)
-            completed = await db.analysis_reports.count_documents({**query, "status": "completed"})
-            failed = await db.analysis_reports.count_documents({**query, "status": "failed"})
+            completed = await db.analysis_reports.count_documents(
+                {**query, "status": "completed"}
+            )
+            failed = await db.analysis_reports.count_documents(
+                {**query, "status": "failed"}
+            )
 
             # 按日期统计
             pipeline_date = [
                 {"$match": query},
-                {"$group": {
-                    "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
-                    "count": {"$sum": 1},
-                }},
+                {
+                    "$group": {
+                        "_id": {
+                            "$dateToString": {
+                                "format": "%Y-%m-%d",
+                                "date": "$created_at",
+                            }
+                        },
+                        "count": {"$sum": 1},
+                    }
+                },
                 {"$sort": {"_id": -1}},
                 {"$limit": 30},
             ]
@@ -2177,7 +2633,9 @@ class AnalysisService:
             ]
             by_market = []
             async for doc in db.analysis_reports.aggregate(pipeline_market):
-                by_market.append({"market": doc["_id"] or "未知", "count": doc["count"]})
+                by_market.append(
+                    {"market": doc["_id"] or "未知", "count": doc["count"]}
+                )
 
             return {
                 "total_analyses": total,
@@ -2194,7 +2652,9 @@ class AnalysisService:
             logger.error(f"❌ get_analysis_stats 失败: {e}")
             raise
 
-    async def get_stock_info_with_quote(self, symbol: str, market: str = "A股") -> Optional[Dict[str, Any]]:
+    async def get_stock_info_with_quote(
+        self, symbol: str, market: str = "A股"
+    ) -> Optional[Dict[str, Any]]:
         """
         获取股票基础信息 + 实时行情（用于分析前预览）。
 
@@ -2207,14 +2667,19 @@ class AnalysisService:
             # 数据源优先级
             try:
                 from app.data.core.registry.priority import PriorityConfig
-                enabled_sources = PriorityConfig().get_default_sources("CN", "basic_info")
+
+                enabled_sources = PriorityConfig().get_default_sources(
+                    "CN", "basic_info"
+                )
             except Exception as e:
                 logger.debug(f"获取数据源优先级失败，使用默认列表: {e}")
                 enabled_sources = ["tushare", "akshare", "baostock"]
 
             b = None
             for src in enabled_sources:
-                b = await db.stock_basic_info.find_one({"symbol": code6, "data_source": src}, {"_id": 0})
+                b = await db.stock_basic_info.find_one(
+                    {"symbol": code6, "data_source": src}, {"_id": 0}
+                )
                 if b:
                     break
             if not b:
@@ -2255,6 +2720,7 @@ class AnalysisService:
         try:
             db = get_mongo_db()
             import re
+
             escaped_query = re.escape(query)
             search_regex = f".*{escaped_query}.*"
             filter_expr: Dict[str, Any] = {
@@ -2266,18 +2732,27 @@ class AnalysisService:
             if market:
                 filter_expr["market"] = market
 
-            cursor = db.stock_basic_info.find(filter_expr, {
-                "name": 1, "symbol": 1, "market": 1, "industry": 1, "_id": 0,
-            }).limit(limit)
+            cursor = db.stock_basic_info.find(
+                filter_expr,
+                {
+                    "name": 1,
+                    "symbol": 1,
+                    "market": 1,
+                    "industry": 1,
+                    "_id": 0,
+                },
+            ).limit(limit)
 
             results = []
             async for doc in cursor:
-                results.append({
-                    "symbol": doc.get("symbol", ""),
-                    "name": doc.get("name", ""),
-                    "market": doc.get("market", "A股"),
-                    "type": "stock",
-                })
+                results.append(
+                    {
+                        "symbol": doc.get("symbol", ""),
+                        "name": doc.get("name", ""),
+                        "market": doc.get("market", "A股"),
+                        "type": "stock",
+                    }
+                )
             return results
         except Exception as e:
             logger.error(f"❌ search_stock_basic_info 失败: {e}")
@@ -2301,10 +2776,13 @@ class AnalysisService:
                 if not symbol:
                     continue
                 code6 = str(symbol).zfill(6)
-                b = await db.stock_basic_info.find_one({"symbol": code6}, {"_id": 0, "name": 1, "market": 1})
+                b = await db.stock_basic_info.find_one(
+                    {"symbol": code6}, {"_id": 0, "name": 1, "market": 1}
+                )
 
                 # 从 daily_quotes 获取最新收盘价和涨跌幅
                 from app.data.storage.mongo.collections import get_collection_name
+
                 dq_coll = db[get_collection_name("daily_quotes", "CN")]
                 dq = await dq_coll.find_one(
                     {"symbol": code6},
@@ -2312,15 +2790,17 @@ class AnalysisService:
                     sort=[("trade_date", -1)],
                 )
 
-                results.append({
-                    "symbol": symbol,
-                    "name": (b or {}).get("name", ""),
-                    "market": (b or {}).get("market", "A股"),
-                    "current_price": (dq or {}).get("close"),
-                    "change_percent": (dq or {}).get("pct_chg"),
-                    "volume": (dq or {}).get("volume"),
-                    "analysis_count": doc["count"],
-                })
+                results.append(
+                    {
+                        "symbol": symbol,
+                        "name": (b or {}).get("name", ""),
+                        "market": (b or {}).get("market", "A股"),
+                        "current_price": (dq or {}).get("close"),
+                        "change_percent": (dq or {}).get("pct_chg"),
+                        "volume": (dq or {}).get("volume"),
+                        "analysis_count": doc["count"],
+                    }
+                )
 
             return results
         except Exception as e:
@@ -2331,11 +2811,10 @@ class AnalysisService:
 # 全局分析服务实例
 analysis_service: Optional[AnalysisService] = None
 
+
 def get_analysis_service() -> AnalysisService:
     """获取分析服务实例"""
     global analysis_service
     if analysis_service is None:
         analysis_service = AnalysisService()
     return analysis_service
-
-

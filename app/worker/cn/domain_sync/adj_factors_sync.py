@@ -2,10 +2,9 @@
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from .base_domain_sync import BaseDomainSync, DomainSyncResult
-from app.data.processor.fallback_router import FallbackRouter
 
 logger = logging.getLogger(__name__)
 

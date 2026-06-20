@@ -7,7 +7,6 @@
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 # ModelConfig 已从 app.models.config 导入别名，不再在此定义
 # 避免与 Pydantic LLMConfig 重复维护默认值

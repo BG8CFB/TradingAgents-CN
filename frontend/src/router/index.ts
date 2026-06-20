@@ -55,16 +55,23 @@ const routes: RouteRecordRaw[] = [
     name: 'Analysis',
     component: () => import('@/layouts/BasicLayout.vue'),
     redirect: '/analysis/single',
+    meta: {
+      title: '智能分析',
+      requiresAuth: true,
+      transition: 'fade'
+    },
     children: [
       {
         path: 'single',
         name: 'SingleAnalysis',
-        component: () => import('@/views/Analysis/SingleAnalysis.vue')
+        component: () => import('@/views/Analysis/SingleAnalysis.vue'),
+        meta: { title: '单股分析', requiresAuth: true }
       },
       {
         path: 'batch',
         name: 'BatchAnalysis',
-        component: () => import('@/views/Analysis/BatchAnalysis.vue')
+        component: () => import('@/views/Analysis/BatchAnalysis.vue'),
+        meta: { title: '批量分析', requiresAuth: true }
       },
 
     ]
@@ -313,11 +320,11 @@ const routes: RouteRecordRaw[] = [
         }
       },
       {
-        path: 'mcp-tools',
-        name: 'MCPToolsManagement',
-        component: () => import('@/views/Settings/MCPToolsManagement.vue'),
+        path: 'skills',
+        name: 'SkillsManagement',
+        component: () => import('@/views/Settings/SkillsManagement.vue'),
         meta: {
-          title: '数据工具管理',
+          title: '技能管理',
           requiresAuth: true
         }
       },
@@ -345,7 +352,8 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/System/OperationLogs.vue'),
         meta: {
           title: '操作日志',
-          requiresAuth: true
+          requiresAuth: true,
+          requiresAdmin: true
         }
       },
       {
@@ -354,7 +362,8 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/System/LogManagement.vue'),
         meta: {
           title: '系统日志',
-          requiresAuth: true
+          requiresAuth: true,
+          requiresAdmin: true
         }
       },
       {
@@ -363,7 +372,8 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Settings/CacheManagement.vue'),
         meta: {
           title: '缓存管理',
-          requiresAuth: true
+          requiresAuth: true,
+          requiresAdmin: true
         }
       },
       {
@@ -372,7 +382,8 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Settings/UsageStatistics.vue'),
         meta: {
           title: '使用统计',
-          requiresAuth: true
+          requiresAuth: true,
+          requiresAdmin: true
         }
       },
       {
@@ -381,7 +392,8 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/System/SchedulerManagement.vue'),
         meta: {
           title: '定时任务',
-          requiresAuth: true
+          requiresAuth: true,
+          requiresAdmin: true
         }
       }
     ]
@@ -448,26 +460,37 @@ router.beforeEach(async (to, _from, next) => {
     document.title = `${title} - TradingAgents-CN`
   }
 
-  console.log('🚦 路由守卫检查:', {
-    path: to.fullPath,
-    name: to.name,
-    requiresAuth: to.meta.requiresAuth,
-    isAuthenticated: authStore.isAuthenticated,
-    hasToken: !!authStore.token
-  })
+  if (import.meta.env.DEV) {
+    console.log('[Router] beforeEach:', to.fullPath, 'requiresAuth=', !!to.meta.requiresAuth, 'auth=', authStore.isAuthenticated)
+  }
 
   // 检查是否需要认证
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    console.log('🔒 需要认证但用户未登录:', {
-      path: to.fullPath,
-      requiresAuth: to.meta.requiresAuth,
-      isAuthenticated: authStore.isAuthenticated,
-      token: authStore.token ? '存在' : '不存在'
-    })
+    if (import.meta.env.DEV) {
+      console.log('[Router] requires auth but not authenticated, redirect to /login:', to.fullPath)
+    }
     // 保存原始路径，登录后跳转
     authStore.setRedirectPath(to.fullPath)
     next('/login')
     return
+  }
+
+  // 检查是否需要管理员权限
+  // 后端 API 已有 require_admin 兜底，这里只是避免普通用户进入页面后看到 403 弹窗
+  // 项目尚未提供独立的 /403 页面，因此重定向到首页并提示
+  if (to.meta.requiresAdmin) {
+    // 等待 roles 加载完成（冷启动时 fetchUserInfo 可能尚未完成，避免误把 admin 拦截）
+    if (!authStore.rolesLoaded) {
+      await authStore.waitForRoles(2000)
+    }
+    if (!authStore.isAdmin) {
+      if (import.meta.env.DEV) {
+        console.log('[Router] requires admin but user is not admin, redirect to /dashboard:', to.fullPath)
+      }
+      ElMessage.warning('该页面仅管理员可访问')
+      next('/dashboard')
+      return
+    }
   }
 
 

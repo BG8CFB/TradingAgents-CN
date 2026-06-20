@@ -5,10 +5,9 @@
 定义标准化的股票数据结构，用于MongoDB存储和数据交换
 """
 
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 import re
 from datetime import datetime, date, timezone
-from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator, ConfigDict, field_serializer
 from enum import Enum
 

@@ -7,7 +7,16 @@ from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
+from app.data.sources.base.mappers import (
+    is_empty_result,
+    map_network_exception,
+    map_tushare_code,
+)
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "financial_data"
 
 
 async def fetch_financial_data(
@@ -39,23 +48,36 @@ async def fetch_financial_data(
     """
     if api is None:
         return None
-    try:
-        api_method_map = {
-            "income": "hk_income",
-            "balance": "hk_balancesheet",
-            "cashflow": "hk_cashflow",
-            "indicator": "hk_fina_indicator",
-        }
-        method_name = api_method_map.get(statement_type, "hk_income")
-        method = getattr(api, method_name, None)
-        if method is None:
-            logger.error(f"Tushare HK 不支持的财务接口: {method_name}")
-            return None
-
-        df = await asyncio.to_thread(lambda: method(ts_code=ts_code))
-        if df is not None and not df.empty:
-            logger.info(f"Tushare HK 财务数据({statement_type}): {ts_code} {len(df)} 条")
-        return df
-    except Exception as e:
-        logger.error(f"Tushare HK 获取财务数据失败: {ts_code} ({statement_type}) - {e}")
+    api_method_map = {
+        "income": "hk_income",
+        "balance": "hk_balancesheet",
+        "cashflow": "hk_cashflow",
+        "indicator": "hk_fina_indicator",
+    }
+    method_name = api_method_map.get(statement_type, "hk_income")
+    method = getattr(api, method_name, None)
+    if method is None:
+        logger.error(f"Tushare HK 不支持的财务接口: {method_name}")
         return None
+
+    try:
+        df = await asyncio.to_thread(lambda: method(ts_code=ts_code))
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare_hk", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare_hk", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError(
+            "tushare_hk", _DOMAIN, f"ts_code={ts_code} ({statement_type}): {exc}"
+        )
+
+    if is_empty_result(df):
+        logger.warning(f"Tushare HK 财务数据返回空数据: {ts_code} ({statement_type})")
+        raise DataNotFoundError(
+            "tushare_hk", _DOMAIN, f"{ts_code} ({statement_type}) 无数据"
+        )
+
+    logger.info(f"Tushare HK 财务数据({statement_type}): {ts_code} {len(df)} 条")
+    return df

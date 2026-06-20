@@ -161,19 +161,6 @@ export const databaseApi = {
     })
   },
 
-  // 清理旧数据
-  cleanupOldData(days: number = 30): Promise<{
-    success: boolean
-    message: string
-    data: {
-      deleted_count: number
-      cleaned_collections: string[]
-      cutoff_date: string
-    }
-  }> {
-    return ApiClient.post(`/api/database/cleanup?days=${days}`)
-  },
-
   // 清理过期分析结果
   cleanupAnalysisResults(days: number = 30): Promise<{
     success: boolean

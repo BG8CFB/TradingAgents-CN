@@ -149,33 +149,24 @@
       
       <div v-loading="detailsLoading">
         <el-table :data="cacheDetails" style="width: 100%">
+          <el-table-column prop="key" label="缓存键" min-width="280" show-overflow-tooltip />
           <el-table-column prop="type" label="类型" width="120">
             <template #default="{ row }">
               <el-tag :type="getCacheTypeTag(row.type)">{{ row.type }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="symbol" label="股票代码" width="120" />
-          <el-table-column prop="size" label="大小" width="100">
+          <el-table-column prop="ttl" label="TTL(秒)" width="120">
             <template #default="{ row }">
-              {{ formatSize(row.size) }}
+              <span v-if="row.ttl === -1">永不过期</span>
+              <span v-else-if="row.ttl === -2">已失效</span>
+              <span v-else>{{ row.ttl }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" width="180">
-            <template #default="{ row }">
-              {{ formatDate(row.created_at) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="last_accessed" label="最后访问" width="180">
-            <template #default="{ row }">
-              {{ formatDate(row.last_accessed) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="hit_count" label="命中次数" width="100" />
           <el-table-column label="操作" width="120">
             <template #default="{ row }">
-              <el-button 
-                size="small" 
-                type="danger" 
+              <el-button
+                size="small"
+                type="danger"
                 @click="deleteCacheItem(row)"
               >
                 删除
@@ -258,10 +249,6 @@ const formatSize = (bytes: number): string => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
-const formatDate = (dateString: string): string => {
-  return new Date(dateString).toLocaleString('zh-CN')
-}
-
 const getProgressColor = (percentage: number): string => {
   if (percentage < 50) return '#7CB342'
   if (percentage < 80) return '#D4AF37'
@@ -269,10 +256,14 @@ const getProgressColor = (percentage: number): string => {
 }
 
 const getCacheTypeTag = (type: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' => {
+  // 后端返回 Redis 类型字符串：string/hash/list/set/zset/stream
   const typeMap: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
-    'stock': 'primary',
-    'news': 'success',
-    'analysis': 'warning'
+    'string': 'primary',
+    'hash': 'success',
+    'list': 'warning',
+    'set': 'info',
+    'zset': 'danger',
+    'stream': 'info'
   }
   return typeMap[type] || 'info'
 }
@@ -305,6 +296,7 @@ const cleanupOldCache = async () => {
     await cacheApi.cleanupOldCache(cleanupDays.value)
 
     ElMessage.success(`已清理 ${cleanupDays.value} 天前的缓存文件`)
+    currentPage.value = 1  // 清理后总条数减少，重置回第一页避免空表
     await refreshStats()
     await loadCacheDetails()
 
@@ -335,6 +327,7 @@ const clearAllCache = async () => {
     await cacheApi.clearAllCache()
 
     ElMessage.success('所有缓存已清空')
+    currentPage.value = 1  // 清空后重置回第一页
     await refreshStats()
     await loadCacheDetails()
 
@@ -367,21 +360,26 @@ const loadCacheDetails = async () => {
 const deleteCacheItem = async (item: any) => {
   try {
     await ElMessageBox.confirm(
-      `确定要删除 ${item.symbol} 的${item.type}缓存吗？`,
+      `确定要删除缓存键 ${item.key} 吗？`,
       '确认删除',
       { type: 'warning' }
     )
-    
-    // 模拟API调用
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
+
+    await cacheApi.deleteCacheItem(item.key)
+
     ElMessage.success('缓存项已删除')
+
+    // 若当前页只剩这一条且不是第一页，回退到上一页避免空白表格
+    if (cacheDetails.value.length <= 1 && currentPage.value > 1) {
+      currentPage.value--
+    }
     await loadCacheDetails()
     await refreshStats()
-    
-  } catch (error) {
+
+  } catch (error: any) {
     if (error !== 'cancel') {
-      ElMessage.error('删除缓存项失败')
+      console.error('删除缓存项失败:', error)
+      ElMessage.error(error.message || '删除缓存项失败')
     }
   }
 }

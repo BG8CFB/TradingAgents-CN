@@ -18,7 +18,7 @@ from app.data.schema.domains.adj_factors import AdjFactorsSchema
 logger = logging.getLogger(__name__)
 
 
-from app.data.sources.cn.stock_name_utils import infer_exchange as _infer_exchange
+from app.data.sources.cn.stock_name_utils import infer_exchange as _infer_exchange  # noqa: E402 (intentional late import)
 
 
 def _to_bs_code(symbol: str) -> str:

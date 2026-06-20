@@ -37,7 +37,7 @@
       <header class="header">
         <div class="header-left">
           <el-button
-            type="text"
+            link
             @click.stop="appStore.toggleSidebar()"
             class="sidebar-toggle"
           >

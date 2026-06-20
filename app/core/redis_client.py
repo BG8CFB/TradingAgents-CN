@@ -162,6 +162,13 @@ class RedisService:
         """
         return await self.redis.eval(lua_script, 1, lock_key, lock_value)
 
+    async def ping(self) -> bool:
+        """健康检查：返回 Redis 是否可达。供 rate_limit 中间件自愈逻辑使用。"""
+        try:
+            return bool(await self.redis.ping())
+        except Exception:
+            return False
+
 
 # 全局Redis服务实例
 redis_service: Optional[RedisService] = None

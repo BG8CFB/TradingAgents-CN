@@ -2,7 +2,6 @@
 ChromaDB 统一配置模块
 支持 Windows 10/11 和其他操作系统的自动适配
 """
-import os
 import platform
 import chromadb
 from chromadb.config import Settings
@@ -54,7 +53,7 @@ def get_win10_chromadb_client():
     try:
         client = chromadb.Client(settings)
         return client
-    except Exception as e:
+    except Exception:
         # 降级到最基本配置
         basic_settings = Settings(
             allow_reset=True,
@@ -84,7 +83,7 @@ def get_win11_chromadb_client():
     try:
         client = chromadb.Client(settings)
         return client
-    except Exception as e:
+    except Exception:
         # 如果还有问题，使用最简配置
         minimal_settings = Settings(
             allow_reset=True,

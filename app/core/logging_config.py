@@ -1,32 +1,27 @@
 import logging
 import logging.config
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 import os
 import platform
 
-from app.core.logging_context import LoggingContextFilter, trace_id_var
 from app.core.config import settings
-from app.utils.runtime_paths import get_logs_dir, get_runtime_base_dir, resolve_path
+from app.utils.runtime_paths import get_logs_dir, resolve_path
 
-# 🔥 在 Windows 上使用 concurrent-log-handler 避免文件占用问题
+# Windows 上使用 concurrent-log-handler 避免文件占用问题；
+# logging.config 通过字符串类名引用，这里仅做能力探测，不需要真正导入类。
 _IS_WINDOWS = platform.system() == "Windows"
-if _IS_WINDOWS:
-    try:
-        from concurrent_log_handler import ConcurrentRotatingFileHandler
-        _USE_CONCURRENT_HANDLER = True
-    except ImportError:
-        _USE_CONCURRENT_HANDLER = False
-        logging.warning("concurrent-log-handler 未安装，在 Windows 上可能遇到日志轮转问题")
-else:
-    _USE_CONCURRENT_HANDLER = False
+_USE_CONCURRENT_HANDLER = _IS_WINDOWS and find_spec("concurrent_log_handler") is not None
+if _IS_WINDOWS and not _USE_CONCURRENT_HANDLER:
+    logging.warning("concurrent-log-handler 未安装，在 Windows 上可能遇到日志轮转问题")
 
 try:
     import tomllib as toml_loader  # Python 3.11+
-except Exception as e:
+except Exception:
     try:
         import tomli as toml_loader  # Python 3.10 fallback
-    except Exception as e:
+    except Exception:
         toml_loader = None
 
 
@@ -65,7 +60,7 @@ def _parse_size(size_str: str) -> int:
             if size_str.endswith(suffix):
                 try:
                     return int(float(size_str[: -len(suffix)]) * multiplier)
-                except Exception as e:
+                except Exception:
                     return 10 * 1024 * 1024
     return 10 * 1024 * 1024
 

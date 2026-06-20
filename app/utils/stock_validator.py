@@ -6,8 +6,8 @@
 
 import re
 import asyncio
-from typing import Dict, Tuple, Optional
-from datetime import datetime, timedelta
+from typing import Dict
+from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date, parse_date_aware
 
 # 导入日志模块
@@ -22,7 +22,6 @@ logger = get_logger('stock_validator')
 def _get_stock_info_sync(market: str, symbol: str):
     """同步获取股票基础信息（基于 DataInterface）。"""
     try:
-        import pandas as pd
         from app.data.core.interface import DataInterface
         from app.core.async_utils import run_async
 
@@ -397,7 +396,6 @@ class StockDataPreparer:
         has_basic_info = False
         stock_name = "未知"
         cache_status = ""
-        data_synced = False
 
         try:
             # 1. 检查数据库中的数据是否存在和最新
@@ -413,7 +411,6 @@ class StockDataPreparer:
                 sync_result = self._trigger_data_sync_sync(stock_code, extended_start_date_str, end_date_str)
                 if sync_result["success"]:
                     logger.info(f"✅ [A股数据] 数据同步成功: {sync_result['message']}")
-                    data_synced = True
                     cache_status += "数据已同步; "
                 else:
                     logger.warning(f"⚠️ [A股数据] 数据同步失败: {sync_result['message']}")
@@ -836,7 +833,7 @@ class StockDataPreparer:
                 logger.info(f"✅ [数据源优先级] 从数据库获取: {config['sources']}")
                 return config["sources"]
             else:
-                logger.warning(f"⚠️ [数据源优先级] 未找到配置，使用默认顺序")
+                logger.warning("⚠️ [数据源优先级] 未找到配置，使用默认顺序")
         except Exception as e:
             logger.error(f"❌ [数据源优先级] 获取失败: {e}")
         return ['tushare', 'akshare', 'baostock']

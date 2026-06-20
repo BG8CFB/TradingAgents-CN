@@ -20,7 +20,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from app.core.database import get_mongo_db
 
 logger = logging.getLogger("app.config_bridge")
 

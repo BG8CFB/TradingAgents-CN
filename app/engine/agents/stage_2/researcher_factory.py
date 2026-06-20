@@ -10,7 +10,6 @@ Stage 2 研究员工厂 — 将 bull/bear 辩手的公共逻辑参数化。
 原文件 bull_researcher.py / bear_researcher.py 改为薄包装以保持向后兼容。
 """
 
-import os
 import re
 import time
 from typing import Literal
@@ -19,6 +18,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.utils.logging_init import get_logger
 from app.engine.agents.utils.agent_config import load_agent_config, resolve_company_name
+from app.core.async_utils import ainvoke
 
 logger = get_logger("default")
 
@@ -118,7 +118,7 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
     emoji = cfg["emoji"]
     label = cfg["label"]
 
-    def researcher_node(state) -> dict:
+    async def researcher_node(state) -> dict:
         logger.debug(f"{emoji} [DEBUG] ===== {label}研究员节点开始 =====")
 
         investment_debate_state = state.get("investment_debate_state", {})
@@ -234,8 +234,8 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
 
         messages.append(HumanMessage(content=trigger_msg))
 
-        # ── 7. 执行推理 ────────────────────────────────────────────
-        response = llm.invoke(messages)
+        # ── 7. 执行推理（异步：通过 ainvoke 统一桥接） ───────────────
+        response = await ainvoke(llm, messages)
         content = response.content
 
         # 清洗内容：去除一级标题和含"分析报告"的二级标题

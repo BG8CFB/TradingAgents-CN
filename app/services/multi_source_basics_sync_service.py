@@ -191,15 +191,13 @@ class MultiSourceBasicsSyncService:
 
         try:
             # Step 1: 通过新架构获取数据源和股票列表
-            from app.data.core.interface import DataInterface
-            from app.data.core.registry.priority import PriorityConfig
             from app.data.processor.fallback_router import FallbackRouter
             import pandas as pd
 
-            di = DataInterface.get_instance()
-            registry = di.get_capability_registry()
+            # 使用进程级单例（与 sync_job / refresh_service 共享熔断器 + 限流器）
+            router = FallbackRouter.get_instance()
+            from app.data.core.registry.priority import PriorityConfig
             priority = PriorityConfig()
-            router = FallbackRouter(registry, priority)
 
             # 获取可用数据源列表
             cn_sources = priority.get_default_sources("CN", "basic_info")
@@ -325,7 +323,6 @@ class MultiSourceBasicsSyncService:
                     else:
                         sse = "未知"
 
-                    category = "stock_cn"
 
                     # 获取财务数据
                     daily_metrics = {}

@@ -3,12 +3,13 @@
 import logging
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 
 from app.core.response import ok, fail
 from app.data.core.interface import DataInterface
 from app.data.core.registry.capability import CapabilityRegistry
+from app.routers.auth_db import get_current_user, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -23,35 +24,12 @@ def _all_domains() -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# 基础数据
-# ---------------------------------------------------------------------------
-
-
-@router.get("/symbols")
-async def get_cn_symbols(
-    list_status: Optional[str] = Query(None, description="上市状态过滤: L/D/P"),
-):
-    di = DataInterface.get_instance()
-    return await di.read(_MARKET, "basic_info")
-
-
-@router.get("/calendar")
-async def get_cn_calendar(
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
-):
-    di = DataInterface.get_instance()
-    return await di.read(_MARKET, "trade_calendar",
-                         start_date=start_date, end_date=end_date)
-
-
-# ---------------------------------------------------------------------------
 # 看板
 # ---------------------------------------------------------------------------
 
 
 @router.get("/dashboard")
-async def get_dashboard():
+async def get_dashboard(user: dict = Depends(get_current_user)):
     """数据总览看板：域状态 + 源健康 + 覆盖率"""
     health = []
     try:
@@ -86,14 +64,18 @@ async def get_dashboard():
 
 
 @router.get("/sources/health")
-async def get_cn_sources_health():
+async def get_cn_sources_health(user: dict = Depends(get_current_user)):
     di = DataInterface.get_instance()
     return await di.get_source_health(_MARKET)
 
 
 @router.post("/sources/health/{source}/{domain}/reset")
-async def reset_circuit_breaker(source: str, domain: str):
-    """重置指定数据源的熔断器"""
+async def reset_circuit_breaker(
+    source: str,
+    domain: str,
+    user: dict = Depends(require_admin),
+):
+    """重置指定数据源的熔断器（需管理员权限）"""
     try:
         from app.data.processor.circuit_breaker import CircuitBreaker
         cb = CircuitBreaker()
@@ -123,30 +105,17 @@ async def _load_priorities_from_db() -> Dict[str, List[str]]:
     return priorities
 
 
-@router.get("/config/priority")
-async def get_cn_priority_config():
-    """获取所有域的数据源优先级配置"""
-    di = DataInterface.get_instance()
-    domains = _all_domains()
-    priorities = {}
-    for domain in domains:
-        try:
-            config = await di.get_config(_MARKET, domain)
-            if config:
-                priorities[domain] = config
-        except Exception as e:
-            logger.debug(f"获取CN数据源配置失败: {e}")
-            pass
-    return ok(data=priorities)
-
-
 class PriorityUpdateRequest(BaseModel):
     priority: list[str]
 
 
 @router.put("/config/priority/{domain}")
-async def update_cn_priority_config(domain: str, request: PriorityUpdateRequest):
-    """更新指定域的数据源优先级（持久化到 MongoDB）"""
+async def update_cn_priority_config(
+    domain: str,
+    request: PriorityUpdateRequest,
+    user: dict = Depends(require_admin),
+):
+    """更新指定域的数据源优先级（持久化到 MongoDB，需管理员权限）"""
     try:
         from app.data.core.registry.capability import CapabilityRegistry
         registry = CapabilityRegistry()
@@ -179,7 +148,7 @@ async def update_cn_priority_config(domain: str, request: PriorityUpdateRequest)
 
 
 @router.get("/source-config")
-async def get_source_config():
+async def get_source_config(user: dict = Depends(get_current_user)):
     """获取数据源配置（能力矩阵 + 用户自定义优先级）"""
     from app.data.config import load_yaml
 
@@ -214,6 +183,7 @@ async def get_stock_data(
     end_date: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    user: dict = Depends(get_current_user),
 ):
     """查看单股多域数据"""
     try:
@@ -249,7 +219,7 @@ async def get_stock_data(
 
 
 @router.get("/quality/overview")
-async def get_quality_overview():
+async def get_quality_overview(user: dict = Depends(get_current_user)):
     """数据质量总览 — 各域记录数、完整率、最新日期"""
     try:
         from app.services.data_quality_service import get_quality_overview as svc_get_overview
@@ -262,8 +232,9 @@ async def get_quality_overview():
 @router.post("/quality/check")
 async def trigger_quality_check(
     domain: Optional[str] = Query(None, description="指定域，为空检查全部"),
+    user: dict = Depends(require_admin),
 ):
-    """触发数据质量检查"""
+    """触发数据质量检查（需管理员权限）"""
     try:
         from app.services.data_quality_service import check_domain_quality
         results = {}

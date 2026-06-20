@@ -56,13 +56,6 @@ export const reportsApi = {
   },
 
   /**
-   * 获取报告模块内容
-   */
-  moduleContent(reportId: string, module: string): Promise<ApiResponse<any>> {
-    return ApiClient.get(`/api/reports/${reportId}/content/${module}`)
-  },
-
-  /**
    * 删除报告
    */
   delete(reportId: string): Promise<ApiResponse<any>> {

@@ -9,7 +9,6 @@
 # 访问地址：
 #   前端（Vite HMR）：http://localhost:3000
 #   后端 API：http://localhost:8000/docs
-#   Nginx 统一入口：http://localhost:3080
 
 services:
   mongodb:
@@ -95,22 +94,15 @@ services:
       DOCKER_CONTAINER: "true"
       MCP_CONFIG_PATH: "/app/config/mcp.json"
       AGENT_CONFIG_DIR: "/app/config/agents"
-      JWT_SECRET: ${JWT_SECRET:-docker-jwt-secret-key-change-in-production-2024}
+      # 安全密钥：留空则首次启动自动生成并持久化到 DB
+      JWT_SECRET: "${JWT_SECRET:-}"
+      CSRF_SECRET: "${CSRF_SECRET:-}"
       JWT_ALGORITHM: "HS256"
       ACCESS_TOKEN_EXPIRE_MINUTES: "480"
       REFRESH_TOKEN_EXPIRE_DAYS: "30"
-      CSRF_SECRET: ${CSRF_SECRET:-docker-csrf-secret-key-change-in-production-2024}
       BCRYPT_ROUNDS: "12"
       ALLOWED_ORIGINS: '["*"]'
-      # ── 数据源 Token（DB 优先，.env 兜底）──
-      TUSHARE_TOKEN: "${TUSHARE_TOKEN:-}"
-      TUSHARE_ENABLED: "${TUSHARE_ENABLED:-true}"
-      AKSHARE_ENABLED: "${AKSHARE_ENABLED:-true}"
-      BAOSTOCK_ENABLED: "${BAOSTOCK_ENABLED:-true}"
-      FINNHUB_API_KEY: "${FINNHUB_API_KEY:-}"
-      ALPHA_VANTAGE_API_KEY: "${ALPHA_VANTAGE_API_KEY:-}"
-      # ── LLM API Key 已通过 Web UI 配置，不再从环境变量读取 ──
-      # 首次初始化管理员密码（首次启动后可移除）
+      # 首次管理员（首次启动后可移除）
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-admin123}
     # 🔥 开发模式：uvicorn --reload，修改 Python 文件后自动重启
     command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
@@ -122,7 +114,7 @@ services:
     networks:
       - tradingagents-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

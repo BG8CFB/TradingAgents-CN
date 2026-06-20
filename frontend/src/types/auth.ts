@@ -93,6 +93,8 @@ export interface LoginResponse {
   token_type: string
   expires_in: number
   user: User
+  /** CSRF token：由后端在 Set-Cookie 同时返回 body，前端读后仅作日志校验用 */
+  csrf_token?: string
 }
 
 // Token刷新响应
@@ -100,6 +102,8 @@ export interface RefreshTokenResponse {
   access_token: string
   refresh_token?: string
   expires_in: number
+  /** refresh 时同步轮换的 CSRF token */
+  csrf_token?: string
 }
 
 // 用户会话信息

@@ -2,7 +2,7 @@
 系统配置相关数据模型
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from app.utils.timezone import now_tz
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, ConfigDict, field_serializer

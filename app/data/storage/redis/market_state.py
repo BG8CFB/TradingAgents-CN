@@ -27,8 +27,9 @@ class MarketStateCache:
         try:
             redis = None
             try:
-                # 使用 __import__ 避免模块级别循环导入，运行时按需获取 Redis 客户端
-                redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
+                # 函数内延迟导入：仅在需要时解析 Redis 客户端，避免模块加载期耦合。
+                from app.data.storage.redis.client import get_redis
+                redis = get_redis()
             except Exception as e:
                 logger.debug(f"获取 Redis 连接失败: {e}")
 
@@ -47,8 +48,9 @@ class MarketStateCache:
         try:
             redis = None
             try:
-                # 使用 __import__ 避免模块级别循环导入，运行时按需获取 Redis 客户端
-                redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
+                # 函数内延迟导入：仅在需要时解析 Redis 客户端，避免模块加载期耦合。
+                from app.data.storage.redis.client import get_redis
+                redis = get_redis()
             except Exception as e:
                 logger.debug(f"获取 Redis 连接失败: {e}")
 

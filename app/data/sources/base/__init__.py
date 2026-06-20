@@ -11,4 +11,6 @@ from app.data.sources.base.exceptions import (
     InsufficientCreditsError as InsufficientCreditsError,
     SymbolNotFoundError as SymbolNotFoundError,
     DataFormatError as DataFormatError,
+    NetworkError as NetworkError,
+    DataNotFoundError as DataNotFoundError,
 )

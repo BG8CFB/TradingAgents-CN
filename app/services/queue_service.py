@@ -6,10 +6,8 @@
 import json
 import time
 import uuid
-import asyncio
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
 
 from redis.asyncio import Redis
 
@@ -23,13 +21,10 @@ from app.services.queue import (
     SET_PROCESSING,
     SET_COMPLETED,
     SET_FAILED,
+    SET_DEAD_LETTER,
     BATCH_TASKS_PREFIX,
     USER_PROCESSING_PREFIX,
-    GLOBAL_CONCURRENT_KEY,
     VISIBILITY_TIMEOUT_PREFIX,
-    DEFAULT_USER_CONCURRENT_LIMIT,
-    GLOBAL_CONCURRENT_LIMIT,
-    VISIBILITY_TIMEOUT_SECONDS,
     check_user_concurrent_limit,
     check_global_concurrent_limit,
     mark_task_processing,
@@ -40,7 +35,8 @@ from app.services.queue import (
 
 logger = logging.getLogger(__name__)
 
-# Redis键名与配置常量由 app.services.queue.keys 提供（此处不再重复定义）
+# Redis键名由 app.services.queue.keys 提供（此处不再重复定义）。
+# 并发上限 / 可见性超时统一由 settings 提供，避免与 keys.py 双重定义漂移。
 
 
 class QueueService:
@@ -48,9 +44,9 @@ class QueueService:
 
     def __init__(self, redis: Redis):
         self.r = redis
-        self.user_concurrent_limit = DEFAULT_USER_CONCURRENT_LIMIT
-        self.global_concurrent_limit = GLOBAL_CONCURRENT_LIMIT
-        self.visibility_timeout = VISIBILITY_TIMEOUT_SECONDS
+        self.user_concurrent_limit = settings.DEFAULT_USER_CONCURRENT_LIMIT
+        self.global_concurrent_limit = settings.GLOBAL_CONCURRENT_LIMIT
+        self.visibility_timeout = settings.QUEUE_VISIBILITY_TIMEOUT
 
     async def enqueue_task(
         self,
@@ -168,7 +164,7 @@ class QueueService:
                 return False
 
             user_id = task_data.get("user")
-            worker_id = task_data.get("worker_id")
+            task_data.get("worker_id")
 
             # 从处理中集合移除
             await self._unmark_task_processing(task_id, user_id)
@@ -280,17 +276,6 @@ class QueueService:
         """清除可见性超时"""
         await clear_visibility_timeout(self.r, task_id)
 
-    async def get_user_queue_status(self, user_id: str) -> Dict[str, int]:
-        """获取用户队列状态"""
-        user_processing_key = USER_PROCESSING_PREFIX + user_id
-        processing_count = await self.r.scard(user_processing_key)
-
-        return {
-            "processing": int(processing_count or 0),
-            "concurrent_limit": self.user_concurrent_limit,
-            "available_slots": max(0, self.user_concurrent_limit - int(processing_count or 0))
-        }
-
     async def cleanup_expired_tasks(self):
         """清理过期任务（可见性超时）"""
         try:
@@ -318,7 +303,10 @@ class QueueService:
             logger.error(f"清理过期任务失败: {e}")
 
     async def _handle_expired_task(self, task_id: str):
-        """处理过期任务"""
+        """处理过期任务。
+
+        超过 retry_count 上限时移入死信队列，避免坏任务无限重入。
+        """
         try:
             task_data = await self.get_task(task_id)
             if not task_data:
@@ -332,6 +320,25 @@ class QueueService:
             # 清除可见性超时
             await self._clear_visibility_timeout(task_id)
 
+            # 检查重试次数
+            # current_retries 表示已重试次数；当已重试次数 >= max_retries 时移入死信
+            # 例：max_retries=3，current_retries=0/1/2 时正常重试，=3 时移入死信
+            max_retries = getattr(settings, "QUEUE_MAX_RETRIES", 3)
+            current_retries = int(task_data.get("retry_count", 0))
+
+            if current_retries >= max_retries:
+                # 超过重试上限 → 移入死信队列
+                await self.r.sadd(SET_DEAD_LETTER, task_id)
+                await self.r.hset(TASK_PREFIX + task_id, mapping={
+                    "status": "dead_letter",
+                    "dead_letter_at": str(int(time.time())),
+                    "retry_count": current_retries,
+                })
+                logger.error(
+                    f"任务 {task_id} 已达重试上限 {max_retries}，移入死信队列"
+                )
+                return
+
             # 重新加入队列尾部（保持 FIFO 顺序）
             await self.r.rpush(READY_LIST, task_id)
 
@@ -339,10 +346,13 @@ class QueueService:
             await self.r.hset(TASK_PREFIX + task_id, mapping={
                 "status": "queued",
                 "worker_id": "",
-                "requeued_at": str(int(time.time()))
+                "requeued_at": str(int(time.time())),
+                "retry_count": current_retries + 1,
             })
 
-            logger.warning(f"过期任务重新入队: {task_id}")
+            logger.warning(
+                f"过期任务重新入队: {task_id} (将进行第 {current_retries + 1} 次重试，上限 {max_retries})"
+            )
 
         except Exception as e:
             logger.error(f"处理过期任务失败: {task_id} - {e}")

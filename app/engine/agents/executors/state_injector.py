@@ -12,7 +12,7 @@
 
 from typing import Dict, List, Optional, Set
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from app.utils.logging_init import get_logger
 

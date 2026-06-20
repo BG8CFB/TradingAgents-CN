@@ -1,63 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Any, Dict
-import re
+from fastapi import APIRouter, Depends
 import logging
 
-from app.core.config import settings
-from app.routers.auth_db import get_current_user, require_admin
+from app.routers.auth_db import get_current_user
 
 router = APIRouter(prefix="/api/system", tags=["System"])
 logger = logging.getLogger("webapi")
-
-SENSITIVE_KEYS = {
-    "MONGODB_PASSWORD",
-    "REDIS_PASSWORD",
-    "JWT_SECRET",
-    "CSRF_SECRET",
-    "STOCK_DATA_API_KEY",
-    "REFRESH_TOKEN_EXPIRE_DAYS",  # not sensitive itself, but keep for completeness
-}
-
-MASK = "***"
-
-
-def _mask_value(key: str, value: Any) -> Any:
-    if value is None:
-        return None
-    if key in SENSITIVE_KEYS:
-        return MASK
-    # Mask URLs that may contain credentials
-    if key in {"MONGO_URI", "REDIS_URL"} and isinstance(value, str):
-        v = value
-        # mongodb://user:pass@host:port/db?...
-        v = re.sub(r"(mongodb://[^:/?#]+):([^@/]+)@", r"\1:***@", v)
-        # redis://:pass@host:port/db
-        v = re.sub(r"(redis://:)[^@/]+@", r"\1***@", v)
-        return v
-    return value
-
-
-def _build_summary() -> Dict[str, Any]:
-    raw = settings.model_dump()
-    # Attach derived URLs
-    raw["MONGO_URI"] = settings.MONGO_URI
-    raw["REDIS_URL"] = settings.REDIS_URL
-
-    summary: Dict[str, Any] = {}
-    for k, v in raw.items():
-        summary[k] = _mask_value(k, v)
-    return summary
-
-
-@router.get("/config/summary", tags=["system"], summary="配置概要（已屏蔽敏感项，需管理员）")
-async def get_config_summary(current_user: dict = Depends(get_current_user)) -> Dict[str, Any]:
-    """
-    返回当前生效的设置概要。敏感字段将以 *** 掩码显示。
-    访问控制：需管理员身份。
-    """
-    if not current_user.get("is_admin", False):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
-    return {"settings": _build_summary()}
 
 
 @router.get("/config/validate", tags=["system"], summary="验证配置完整性")
@@ -96,10 +43,7 @@ async def validate_config(current_user: dict = Depends(get_current_user)):
         }
 
         try:
-            from app.utils.api_key_utils import is_valid_api_key
 
-            from app.core.config import settings
-            from app.models.config import LLMProvider
 
             llm_providers = await config_service.get_llm_providers()
 

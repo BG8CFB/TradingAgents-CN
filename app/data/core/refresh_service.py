@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from app.data.core.domain import DataDomain
 from app.data.core.result import RefreshResult, DomainRefreshResult
@@ -12,6 +12,9 @@ from app.data.core.registry.capability import CapabilityRegistry
 from app.data.core.registry.priority import PriorityConfig
 from app.data.storage.redis.locks import DistributedLock
 from app.data.storage.cache.memory_cache import TTLCache
+
+if TYPE_CHECKING:
+    from app.data.processor.fallback_router import FallbackRouter
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +62,13 @@ class DataRefreshService:
         self._router: Optional["FallbackRouter"] = None
 
     def _get_router(self):
-        """获取或创建缓存的 FallbackRouter 实例（断路器和限流器状态跨调用保持）。"""
+        """获取或创建缓存的 FallbackRouter 实例（断路器和限流器状态跨调用保持）。
+
+        使用进程级单例，与 sync_job / multi_source_basics_sync 共享状态。
+        """
         if self._router is None:
             from app.data.processor.fallback_router import FallbackRouter
-            self._router = FallbackRouter(self._registry, self._priority)
+            self._router = FallbackRouter.get_instance()
         return self._router
 
     async def refresh(

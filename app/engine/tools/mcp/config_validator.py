@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from .config_utils import MCPServerConfig, MCPServerType, load_mcp_config, check_command_available
+from .config_utils import check_command_available
 
 logger = logging.getLogger(__name__)
 

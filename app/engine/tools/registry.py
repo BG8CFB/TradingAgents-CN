@@ -6,12 +6,12 @@
 """
 import logging
 import threading
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # 工具类型枚举（三类）
-TOOL_TYPE_BUILTIN = "builtin"       # 项目内置工具（含 LangGraph 工具 + MCP Provider 工具）
+TOOL_TYPE_BUILTIN = "builtin"       # 项目内置工具（LangGraph 工具）
 TOOL_TYPE_MCP = "mcp"              # 外部 MCP 连接器工具
 TOOL_TYPE_SKILL = "skill"          # Skill 渐进式披露工具
 
@@ -72,11 +72,17 @@ class ToolRegistry:
             logger.info("[ToolRegistry] 已初始化，跳过重复初始化")
             return
 
+        # 0. 初始化 SkillRegistry 单例，注入依赖回调
+        self._init_skill_registry()
+
         # 1. 加载内置工具
         self._load_builtin_tools(toolkit_config)
 
-        # 2. 尝试加载 Skill 的 load_skill Meta-Tool
+        # 2. 加载 Skill 的 load_skill Meta-Tool
         self._load_skill_meta_tool()
+
+        # 3. 注册 Skill 脚本入口为 builtin 工具
+        self._load_skill_entrypoints()
 
         self._initialized = True
         total = len(self._builtin_tools) + len(self._mcp_tools) + len(self._skill_tools)
@@ -88,11 +94,28 @@ class ToolRegistry:
             f"总计={total}"
         )
 
+    def _init_skill_registry(self):
+        """初始化 SkillRegistry 单例并注入依赖检查/安装回调"""
+        try:
+            from app.engine.tools.skill.registry import SkillRegistry
+            from app.engine.tools.skill.availability import check_skill_dependencies_raw
+            from app.engine.tools.skill.dependency_installer import (
+                install_skill_dependencies_sync,
+            )
+
+            registry = SkillRegistry.get_instance()
+            registry.set_dependency_callbacks(
+                check_callback=check_skill_dependencies_raw,
+                install_callback=install_skill_dependencies_sync,
+            )
+            logger.debug("[ToolRegistry] SkillRegistry 依赖回调已注入")
+        except Exception as e:
+            logger.warning(f"[ToolRegistry] SkillRegistry 初始化失败（可忽略）: {e}")
+
     def _load_builtin_tools(self, toolkit_config: Optional[Dict] = None):
         """加载内置工具"""
         try:
             from app.engine.tools.builtin import load_builtin_tools
-            from app.engine.tools.builtin.loader import get_builtin_tool_specs
             from app.engine.tools.builtin.registry import BUILTIN_TOOL_REGISTRY
 
             self._builtin_tools = load_builtin_tools(toolkit_config)
@@ -119,7 +142,7 @@ class ToolRegistry:
         try:
             from app.engine.tools.skill import SkillRegistry
 
-            skill_registry = SkillRegistry()
+            skill_registry = SkillRegistry.get_instance()
 
             if not skill_registry.list_skills():
                 logger.info("[ToolRegistry] 无已安装技能，跳过 load_skill 工具注册")
@@ -135,6 +158,26 @@ class ToolRegistry:
         except Exception as e:
             logger.debug(f"[ToolRegistry] Skill Meta-Tool 加载失败（可忽略）: {e}")
             self._skill_tools = []
+
+    def _load_skill_entrypoints(self):
+        """把 skill 的脚本入口注册为 builtin 工具"""
+        try:
+            from app.engine.tools.skill.entrypoint_loader import (
+                load_all_skill_entrypoints,
+            )
+
+            result = load_all_skill_entrypoints()
+            registered_count = sum(len(v) for v in result["registered"].values())
+            if registered_count > 0:
+                # 入口已经追加到 BUILTIN_TOOL_REGISTRY，
+                # 但本实例的 _builtin_tools 已在 _load_builtin_tools 时快照过，
+                # 这里重新调用一次 builtin loader 把新增入口拉进来
+                self._load_builtin_tools()
+                logger.info(
+                    f"[ToolRegistry] Skill 脚本入口已注册: {registered_count} 个"
+                )
+        except Exception as e:
+            logger.warning(f"[ToolRegistry] Skill 入口注册失败（可忽略）: {e}")
 
     def set_mcp_tools(self, tools: List):
         """
@@ -204,19 +247,6 @@ class ToolRegistry:
         """获取所有内置工具的元数据"""
         return dict(self._builtin_metas)
 
-    def get_mcp_provider_metas(self) -> List[Dict]:
-        """获取本地 MCP Provider 工具元数据列表。
-
-        MCP Provider 工具是项目内置的金融数据工具，通过 MCP 协议暴露，
-        定义在 app/engine/mcp_provider/finance.py 中。
-        """
-        try:
-            from app.routers.tools import _MCP_TOOLS
-            return list(_MCP_TOOLS)
-        except Exception as e:
-            logger.debug(f"获取 MCP 工具列表失败: {e}")
-            return []
-
     def get_tools_grouped_by_type(self) -> Dict[str, List]:
         """按类型分组返回工具名称和元数据（三类：builtin / mcp / skill）。
 
@@ -242,10 +272,7 @@ class ToolRegistry:
                 **meta,
             })
 
-        # 2. MCP Provider 工具也归入 builtin（项目自带，只是调用方式不同）
-        result[TOOL_TYPE_BUILTIN].extend(self.get_mcp_provider_metas())
-
-        # 3. 外部 MCP 工具
+        # 2. 外部 MCP 工具
         for tool in self._mcp_tools:
             name = getattr(tool, "name", None)
             if name and name not in self._disabled_tools:
@@ -258,7 +285,7 @@ class ToolRegistry:
                     "source": source,
                 })
 
-        # 4. Skill 工具
+        # 3. Skill 工具
         for tool in self._skill_tools:
             name = getattr(tool, "name", None)
             if name and name not in self._disabled_tools:
@@ -283,20 +310,12 @@ class ToolRegistry:
         if tool_name in self._builtin_metas:
             return TOOL_TYPE_BUILTIN
 
-        # 2. MCP Provider 工具（也归为 builtin）
-        try:
-            from app.routers.tools import _MCP_TOOLS
-            mcp_names = {t["name"] for t in _MCP_TOOLS}
-            if tool_name in mcp_names:
-                return TOOL_TYPE_BUILTIN
-        except Exception as e:
-            logger.debug(f"检查 MCP Provider 工具类型失败: {e}")
-            pass
+        # 2. Skill 工具
         for tool in self._skill_tools:
             if getattr(tool, "name", None) == tool_name:
                 return TOOL_TYPE_SKILL
 
-        # 4. 外部 MCP 工具
+        # 3. 外部 MCP 工具
         for tool in self._mcp_tools:
             if getattr(tool, "name", None) == tool_name:
                 return TOOL_TYPE_MCP
@@ -304,20 +323,10 @@ class ToolRegistry:
         return "unknown"
 
     def get_tool_display_name(self, tool_name: str) -> str:
-        """获取工具的中文显示名。优先用 builtin_metas，其次 MCP Provider。"""
-        # 内置工具
+        """获取工具的中文显示名。"""
         if tool_name in self._builtin_metas:
             return self._builtin_metas[tool_name].get("display_name", tool_name)
-
-        # MCP Provider 工具
-        try:
-            from app.routers.tools import _MCP_TOOLS
-            for t in _MCP_TOOLS:
-                if t["name"] == tool_name:
-                    return t.get("description", tool_name).split("（")[0].split("(")[0]
-        except Exception as e:
-            logger.debug(f"获取 MCP Provider 工具显示名失败: {e}")
-            pass
+        return tool_name
 
     @staticmethod
     def is_builtin_tool(tool) -> bool:

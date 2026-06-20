@@ -46,21 +46,26 @@ class QuotesIngestionService:
         self._rotation_index = 0  # 当前轮换索引
 
     def _find_latest_trade_date(self) -> Optional[str]:
-        """获取最新交易日期（YYYYMMDD 格式），基于新架构。"""
+        """获取最新交易日期（YYYYMMDD 格式），基于新架构。
+
+        通过 :func:`run_async` 统一处理同步→异步桥接。
+        """
         try:
-            import asyncio
+            from app.core.async_utils import run_async
             from app.data.storage.mongo.repositories.daily_quotes_repo import DailyQuotesRepo
             repo = DailyQuotesRepo()
-            loop = asyncio.get_event_loop()
-            return loop.run_until_complete(repo.get_latest_date("__all__", "CN"))
+            return run_async(repo.get_latest_date("__all__", "CN"))
         except Exception as e:
             logger.warning(f"获取最新交易日失败: {e}")
             return None
 
     def _get_realtime_quotes(self) -> Tuple[Optional[Dict], Optional[str]]:
-        """获取全市场实时行情快照，基于新架构。"""
+        """获取全市场实时行情快照，基于新架构。
+
+        通过 :func:`run_async` 统一处理同步→异步桥接。
+        """
         try:
-            import asyncio
+            from app.core.async_utils import run_async
             from app.data.core.interface import DataInterface
 
             async def _fetch():
@@ -68,8 +73,7 @@ class QuotesIngestionService:
                 result = await di.read("CN", "market_quotes", symbol="__all__")
                 return result.get("data")
 
-            loop = asyncio.get_event_loop()
-            data = loop.run_until_complete(_fetch())
+            data = run_async(_fetch())
             if data is not None:
                 return data, "data_interface"
             return None, None
@@ -622,7 +626,7 @@ class QuotesIngestionService:
             (quotes_map, source_name)
         """
         try:
-            import asyncio
+            from app.core.async_utils import run_async
             from app.data.core.interface import DataInterface
 
             if source_type == "tushare":
@@ -637,8 +641,7 @@ class QuotesIngestionService:
                     result = await di.read("CN", "market_quotes", symbol="__all__")
                     return result.get("data")
 
-                loop = asyncio.get_event_loop()
-                data = loop.run_until_complete(_fetch_tushare())
+                data = run_async(_fetch_tushare())
                 if data is not None:
                     self._record_tushare_call()
                     if isinstance(data, dict):
@@ -662,8 +665,7 @@ class QuotesIngestionService:
                     result = await di.read("CN", "market_quotes", symbol="__all__")
                     return result.get("data")
 
-                loop = asyncio.get_event_loop()
-                data = loop.run_until_complete(_fetch_akshare())
+                data = run_async(_fetch_akshare())
                 if data is not None:
                     if isinstance(data, dict):
                         return data, f"akshare_{api_name}"

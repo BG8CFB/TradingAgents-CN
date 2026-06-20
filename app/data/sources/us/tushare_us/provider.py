@@ -1,12 +1,11 @@
-"""Tushare US Provider — 独立 Token (TUSHARE_US_TOKEN)，积分门槛 ≥ 120。
+"""Tushare US Provider — 与 CN Tushare 共用 TUSHARE_TOKEN，积分门槛 ≥ 120。
 
+Token 说明：通过 get_datasource_api_key("tushare") 读取，与 CN/HK 共用同一账号。
 仅覆盖主要美股 + 中概股，维护白名单。不支持公司行为和新闻。
 """
 
 import asyncio
 import logging
-import os
-from typing import Optional
 
 from app.utils.ds_key_utils import get_datasource_api_key
 
@@ -30,6 +29,7 @@ class TushareUSProvider(BaseProvider):
             return self._api
         try:
             import tushare as ts
+
             token = get_datasource_api_key("tushare")
             if not token:
                 return None
@@ -55,7 +55,9 @@ class TushareUSProvider(BaseProvider):
             if "token" in err_msg:
                 raise TokenInvalidError("tushare_us", "us_basic", "Token 无效")
             if "积分" in err_msg or "credit" in err_msg:
-                raise InsufficientCreditsError("tushare_us", "us_basic", "积分不足(需≥120)")
+                raise InsufficientCreditsError(
+                    "tushare_us", "us_basic", "积分不足(需≥120)"
+                )
             logger.error(f"Tushare US 连接失败: {e}")
         self.connected = False
         return False
@@ -63,7 +65,7 @@ class TushareUSProvider(BaseProvider):
     def is_available(self) -> bool:
         return self.connected and self._get_api() is not None
 
-    async def get_stock_list(self, **kwargs) -> Optional[pd.DataFrame]:
+    async def get_stock_list(self, **kwargs) -> pd.DataFrame:
         api = self._get_api()
         if not api:
             return None
@@ -74,17 +76,22 @@ class TushareUSProvider(BaseProvider):
             return None
 
     async def get_trade_calendar(
-        self, exchange: str = "NYSE", start_date: str = "1970-01-01",
-        end_date: str = "2099-12-31", **kwargs
-    ) -> Optional[pd.DataFrame]:
+        self,
+        exchange: str = "NYSE",
+        start_date: str = "1970-01-01",
+        end_date: str = "2099-12-31",
+        **kwargs,
+    ) -> pd.DataFrame:
         api = self._get_api()
         if not api:
             return None
         try:
             return await asyncio.to_thread(
-                lambda: api.us_tradecal(exchange=exchange,
-                                        start_date=start_date.replace("-", ""),
-                                        end_date=end_date.replace("-", ""))
+                lambda: api.us_tradecal(
+                    exchange=exchange,
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                )
             )
         except Exception as e:
             logger.error(f"Tushare US 交易日历失败: {e}")
@@ -92,16 +99,18 @@ class TushareUSProvider(BaseProvider):
 
     async def get_daily_quotes(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         api = self._get_api()
         if not api:
             return None
         ts_code = self._to_us_ts_code(symbol)
         try:
             return await asyncio.to_thread(
-                lambda: api.us_daily(ts_code=ts_code,
-                                     start_date=start_date.replace("-", ""),
-                                     end_date=end_date.replace("-", ""))
+                lambda: api.us_daily(
+                    ts_code=ts_code,
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                )
             )
         except Exception as e:
             logger.error(f"Tushare US 行情失败 {symbol}: {e}")
@@ -109,16 +118,18 @@ class TushareUSProvider(BaseProvider):
 
     async def get_daily_indicators(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         api = self._get_api()
         if not api:
             return None
         ts_code = self._to_us_ts_code(symbol)
         try:
             return await asyncio.to_thread(
-                lambda: api.us_daily_adj(ts_code=ts_code,
-                                         start_date=start_date.replace("-", ""),
-                                         end_date=end_date.replace("-", ""))
+                lambda: api.us_daily_adj(
+                    ts_code=ts_code,
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                )
             )
         except Exception as e:
             logger.debug(f"Tushare US 指标失败 {symbol}: {e}")
@@ -126,25 +137,31 @@ class TushareUSProvider(BaseProvider):
 
     async def get_adj_factors(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         api = self._get_api()
         if not api:
             return None
         ts_code = self._to_us_ts_code(symbol)
         try:
             return await asyncio.to_thread(
-                lambda: api.us_adjfactor(ts_code=ts_code,
-                                         start_date=start_date.replace("-", ""),
-                                         end_date=end_date.replace("-", ""))
+                lambda: api.us_adjfactor(
+                    ts_code=ts_code,
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                )
             )
         except Exception as e:
             logger.debug(f"Tushare US 复权因子失败 {symbol}: {e}")
             return None
 
     async def get_financial_data(
-        self, symbol: str, start_date: str, end_date: str,
-        statement_type: str = "", **kwargs
-    ) -> Optional[pd.DataFrame]:
+        self,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        statement_type: str = "",
+        **kwargs,
+    ) -> pd.DataFrame:
         api = self._get_api()
         if not api:
             return None
@@ -153,11 +170,15 @@ class TushareUSProvider(BaseProvider):
             if statement_type == "income" or not statement_type:
                 return await asyncio.to_thread(lambda: api.us_income(ts_code=ts_code))
             elif statement_type == "balance":
-                return await asyncio.to_thread(lambda: api.us_balancesheet(ts_code=ts_code))
+                return await asyncio.to_thread(
+                    lambda: api.us_balancesheet(ts_code=ts_code)
+                )
             elif statement_type == "cashflow":
                 return await asyncio.to_thread(lambda: api.us_cashflow(ts_code=ts_code))
             elif statement_type == "indicator":
-                return await asyncio.to_thread(lambda: api.us_fina_indicator(ts_code=ts_code))
+                return await asyncio.to_thread(
+                    lambda: api.us_fina_indicator(ts_code=ts_code)
+                )
             return await asyncio.to_thread(lambda: api.us_income(ts_code=ts_code))
         except Exception as e:
             logger.debug(f"Tushare US 财务失败 {symbol}: {e}")
@@ -165,13 +186,13 @@ class TushareUSProvider(BaseProvider):
 
     async def get_corporate_actions(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
-        return None  # Tushare US 不支持
+    ) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_corporate_actions")
 
     async def get_news(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
-        return None  # Tushare US 不支持
+    ) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_news")
 
     @staticmethod
     def _to_us_ts_code(symbol: str) -> str:

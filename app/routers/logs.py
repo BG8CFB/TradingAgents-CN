@@ -137,7 +137,7 @@ async def read_log_file(
 
     except HTTPException:
         raise
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="日志文件不存在")
     except Exception as e:
         logger.error(f"❌ 读取日志文件失败: {e}")

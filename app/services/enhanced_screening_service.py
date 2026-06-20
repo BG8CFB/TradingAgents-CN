@@ -14,11 +14,11 @@ from app.services.screening_service import ScreeningService, ScreeningParams
 
 logger = logging.getLogger(__name__)
 
-from app.services.enhanced_screening.utils import (
+from app.services.enhanced_screening.utils import (  # noqa: E402 (intentional late import)
     analyze_conditions as _analyze_conditions_util,
     convert_conditions_to_traditional_format as _convert_to_traditional_util,
 )
-from app.core.database import get_mongo_db
+from app.core.database import get_mongo_db  # noqa: E402 (intentional late import)
 
 
 class EnhancedScreeningService:
@@ -243,111 +243,6 @@ class EnhancedScreeningService:
     ) -> Dict[str, Any]:
         """Delegate condition conversion to utils."""
         return _convert_to_traditional_util(conditions)
-
-    async def get_field_info(self, field: str) -> Optional[Dict[str, Any]]:
-        """
-        获取字段信息
-
-        Args:
-            field: 字段名
-
-        Returns:
-            Dict: 字段信息
-        """
-        if field in BASIC_FIELDS_INFO:
-            field_info = BASIC_FIELDS_INFO[field]
-
-            # 获取统计信息
-            stats = await self.db_service.get_field_statistics(field)
-
-            # 获取可选值（对于枚举类型字段）
-            available_values = None
-            if field_info.data_type == "string":
-                available_values = await self.db_service.get_available_values(field)
-
-            return {
-                "name": field_info.name,
-                "display_name": field_info.display_name,
-                "field_type": field_info.field_type.value,
-                "data_type": field_info.data_type,
-                "description": field_info.description,
-                "unit": field_info.unit,
-                "supported_operators": [op.value for op in field_info.supported_operators],
-                "statistics": stats,
-                "available_values": available_values
-            }
-
-        return None
-
-    async def get_all_supported_fields(self) -> List[Dict[str, Any]]:
-        """获取所有支持的字段信息"""
-        fields = []
-
-        for field_name in BASIC_FIELDS_INFO.keys():
-            field_info = await self.get_field_info(field_name)
-            if field_info:
-                fields.append(field_info)
-
-        return fields
-
-    async def validate_conditions(self, conditions: List[ScreeningCondition]) -> Dict[str, Any]:
-        """
-        验证筛选条件
-
-        Args:
-            conditions: 筛选条件列表
-
-        Returns:
-            Dict: 验证结果
-        """
-        validation_result = {
-            "valid": True,
-            "errors": [],
-            "warnings": []
-        }
-
-        for i, condition in enumerate(conditions):
-            field = condition.field
-            operator = condition.operator
-            value = condition.value
-
-            # 检查字段是否支持
-            if field not in BASIC_FIELDS_INFO:
-                validation_result["errors"].append(
-                    f"条件 {i+1}: 不支持的字段 '{field}'"
-                )
-                validation_result["valid"] = False
-                continue
-
-            field_info = BASIC_FIELDS_INFO[field]
-
-            # 检查操作符是否支持
-            if operator not in [op.value for op in field_info.supported_operators]:
-                validation_result["errors"].append(
-                    f"条件 {i+1}: 字段 '{field}' 不支持操作符 '{operator}'"
-                )
-                validation_result["valid"] = False
-
-            # 检查值的类型和范围
-            if field_info.data_type == "number":
-                if operator == "between":
-                    if not isinstance(value, list) or len(value) != 2:
-                        validation_result["errors"].append(
-                            f"条件 {i+1}: between操作符需要两个数值"
-                        )
-                        validation_result["valid"] = False
-                    elif not all(isinstance(v, (int, float)) for v in value):
-                        validation_result["errors"].append(
-                            f"条件 {i+1}: between操作符的值必须是数字"
-                        )
-                        validation_result["valid"] = False
-                elif not isinstance(value, (int, float)):
-                    validation_result["errors"].append(
-                        f"条件 {i+1}: 数值字段 '{field}' 的值必须是数字"
-                    )
-                    validation_result["valid"] = False
-
-        return validation_result
 
     async def get_industries(self) -> Dict[str, Any]:
         """

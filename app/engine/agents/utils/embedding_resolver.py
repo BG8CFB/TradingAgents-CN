@@ -100,7 +100,6 @@ def _try_dashscope(provider: str) -> Optional[EmbeddingConfig]:
 
     try:
         import dashscope
-        from dashscope import TextEmbedding
         dashscope.api_key = api_key
         logger.info(f"💡 [{provider}] 使用 DashScope embedding")
         return EmbeddingConfig(

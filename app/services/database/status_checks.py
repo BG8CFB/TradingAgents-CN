@@ -3,7 +3,6 @@ Database status and connection checks, extracted from DatabaseService.
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict
 
 from app.core.database import get_mongo_db, get_redis_client

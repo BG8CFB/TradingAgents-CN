@@ -150,6 +150,7 @@ _sys_path_test = _os.path.dirname(_os.path.abspath(__file__))
 if _sys_path_test not in sys.path:
     sys.path.insert(0, _sys_path_test)
 from test_infra import SimulatedMongoDB, SimulatedRedis
+from app.utils.time_utils import now_utc
 
 
 @pytest.fixture
@@ -248,8 +249,12 @@ def normal_user_data():
 
 @pytest_asyncio.fixture
 async def client():
-    """创建测试 HTTP 客户端（直接使用实际 app，跳过 lifespan）"""
+    """创建测试 HTTP 客户端（直接使用实际 app，跳过 lifespan）
+
+    注入 CSRF 双提交 Cookie（cookie + header）以通过 CSRFMiddleware。
+    """
     from app.main import app
+    from app.middleware.csrf import generate_csrf_token, CSRF_COOKIE_NAME, CSRF_HEADER_NAME
     from contextlib import asynccontextmanager
 
     @asynccontextmanager
@@ -259,8 +264,12 @@ async def client():
     original_lifespan = app.router.lifespan_context
     app.router.lifespan_context = mock_lifespan
 
+    csrf_token = generate_csrf_token("test-session-fixed")
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        ac.cookies.set(CSRF_COOKIE_NAME, csrf_token)
+        ac.headers.update({CSRF_HEADER_NAME: csrf_token})
         yield ac
 
     app.router.lifespan_context = original_lifespan
@@ -279,6 +288,112 @@ async def authed_client(client, admin_token, admin_user_data):
     client.headers.update({"Authorization": f"Bearer {admin_token}"})
     yield client
     app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest_asyncio.fixture
+async def user_client(client, inject_sim_db, normal_user_data):
+    """带普通（非管理员）用户认证的测试客户端。
+
+    实现细节：
+    1. 通过 inject_sim_db 把 SimulatedMongoDB 注入到 app.data.storage.mongo.client._motor_db
+    2. 把 user_service 的 db 切换到 sim_db，并预置一份真实用户文档（含真实密码哈希）
+    3. 生成真实 access_token（sub=username），让请求走完整的 get_current_user 流程
+
+    这样 require_admin 等基于 is_admin 的鉴权分支可被真实触发，不再需要
+    dependency_overrides 模拟「假拒绝」。
+    """
+    from app.services.user_service import user_service
+    from app.services.auth_service import AuthService
+    from app.utils.passwords import hash_password
+
+    original_db = user_service.db
+    user_service.set_database(inject_sim_db)
+
+    password = "Test@1234"
+    user_doc = {
+        "_id": normal_user_data["id"],
+        "username": normal_user_data["username"],
+        "email": normal_user_data["email"],
+        "hashed_password": hash_password(password),
+        "is_admin": False,
+        "is_active": True,
+        "created_at": now_utc(),
+        "preferences": normal_user_data.get("preferences", {}),
+    }
+    await inject_sim_db.users.insert_one(user_doc)
+
+    token = AuthService.create_access_token(sub=normal_user_data["username"])
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    try:
+        yield client
+    finally:
+        user_service.set_database(original_db)
+        try:
+            await inject_sim_db.users.delete_many({"username": normal_user_data["username"]})
+        except Exception as exc:
+            # 收紧异常类型：仅吞 PyMongo/Motor 错误，其他异常向上抛避免掩盖测试问题
+            import motor.errors
+            if not isinstance(exc, motor.errors.PyMongoError):
+                raise
+            import logging
+            logging.getLogger(__name__).debug(
+                "user_client cleanup 删除用户失败: %s", exc
+            )
+
+
+@pytest_asyncio.fixture
+async def admin_client(client, inject_sim_db, admin_user_data):
+    """带管理员用户认证的测试客户端（真实 DB 鉴权路径）。
+
+    与 user_client 对称：预置 is_admin=True 的用户文档，让 require_admin 真实放行。
+    用于测试管理员专属端点（如 sync/{domain}、quality/check 等）的真实鉴权链路。
+    """
+    from app.services.user_service import user_service
+    from app.services.auth_service import AuthService
+    from app.utils.passwords import hash_password
+
+    original_db = user_service.db
+    user_service.set_database(inject_sim_db)
+
+    password = "Admin@1234"
+    user_doc = {
+        "_id": admin_user_data["id"],
+        "username": admin_user_data["username"],
+        "email": admin_user_data["email"],
+        "hashed_password": hash_password(password),
+        "is_admin": True,
+        "is_active": True,
+        "created_at": now_utc(),
+        "preferences": admin_user_data.get("preferences", {}),
+    }
+    await inject_sim_db.users.insert_one(user_doc)
+
+    token = AuthService.create_access_token(sub=admin_user_data["username"])
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    try:
+        yield client
+    finally:
+        user_service.set_database(original_db)
+        try:
+            await inject_sim_db.users.delete_many({"username": admin_user_data["username"]})
+        except Exception as exc:
+            import motor.errors
+            if not isinstance(exc, motor.errors.PyMongoError):
+                raise
+            import logging
+            logging.getLogger(__name__).debug(
+                "admin_client cleanup 删除用户失败: %s", exc
+            )
+
+
+@pytest_asyncio.fixture
+async def anon_client(client):
+    """不带认证的客户端（用于测试 401 路径）。
+
+    显式清掉 Authorization header，让 get_current_user 真实抛 401。
+    """
+    client.headers.pop("Authorization", None)
+    yield client
 
 
 # ============================================================

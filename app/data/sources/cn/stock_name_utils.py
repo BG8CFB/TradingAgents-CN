@@ -1,6 +1,5 @@
 """A 股股票名称查询工具 — 通过腾讯行情接口获取，供所有数据源共享使用。"""
 
-import asyncio
 import logging
 from typing import Dict, Optional
 

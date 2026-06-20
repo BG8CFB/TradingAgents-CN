@@ -9,6 +9,13 @@ CN:
     rule_type: trading_day_after_close
     threshold_minutes: 60
     reference_time: "15:00"
+  adj_factors:
+    rule_type: trading_day_after_close
+    threshold_minutes: 60
+    reference_time: "15:00"
+  trade_calendar:
+    rule_type: time_window
+    threshold_hours: 168  # 7 天，交易日历低频更新
   basic_info:
     rule_type: time_window
     threshold_hours: 24
@@ -50,6 +57,13 @@ HK:
     rule_type: trading_day_after_close
     threshold_minutes: 60
     reference_time: "16:00"
+  adj_factors:
+    rule_type: trading_day_after_close
+    threshold_minutes: 60
+    reference_time: "16:00"
+  trade_calendar:
+    rule_type: time_window
+    threshold_hours: 168
   basic_info:
     rule_type: time_window
     threshold_hours: 24
@@ -81,6 +95,13 @@ US:
     rule_type: trading_day_after_close
     threshold_minutes: 90
     reference_time: "16:00"
+  adj_factors:
+    rule_type: trading_day_after_close
+    threshold_minutes: 90
+    reference_time: "16:00"
+  trade_calendar:
+    rule_type: time_window
+    threshold_hours: 168
   basic_info:
     rule_type: time_window
     threshold_hours: 24

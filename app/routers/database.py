@@ -3,10 +3,8 @@
 """
 
 import logging
-import json
 import os
 import re
-from datetime import datetime
 from typing import Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import FileResponse
@@ -292,27 +290,6 @@ async def delete_backup(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "删除备份失败")
-        )
-
-@router.post("/cleanup")
-async def cleanup_old_data(
-    days: int = 30,
-    current_user: dict = Depends(require_admin)
-):
-    """清理旧数据"""
-    try:
-        logger.info(f"🧹 用户 {current_user['username']} 清理 {days} 天前的数据")
-        result = await database_service.cleanup_old_data(days)
-        return {
-            "success": True,
-            "message": f"清理完成，删除了 {result['deleted_count']} 条记录",
-            "data": result
-        }
-    except Exception as e:
-        logger.error(f"清理数据失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=safe_error_message(e, "清理数据失败")
         )
 
 @router.post("/cleanup/analysis")

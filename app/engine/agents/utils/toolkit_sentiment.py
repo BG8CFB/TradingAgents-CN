@@ -38,14 +38,14 @@ def get_stock_sentiment_unified(
         market_info = StockUtils.get_market_info(ticker)
         is_china = market_info["is_china"]
         is_hk = market_info["is_hk"]
-        is_us = market_info["is_us"]
+        market_info["is_us"]
 
         logger.debug(f"😊 [统一情绪工具] 股票类型: {market_info['market_name']}")
 
         result_data = []
 
         if is_china or is_hk:
-            logger.debug(f"🇨🇳🇭🇰 [统一情绪工具] 处理中文市场情绪...")
+            logger.debug("🇨🇳🇭🇰 [统一情绪工具] 处理中文市场情绪...")
 
             try:
                 sentiment_summary = f"""
@@ -71,7 +71,7 @@ def get_stock_sentiment_unified(
                 result_data.append(f"## 中文市场情绪\n获取失败: {e}")
 
         else:
-            logger.debug(f"🇺🇸 [统一情绪工具] 处理美股情绪...")
+            logger.debug("🇺🇸 [统一情绪工具] 处理美股情绪...")
 
             try:
                 sentiment_data = _get_us_news_sync(ticker)

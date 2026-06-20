@@ -1,7 +1,6 @@
 """港股基础信息同步 — 使用新架构。"""
 
 import logging
-from typing import Optional
 
 from app.data.sources.hk import get_hk_provider, get_hk_adapter
 from app.data.storage.mongo.collections import get_collection_name
@@ -12,7 +11,6 @@ logger = logging.getLogger(__name__)
 async def sync_basic_info() -> dict:
     """同步港股基础信息。"""
     import time
-    import asyncio
     from app.data.core.registry.capability import CapabilityRegistry
     from app.data.core.registry.priority import PriorityConfig
     from pymongo import UpdateOne

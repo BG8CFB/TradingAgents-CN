@@ -9,7 +9,7 @@
 import logging
 import time
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -105,11 +105,8 @@ class DomainAvailabilityChecker:
         """非标准域的可用性检查"""
         check = spec.availability_check
         if check == "akshare_alive":
-            try:
-                import akshare
-                return True
-            except ImportError:
-                return False
+            from importlib.util import find_spec
+            return find_spec("akshare") is not None
         return True
 
 

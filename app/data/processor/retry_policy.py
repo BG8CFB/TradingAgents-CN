@@ -14,6 +14,7 @@ RETRYABLE_CODES = {
     DataErrorCode.RATE_LIMITED,
     DataErrorCode.NETWORK_TIMEOUT,
     DataErrorCode.CONNECTION_ERROR,
+    DataErrorCode.SERVICE_UNAVAILABLE,
 }
 
 NON_RETRYABLE_CODES = {
@@ -32,6 +33,8 @@ BACKOFF_TIMES = {
     DataErrorCode.RATE_LIMITED: [3, 10],
     DataErrorCode.NETWORK_TIMEOUT: [5, 15],
     DataErrorCode.CONNECTION_ERROR: [2, 5],
+    # 服务暂时不可用：通常指上游 5xx，需要稍长退避以等待上游恢复
+    DataErrorCode.SERVICE_UNAVAILABLE: [5, 15],
 }
 
 

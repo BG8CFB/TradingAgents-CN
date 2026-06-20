@@ -4,10 +4,9 @@
 提供模型能力评估、验证和推荐功能。
 """
 
-from typing import Tuple, Dict, Optional, List, Any
+from typing import Tuple, Dict, Optional, Any
 from app.constants.model_capabilities import (
     DEFAULT_MODEL_CAPABILITIES,
-    CAPABILITY_DESCRIPTIONS,
     ModelRole,
     ModelFeature
 )

@@ -3,11 +3,9 @@
 """
 import logging
 from datetime import datetime
-from typing import Optional
 
-from app.utils.time_utils import now_utc, get_current_date
+from app.utils.time_utils import now_utc
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
-from app.engine.tools.common.format import format_result
 from app.core.async_utils import run_async
 logger = logging.getLogger(__name__)
 

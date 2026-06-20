@@ -25,7 +25,7 @@ class DailyQuotesRepo:
             if not sym or not td:
                 continue
             ops.append(UpdateOne(
-                {"symbol": sym, "trade_date": td, "period": period},
+                {"symbol": sym, "trade_date": td, "period": period, "data_source": rec.get("data_source")},
                 {"$set": rec},
                 upsert=True,
             ))

@@ -5,7 +5,8 @@ Tushare配置管理
 从数据库读取 Tushare Token 配置，不从环境变量读取。
 """
 
-from typing import Dict, Any, Optional
+import logging
+from typing import Dict, Any
 
 
 class TushareConfig:
@@ -22,14 +23,17 @@ class TushareConfig:
         self.cache_enabled = True
         self.cache_ttl_hours = "24"
 
-        try:
-            from app.utils.ds_key_utils import get_datasource_api_key
-            token = get_datasource_api_key("tushare")
-            if token:
-                self.token = token
-                self.enabled = True
-        except Exception:
-            pass
+        from app.core.error_handling import safe_execute
+
+        token = safe_execute(
+            _load_tushare_token,
+            default="",
+            context="tushare_config.load_config",
+            log_level=logging.WARNING,
+        )
+        if token:
+            self.token = token
+            self.enabled = True
 
         self._debug_config()
 
@@ -81,3 +85,10 @@ class TushareConfig:
 def get_tushare_config() -> TushareConfig:
     """获取Tushare配置实例"""
     return TushareConfig()
+
+
+def _load_tushare_token() -> str:
+    """从 DB 读取 Tushare token。失败由 safe_execute 统一捕获并降级为 WARNING。"""
+    from app.utils.ds_key_utils import get_datasource_api_key
+
+    return get_datasource_api_key("tushare") or ""

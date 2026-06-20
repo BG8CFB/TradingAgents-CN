@@ -7,13 +7,33 @@ from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import (
+    DataFormatError,
+    DataNotFoundError,
+    DataSourceUnavailableError,
+)
+from app.data.sources.base.mappers import is_empty_result, map_network_exception
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "news"
 
 
 async def fetch_news(symbol: str) -> Optional[pd.DataFrame]:
     """获取港股公告/报告信息。
 
     AKShare stock_hk_notice_report() 返回指定股票的公告列表。
+
+    Raises
+    ------
+    NetworkError
+        网络/超时异常（可重试）。
+    DataFormatError
+        AKShare 返回结构异常（不可重试）。
+    DataNotFoundError
+        返回空数据（不可重试）。
+    DataSourceUnavailableError
+        其他未知异常。
 
     Parameters
     ----------
@@ -27,12 +47,24 @@ async def fetch_news(symbol: str) -> Optional[pd.DataFrame]:
     """
     try:
         import akshare as ak
+
         # 标准化代码为 5 位
         normalized = str(symbol).replace(".HK", "").lstrip("0").zfill(5)
         df = await asyncio.to_thread(ak.stock_hk_notice_report, symbol=normalized)
-        if df is not None and not df.empty:
-            logger.info(f"AKShare HK 公告: {symbol} {len(df)} 条")
-        return df
-    except Exception as e:
-        logger.debug(f"AKShare HK 获取公告失败: {symbol} - {e}")
-        return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        # 网络异常：可重试
+        raise map_network_exception(exc, "akshare_hk", _DOMAIN)
+    except (KeyError, IndexError, AttributeError, ValueError) as exc:
+        # 数据格式异常：AKShare 返回结构不符合预期，不可重试
+        raise DataFormatError("akshare_hk", _DOMAIN, f"{symbol}: {exc}")
+    except Exception as exc:
+        # 其他未知异常
+        raise DataSourceUnavailableError("akshare_hk", _DOMAIN, f"{symbol}: {exc}")
+
+    # 空结果：业务正确但无数据，不可重试
+    if is_empty_result(df):
+        logger.warning(f"akshare_hk 公告返回空: {symbol}")
+        raise DataNotFoundError("akshare_hk", _DOMAIN, f"{symbol} 无公告数据")
+
+    logger.info(f"akshare_hk 公告: {symbol} {len(df)} 条")
+    return df

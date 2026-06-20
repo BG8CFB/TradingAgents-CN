@@ -4,15 +4,13 @@
 """
 
 import logging
-import os
 import zipfile
-from datetime import datetime, timedelta
-from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
+from datetime import timedelta
+from app.utils.timezone import now_utc, format_iso
 from app.utils.time_utils import fromtimestamp_aware
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import re
-import json
 
 logger = logging.getLogger("webapi")
 
@@ -37,7 +35,7 @@ class LogExportService:
             log_dir: 日志文件目录
         """
         self.log_dir = Path(log_dir)
-        logger.info(f"🔍 [LogExportService] 初始化日志导出服务")
+        logger.info("🔍 [LogExportService] 初始化日志导出服务")
         logger.info(f"🔍 [LogExportService] 配置的日志目录: {log_dir}")
         logger.info(f"🔍 [LogExportService] 解析后的日志目录: {self.log_dir}")
         logger.info(f"🔍 [LogExportService] 绝对路径: {self.log_dir.absolute()}")
@@ -51,7 +49,7 @@ class LogExportService:
             except Exception as e:
                 logger.error(f"❌ [LogExportService] 创建日志目录失败: {e}")
         else:
-            logger.info(f"✅ [LogExportService] 日志目录存在")
+            logger.info("✅ [LogExportService] 日志目录存在")
 
     def list_log_files(self) -> List[Dict[str, Any]]:
         """
@@ -63,7 +61,7 @@ class LogExportService:
         log_files = []
 
         try:
-            logger.info(f"🔍 [list_log_files] 开始列出日志文件")
+            logger.info("🔍 [list_log_files] 开始列出日志文件")
             logger.info(f"🔍 [list_log_files] 搜索目录: {self.log_dir}")
             logger.info(f"🔍 [list_log_files] 绝对路径: {self.log_dir.absolute()}")
             logger.info(f"🔍 [list_log_files] 目录是否存在: {self.log_dir.exists()}")
@@ -87,7 +85,7 @@ class LogExportService:
                 logger.error(f"❌ [list_log_files] 列出目录内容失败: {e}")
 
             # 搜索日志文件
-            logger.info(f"🔍 [list_log_files] 搜索模式: *.log*")
+            logger.info("🔍 [list_log_files] 搜索模式: *.log*")
             for file_path in self.log_dir.glob("*.log*"):
                 logger.info(f"🔍 [list_log_files] 找到文件: {file_path.name}")
                 if file_path.is_file():
@@ -428,7 +426,7 @@ def _get_log_directory() -> str:
     from pathlib import Path
 
     try:
-        logger.info(f"🔍 [_get_log_directory] 开始获取日志目录")
+        logger.info("🔍 [_get_log_directory] 开始获取日志目录")
 
         # 检查是否是Docker环境
         docker_env = os.environ.get("DOCKER", "")
@@ -442,14 +440,14 @@ def _get_log_directory() -> str:
         # 尝试从日志配置文件读取
         try:
             import tomllib as toml_loader
-            logger.info(f"🔍 [_get_log_directory] 使用 tomllib 加载TOML")
+            logger.info("🔍 [_get_log_directory] 使用 tomllib 加载TOML")
         except ImportError:
             try:
                 import tomli as toml_loader
-                logger.info(f"🔍 [_get_log_directory] 使用 tomli 加载TOML")
+                logger.info("🔍 [_get_log_directory] 使用 tomli 加载TOML")
             except ImportError:
                 toml_loader = None
-                logger.warning(f"⚠️ [_get_log_directory] 无法导入TOML加载器")
+                logger.warning("⚠️ [_get_log_directory] 无法导入TOML加载器")
 
         if toml_loader:
             # 根据环境选择配置文件
@@ -465,7 +463,7 @@ def _get_log_directory() -> str:
                     with cfg_path.open("rb") as f:
                         toml_data = toml_loader.load(f)
 
-                    logger.info(f"🔍 [_get_log_directory] 成功加载配置文件")
+                    logger.info("🔍 [_get_log_directory] 成功加载配置文件")
 
                     # 从配置文件读取日志目录
                     handlers_cfg = toml_data.get("logging", {}).get("handlers", {})
@@ -495,7 +493,7 @@ def _get_log_directory() -> str:
         from app.utils.runtime_paths import get_logs_dir
         default_log_dir = str(get_logs_dir())
         if is_docker:
-            logger.info(f"✅ [_get_log_directory] Docker环境，使用默认日志目录: /app/runtime/logs")
+            logger.info("✅ [_get_log_directory] Docker环境，使用默认日志目录: /app/runtime/logs")
             return "/app/runtime/logs"
 
         # 非Docker环境默认使用 runtime/logs

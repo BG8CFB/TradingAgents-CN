@@ -10,6 +10,8 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+_DOMAIN = "pre_post_market"
+
 
 async def fetch_pre_post_market(
     symbol: str,

@@ -27,9 +27,12 @@ class TTLCache:
         with self._lock:
             self._store[key] = (value, time.time() + ttl)
 
-    def invalidate(self, key: str) -> None:
+    def invalidate(self, key: str) -> bool:
+        """删除指定键。返回 True 表示键存在并被删除，False 表示键不存在。"""
         with self._lock:
+            existed = key in self._store
             self._store.pop(key, None)
+            return existed
 
     def invalidate_pattern(self, prefix: str) -> None:
         with self._lock:

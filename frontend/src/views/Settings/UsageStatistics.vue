@@ -138,7 +138,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { DataAnalysis, Refresh, Document, Upload, Download, Money } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
@@ -399,9 +399,28 @@ const handleDeleteOldRecords = async () => {
   }
 }
 
+// 窗口尺寸变化时重绘图表
+const handleResize = () => {
+  providerChart?.resize()
+  modelChart?.resize()
+  dailyChart?.resize()
+}
+
 // 组件挂载
 onMounted(() => {
   loadData()
+  window.addEventListener('resize', handleResize)
+})
+
+// 组件卸载：释放 echarts 实例与 resize 监听
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+  providerChart?.dispose()
+  providerChart = null
+  modelChart?.dispose()
+  modelChart = null
+  dailyChart?.dispose()
+  dailyChart = null
 })
 </script>
 

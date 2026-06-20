@@ -246,7 +246,7 @@ async def save_model_catalog(
             provider_name=request.provider_name,
             models=models
         )
-        logger.info(f"创建 ModelCatalog 对象成功")
+        logger.info("创建 ModelCatalog 对象成功")
 
         success = await config_service.save_model_catalog(catalog)
         logger.info(f"保存结果: {success}")

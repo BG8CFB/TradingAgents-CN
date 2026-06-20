@@ -47,8 +47,10 @@ class RateLimiter:
         如果超过速率限制，会等待直到可以调用
 
         采用"检查-释放锁-等待-重新获取锁"模式，避免锁内 sleep 导致并发退化为串行。
+        统计字段（total_waits / total_wait_time）在锁内更新，避免并发 race。
         """
         while True:
+            wait_time = 0.0
             async with self.lock:
                 now = time.time()
 
@@ -66,11 +68,13 @@ class RateLimiter:
                 oldest_call = self.calls[0]
                 wait_time = oldest_call + self.time_window - now + 0.01  # 加一点缓冲
 
+                # 统计字段在锁内更新（原实现锁外更新存在并发 race）
+                if wait_time > 0:
+                    self.total_waits += 1
+                    self.total_wait_time += wait_time
+
             # 在锁外等待，不阻塞其他并发调用者
             if wait_time > 0:
-                self.total_waits += 1
-                self.total_wait_time += wait_time
-
                 logger.debug(f"⏳ {self.name} 达到速率限制，等待 {wait_time:.2f}秒")
                 await asyncio.sleep(wait_time)
     

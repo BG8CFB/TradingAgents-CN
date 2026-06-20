@@ -2,7 +2,6 @@
 系统配置与导入导出管理服务
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -15,7 +14,6 @@ from app.models.config import (
     ModelProvider, DataSourceType, DatabaseType
 )
 from app.constants.llm_defaults import (
-    DEFAULT_MAX_TOKENS,
     DEFAULT_TEMPERATURE,
     DEFAULT_LLM_FIELD_FALLBACKS,
 )

@@ -54,7 +54,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { Search, Loading } from '@element-plus/icons-vue'
 import { stocksApi, type StockInfo } from '@/api/stocks'
 import { ElMessage } from 'element-plus'
@@ -100,7 +100,12 @@ const formatStockCode = (stock: StockInfo) => {
 }
 
 const handleMarketChange = () => {
-  // 切换市场时清空搜索结果
+  // 切换市场时清空搜索结果，并取消任何挂起的搜索定时器，
+  // 避免旧市场的查询回调在新市场下错误触发
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
   searchResults.value = []
   searchQuery.value = ''
 }
@@ -149,6 +154,14 @@ const handleSelectStock = (stock: StockInfo) => {
   searchQuery.value = ''
   searchResults.value = []
 }
+
+// 卸载时清理防抖定时器
+onUnmounted(() => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+})
 </script>
 
 <style scoped lang="scss">

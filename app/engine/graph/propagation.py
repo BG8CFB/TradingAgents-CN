@@ -5,8 +5,7 @@ from typing import Dict, Any
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
 logger = get_logger("default")
-from app.engine.agents.utils.agent_states import (
-    AgentState,
+from app.engine.agents.utils.agent_states import (  # noqa: E402 (intentional late import)
     InvestDebateState,
     RiskDebateState,
 )

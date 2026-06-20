@@ -10,9 +10,18 @@ from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
+from app.data.sources.base.mappers import (
+    is_empty_result,
+    map_network_exception,
+    map_tushare_code,
+)
+
 from .connection import TushareConnection
 
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "intraday_quotes"
 
 
 async def fetch_intraday_quotes(
@@ -39,11 +48,20 @@ async def fetch_intraday_quotes(
             freq=freq_code,
             limit=limit,
         )
-        if df is None or df.empty:
-            logger.debug(f"Tushare 分钟线为空: {ts_code}")
-            return None
-        logger.info(f"Tushare 分钟线: {ts_code} {len(df)} 条 ({freq})")
-        return df
-    except Exception as e:
-        logger.error(f"Tushare 分钟线失败 {ts_code}: {e}")
-        return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError(
+            "tushare", _DOMAIN, f"ts_code={ts_code}: {exc}"
+        )
+
+    if is_empty_result(df):
+        logger.debug(f"Tushare 分钟线为空: {ts_code}")
+        raise DataNotFoundError("tushare", _DOMAIN, f"ts_code={ts_code} 无数据")
+
+    logger.info(f"Tushare 分钟线: {ts_code} {len(df)} 条 ({freq})")
+    return df

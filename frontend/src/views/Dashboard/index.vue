@@ -249,13 +249,14 @@ import MarketSelector from '@/components/Global/MarketSelector.vue'
 import MultiSourceSyncCard from '@/components/Dashboard/MultiSourceSyncCard.vue'
 import { useAppStore } from '@/stores/app'
 import { analysisApi } from '@/api/analysis'
-import { favoritesApi } from '@/api/favorites'
+import { useFavoritesStore } from '@/stores/favorites'
 import { newsApi } from '@/api/news'
 import { formatRelativeTime } from '@/utils/datetime'
 import type { AnalysisStatus } from '@/types/analysis'
 
 const router = useRouter()
 const appStore = useAppStore()
+const favoritesStore = useFavoritesStore()
 
 // ==================== 搜索栏 ====================
 const searchMarket = ref('CN')
@@ -297,14 +298,8 @@ const loadStats = async () => {
     console.error('加载分析统计失败:', err)
   }
 
-  try {
-    const favRes = await favoritesApi.list()
-    if (favRes.success && favRes.data) {
-      stats.value.favoriteCount = favRes.data.length
-    }
-  } catch (err) {
-    console.error('加载自选股数量失败:', err)
-  }
+  // 自选股数量从共享 store 读取（首屏已由 loadFavoriteStocks 触发 fetch）
+  stats.value.favoriteCount = favoritesStore.count
 }
 
 // ==================== 最近分析 ====================
@@ -358,16 +353,15 @@ const favoriteStocks = ref<any[]>([])
 
 const loadFavoriteStocks = async () => {
   try {
-    const response = await favoritesApi.list()
-    if (response.success && response.data) {
-      favoriteStocks.value = response.data.map((item: any) => ({
-        stock_code: item.stock_code || item.symbol,
-        symbol: item.symbol,
-        stock_name: item.stock_name,
-        current_price: item.current_price || 0,
-        change_percent: item.change_percent || 0,
-      }))
-    }
+    // 通过共享 store 拉取（首屏唯一请求入口，loadStats 复用同一份数据）
+    const list = await favoritesStore.fetch()
+    favoriteStocks.value = list.map((item: any) => ({
+      stock_code: item.stock_code || item.symbol,
+      symbol: item.symbol,
+      stock_name: item.stock_name,
+      current_price: item.current_price || 0,
+      change_percent: item.change_percent || 0,
+    }))
   } catch (err) {
     console.error('加载自选股失败:', err)
   }
@@ -435,6 +429,8 @@ const shortcuts = [
 // ==================== 生命周期 ====================
 onMounted(async () => {
   appStore.checkApiConnection()
+  // 先拉取自选股列表（store 缓存），loadStats 的 count 与 loadFavoriteStocks 的列表共享这一份
+  await favoritesStore.fetch()
   await Promise.all([
     loadStats(),
     loadRecentTasks(),

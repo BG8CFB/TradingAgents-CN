@@ -9,7 +9,6 @@ import signal
 import sys
 import uuid
 import traceback
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -17,15 +16,14 @@ from typing import Optional, Dict, Any
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from app.services.queue_service import get_queue_service
-from app.services.analysis_service import get_analysis_service
-from app.core.database import init_database, close_database
+from app.services.queue_service import get_queue_service  # noqa: E402 (intentional late import)
+from app.services.analysis_service import get_analysis_service  # noqa: E402 (intentional late import)
+from app.core.database import init_database, close_database  # noqa: E402 (intentional late import)
 # Redis 连接由 init_database() 统一管理，不再单独初始化
-from app.core.config import settings
-from app.models.analysis import AnalysisTask, AnalysisParameters
-from app.services.config_provider import provider as config_provider
-from app.services.queue import DEFAULT_USER_CONCURRENT_LIMIT, GLOBAL_CONCURRENT_LIMIT, VISIBILITY_TIMEOUT_SECONDS
-from app.utils.timezone import now_utc, format_iso
+from app.core.config import settings  # noqa: E402 (intentional late import)
+from app.models.analysis import AnalysisTask, AnalysisParameters  # noqa: E402 (intentional late import)
+from app.services.config_provider import provider as config_provider  # noqa: E402 (intentional late import)
+from app.utils.timezone import now_utc, format_iso  # noqa: E402 (intentional late import)
 
 logger = logging.getLogger(__name__)
 
@@ -76,10 +74,31 @@ class AnalysisWorker:
             self.running = True
 
             # 应用队列并发/超时配置 + Worker/轮询参数
+            # 并发上限的 fallback 统一从 settings 读取（唯一数据源）。
+            # 动态配置项语义：
+            #   - max_concurrent_tasks_per_user：单用户并发上限
+            #   - max_concurrent_tasks：全局并发上限（粗粒度）
+            # 历史问题：旧实现把 max_concurrent_tasks 同时用于 user 和 global，
+            # 导致两者永远相等，user 级限制形同虚设。这里拆分为两个独立配置项。
             try:
-                self.queue_service.user_concurrent_limit = int(effective_settings.get("max_concurrent_tasks", DEFAULT_USER_CONCURRENT_LIMIT))
-                self.queue_service.global_concurrent_limit = int(effective_settings.get("max_concurrent_tasks", GLOBAL_CONCURRENT_LIMIT))
-                self.queue_service.visibility_timeout = int(effective_settings.get("default_analysis_timeout", VISIBILITY_TIMEOUT_SECONDS))
+                self.queue_service.user_concurrent_limit = int(
+                    effective_settings.get(
+                        "max_concurrent_tasks_per_user",
+                        settings.DEFAULT_USER_CONCURRENT_LIMIT,
+                    )
+                )
+                self.queue_service.global_concurrent_limit = int(
+                    effective_settings.get(
+                        "max_concurrent_tasks",
+                        settings.GLOBAL_CONCURRENT_LIMIT,
+                    )
+                )
+                self.queue_service.visibility_timeout = int(
+                    effective_settings.get(
+                        "default_analysis_timeout",
+                        settings.QUEUE_VISIBILITY_TIMEOUT,
+                    )
+                )
                 # Worker intervals
                 self.heartbeat_interval = int(effective_settings.get("worker_heartbeat_interval_seconds", self.heartbeat_interval))
                 self.poll_interval = float(effective_settings.get("queue_poll_interval_seconds", self.poll_interval))
@@ -156,7 +175,7 @@ class AnalysisWorker:
 
             parameters = AnalysisParameters(**parameters_dict)
 
-            task = AnalysisTask(
+            AnalysisTask(
                 task_id=task_id,
                 user_id=user_id,
                 stock_code=stock_code,

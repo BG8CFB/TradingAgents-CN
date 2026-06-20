@@ -21,12 +21,22 @@ class BlockTradeRepo:
         for rec in records:
             sym = rec.get("symbol")
             td = rec.get("trade_date")
-            price = rec.get("price")
-            vol = rec.get("volume")
             if not sym or not td:
                 continue
+            # filter 字段与 init_collections.py 的唯一索引保持一致：
+            # symbol + trade_date + buyer + seller + data_source
+            # （不用浮点 price/volume 做唯一键，避免精度风险；
+            #  data_source 区分不同源对同一笔交易的重复采集）
+            buyer = rec.get("buyer") or ""
+            seller = rec.get("seller") or ""
             ops.append(UpdateOne(
-                {"symbol": sym, "trade_date": td, "price": price, "volume": vol},
+                {
+                    "symbol": sym,
+                    "trade_date": td,
+                    "buyer": buyer,
+                    "seller": seller,
+                    "data_source": rec.get("data_source"),
+                },
                 {"$set": rec},
                 upsert=True,
             ))

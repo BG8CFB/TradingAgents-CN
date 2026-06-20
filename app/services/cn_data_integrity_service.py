@@ -105,8 +105,8 @@ class DataIntegrityService:
         return report
 
     async def _get_db(self):
-        from app.core.database import get_database
-        return await get_database()
+        from app.core.database import get_mongo_db
+        return get_mongo_db()
 
     async def _check_domain_counts(self, db) -> Dict[str, int]:
         from app.data.storage.mongo.collections import get_collection_name

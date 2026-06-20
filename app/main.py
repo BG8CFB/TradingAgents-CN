@@ -1,5 +1,5 @@
 """
-TradingAgents-CN v1.0.0-preview FastAPI Backend
+TradingAgents-CN FastAPI Backend
 主应用程序入口
 
 Copyright (c) 2025 hsliuping. All rights reserved.
@@ -20,9 +20,7 @@ from fastapi.responses import JSONResponse
 import uvicorn
 import logging
 import re
-import time
 import asyncio
-from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import init_db, close_db
@@ -32,6 +30,7 @@ import jwt as _jwt
 from app.routers import auth_db as auth, analysis, screening, health, favorites, config, reports, database, operation_logs, tags, news_data, usage_statistics, model_capabilities, cache, logs
 from app.routers import mcp, tools
 from app.routers import agent_configs
+from app.routers import skills as skills_router
 from app.routers import stocks as stocks_router
 from app.routers import notifications as notifications_router
 from app.routers import websocket_notifications as websocket_notifications_router
@@ -39,17 +38,7 @@ from app.routers import scheduler as scheduler_router
 from app.data.scheduler.engine import SchedulerEngine
 from app.services.scheduler_service import set_scheduler_instance
 from app.middleware.operation_log_middleware import OperationLogMiddleware
-
-
-def get_version() -> str:
-    """从 VERSION 文件读取版本号"""
-    try:
-        version_file = Path(__file__).parent.parent / "VERSION"
-        if version_file.exists():
-            return version_file.read_text(encoding='utf-8').strip()
-    except Exception as e:
-        pass
-    return "1.1.0-preview"  # 默认版本号
+from app.routers.health import get_version
 
 
 def _sanitize_url(url: str) -> str:
@@ -68,36 +57,33 @@ async def _print_config_summary(logger):
         logger.info("=" * 70)
 
         # .env 文件路径信息
-        import os
         from pathlib import Path
-        
+        from app.core.config import redact_env_line
+
         current_dir = Path.cwd()
         logger.info(f"📁 Current working directory: {current_dir}")
-        
+
         # 检查可能的 .env 文件位置
         env_files_to_check = [
             current_dir / ".env",
             current_dir / "app" / ".env",
             Path(__file__).parent.parent / ".env",  # 项目根目录
         ]
-        
+
         logger.info("🔍 Checking .env file locations:")
         env_file_found = False
         for env_file in env_files_to_check:
             if env_file.exists():
                 logger.info(f"  ✅ Found: {env_file} (size: {env_file.stat().st_size} bytes)")
                 env_file_found = True
-                # 显示文件的前几行（隐藏敏感信息）
+                # 显示文件的前几行（使用共享脱敏函数）
                 try:
                     with open(env_file, 'r', encoding='utf-8') as f:
                         lines = f.readlines()[:5]  # 只读前5行
                         logger.info("     Preview (first 5 lines):")
-                        for i, line in enumerate(lines, 1):
-                            # 隐藏包含密码、密钥等敏感信息的行
-                            if any(keyword in line.upper() for keyword in ['PASSWORD', 'SECRET', 'KEY', 'TOKEN']):
-                                logger.info(f"       {i}: {line.split('=')[0]}=***")
-                            else:
-                                logger.info(f"       {i}: {line.strip()}")
+                        for i, raw_line in enumerate(lines, 1):
+                            safe_line = redact_env_line(raw_line.rstrip("\n"))
+                            logger.info(f"       {i}: {safe_line}")
                 except Exception as e:
                     logger.warning(f"     Could not preview file: {e}")
             else:
@@ -134,7 +120,6 @@ async def _print_config_summary(logger):
         logger.info(f"Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}")
 
         # 代理配置
-        import os
         if settings.HTTP_PROXY or settings.HTTPS_PROXY:
             logger.info("Proxy Configuration:")
             if settings.HTTP_PROXY:
@@ -202,12 +187,21 @@ async def _init_database(logger):
 
 
 async def _init_secrets(logger):
-    """自动生成并持久化安全密钥（JWT/CSRF）"""
+    """自动生成并持久化安全密钥（JWT/CSRF）。
+
+    持久化层级：
+    1. MongoDB system_secrets 集合（主存储）
+    2. runtime/.secrets.json 文件兜底（DB 不可达时使用）
+    3. os.environ（运行期共享，多 worker 通过 fork 继承）
+    """
     try:
         from app.services.secret_service import SecretService
         secrets = await SecretService.ensure_secrets()
         if secrets:
             logger.info(f"✅ 安全密钥已就绪（{len(secrets)} 个）")
+        # 显式同步到 os.environ，保证多 worker 一致
+        SecretService.persist_to_env()
+        logger.debug("安全密钥已同步到 os.environ（多 worker 兼容）")
     except Exception as e:
         logger.warning(f"⚠️  安全密钥初始化失败: {e}，将使用运行期随机密钥")
 
@@ -269,6 +263,7 @@ async def _init_scheduler(logger):
 async def _init_mcp(logger):
     """初始化 MCP 连接和健康检查任务"""
     from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
+    from app.core.task_registry import task_registry
 
     if not LANGCHAIN_MCP_AVAILABLE:
         logger.info("ℹ️  langchain-mcp-adapters 未安装，MCP 功能不可用")
@@ -289,35 +284,68 @@ async def _init_mcp(logger):
                 logger.error(f"MCP 健康检查失败: {e}")
                 await asyncio.sleep(30)
 
-    task = asyncio.create_task(mcp_health_check_loop())
+    # 通过 task_registry 注册（critical=False：shutdown 时直接 cancel）
+    task_registry.register(
+        mcp_health_check_loop(),
+        name="mcp_health_check",
+        critical=False,
+    )
     logger.info("✅ MCP 连接已初始化，健康检查任务已启动")
-    return task
-
-
-_DEFAULT_SECRET_PATTERNS = {
-    "JWT_SECRET": "docker-jwt-secret-key-change-in-production",
-    "CSRF_SECRET": "docker-csrf-secret-key-change-in-production",
-}
+    return None
 
 
 def _check_default_secrets(logger: logging.Logger):
-    """启动时检测是否使用了默认密钥，输出醒目警告。"""
-    import os
-    for env_key, default_prefix in _DEFAULT_SECRET_PATTERNS.items():
-        value = os.environ.get(env_key, "")
-        if value and value.startswith(default_prefix):
-            logger.warning(
+    """启动时检测是否使用了默认密钥。
+
+    - 生产模式（DEBUG=false）：检测到默认占位符直接 raise RuntimeError，阻止启动
+    - 开发模式：仅输出醒目警告
+
+    使用 ``app.core.config.is_using_default_secret`` 共享函数，避免与
+    ``startup_validator.py`` 的逻辑漂移。
+    """
+    from app.core.config import is_using_default_secret, settings as _settings
+
+    is_production = not bool(getattr(_settings, "DEBUG", True))
+    for env_key in ("JWT_SECRET", "CSRF_SECRET"):
+        if not is_using_default_secret(env_key):
+            continue
+        if is_production:
+            logger.error(
                 f"{'!' * 70}\n"
-                f"  SECURITY WARNING: {env_key} is using a default/docker value!\n"
-                f"  This is insecure for production. Please set a strong secret in .env.\n"
+                f"  FATAL: {env_key} 使用了默认/示例值，生产环境禁止启动！\n"
+                f"  请在 .env 中设置强随机密钥后重试。\n"
                 f"{'!' * 70}"
             )
+            raise RuntimeError(
+                f"{env_key} 在生产模式下使用了不安全默认值，启动被拒绝"
+            )
+        logger.warning(
+            f"{'!' * 70}\n"
+            f"  SECURITY WARNING: {env_key} is using a default/docker value!\n"
+            f"  This is insecure for production. Please set a strong secret in .env.\n"
+            f"{'!' * 70}"
+        )
 
 
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     setup_logging()
     logger = logging.getLogger("app.main")
+
+    # 设置默认异步线程池上限（影响 asyncio.to_thread / run_in_executor 默认池）
+    try:
+        import asyncio as _asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        from app.core.config import settings as _settings
+        loop = _asyncio.get_running_loop()
+        loop.set_default_executor(
+            ThreadPoolExecutor(max_workers=_settings.ASYNC_THREAD_POOL_SIZE)
+        )
+        logger.info(
+            f"🔧 默认异步线程池上限: {_settings.ASYNC_THREAD_POOL_SIZE}"
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ 设置默认线程池上限失败: {e}")
 
     # 验证启动配置
     from app.core.startup_validator import validate_startup_config
@@ -329,13 +357,20 @@ async def lifespan(app: FastAPI):
     await _init_database(logger)
 
     # 注册主事件循环，供 worker thread 中的 async 操作使用
+    # 注意：必须用 get_running_loop() 而非 get_event_loop()
+    # - lifespan 在已运行的 loop 中执行，get_event_loop() 在 Python 3.12+ 抛 DeprecationWarning
+    # - get_event_loop() 在没有 running loop 时会创建新 loop，但 lifespan 不会用它
     from app.core.async_utils import set_main_loop
-    set_main_loop(asyncio.get_event_loop())
+    set_main_loop(asyncio.get_running_loop())
 
     await _init_secrets(logger)
     await _init_system_defaults(logger)
     await _init_config_bridge(logger)
     await _apply_dynamic_settings(logger)
+
+    # 启动 Redis 自愈协程（限流中间件依赖）
+    from app.middleware.rate_limit import start_redis_recovery_loop, stop_redis_recovery_loop
+    start_redis_recovery_loop()
 
     # 显示配置摘要
     await _print_config_summary(logger)
@@ -351,9 +386,9 @@ async def lifespan(app: FastAPI):
         raise  # 抛出异常，阻止应用启动
 
     # ==================== MCP 连接初始化 ====================
-    mcp_health_check_task = None
+    # 健康检查任务通过 task_registry 管理，shutdown 时由 task_registry 统一 cancel
     try:
-        mcp_health_check_task = await _init_mcp(logger)
+        await _init_mcp(logger)
     except Exception as e:
         logger.error(f"❌ MCP 初始化失败: {e}", exc_info=True)
         logger.warning("⚠️  应用将在 MCP 功能不可用的情况下继续运行")
@@ -364,10 +399,33 @@ async def lifespan(app: FastAPI):
     health_monitor.start()
     logger.info("✅ 数据源健康监控已启动（每 30s 刷入 MongoDB）")
 
+    # ==================== Skill 依赖启动时重装（幂等） ====================
+    # 容器重启后 site-packages 会丢失，此处从 skill_state 重装已记录的依赖。
+    # 自动安装可在 settings.SKILL_AUTO_INSTALL=false 时关闭。
+    try:
+        from app.engine.tools.skill.dependency_installer import (
+            ensure_all_skills_dependencies,
+        )
+        result = await ensure_all_skills_dependencies()
+        logger.info(
+            f"✅ Skill 依赖检查完成: total={result['total']}, "
+            f"installed={result['installed']}, "
+            f"failed={result['failed']}, skipped={result['skipped']}"
+        )
+    except Exception as e:
+        logger.warning(f"⚠️  Skill 依赖启动安装失败（不阻塞启动）: {e}")
+
     try:
         yield
     finally:
-        # 关闭时清理
+        # 关闭时清理（顺序：先停止产生新任务的服务 → 等待 task_registry 完成 → 关闭 DB）
+        # 0a. 停止 Redis 自愈协程
+        try:
+            from app.middleware.rate_limit import stop_redis_recovery_loop
+            stop_redis_recovery_loop()
+        except Exception as e:
+            logger.warning(f"Redis 自愈协程停止失败: {e}")
+
         # 0. 停止数据源健康监控
         try:
             health_monitor.stop()
@@ -375,19 +433,8 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"数据源健康监控停止失败: {e}")
 
-        # 1. 停止 MCP 健康检查任务
-        if mcp_health_check_task:
-            try:
-                mcp_health_check_task.cancel()
-                try:
-                    await mcp_health_check_task
-                except asyncio.CancelledError:
-                    pass
-                logger.info("🛑 MCP 健康检查任务已停止")
-            except Exception as e:
-                logger.warning(f"MCP 健康检查任务停止失败: {e}")
-
-        # 2. 关闭所有 MCP 连接
+        # 1. MCP 健康检查任务由 task_registry.shutdown 统一 cancel（见下方 4.5）
+        # 这里仅关闭 MCP 连接
         try:
             from app.engine.tools.mcp import get_mcp_loader_factory
             factory = get_mcp_loader_factory()
@@ -413,6 +460,19 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Analysis service thread pool shutdown error: {e}")
 
+        # 4.5 等待 task_registry 中所有 critical 后台任务完成（如操作日志 flush）
+        # 必须在 close_db 之前，否则 critical 任务写入会失败
+        try:
+            from app.core.task_registry import task_registry
+            await task_registry.shutdown(timeout=5.0)
+            stats = task_registry.get_stats()
+            logger.info(
+                f"🛑 TaskRegistry shutdown 完成: created={stats['total_created']} "
+                f"completed={stats['total_completed']} failed={stats['total_failed']}"
+            )
+        except Exception as e:
+            logger.warning(f"TaskRegistry shutdown 失败: {e}")
+
         # 5. 关闭数据库连接
         await close_db()
         logger.info("TradingAgents FastAPI backend stopped")
@@ -436,14 +496,27 @@ if not settings.DEBUG:
     )
 
 # CORS中间件
+# 安全说明：allow_headers 使用显式白名单而非 ["*"]，避免与 allow_credentials=True
+# 组合时被部分浏览器解释为反射任意 Origin 头，从而弱化 CSRF 防护。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        "X-CSRF-Token",
+        "X-Request-ID",
+    ],
 )
 
+
+# CSRF 双提交 Cookie 校验中间件
+# 必须在 OperationLogMiddleware 之前注册（CSRF 失败的请求不应被记录为业务操作）
+from app.middleware.csrf import CSRFMiddleware  # noqa: E402
+app.add_middleware(CSRFMiddleware)
 
 # 操作日志中间件
 app.add_middleware(OperationLogMiddleware)
@@ -564,14 +637,6 @@ async def runtime_error_handler(request: Request, exc: RuntimeError):
     )
 
 
-# 测试端点 - 仅在 DEBUG 模式下注册
-if settings.DEBUG:
-    @app.get("/api/test-log")
-    async def test_log():
-        """测试日志中间件是否工作（仅 DEBUG 模式）"""
-        logging.getLogger("app.main").debug("test-log endpoint called")
-        return {"message": "测试成功", "timestamp": time.time()}
-
 # 注册路由
 app.include_router(health.router)
 app.include_router(auth.router)
@@ -588,9 +653,6 @@ app.include_router(database.router)
 app.include_router(cache.router)
 app.include_router(operation_logs.router)
 app.include_router(logs.router)
-# 新增：智能体管理
-from app.routers import agents  # noqa: E402
-app.include_router(agents.router)
 # 系统配置只读摘要
 from app.routers import system_config as system_config_router  # noqa: E402
 app.include_router(system_config_router.router)
@@ -599,6 +661,9 @@ app.include_router(mcp.router)
 app.include_router(tools.router)
 # 按阶段编辑智能体配置
 app.include_router(agent_configs.router)
+
+# Skill 管理
+app.include_router(skills_router.router)
 
 # 通知模块（REST）
 app.include_router(notifications_router.router)
@@ -611,19 +676,16 @@ app.include_router(scheduler_router.router)
 
 app.include_router(news_data.router)
 
-# 三市场标准化数据路由（CN / HK / US 各 3 个文件）
-from app.routers.cn import data as cn_data, stocks as cn_stocks, sync as cn_sync  # noqa: E402
-from app.routers.hk import data as hk_data, stocks as hk_stocks, sync as hk_sync  # noqa: E402
-from app.routers.us import data as us_data, stocks as us_stocks, sync as us_sync  # noqa: E402
+# 三市场标准化数据路由（CN / HK / US 各 2 个文件：data + sync）
+from app.routers.cn import data as cn_data, sync as cn_sync  # noqa: E402
+from app.routers.hk import data as hk_data, sync as hk_sync  # noqa: E402
+from app.routers.us import data as us_data, sync as us_sync  # noqa: E402
 
 app.include_router(cn_data.router)
-app.include_router(cn_stocks.router)
 app.include_router(cn_sync.router)
 app.include_router(hk_data.router)
-app.include_router(hk_stocks.router)
 app.include_router(hk_sync.router)
 app.include_router(us_data.router)
-app.include_router(us_stocks.router)
 app.include_router(us_sync.router)
 
 

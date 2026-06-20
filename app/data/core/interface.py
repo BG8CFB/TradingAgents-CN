@@ -31,6 +31,7 @@ class DataInterface:
         self._sync_trigger_callback = sync_trigger_callback
 
         from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
+
         self._metadata_repo = MetadataRepo()
 
     @classmethod
@@ -53,8 +54,12 @@ class DataInterface:
     # ── 数据读取 ──
 
     async def read(
-        self, market: str, domain: str, symbol: Optional[str] = None,
-        start_date: Optional[str] = None, end_date: Optional[str] = None,
+        self,
+        market: str,
+        domain: str,
+        symbol: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
         filters: Optional[Dict] = None,
     ) -> Dict:
         """读取标准数据。
@@ -68,8 +73,11 @@ class DataInterface:
             filters: 额外过滤条件（可选，如 list_status/statement_type 等）
         """
         data, freshness = await self.reader.get_data(
-            market, domain, symbol,
-            start_date=start_date, end_date=end_date,
+            market,
+            domain,
+            symbol,
+            start_date=start_date,
+            end_date=end_date,
             filters=filters,
         )
         return {
@@ -83,12 +91,17 @@ class DataInterface:
     # ── 数据刷新 ──
 
     async def refresh(
-        self, market: str, symbol: str,
+        self,
+        market: str,
+        symbol: str,
         domains: Optional[List[str]] = None,
-        force: bool = False, timeout: int = 30,
+        force: bool = False,
+        timeout: int = 30,
     ) -> RefreshResult:
         """按需刷新指定股票数据。"""
-        return await self.refresh_service.refresh(market, symbol, domains, force, timeout)
+        return await self.refresh_service.refresh(
+            market, symbol, domains, force, timeout
+        )
 
     # ── 同步管理 ──
 
@@ -96,12 +109,19 @@ class DataInterface:
         """手动触发同步任务。优先走注入的回调，降级走调度引擎，最终降级走记录事件。"""
         from datetime import datetime, timezone
 
-        task_id = f"sync_{market}_{domain}_{int(datetime.now(timezone.utc).timestamp())}"
+        task_id = (
+            f"sync_{market}_{domain}_{int(datetime.now(timezone.utc).timestamp())}"
+        )
 
         # 优先使用注入的回调（由上层 worker 模块注册）
         if self._sync_trigger_callback:
             try:
+                import inspect
+
                 result = self._sync_trigger_callback(market, domain)
+                # 回调可能是协程：需 await 才能真正执行
+                if inspect.iscoroutine(result):
+                    result = await result
                 if result:
                     logger.info(f"通过回调触发同步: {result}")
                     return result
@@ -111,6 +131,7 @@ class DataInterface:
         # 降级：尝试调度引擎
         try:
             from app.worker.scheduler_setup import get_scheduler_engine
+
             engine = get_scheduler_engine()
             if engine:
                 job_id = await engine.trigger_job(market, domain)
@@ -122,20 +143,26 @@ class DataInterface:
 
         # 降级：只记录事件（实际执行需等调度引擎可用）
         repo = self._metadata_repo
-        await repo.insert_event({
-            "market": market,
-            "event_type": "SYNC_START",
-            "domain": domain,
-            "task_id": task_id,
-        })
+        await repo.insert_event(
+            {
+                "market": market,
+                "event_type": "SYNC_START",
+                "domain": domain,
+                "task_id": task_id,
+            }
+        )
         logger.info(f"记录同步事件（降级模式）: {task_id}")
         return task_id
 
-    async def get_sync_status(self, market: str, domain: Optional[str] = None) -> List[Dict]:
+    async def get_sync_status(
+        self, market: str, domain: Optional[str] = None
+    ) -> List[Dict]:
         """查询同步检查点列表。"""
         return await self._metadata_repo.get_all_checkpoints(market, domain)
 
-    async def get_sync_events(self, market: str, domain: Optional[str] = None, limit: int = 50) -> List[Dict]:
+    async def get_sync_events(
+        self, market: str, domain: Optional[str] = None, limit: int = 50
+    ) -> List[Dict]:
         """查询同步事件。"""
         return await self._metadata_repo.get_events(market, domain, limit)
 
@@ -149,6 +176,7 @@ class DataInterface:
             return mongo_health
 
         from app.data.monitoring.source_health import SourceHealthMonitor
+
         monitor = SourceHealthMonitor()
         return monitor.get_all_health(market)
 
@@ -160,13 +188,20 @@ class DataInterface:
 
     async def get_config(self, market: str, domain: str) -> Optional[Dict]:
         """获取数据源优先级配置。"""
-        return await self._metadata_repo.get_config("data_source_priority", market, domain)
+        return await self._metadata_repo.get_config(
+            "data_source_priority", market, domain
+        )
 
-    async def update_config(self, market: str, domain: str, sources: List[str], updated_by: str = "user") -> bool:
+    async def update_config(
+        self, market: str, domain: str, sources: List[str], updated_by: str = "user"
+    ) -> bool:
         """更新数据源优先级。"""
         await self._metadata_repo.upsert_config(
-            "data_source_priority", market, domain,
-            {"sources": sources}, updated_by,
+            "data_source_priority",
+            market,
+            domain,
+            {"sources": sources},
+            updated_by,
         )
         self._priority.invalidate_cache(market, domain)
         logger.info(f"更新优先级: {market}/{domain} → {sources}")
@@ -174,7 +209,9 @@ class DataInterface:
 
     # ── Dashboard 统计 ──
 
-    async def get_domain_stats(self, market: str, domains: List[str]) -> Dict[str, Dict]:
+    async def get_domain_stats(
+        self, market: str, domains: List[str]
+    ) -> Dict[str, Dict]:
         """获取各域统计信息（记录数 + 最后更新时间）。"""
         from app.data.storage.mongo.client import get_motor_db
         from app.data.storage.mongo.collections import get_collection_name
@@ -186,7 +223,9 @@ class DataInterface:
                 coll = db[get_collection_name(domain, market)]
                 count = await coll.count_documents({})
                 last_doc = await coll.find_one(
-                    {}, {"updated_at": 1}, sort=[("updated_at", -1)],
+                    {},
+                    {"updated_at": 1},
+                    sort=[("updated_at", -1)],
                 )
                 stats[domain] = {
                     "records": count,
@@ -198,19 +237,27 @@ class DataInterface:
         return stats
 
     async def get_quotes_stats(self, market: str) -> Dict[str, int]:
-        """获取日线行情集合统计（记录数 + 股票数）。"""
+        """获取日线行情集合统计（记录数 + 股票数）。
+
+        用 aggregate $group 替代 distinct，避免大集合全表扫描。
+        """
         from app.data.storage.mongo.client import get_motor_db
         from app.data.storage.mongo.collections import get_collection_name
 
         db = get_motor_db()
         coll = db[get_collection_name("daily_quotes", market)]
         total_records = await coll.count_documents({})
-        total_symbols = len(await coll.distinct("symbol"))
+        pipeline = [{"$group": {"_id": "$symbol"}}, {"$count": "n"}]
+        cursor = coll.aggregate(pipeline)
+        agg = await cursor.to_list(length=1)
+        total_symbols = agg[0]["n"] if agg else 0
         return {"total_records": total_records, "total_symbols": total_symbols}
 
     # ── 数据质量 ──
 
-    async def get_quality_overview(self, market: str, domains: List[str]) -> Dict[str, Dict]:
+    async def get_quality_overview(
+        self, market: str, domains: List[str]
+    ) -> Dict[str, Dict]:
         """获取各域质量概览（记录数、完整率、最新日期）。"""
         from app.data.storage.mongo.client import get_motor_db
         from app.data.storage.mongo.collections import get_collection_name
@@ -221,7 +268,9 @@ class DataInterface:
             try:
                 coll = db[get_collection_name(domain, market)]
                 total = await coll.count_documents({})
-                missing_symbol = await coll.count_documents({"symbol": {"$exists": False}})
+                missing_symbol = await coll.count_documents(
+                    {"symbol": {"$exists": False}}
+                )
                 latest_doc = await coll.find_one(
                     {"trade_date": {"$exists": True}},
                     sort=[("trade_date", -1)],
@@ -230,7 +279,9 @@ class DataInterface:
                 overview[domain] = {
                     "total_records": total,
                     "missing_symbol": missing_symbol,
-                    "completeness": round((total - missing_symbol) / total, 3) if total > 0 else 1.0,
+                    "completeness": round((total - missing_symbol) / total, 3)
+                    if total > 0
+                    else 1.0,
                     "latest_date": latest_date,
                 }
             except Exception as e:
@@ -246,7 +297,7 @@ class DataInterface:
         _REQUIRED_FIELDS: Dict[str, List[str]] = {
             "daily_quotes": ["symbol", "trade_date", "close"],
             "daily_indicators": ["symbol", "trade_date"],
-            "financial": ["symbol", "report_period"],
+            "financial_data": ["symbol", "report_period"],
             "basic_info": ["symbol"],
         }
         _TIMESERIES_DOMAINS = ("daily_quotes", "daily_indicators", "adj_factors")
@@ -262,16 +313,20 @@ class DataInterface:
 
         required = _REQUIRED_FIELDS.get(domain, ["symbol"])
         for field in required:
-            missing_count = await coll.count_documents({
-                "$or": [{field: {"$exists": False}}, {field: None}, {field: ""}],
-            })
+            missing_count = await coll.count_documents(
+                {
+                    "$or": [{field: {"$exists": False}}, {field: None}, {field: ""}],
+                }
+            )
             if missing_count > 0:
-                stats["issues"].append({
-                    "type": "missing_field",
-                    "field": field,
-                    "count": missing_count,
-                    "percentage": round(missing_count / total * 100, 2),
-                })
+                stats["issues"].append(
+                    {
+                        "type": "missing_field",
+                        "field": field,
+                        "count": missing_count,
+                        "percentage": round(missing_count / total * 100, 2),
+                    }
+                )
 
         if domain in _TIMESERIES_DOMAINS:
             thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -286,17 +341,21 @@ class DataInterface:
                 trading_days_covered = len(date_counts)
                 try:
                     cal_coll = db[get_collection_name("trade_calendar", market)]
-                    expected_days = await cal_coll.count_documents({
-                        "is_open": 1,
-                        "cal_date": {"$gte": thirty_days_ago},
-                    })
+                    expected_days = await cal_coll.count_documents(
+                        {
+                            "is_open": 1,
+                            "cal_date": {"$gte": thirty_days_ago},
+                        }
+                    )
                 except Exception as e:
                     logger.debug(f"交易日历查询失败: {e}")
                     expected_days = None
                 stats["date_continuity"] = {
                     "trading_days_covered": trading_days_covered,
                     "expected_trading_days": expected_days,
-                    "coverage_rate": round(trading_days_covered / expected_days, 3) if expected_days else None,
+                    "coverage_rate": round(trading_days_covered / expected_days, 3)
+                    if expected_days
+                    else None,
                     "period": "last_30_days",
                 }
             except Exception as e:
@@ -310,7 +369,9 @@ class DataInterface:
                     latest = await coll.find_one(sort=[("trade_date", -1)])
                     if latest:
                         latest_date = latest.get("trade_date", "")
-                        covered = await coll.count_documents({"trade_date": latest_date})
+                        covered = await coll.count_documents(
+                            {"trade_date": latest_date}
+                        )
                         stats["stock_coverage"] = {
                             "active_stocks": active_stocks,
                             "covered_stocks": covered,

@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import Optional
 
 import pandas as pd
 
@@ -33,7 +32,7 @@ class AKShareHKProvider(BaseProvider):
         except ImportError:
             return False
 
-    async def get_stock_list(self, **kwargs) -> Optional[pd.DataFrame]:
+    async def get_stock_list(self, **kwargs) -> pd.DataFrame:
         try:
             import akshare as ak
             df = await asyncio.to_thread(ak.stock_hk_spot_em)
@@ -44,7 +43,7 @@ class AKShareHKProvider(BaseProvider):
 
     async def get_daily_quotes(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         try:
             import akshare as ak
             normalized = _normalize_hk_symbol(symbol)
@@ -63,7 +62,7 @@ class AKShareHKProvider(BaseProvider):
 
     async def get_corporate_actions(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         try:
             import akshare as ak
             normalized = _normalize_hk_symbol(symbol)
@@ -75,7 +74,13 @@ class AKShareHKProvider(BaseProvider):
 
     async def get_news(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
+        # 市场级新闻（symbol=None）：复用 CN 的全球财经快讯（覆盖港股）
+        if not symbol:
+            from app.data.sources.cn.akshare.api.news import fetch_market_news
+            import pandas as pd
+            result = await fetch_market_news(limit=100)
+            return pd.DataFrame(result) if result else None
         try:
             import akshare as ak
             normalized = _normalize_hk_symbol(symbol)
@@ -87,5 +92,5 @@ class AKShareHKProvider(BaseProvider):
 
     async def get_market_quotes(
         self, symbols=None, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         return await self.get_stock_list()

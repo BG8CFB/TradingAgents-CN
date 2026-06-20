@@ -13,7 +13,7 @@
 import re
 import logging
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Tuple
 
 logger = logging.getLogger(__name__)
 

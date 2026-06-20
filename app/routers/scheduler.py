@@ -6,11 +6,10 @@
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 from app.services.scheduler_service import get_scheduler_service, SchedulerService
 from app.core.response import ok, safe_error_message
 
@@ -220,85 +219,6 @@ async def trigger_job(
         raise HTTPException(status_code=500, detail=safe_error_message(e, "触发任务失败"))
 
 
-@router.get("/jobs/{job_id}/history")
-async def get_job_history(
-    job_id: str,
-    limit: int = Query(20, ge=1, le=100, description="返回数量限制"),
-    offset: int = Query(0, ge=0, description="偏移量"),
-    user: dict = Depends(get_current_user),
-    service: SchedulerService = Depends(get_scheduler_service)
-):
-    """
-    获取任务执行历史
-    
-    Args:
-        job_id: 任务ID
-        limit: 返回数量限制
-        offset: 偏移量
-        
-    Returns:
-        任务执行历史记录
-    """
-    try:
-        history = await service.get_job_history(job_id, limit=limit, offset=offset)
-        total = await service.count_job_history(job_id)
-        
-        return ok(
-            data={
-                "history": history,
-                "total": total,
-                "limit": limit,
-                "offset": offset
-            },
-            message=f"获取到 {len(history)} 条执行记录"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取执行历史失败"))
-
-
-@router.get("/history")
-async def get_all_history(
-    limit: int = Query(50, ge=1, le=200, description="返回数量限制"),
-    offset: int = Query(0, ge=0, description="偏移量"),
-    job_id: Optional[str] = Query(None, description="任务ID过滤"),
-    status: Optional[str] = Query(None, description="状态过滤: success/failed"),
-    user: dict = Depends(get_current_user),
-    service: SchedulerService = Depends(get_scheduler_service)
-):
-    """
-    获取所有任务执行历史
-    
-    Args:
-        limit: 返回数量限制
-        offset: 偏移量
-        job_id: 任务ID过滤
-        status: 状态过滤
-        
-    Returns:
-        所有任务执行历史记录
-    """
-    try:
-        history = await service.get_all_history(
-            limit=limit,
-            offset=offset,
-            job_id=job_id,
-            status=status
-        )
-        total = await service.count_all_history(job_id=job_id, status=status)
-        
-        return ok(
-            data={
-                "history": history,
-                "total": total,
-                "limit": limit,
-                "offset": offset
-            },
-            message=f"获取到 {len(history)} 条执行记录"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取执行历史失败"))
-
-
 @router.get("/stats")
 async def get_scheduler_stats(
     user: dict = Depends(get_current_user),
@@ -315,24 +235,6 @@ async def get_scheduler_stats(
         return ok(data=stats, message="获取统计信息成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取统计信息失败"))
-
-
-@router.get("/health")
-async def scheduler_health_check(
-    user: dict = Depends(get_current_user),
-    service: SchedulerService = Depends(get_scheduler_service)
-):
-    """
-    调度器健康检查
-
-    Returns:
-        调度器健康状态
-    """
-    try:
-        health = await service.health_check()
-        return ok(data=health, message="调度器运行正常")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "健康检查失败"))
 
 
 @router.get("/executions")
@@ -419,32 +321,10 @@ async def get_single_job_executions(
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取执行历史失败"))
 
 
-@router.get("/jobs/{job_id}/execution-stats")
-async def get_job_execution_stats(
-    job_id: str,
-    user: dict = Depends(get_current_user),
-    service: SchedulerService = Depends(get_scheduler_service)
-):
-    """
-    获取任务执行统计信息
-
-    Args:
-        job_id: 任务ID
-
-    Returns:
-        统计信息
-    """
-    try:
-        stats = await service.get_job_execution_stats(job_id)
-        return ok(data=stats, message="获取统计信息成功")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取统计信息失败"))
-
-
 @router.post("/executions/{execution_id}/cancel")
 async def cancel_execution(
     execution_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
     service: SchedulerService = Depends(get_scheduler_service)
 ):
     """
@@ -475,7 +355,7 @@ async def cancel_execution(
 async def mark_execution_failed(
     execution_id: str,
     reason: str = Query("用户手动标记为失败", description="失败原因"),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
     service: SchedulerService = Depends(get_scheduler_service)
 ):
     """
@@ -505,7 +385,7 @@ async def mark_execution_failed(
 @router.delete("/executions/{execution_id}")
 async def delete_execution(
     execution_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
     service: SchedulerService = Depends(get_scheduler_service)
 ):
     """

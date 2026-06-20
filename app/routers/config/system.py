@@ -230,11 +230,11 @@ async def update_system_settings(
         if 'analyst_model' in settings:
             logger.info(f"  analyst_model: {settings['analyst_model']}")
         else:
-            logger.warning(f"  未包含 analyst_model")
+            logger.warning("  未包含 analyst_model")
         if 'debate_model' in settings:
             logger.info(f"  debate_model: {settings['debate_model']}")
         else:
-            logger.warning(f"  未包含 debate_model")
+            logger.warning("  未包含 debate_model")
 
         success = await config_service.update_system_settings(settings)
         if success:
@@ -490,33 +490,6 @@ async def get_database_configs(
         configs = await config_service.get_database_configs()
         logger.info(f"获取到 {len(configs)} 个数据库配置")
         return _sanitize_database_configs(configs)
-    except Exception as e:
-        logger.error(f"获取数据库配置失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取数据库配置失败: {str(e)}"
-        )
-
-
-@router.get("/database/{db_name}", response_model=DatabaseConfig)
-async def get_database_config(
-    db_name: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """获取指定的数据库配置"""
-    try:
-        logger.info(f"获取数据库配置: {db_name}")
-        config = await config_service.get_database_config(db_name)
-
-        if not config:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"数据库配置 '{db_name}' 不存在"
-            )
-
-        return _sanitize_database_configs([config])[0]
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"获取数据库配置失败: {e}")
         raise HTTPException(

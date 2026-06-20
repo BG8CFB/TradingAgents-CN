@@ -2,7 +2,7 @@
   <div class="header-actions">
     <!-- 主题切换 -->
     <el-tooltip content="切换主题" placement="bottom">
-      <el-button type="text" @click="toggleTheme" class="action-btn">
+      <el-button link @click="toggleTheme" class="action-btn">
         <el-icon>
           <Sunny v-if="appStore.isDarkTheme" />
           <Moon v-else />
@@ -12,7 +12,7 @@
 
     <!-- 全屏切换 -->
     <el-tooltip content="全屏" placement="bottom">
-      <el-button type="text" @click="toggleFullscreen" class="action-btn">
+      <el-button link @click="toggleFullscreen" class="action-btn">
         <el-icon><FullScreen /></el-icon>
       </el-button>
     </el-tooltip>
@@ -20,7 +20,7 @@
     <!-- 通知 -->
     <el-tooltip content="通知" placement="bottom">
       <el-badge :value="unreadCount" :hidden="unreadCount === 0">
-        <el-button type="text" @click="openDrawer" class="action-btn">
+        <el-button link @click="openDrawer" class="action-btn">
           <el-icon><Bell /></el-icon>
         </el-button>
       </el-badge>
@@ -28,7 +28,7 @@
 
     <!-- 帮助 -->
     <el-tooltip content="帮助" placement="bottom">
-      <el-button type="text" @click="showHelp" class="action-btn">
+      <el-button link @click="showHelp" class="action-btn">
         <el-icon><QuestionFilled /></el-icon>
       </el-button>
     </el-tooltip>

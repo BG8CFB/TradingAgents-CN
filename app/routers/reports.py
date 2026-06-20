@@ -108,42 +108,6 @@ async def get_report_detail(
         logger.error(f"获取报告详情失败: {e}")
         raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))
 
-@router.get("/{report_id}/content/{module}")
-async def get_report_module_content(
-    report_id: str,
-    module: str,
-    user: dict = Depends(get_current_user)
-):
-    """获取报告特定模块的内容"""
-    try:
-        logger.info(f"获取报告模块内容: {report_id}/{module}")
-
-        service = get_reports_service()
-        report = await service.get_report(report_id)
-        if not report:
-            raise HTTPException(status_code=404, detail="报告不存在")
-
-        report_user_id = str(report.get("user_id", ""))
-        if report_user_id and str(user.get("id", "")) != report_user_id:
-            raise HTTPException(status_code=403, detail="无权访问该报告")
-
-        module_data = await service.get_report_module_content(report_id, module)
-
-        if module_data is None:
-            raise HTTPException(status_code=404, detail="报告或模块不存在")
-
-        return {
-            "success": True,
-            "data": module_data,
-            "message": "模块内容获取成功"
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取报告模块内容失败: {e}")
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))
-
 @router.delete("/{report_id}")
 async def delete_report(
     report_id: str,

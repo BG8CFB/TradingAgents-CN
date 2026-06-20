@@ -5,12 +5,19 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Any
 
+from app.data.sources.base.exceptions import DataNotFoundError
 
 logger = logging.getLogger(__name__)
 
+_DOMAIN = "quotes_batch"
 
-async def fetch_batch_quotes(codes: List[str]) -> Optional[Dict[str, Dict[str, Any]]]:
-    """批量获取实时行情（三级回退）"""
+
+async def fetch_batch_quotes(codes: List[str]) -> Dict[str, Dict[str, Any]]:
+    """批量获取实时行情（三级回退）
+
+    Raises:
+        DataNotFoundError: 所有策略链均无数据（不可重试）
+    """
     for strategy_name, strategy_fn in [
         ("em_direct", _fetch_em_spot_direct),
         ("tencent_batch", _fetch_tencent_batch),
@@ -25,8 +32,9 @@ async def fetch_batch_quotes(codes: List[str]) -> Optional[Dict[str, Dict[str, A
             logger.debug(f"AKShare 批量行情 {strategy_name} 失败: {e}")
             continue
 
-    logger.error("AKShare 批量行情: 所有策略失败")
-    return None
+    # 所有策略链均失败 → 业务空数据
+    logger.warning(f"AKShare 批量行情: 所有策略失败 codes_count={len(codes)}")
+    raise DataNotFoundError("akshare", _DOMAIN, f"所有策略链均无数据 (codes={len(codes)})")
 
 
 async def _fetch_em_spot_direct(codes: List[str]) -> Optional[Dict[str, Dict[str, Any]]]:

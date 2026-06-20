@@ -9,7 +9,7 @@ from langchain_core.tools import tool
 from app.utils.logging_init import get_logger
 from app.utils.tool_logging import log_tool_call
 
-from .toolkit_helpers import _run_async, _get_us_news_sync, _get_stock_info_sync
+from .toolkit_helpers import _run_async, _get_us_news_sync
 
 logger = get_logger("agents")
 
@@ -137,7 +137,7 @@ def get_stock_news_unified(
         market_info = StockUtils.get_market_info(ticker)
         is_china = market_info["is_china"]
         is_hk = market_info["is_hk"]
-        is_us = market_info["is_us"]
+        market_info["is_us"]
 
         logger.debug(f"📰 [统一新闻工具] 股票类型: {market_info['market_name']}")
 
@@ -150,7 +150,7 @@ def get_stock_news_unified(
 
         if is_china or is_hk:
             # 中国A股和港股：使用AKShare东方财富新闻和Google新闻（中文搜索）
-            logger.debug(f"🇨🇳🇭🇰 [统一新闻工具] 处理中文新闻...")
+            logger.debug("🇨🇳🇭🇰 [统一新闻工具] 处理中文新闻...")
 
             # 1. 尝试获取AKShare东方财富新闻
             try:
@@ -238,14 +238,14 @@ def get_stock_news_unified(
                 _r = _run_async(_di.read(market_code, "news", symbol=ticker))
                 news_data = _r.get("data")
                 result_data.append(f"## Google新闻\n{news_data}")
-                logger.debug(f"🇨🇳🇭🇰 [统一新闻工具] 成功获取Google新闻")
+                logger.debug("🇨🇳🇭🇰 [统一新闻工具] 成功获取Google新闻")
             except Exception as google_e:
                 logger.error(f"❌ [统一新闻工具] Google新闻获取失败: {google_e}")
                 result_data.append(f"## Google新闻\n获取失败: {google_e}")
 
         else:
             # 美股：使用Finnhub新闻
-            logger.debug(f"🇺🇸 [统一新闻工具] 处理美股新闻...")
+            logger.debug("🇺🇸 [统一新闻工具] 处理美股新闻...")
 
             try:
                 from app.data.core.interface import DataInterface

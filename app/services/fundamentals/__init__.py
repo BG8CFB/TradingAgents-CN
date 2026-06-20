@@ -4,12 +4,12 @@
 通过新架构 DataInterface 提供基本面数据获取功能。
 """
 
-import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
 import pandas as pd
 
+from app.core.async_utils import run_async
 from app.data.core.interface import DataInterface
 
 logger = logging.getLogger(__name__)
@@ -50,18 +50,25 @@ def get_fundamentals_provider() -> FundamentalsProvider:
 
 
 def get_china_stock_data_cached(symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+    """同步获取基本面行情数据。
+
+    通过 :func:`run_async` 统一处理同步→异步桥接：
+    - worker thread 中调用 → run_coroutine_threadsafe 调度到主循环
+    - 纯脚本中调用 → asyncio.run 创建新循环
+    """
     provider = get_fundamentals_provider()
     try:
-        return asyncio.run(provider.get_stock_data(symbol, start_date, end_date))
+        return run_async(provider.get_stock_data(symbol, start_date, end_date))
     except Exception as e:
         logger.debug(f"获取基本面数据失败: {e}")
         return None
 
 
 def get_china_fundamentals_cached(symbol: str) -> Optional[Dict]:
+    """同步获取基本面摘要（同 get_china_stock_data_cached 桥接策略）。"""
     provider = get_fundamentals_provider()
     try:
-        return asyncio.run(provider.get_fundamentals(symbol))
+        return run_async(provider.get_fundamentals(symbol))
     except Exception as e:
         logger.debug(f"获取基本面摘要失败: {e}")
         return None

@@ -5,8 +5,8 @@
 
 import logging
 from datetime import datetime, timedelta
-from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_date_compact, format_iso
-from typing import List, Dict, Any, Optional
+from app.utils.timezone import now_utc, now_config_tz
+from typing import List, Dict, Optional
 from collections import defaultdict
 
 from app.core.database import get_mongo_db
@@ -29,7 +29,7 @@ class UsageStatisticsService:
             collection = db[self.collection_name]
 
             record_dict = record.model_dump(exclude={"id"})
-            result = await collection.insert_one(record_dict)
+            await collection.insert_one(record_dict)
 
             logger.info(f"✅ 添加使用记录成功: {record.provider}/{record.model_name}")
             return True
@@ -43,19 +43,26 @@ class UsageStatisticsService:
         model_name: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        limit: int = 100
+        limit: int = 100,
+        user_id: Optional[str] = None,
     ) -> List[UsageRecord]:
-        """获取使用记录"""
+        """获取使用记录。
+
+        当 user_id 提供时，仅返回该用户的记录（普通用户访问）。
+        当 user_id 为 None 时，返回所有记录（admin 访问）。
+        """
         try:
             db = get_mongo_db()
             collection = db[self.collection_name]
-            
+
             # 构建查询条件
             query = {}
             if provider:
                 query["provider"] = provider
             if model_name:
                 query["model_name"] = model_name
+            if user_id:
+                query["user_id"] = user_id
             if start_date or end_date:
                 query["timestamp"] = {}
                 if start_date:
@@ -241,9 +248,9 @@ usage_statistics_service = UsageStatisticsService()
 # 供 LLM 适配器使用的同步 token 跟踪器
 # 从 app.engine.config.config_manager.TokenTracker 迁移而来
 
-import json
-from pathlib import Path
-from dataclasses import asdict
+import json  # noqa: E402 (intentional late import)
+from pathlib import Path  # noqa: E402 (intentional late import)
+from dataclasses import asdict  # noqa: E402 (intentional late import)
 
 
 class SyncTokenTracker:

@@ -574,7 +574,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Timer,
@@ -1106,6 +1106,11 @@ const handleDeleteExecution = async (execution: any) => {
 // 生命周期
 onMounted(() => {
   loadJobs()
+})
+
+// 卸载时确保自动刷新定时器被清理（防止路由切走时 history dialog 仍开着的轮询泄漏）
+onUnmounted(() => {
+  stopAutoRefresh()
 })
 </script>
 

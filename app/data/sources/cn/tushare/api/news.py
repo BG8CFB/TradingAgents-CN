@@ -8,11 +8,15 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from app.data.sources.base.exceptions import DataSourceUnavailableError
+from app.data.sources.base.mappers import map_network_exception, map_tushare_code
 from app.utils.time_utils import now_utc
 
 from .connection import TushareConnection
 
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "news"
 
 NEWS_SOURCES = [
     "eastmoney", "sina", "10jqka", "wallstreetcn",
@@ -97,9 +101,17 @@ async def fetch_news(
 
         return _deduplicate_and_sort(all_news, limit)
 
-    except Exception as e:
-        logger.error(f"Tushare 获取新闻失败: {e}")
-        return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        # 编排逻辑中触发的网络异常：透传给上层 retry_policy
+        raise map_network_exception(exc, "tushare", _DOMAIN)
+    except Exception as exc:
+        # 致命业务异常（鉴权/积分等）：透传给上层
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        # 子策略函数已有自己的 try/except，到这里通常意味着编排逻辑本身出错
+        raise DataSourceUnavailableError("tushare", _DOMAIN, str(exc))
 
 
 async def _fetch_targeted_news(

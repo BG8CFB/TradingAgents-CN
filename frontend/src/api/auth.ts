@@ -13,14 +13,16 @@ export const authApi = {
   login: (data: LoginForm) =>
     ApiClient.post<LoginResponse>('/api/auth/login', data, {
       skipAuth: true,  // 登录请求不需要认证
-      skipAuthError: true  // 跳过 401 错误的自动处理
+      skipAuthError: true,  // 跳过 401 错误的自动处理
+      skipCsrf: true,  // 登录端点豁免 CSRF（响应会下发新 Cookie）
     }),
 
   // 注册
   register: (data: RegisterForm) =>
     ApiClient.post('/api/auth/register', data, {
       skipAuth: true,  // 注册请求不需要认证
-      skipAuthError: true  // 跳过 401 错误的自动处理
+      skipAuthError: true,  // 跳过 401 错误的自动处理
+      skipCsrf: true,  // 注册端点豁免 CSRF（响应会下发新 Cookie）
     }),
 
   // 登出
@@ -29,11 +31,17 @@ export const authApi = {
 
   // 刷新Token
   refreshToken: (refreshToken: string) =>
-    ApiClient.post<RefreshTokenResponse>('/api/auth/refresh', { refresh_token: refreshToken }),
+    ApiClient.post<RefreshTokenResponse>('/api/auth/refresh', { refresh_token: refreshToken }, {
+      skipCsrf: true,  // refresh 路径豁免 CSRF（旧 CSRF token 可能已随 refresh 失效）
+    }),
 
   // 获取用户信息
   getUserInfo: () =>
     ApiClient.get<User>('/api/auth/me'),
+
+  // 获取/刷新 CSRF token（兜底端点）
+  getCsrfToken: () =>
+    ApiClient.get<{ csrf_token: string }>('/api/auth/csrf-token'),
 
   // 获取用户权限（开源版不需要，admin拥有所有权限）
   // getUserPermissions: () =>

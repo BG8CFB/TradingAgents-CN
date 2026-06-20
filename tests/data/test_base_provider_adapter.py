@@ -35,11 +35,14 @@ class TestBaseProvider:
         assert p.connected is True
 
     @pytest.mark.asyncio
-    async def test_optional_methods_return_none(self):
+    async def test_unsupported_methods_raise_not_implemented(self):
         p = ConcreteProvider(name="test", market="CN")
-        assert await p.get_stock_list() is None
-        assert await p.get_daily_quotes("000001", "2024-01-01", "2024-12-31") is None
-        assert await p.get_news("000001", "2024-01-01", "2024-12-31") is None
+        with pytest.raises(NotImplementedError):
+            await p.get_stock_list()
+        with pytest.raises(NotImplementedError):
+            await p.get_daily_quotes("000001", "2024-01-01", "2024-12-31")
+        with pytest.raises(NotImplementedError):
+            await p.get_news("000001", "2024-01-01", "2024-12-31")
 
 
 class TestBaseAdapter:

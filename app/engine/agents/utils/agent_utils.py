@@ -1,10 +1,7 @@
 """Toolkit 聚合门面 — 保留对外兼容接口，实现委托到子模块。"""
 
-from typing import List
-from typing import Annotated
 
-from langchain_core.messages import HumanMessage, AIMessage, RemoveMessage
-from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, RemoveMessage
 
 from app.engine.default_config import DEFAULT_CONFIG
 from app.utils.logging_init import get_logger
@@ -42,15 +39,17 @@ def create_msg_delete():
 class Toolkit:
     """聚合门面 — 将所有 @tool 方法委托到子模块中的独立函数。
 
-    公共接口（属性 + 方法签名）与重构前完全一致。
+    配置为实例属性（非类变量），保证多任务并发隔离。
+
+    历史问题：``_config`` 曾是类变量 + ``update_config`` 类方法，导致两个
+    ``TradingAgentsGraph`` 实例并发分析时 config 互相污染。本版本彻底删除
+    类变量 / 类方法，每个实例独立持有 config。
     """
 
-    _config = DEFAULT_CONFIG.copy()
-
-    @classmethod
-    def update_config(cls, config):
-        """Update the class-level configuration."""
-        cls._config.update(config)
+    def __init__(self, config=None):
+        # 关键：每次构造都基于 DEFAULT_CONFIG 浅拷贝 + 用户 config 覆盖，
+        # 保证不同 Toolkit 实例之间互不影响
+        self._config = {**DEFAULT_CONFIG, **(config or {})}
 
     @property
     def config(self):
@@ -64,10 +63,6 @@ class Toolkit:
     @property
     def mcp_tool_loader(self):
         return self._config.get("mcp_tool_loader", None)
-
-    def __init__(self, config=None):
-        if config:
-            self.update_config(config)
 
     # ── 新闻工具 ──────────────────────────────────────────────────
     get_finnhub_news = staticmethod(get_finnhub_news)

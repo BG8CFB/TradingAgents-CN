@@ -3,8 +3,7 @@
 """
 
 import logging
-from typing import Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 
 from app.routers.auth_db import get_current_user, require_admin
@@ -16,8 +15,7 @@ from app.models.operation_log import (
     OperationLogListResponse,
     OperationLogStatsResponse,
     ClearLogsRequest,
-    ClearLogsResponse,
-    OperationLogCreate
+    ClearLogsResponse
 )
 
 router = APIRouter(prefix="/api/operation-logs", tags=["Operation Logs"])
@@ -38,8 +36,11 @@ async def get_operation_logs(
     """获取操作日志列表"""
     try:
         logger.info(f"🔍 用户 {current_user['username']} 获取操作日志列表")
-        
+
         service = get_operation_log_service()
+        # 非 admin 用户只能查看自己的日志
+        is_admin = bool(current_user.get("is_admin"))
+        user_id_filter = None if is_admin else str(current_user.get("id", ""))
         query = OperationLogQuery(
             page=page,
             page_size=page_size,
@@ -47,7 +48,8 @@ async def get_operation_logs(
             end_date=end_date,
             action_type=action_type,
             success=success,
-            keyword=keyword
+            keyword=keyword,
+            user_id=user_id_filter,
         )
         
         logs, total = await service.get_logs(query)
@@ -98,40 +100,6 @@ async def get_operation_log_stats(
         )
 
 
-@router.get("/{log_id}")
-async def get_operation_log_detail(
-    log_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """获取操作日志详情"""
-    try:
-        logger.info(f"🔍 用户 {current_user['username']} 获取操作日志详情: {log_id}")
-        
-        service = get_operation_log_service()
-        log = await service.get_log_by_id(log_id)
-        
-        if not log:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="操作日志不存在"
-            )
-        
-        return {
-            "success": True,
-            "data": log.dict(),
-            "message": "获取操作日志详情成功"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取操作日志详情失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=safe_error_message(e, "获取操作日志详情失败")
-        )
-
-
 @router.post("/clear", response_model=ClearLogsResponse)
 async def clear_operation_logs(
     request: ClearLogsRequest,
@@ -140,68 +108,30 @@ async def clear_operation_logs(
     """清空操作日志"""
     try:
         logger.info(f"🗑️ 用户 {current_user['username']} 清空操作日志")
-        
+
         service = get_operation_log_service()
         result = await service.clear_logs(
             days=request.days,
             action_type=request.action_type
         )
-        
+
         message = f"清空操作日志成功，删除了 {result['deleted_count']} 条记录"
         if request.days:
             message += f"（{request.days}天前的日志）"
         if request.action_type:
             message += f"（类型: {request.action_type}）"
-        
+
         return ClearLogsResponse(
             success=True,
             data=result,
             message=message
         )
-        
+
     except Exception as e:
         logger.error(f"清空操作日志失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "清空操作日志失败")
-        )
-
-
-@router.post("/create")
-async def create_operation_log(
-    log_data: OperationLogCreate,
-    request: Request,
-    current_user: dict = Depends(get_current_user)
-):
-    """手动创建操作日志"""
-    try:
-        logger.info(f"📝 用户 {current_user['username']} 手动创建操作日志")
-        
-        service = get_operation_log_service()
-        
-        # 获取客户端信息
-        ip_address = request.client.host if request.client else None
-        user_agent = request.headers.get("user-agent")
-        
-        log_id = await service.create_log(
-            user_id=current_user["id"],
-            username=current_user["username"],
-            log_data=log_data,
-            ip_address=ip_address,
-            user_agent=user_agent
-        )
-        
-        return {
-            "success": True,
-            "data": {"log_id": log_id},
-            "message": "创建操作日志成功"
-        }
-        
-    except Exception as e:
-        logger.error(f"创建操作日志失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=safe_error_message(e, "创建操作日志失败")
         )
 
 
@@ -217,15 +147,11 @@ async def export_logs_csv(
         logger.info(f"📤 用户 {current_user['username']} 导出操作日志CSV")
         
         service = get_operation_log_service()
-        query = OperationLogQuery(
-            page=1,
-            page_size=10000,  # 导出时获取更多数据
+        logs = await service.get_all_for_export(
             start_date=start_date,
             end_date=end_date,
-            action_type=action_type
+            action_type=action_type,
         )
-        
-        logs, _ = await service.get_logs(query)
         
         # 生成CSV内容
         import csv
@@ -255,7 +181,6 @@ async def export_logs_csv(
         output.seek(0)
         
         # 返回CSV文件
-        from datetime import datetime
         filename = f"operation_logs_{format_date_compact(now_config_tz())}_{now_config_tz().strftime('%H%M%S')}.csv"
         
         return StreamingResponse(

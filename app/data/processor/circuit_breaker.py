@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 FAILURE_THRESHOLD = 3
 WINDOW_SECONDS = 300
 COOLDOWN_STEPS = [60, 120, 300, 600]
+# half-open 探测请求挂起超过该时长视为卡死，允许新探测通过
+_HALF_OPEN_PROBE_TIMEOUT = 60.0
 
 _ERROR_COOLDOWN_MULTIPLIERS = {
     DataErrorCode.RATE_LIMITED: 2,
@@ -20,6 +22,7 @@ _ERROR_COOLDOWN_MULTIPLIERS = {
     DataErrorCode.TOKEN_INVALID: 5,
     DataErrorCode.NETWORK_TIMEOUT: 1,
     DataErrorCode.CONNECTION_ERROR: 1,
+    DataErrorCode.SERVICE_UNAVAILABLE: 1.5,  # 上游 5xx 短暂故障，与 SERVER_ERROR 同档
     DataErrorCode.SERVER_ERROR: 1.5,
     DataErrorCode.DATA_INVALID: 1,
     DataErrorCode.INSUFFICIENT_CREDITS: 5,
@@ -32,7 +35,8 @@ class CircuitBreaker:
     def __init__(self):
         self._states: Dict[Tuple[str, str], dict] = {}
         self._lock = threading.Lock()
-        self._half_open_probing: Dict[Tuple[str, str], bool] = {}
+        # 记录探测开始时间戳；超时未回调则视为卡死，允许新探测
+        self._half_open_probing: Dict[Tuple[str, str], float] = {}
 
     def _get_state(self, source: str, domain: str) -> dict:
         key = (source, domain)
@@ -51,6 +55,7 @@ class CircuitBreaker:
         """判断熔断器是否打开（请求应被拒绝）。"""
         with self._lock:
             state = self._get_state(source, domain)
+            key = (source, domain)
 
             if state["state"] == CircuitState.CLOSED:
                 return False
@@ -61,19 +66,25 @@ class CircuitBreaker:
                     state["state"] = CircuitState.HALF_OPEN
                     logger.info(f"熔断器半开: {source}/{domain}")
                     # 允许第一个探测请求通过，其余继续拒绝
-                    key = (source, domain)
-                    if self._half_open_probing.get(key, False):
-                        return True  # 已有探测请求在执行，拒绝新请求
-                    self._half_open_probing[key] = True
+                    probe_started = self._half_open_probing.get(key)
+                    if (
+                        probe_started is not None
+                        and (time.time() - probe_started) < _HALF_OPEN_PROBE_TIMEOUT
+                    ):
+                        return True  # 已有探测请求在执行且未超时，拒绝新请求
+                    self._half_open_probing[key] = time.time()
                     return False
                 return True
 
             if state["state"] == CircuitState.HALF_OPEN:
-                key = (source, domain)
-                if self._half_open_probing.get(key, False):
-                    return True  # 已有探测请求在执行，拒绝新请求
-                self._half_open_probing[key] = True
-                return False  # 允许这个探测请求
+                probe_started = self._half_open_probing.get(key)
+                if (
+                    probe_started is not None
+                    and (time.time() - probe_started) < _HALF_OPEN_PROBE_TIMEOUT
+                ):
+                    return True  # 已有探测请求在执行且未超时，拒绝新请求
+                self._half_open_probing[key] = time.time()
+                return False  # 允许这个探测请求（无探测或已超时）
 
     def get_state(self, source: str, domain: str) -> CircuitState:
         with self._lock:
@@ -88,12 +99,16 @@ class CircuitBreaker:
             state["trip_count"] = max(0, state["trip_count"] - 1)
             self._half_open_probing.pop((source, domain), None)
 
-    def record_failure(self, source: str, domain: str, error_code: Optional[DataErrorCode] = None) -> None:
+    def record_failure(
+        self, source: str, domain: str, error_code: Optional[DataErrorCode] = None
+    ) -> None:
         with self._lock:
             state = self._get_state(source, domain)
             now = time.time()
 
-            state["failures"] = [t for t in state["failures"] if now - t < WINDOW_SECONDS]
+            state["failures"] = [
+                t for t in state["failures"] if now - t < WINDOW_SECONDS
+            ]
             state["failures"].append(now)
 
             if state["state"] == CircuitState.HALF_OPEN:
@@ -104,7 +119,9 @@ class CircuitBreaker:
             if len(state["failures"]) >= FAILURE_THRESHOLD:
                 self._trip(source, domain, error_code)
 
-    def _trip(self, source: str, domain: str, error_code: Optional[DataErrorCode] = None) -> None:
+    def _trip(
+        self, source: str, domain: str, error_code: Optional[DataErrorCode] = None
+    ) -> None:
         """触发熔断。注意：必须在 self._lock 内调用（由 record_failure 持有锁）。"""
         state = self._get_state(source, domain)
         state["state"] = CircuitState.OPEN
@@ -116,7 +133,9 @@ class CircuitBreaker:
         multiplier = _ERROR_COOLDOWN_MULTIPLIERS.get(error_code, 1)
         state["cooldown"] = min(int(base_cooldown * multiplier), 3600)
 
-        logger.warning(f"熔断器打开: {source}/{domain}, 冷却 {state['cooldown']}s (错误: {error_code})")
+        logger.warning(
+            f"熔断器打开: {source}/{domain}, 冷却 {state['cooldown']}s (错误: {error_code})"
+        )
 
     def get_trip_count(self, source: str, domain: str) -> int:
         """获取熔断器跳闸次数。"""

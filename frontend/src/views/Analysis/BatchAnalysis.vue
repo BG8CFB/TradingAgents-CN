@@ -286,7 +286,7 @@
       <template #header>
         <div class="card-header">
           <h3>股票预览 ({{ stockCodes.length }}只)</h3>
-          <el-button type="text" @click="validateStocks">
+          <el-button link @click="validateStocks">
             <el-icon><Check /></el-icon>
             验证股票代码
           </el-button>
@@ -302,7 +302,7 @@
         >
           <span class="stock-code">{{ code }}</span>
           <el-button
-            type="text"
+            link
             size="small"
             @click="removeStock(index)"
             class="remove-btn"

@@ -9,8 +9,6 @@ from typing import Dict, List, Optional
 from app.engine.tools.builtin.registry import (
     BUILTIN_TOOL_REGISTRY,
     BuiltinToolSpec,
-    get_spec_by_id,
-    get_specs_by_ids,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,7 +66,7 @@ def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
                     real_fn = getattr(mod, mapping[1])
 
             # 用 StructuredTool 显式包装，不依赖函数 docstring
-            sig = inspect.signature(real_fn)
+            inspect.signature(real_fn)
 
             tool = StructuredTool.from_function(
                 func=real_fn,

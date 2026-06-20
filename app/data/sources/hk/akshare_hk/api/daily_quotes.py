@@ -7,7 +7,16 @@ from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import (
+    DataFormatError,
+    DataNotFoundError,
+    DataSourceUnavailableError,
+)
+from app.data.sources.base.mappers import is_empty_result, map_network_exception
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "daily_quotes"
 
 
 async def fetch_daily_quotes(
@@ -18,6 +27,17 @@ async def fetch_daily_quotes(
     """获取港股日线行情（前复权）。
 
     AKShare stock_hk_daily() 返回全部历史数据，需要按日期范围过滤。
+
+    Raises
+    ------
+    NetworkError
+        网络/超时异常（可重试）。
+    DataFormatError
+        AKShare 返回结构异常（不可重试）。
+    DataNotFoundError
+        返回空数据（不可重试）。
+    DataSourceUnavailableError
+        其他未知异常。
 
     Parameters
     ----------
@@ -35,26 +55,41 @@ async def fetch_daily_quotes(
     """
     try:
         import akshare as ak
+
         # 标准化代码为 5 位
         normalized = str(symbol).replace(".HK", "").lstrip("0").zfill(5)
         df = await asyncio.to_thread(ak.stock_hk_daily, symbol=normalized, adjust="qfq")
-        if df is None or df.empty:
-            logger.warning(f"AKShare HK 返回空行情: {symbol}")
-            return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        # 网络异常：可重试
+        raise map_network_exception(exc, "akshare_hk", _DOMAIN)
+    except (KeyError, IndexError, AttributeError, ValueError) as exc:
+        # 数据格式异常：AKShare 返回结构不符合预期，不可重试
+        raise DataFormatError("akshare_hk", _DOMAIN, f"{symbol}: {exc}")
+    except Exception as exc:
+        # 其他未知异常
+        raise DataSourceUnavailableError("akshare_hk", _DOMAIN, f"{symbol}: {exc}")
 
-        # 日期过滤
-        date_col = "日期" if "日期" in df.columns else "date"
-        if date_col in df.columns:
-            df[date_col] = pd.to_datetime(df[date_col])
-            start = pd.to_datetime(start_date)
-            end = pd.to_datetime(end_date)
-            df = df[(df[date_col] >= start) & (df[date_col] <= end)]
-            if df.empty:
-                logger.warning(f"AKShare HK 日期过滤后无数据: {symbol} {start_date}~{end_date}")
-                return None
+    # 空结果：业务正确但无数据，不可重试
+    if is_empty_result(df):
+        logger.warning(f"akshare_hk 返回空行情: {symbol}")
+        raise DataNotFoundError("akshare_hk", _DOMAIN, f"{symbol} 无行情数据")
 
-        logger.info(f"AKShare HK 获取行情: {symbol} {len(df)} 条")
-        return df
-    except Exception as e:
-        logger.error(f"AKShare HK 获取行情失败: {symbol} - {e}")
-        return None
+    # 日期过滤（保留原有业务逻辑）
+    date_col = "日期" if "日期" in df.columns else "date"
+    if date_col in df.columns:
+        df[date_col] = pd.to_datetime(df[date_col])
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df[date_col] >= start) & (df[date_col] <= end)]
+        if df.empty:
+            logger.warning(
+                f"akshare_hk 日期过滤后无数据: {symbol} {start_date}~{end_date}"
+            )
+            raise DataNotFoundError(
+                "akshare_hk",
+                _DOMAIN,
+                f"{symbol} 日期范围 {start_date}~{end_date} 无数据",
+            )
+
+    logger.info(f"akshare_hk 获取行情: {symbol} {len(df)} 条")
+    return df

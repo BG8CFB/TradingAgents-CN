@@ -3,7 +3,7 @@
     <div class="footer-content">
       <!-- 左侧：版权信息 -->
       <div class="footer-left">
-        <span class="copyright">© 2025 TradingAgents-CN v1.1.0-preview</span>
+        <span class="copyright">© 2025 TradingAgents-CN v{{ APP_VERSION }}</span>
       </div>
 
       <!-- 中间：免责提示 (悬浮显示完整版) -->
@@ -37,6 +37,10 @@
 
 <script setup lang="ts">
 import { Link, InfoFilled } from '@element-plus/icons-vue'
+
+// Vite 编译期注入的应用版本号（来源：frontend/package.json）
+declare const __APP_VERSION__: string
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0+unknown'
 </script>
 
 <style lang="scss" scoped>

@@ -1,13 +1,12 @@
 """
 通知服务：持久化 + 列表 + 已读 + SSE 发布
 """
-import json
 import logging
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import timedelta
+from typing import Any, Dict, List, Optional
 from bson import ObjectId
 
-from app.core.database import get_mongo_db, get_redis_client
+from app.core.database import get_mongo_db
 from app.models.notification import (
     NotificationCreate, NotificationOut, NotificationList
 )

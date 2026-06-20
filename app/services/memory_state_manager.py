@@ -13,7 +13,7 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
-from app.utils.timezone import now_config_tz
+from app.utils.timezone import now_config_tz  # noqa: E402 (intentional late import)
 
 class TaskStatus(Enum):
     """任务状态枚举"""
@@ -67,7 +67,6 @@ class TaskState:
                 data['estimated_total_time'] = data['elapsed_time']
             else:
                 # 任务进行中，实时计算已用时间
-                from datetime import datetime
                 elapsed_time = (now_config_tz() - self.start_time).total_seconds()
                 data['elapsed_time'] = elapsed_time
 
@@ -97,7 +96,12 @@ class MemoryStateManager:
     """内存状态管理器"""
 
     def __init__(self):
-        self._tasks: Dict[str, TaskState] = {}
+        # 有界 LRU 缓存：防止高频任务下内存无限增长（maxsize=500）。
+        # 任务完成后 result_data 会持久化到 MongoDB，淘汰时不丢失。
+        from app.core.lru_cache import BoundedLRUCache
+        self._tasks: BoundedLRUCache = BoundedLRUCache(
+            maxsize=500, name="memory_state_tasks"
+        )
         # 🔧 使用 threading.Lock 代替 asyncio.Lock，避免事件循环冲突
         # 当在线程池中执行分析时，会创建新的事件循环，asyncio.Lock 会导致
         # "is bound to a different event loop" 错误
@@ -107,7 +111,7 @@ class MemoryStateManager:
     def set_websocket_manager(self, websocket_manager):
         """设置 WebSocket 管理器"""
         self._websocket_manager = websocket_manager
-        
+
     async def create_task(
         self,
         task_id: str,
@@ -132,7 +136,7 @@ class MemoryStateManager:
                 estimated_duration=estimated_duration,
                 message="任务已创建，等待执行..."
             )
-            self._tasks[task_id] = task_state
+            self._tasks.set(task_id, task_state)
             logger.info(f"📝 创建任务状态: {task_id}")
             logger.info(f"⏱️ 预估总时长: {estimated_duration:.1f}秒 ({estimated_duration/60:.1f}分钟)")
             logger.info(f"📊 当前内存中任务数量: {len(self._tasks)}")
@@ -169,11 +173,11 @@ class MemoryStateManager:
     ) -> bool:
         """更新任务状态（同步版本，不包含 WebSocket 推送）"""
         with self._lock:
-            if task_id not in self._tasks:
+            task = self._tasks.get(task_id)
+            if task is None:
                 logger.warning(f"⚠️ 任务不存在: {task_id}")
                 return False
-            
-            task = self._tasks[task_id]
+
             task.status = status
             
             if progress is not None:
@@ -208,11 +212,11 @@ class MemoryStateManager:
     ) -> bool:
         """更新任务状态"""
         with self._lock:
-            if task_id not in self._tasks:
+            task = self._tasks.get(task_id)
+            if task is None:
                 logger.warning(f"⚠️ 任务不存在: {task_id}")
                 return False
-            
-            task = self._tasks[task_id]
+
             task.status = status
             
             if progress is not None:
@@ -354,8 +358,7 @@ class MemoryStateManager:
     async def delete_task(self, task_id: str) -> bool:
         """删除任务"""
         with self._lock:
-            if task_id in self._tasks:
-                del self._tasks[task_id]
+            if self._tasks.invalidate(task_id):
                 logger.info(f"🗑️ 删除任务: {task_id}")
                 return True
             return False
@@ -390,10 +393,39 @@ class MemoryStateManager:
                         tasks_to_remove.append(task_id)
 
             for task_id in tasks_to_remove:
-                del self._tasks[task_id]
+                self._tasks.invalidate(task_id)
 
             logger.info(f"🧹 清理了 {len(tasks_to_remove)} 个旧任务")
             return len(tasks_to_remove)
+
+    async def get_zombie_tasks(self, max_running_hours: int = 2) -> List[Dict[str, Any]]:
+        """获取僵尸任务列表（不修改状态）
+
+        Args:
+            max_running_hours: 最大运行时长（小时）
+
+        Returns:
+            僵尸任务信息列表
+        """
+        with self._lock:
+            # 循环外缓存当前时间：减少重复时区计算，且保证同一批任务的相对时间一致
+            current_now = now_config_tz()
+            cutoff_time = current_now.timestamp() - (max_running_hours * 3600)
+            result = []
+            for task_id, task in self._tasks.items():
+                if task.status in [TaskStatus.RUNNING, TaskStatus.PENDING]:
+                    if task.start_time and task.start_time.timestamp() < cutoff_time:
+                        result.append({
+                            "task_id": task_id,
+                            "stock_code": task.stock_code,
+                            "stock_name": task.stock_name,
+                            "status": task.status.value,
+                            "start_time": task.start_time.isoformat() if task.start_time else None,
+                            "running_hours": (current_now - task.start_time).total_seconds() / 3600 if task.start_time else 0,
+                            "progress": task.progress,
+                            "message": task.message,
+                        })
+            return result
 
     async def cleanup_zombie_tasks(self, max_running_hours: int = 2) -> int:
         """清理僵尸任务（长时间处于 running 状态的任务）
@@ -416,7 +448,9 @@ class MemoryStateManager:
 
             # 将僵尸任务标记为失败
             for task_id in zombie_tasks:
-                task = self._tasks[task_id]
+                task = self._tasks.get(task_id)
+                if task is None:
+                    continue
                 task.status = TaskStatus.FAILED
                 task.end_time = now_config_tz()
                 task.error_message = f"任务超时（运行时间超过 {max_running_hours} 小时）"
@@ -443,8 +477,7 @@ class MemoryStateManager:
             是否成功删除
         """
         with self._lock:
-            if task_id in self._tasks:
-                del self._tasks[task_id]
+            if self._tasks.invalidate(task_id):
                 logger.info(f"🗑️ 任务已从内存中删除: {task_id}")
                 return True
             else:

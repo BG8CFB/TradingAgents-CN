@@ -7,8 +7,6 @@ from typing import Dict
 from redis.asyncio import Redis
 
 from .keys import (
-    READY_LIST,
-    TASK_PREFIX,
     SET_PROCESSING,
     USER_PROCESSING_PREFIX,
     VISIBILITY_TIMEOUT_PREFIX,

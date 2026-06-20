@@ -440,7 +440,6 @@ def _fetch_tencent_hist(
         K 线字符串列表，格式与东方财富 push2his 一致
         "日期,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率"
     """
-    import re
 
     def _code_to_tencent(code: str) -> str:
         code = code.strip().zfill(6)
@@ -555,7 +554,6 @@ def fetch_tencent_spot_batch(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     if not codes:
         return {}
 
-    import re
 
     def _code_to_tencent(code: str) -> str:
         code = code.strip().zfill(6)

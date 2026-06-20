@@ -35,10 +35,14 @@ class TestToolkitInit:
         tk = Toolkit(config={"custom_key": "value"})
         assert tk.config.get("custom_key") == "value"
 
-    def test_update_config_class_level(self):
-        tk1 = Toolkit(config={"test_update": True})
-        tk2 = Toolkit()
-        assert tk2.config.get("test_update") is True
+    def test_instance_config_isolation(self):
+        """两个实例的 config 互不污染（修复点 C2 引擎）。"""
+        tk1 = Toolkit(config={"custom_key": "v1"})
+        tk2 = Toolkit(config={"custom_key": "v2"})
+        assert tk1.config.get("custom_key") == "v1"
+        assert tk2.config.get("custom_key") == "v2"
+        # 不存在类级别的 update_config
+        assert not hasattr(Toolkit, "update_config")
 
 
 class TestToolkitProperties:

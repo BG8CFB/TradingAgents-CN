@@ -10,7 +10,6 @@ from typing import List, Optional, Dict, Any
 from app.core.database import get_mongo_db
 from app.core.env import get_env
 from app.models.config import DatabaseConfig
-from app.utils.timezone import now_tz
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +261,7 @@ class DatabaseService:
                                 # 🔥 Docker 环境下，将 localhost 替换为 mongodb
                                 if is_docker and host == 'localhost':
                                     host = 'mongodb'
-                                    logger.info(f"🐳 检测到 Docker 环境，将 host 从 localhost 改为 mongodb")
+                                    logger.info("🐳 检测到 Docker 环境，将 host 从 localhost 改为 mongodb")
 
                             if env_port:
                                 port = int(env_port)
@@ -332,7 +331,7 @@ class DatabaseService:
 
                     return {
                         "success": True,
-                        "message": f"成功连接到 MongoDB 数据库",
+                        "message": "成功连接到 MongoDB 数据库",
                         "response_time": response_time,
                         "details": {
                             "type": db_type,
@@ -407,7 +406,7 @@ class DatabaseService:
                                 # 🔥 Docker 环境下，将 localhost 替换为 redis
                                 if is_docker and host == 'localhost':
                                     host = 'redis'
-                                    logger.info(f"🐳 检测到 Docker 环境，将 Redis host 从 localhost 改为 redis")
+                                    logger.info("🐳 检测到 Docker 环境，将 Redis host 从 localhost 改为 redis")
 
                             if env_port:
                                 port = int(env_port)
@@ -454,7 +453,7 @@ class DatabaseService:
 
                     return {
                         "success": True,
-                        "message": f"成功连接到 Redis 数据库",
+                        "message": "成功连接到 Redis 数据库",
                         "response_time": response_time,
                         "details": {
                             "type": db_type,
@@ -516,7 +515,7 @@ class DatabaseService:
 
                     return {
                         "success": True,
-                        "message": f"成功连接到 MySQL 数据库",
+                        "message": "成功连接到 MySQL 数据库",
                         "response_time": response_time,
                         "details": {
                             "type": db_type,
@@ -575,7 +574,7 @@ class DatabaseService:
 
                     return {
                         "success": True,
-                        "message": f"成功连接到 PostgreSQL 数据库",
+                        "message": "成功连接到 PostgreSQL 数据库",
                         "response_time": response_time,
                         "details": {
                             "type": db_type,
@@ -627,7 +626,7 @@ class DatabaseService:
 
                     return {
                         "success": True,
-                        "message": f"成功连接到 SQLite 数据库",
+                        "message": "成功连接到 SQLite 数据库",
                         "response_time": response_time,
                         "details": {
                             "type": db_type,

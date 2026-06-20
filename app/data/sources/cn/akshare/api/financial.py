@@ -3,14 +3,32 @@ AKShare 财务数据 API
 """
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
+import pandas.errors
+
+from app.data.sources.base.exceptions import (
+    DataFormatError,
+    DataNotFoundError,
+    DataSourceUnavailableError,
+)
+from app.data.sources.base.mappers import map_network_exception
 
 logger = logging.getLogger(__name__)
 
+_DOMAIN = "financial"
+
 
 def _safe_float(value) -> Optional[float]:
+    """安全转 float，支持中文单位（亿/万）和百分号换算。
+
+    示例：
+    - "3.5亿"   → 3.5e8
+    - "12.5%"   → 0.125
+    - "1,234.5" → 1234.5
+    - None / NaN / "--" / "-" → None
+    """
     if value is None:
         return None
     try:
@@ -18,10 +36,20 @@ def _safe_float(value) -> Optional[float]:
             value = value.strip()
             if not value or value.lower() in ("nan", "null", "none", "--", "-"):
                 return None
-            value = value.replace(",", "").replace("万", "").replace("亿", "")
+            value = value.replace(",", "")
+            multiplier = 1.0
+            # 优先匹配百分号（无单位前缀），其次匹配亿/万单位
+            if value.endswith("%"):
+                return float(value[:-1]) / 100.0
+            if value.endswith("亿"):
+                multiplier = 1e8
+                value = value[:-1]
+            elif value.endswith("万"):
+                multiplier = 1e4
+                value = value[:-1]
         if isinstance(value, float) and value != value:
             return None
-        return float(value)
+        return float(value) * multiplier
     except (ValueError, TypeError, AttributeError):
         return None
 
@@ -97,8 +125,22 @@ def _build_financial_row(code: str, tables: Dict[str, pd.DataFrame]) -> Dict[str
     }
 
 
-async def fetch_financial_data(code: str) -> Optional[pd.DataFrame]:
-    """获取多表联合财务数据，返回 DataFrame（一行或多行）。"""
+async def fetch_financial_data(
+    code: str,
+    start_date: str = None,
+    end_date: str = None,
+) -> pd.DataFrame:
+    """获取多表联合财务数据，返回 DataFrame（一行或多行）。
+
+    日期过滤：AKShare 财务接口不支持服务端日期范围查询，拉取全量后在内存中
+    按报告期列（REPORT_DATE / 报告期）过滤，减少返回调用方范围外的冗余数据。
+
+    Raises:
+        NetworkError: 网络/超时异常（可重试）
+        DataFormatError: AKShare 返回结构异常（不可重试）
+        DataNotFoundError: 所有财务子表均无数据（不可重试）
+        DataSourceUnavailableError: 其他未知异常
+    """
     try:
         import akshare as ak
 
@@ -117,17 +159,67 @@ async def fetch_financial_data(code: str) -> Optional[pd.DataFrame]:
             try:
                 df = await asyncio.to_thread(fn)
                 if df is not None and not df.empty:
-                    tables[name] = df
-            except Exception as e:
-                logger.debug(f"AKShare获取财务数据 {name} 失败: {e}")
+                    if start_date or end_date:
+                        df = _filter_df_by_report_period(df, start_date, end_date)
+                    if df is not None and not df.empty:
+                        tables[name] = df
+            except (
+                KeyError,
+                IndexError,
+                AttributeError,
+                ValueError,
+                pandas.errors.EmptyDataError,
+            ) as e:
+                # 单个子表数据格式异常（AKShare 返回结构变化或缺字段）：跳过该表，不影响其他表
+                logger.debug(f"AKShare获取财务数据 {name} 格式异常: {e}")
                 continue
+            # 其他异常（网络/超时/未知）不在此处吞掉，让其上抛到外层异常分类器处理
 
-        if not tables:
-            return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        # 网络异常：可重试
+        raise map_network_exception(exc, "akshare", _DOMAIN)
+    except (KeyError, IndexError, AttributeError, ValueError) as exc:
+        # 数据格式异常：AKShare 返回结构不符合预期，不可重试
+        raise DataFormatError("akshare", _DOMAIN, f"code={code}: {exc}")
+    except Exception as exc:
+        # 其他未知异常
+        raise DataSourceUnavailableError("akshare", _DOMAIN, f"code={code}: {exc}")
 
-        row = _build_financial_row(code, tables)
-        return pd.DataFrame([row])
+    # 所有子表均无数据 → 视为业务空结果
+    if not tables:
+        raise DataNotFoundError("akshare", _DOMAIN, f"code={code} 所有财务子表均无数据")
 
-    except Exception as e:
-        logger.error(f"AKShare 获取财务数据失败 {code}: {e}")
-        return None
+    row = _build_financial_row(code, tables)
+    return pd.DataFrame([row])
+
+
+def _filter_df_by_report_period(
+    df: "pd.DataFrame", start_date: str, end_date: str
+) -> "pd.DataFrame":
+    """按报告期列过滤 AKShare 财务 DataFrame。
+
+    AKShare 各财务报表的报告期列名不统一（REPORT_DATE / 报告期 / 报表日期等），
+    这里尝试常见列名。日期统一去掉分隔符后做字符串比较。
+    返回过滤后的 DataFrame；若无匹配列则原样返回（不阻塞业务）。
+    """
+    period_cols = ["REPORT_DATE", "报告期", "报表日期", "报告日", "ANN_DATE"]
+    col = None
+    for c in period_cols:
+        if c in df.columns:
+            col = c
+            break
+    if col is None:
+        return df
+
+    start = str(start_date).replace("-", "") if start_date else None
+    end = str(end_date).replace("-", "") if end_date else None
+
+    def _norm(v):
+        return str(v).replace("-", "") if v is not None else ""
+
+    mask = df[col].apply(_norm)
+    if start:
+        mask = mask & df[col].apply(lambda v: _norm(v) >= start)
+    if end:
+        mask = mask & df[col].apply(lambda v: _norm(v) <= end)
+    return df[mask]

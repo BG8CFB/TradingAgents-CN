@@ -24,7 +24,7 @@ class PrePostMarketRepo:
             if not sym or not td:
                 continue
             ops.append(UpdateOne(
-                {"symbol": sym, "trade_date": td, "session_type": session_type},
+                {"symbol": sym, "trade_date": td, "session_type": session_type, "data_source": rec.get("data_source")},
                 {"$set": rec},
                 upsert=True,
             ))

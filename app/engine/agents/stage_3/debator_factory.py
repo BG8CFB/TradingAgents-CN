@@ -19,6 +19,7 @@ from typing import Literal
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.utils.logging_init import get_logger
+from app.core.async_utils import ainvoke
 from app.engine.agents.utils.agent_config import (
     build_stage3_report_path,
     load_agent_config,
@@ -144,7 +145,7 @@ def create_debator(llm, side: Literal["risky", "safe", "neutral"] = "risky"):
     # 预计算对手配置引用
     opponent_cfgs = {opp: _SIDE_CONFIG[opp] for opp in cfg["opponents"]}
 
-    def debator_node(state) -> dict:
+    async def debator_node(state) -> dict:
         logger.debug(f"{emoji} [DEBUG] ===== {label}节点开始 =====")
 
         risk_debate_state = state.get("risk_debate_state", {})
@@ -260,8 +261,8 @@ def create_debator(llm, side: Literal["risky", "safe", "neutral"] = "risky"):
 
         messages.append(HumanMessage(content=trigger_msg))
 
-        # ── 7. 执行推理 ─────────────────────────────────────────
-        response = llm.invoke(messages)
+        # ── 7. 执行推理（异步：通过 ainvoke 统一桥接） ───────────
+        response = await ainvoke(llm, messages)
         content = response.content
 
         # 清洗内容：去除包含辩手关键字的一级标题

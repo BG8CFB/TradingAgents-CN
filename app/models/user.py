@@ -2,12 +2,10 @@
 用户数据模型
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from app.utils.timezone import now_tz
-from typing import Optional, Dict, Any, Annotated, List
+from typing import Optional, Any, Annotated, List
 from pydantic import BaseModel, Field, BeforeValidator, PlainSerializer, ConfigDict, field_serializer
-from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import core_schema
 from bson import ObjectId
 
 

@@ -25,7 +25,7 @@ class IntradayQuotesRepo:
             if not sym or not dt:
                 continue
             ops.append(UpdateOne(
-                {"symbol": sym, "datetime": dt, "freq": freq},
+                {"symbol": sym, "datetime": dt, "freq": freq, "data_source": rec.get("data_source")},
                 {"$set": rec},
                 upsert=True,
             ))

@@ -235,7 +235,7 @@ class LLMRateLimiter:
             
             self._record_call(provider, tokens_estimated, success=True)
             return result
-        except Exception as e:
+        except Exception:
             self._record_call(provider, 0, success=False)
             raise
         finally:

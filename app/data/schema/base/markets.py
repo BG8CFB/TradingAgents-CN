@@ -21,7 +21,7 @@ class MarketMeta:
     trading_hours_afternoon: str  # 如 "13:00-16:00" 或空字符串
     symbol_format: str  # regex 描述
     exchanges: list  # 交易所代码列表
-    collection_suffix: str  # _cn / _hk / _us
+    collection_suffix: str  # _hk / _us；CN 为空字符串（基础名不加后缀）
 
 
 MARKET_META: Dict[MarketType, MarketMeta] = {
@@ -34,7 +34,7 @@ MARKET_META: Dict[MarketType, MarketMeta] = {
         trading_hours_afternoon="13:00-15:00",
         symbol_format="6位数字(000001-689999)",
         exchanges=["SSE", "SZSE", "BSE"],
-        collection_suffix="_cn",
+        collection_suffix="",
     ),
     MarketType.HK: MarketMeta(
         code="HK",

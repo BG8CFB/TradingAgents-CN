@@ -119,7 +119,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { recommendModels } from '@/api/modelCapabilities'
@@ -244,6 +244,14 @@ watch([localAnalystModel, localDebateModel], () => {
 // 初始化
 onMounted(() => {
   checkModelSuitability()
+})
+
+// 卸载时清理防抖定时器
+onUnmounted(() => {
+  if (_suitabilityTimer) {
+    clearTimeout(_suitabilityTimer)
+    _suitabilityTimer = null
+  }
 })
 </script>
 

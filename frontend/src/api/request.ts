@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import router from '@/router'
+import { getCsrfToken } from './csrf'
 
 // API响应接口
 export interface ApiResponse<T = any> {
@@ -24,6 +25,10 @@ export interface RequestConfig extends AxiosRequestConfig {
   loadingText?: string
   retryCount?: number  // 重试次数
   retryDelay?: number  // 重试延迟（毫秒）
+  /** 显式跳过 CSRF Token 注入（用于登录/注册/获取 CSRF token 本身等"无 token 也能调"的端点） */
+  skipCsrf?: boolean
+  /** 内部标志：已通过 ensureCsrfToken 补刷过 CSRF Token，防止 403 无限循环 */
+  __csrfRefreshed?: boolean
   /** 内部标志：已通过 token 刷新重试过，防止 401 无限循环 */
   __tokenRefreshed?: boolean
   /** 内部标志：当前重试计数 */
@@ -126,6 +131,23 @@ const createAxiosInstance = (): AxiosInstance => {
         }
       }
 
+      // CSRF 双提交：仅不安全方法（POST/PUT/PATCH/DELETE）注入 X-CSRF-Token header
+      // Cookie 中的 csrf_token 由 login/register/refresh 端点 Set-Cookie 下发；
+      // 这里读取 cookie 值后注入 header，后端校验 cookie == header 即放行。
+      // skipCsrf=true 用于显式豁免（如 login 本身不需要 CSRF）
+      const method = (config.method || 'get').toLowerCase()
+      const UNSAFE_METHODS = ['post', 'put', 'patch', 'delete']
+      if (UNSAFE_METHODS.includes(method) && !(config as any).skipCsrf) {
+        // 复用 csrf.ts 的 getCsrfToken()，避免重复维护 cookie 解析正则
+        const csrfValue = getCsrfToken()
+        if (csrfValue) {
+          config.headers = config.headers || {}
+          config.headers['X-CSRF-Token'] = csrfValue
+        }
+        // 若 cookie 缺失，由全局响应拦截器在收到 403 后触发 ensureCsrfToken 补刷；
+        // 此处不阻塞请求，保持单一职责
+      }
+
       // 添加请求ID
       config.headers['X-Request-ID'] = generateRequestId()
 
@@ -170,6 +192,12 @@ const createAxiosInstance = (): AxiosInstance => {
       // 隐藏加载状态
       if (config.showLoading) {
         appStore.setLoading(false)
+      }
+
+      // Blob/Document 等二进制响应直接透传，跳过业务码判断（避免对 Blob 取 'success' in data 误判）
+      const responseType = config.responseType
+      if (responseType === 'blob' || responseType === 'arraybuffer' || responseType === 'document') {
+        return response.data
       }
 
       if (import.meta.env.DEV) {
@@ -270,6 +298,29 @@ const createAxiosInstance = (): AxiosInstance => {
             break
 
           case 403:
+            // CSRF 失败兜底：后端返回的 detail 标识"CSRF token 缺失/无效"时，
+            // 主动通过 GET /api/auth/csrf-token 补刷一次并重试请求，避免用户因
+            // Cookie 丢失被卡死。重试限制 1 次（__csrfRefreshed 标志防循环）。
+            if (
+              !config?.skipCsrf &&
+              !config?.__csrfRefreshed &&
+              data?.detail &&
+              typeof data.detail === 'string' &&
+              data.detail.includes('CSRF')
+            ) {
+              try {
+                console.log('🔄 CSRF 校验失败，自动补刷 token...')
+                const { ensureCsrfToken } = await import('./csrf')
+                const ok = await ensureCsrfToken()
+                if (ok) {
+                  console.log('✅ CSRF token 已补刷，重试原请求')
+                  const newConfig = { ...config, __csrfRefreshed: true }
+                  return instance.request(newConfig)
+                }
+              } catch (refreshError) {
+                console.error('❌ CSRF token 补刷异常:', refreshError)
+              }
+            }
             showErrorMessage('权限不足，无法访问该资源')
             break
 
@@ -454,36 +505,6 @@ const retryRequest = async (instance: AxiosInstance, config: RequestConfig): Pro
 
 // 创建请求实例
 const request = createAxiosInstance()
-
-// 测试API连接
-export const testApiConnection = async (): Promise<boolean> => {
-  try {
-    console.log('🔍 [API_TEST] 开始测试API连接')
-    console.log('🔍 [API_TEST] 基础URL:', import.meta.env.VITE_API_BASE_URL || '使用代理')
-    console.log('🔍 [API_TEST] 代理目标:', 'http://localhost:8000 (根据vite.config.ts)')
-
-    const response = await request.get('/api/health', {
-      timeout: 5000
-    } as any)
-
-    console.log('🔍 [API_TEST] 健康检查成功:', response.data)
-    return true
-  } catch (error: any) {
-    console.error('🔍 [API_TEST] 健康检查失败:', error)
-
-    if (error.code === 'ECONNABORTED') {
-      console.error('🔍 [API_TEST] 连接超时 - 后端服务可能未启动')
-    } else if (error.message === 'Network Error' || error.message.includes('Failed to fetch')) {
-      console.error('🔍 [API_TEST] 网络错误 - 后端服务可能未在 http://localhost:8000 运行')
-    } else if (error.response?.status === 404) {
-      console.error('🔍 [API_TEST] 404错误 - /api/health 端点不存在')
-    } else {
-      console.error('🔍 [API_TEST] 其他错误:', error.message)
-    }
-
-    return false
-  }
-}
 
 // 请求方法封装
 export class ApiClient {

@@ -4,7 +4,6 @@
 """
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional
-from datetime import datetime, timedelta
 
 from app.routers.auth_db import get_current_user, require_admin
 from app.core.response import ok, safe_error_message
@@ -18,6 +17,24 @@ router = APIRouter(prefix="/api/cache", tags=["Cache"])
 
 # 全局 TTLCache 实例引用（通过 app state 注册）
 _memory_cache: Optional[TTLCache] = None
+
+# 系统内部缓存键前缀：禁止通过 /items/{key} 接口删除
+# 这些前缀承载认证状态、会话、限流配额等关键状态；误删会让用户被锁死或绕过限流
+FORBIDDEN_KEY_PREFIXES: tuple = (
+    "token_blacklist:",     # logout 后吊销的 access_token
+    "system_secrets:",      # JWT/CSRF 等系统密钥
+    "session:",             # 用户会话
+    "ratelimit:",           # 限流配额
+    "auth:",                # 认证中间件状态
+    "lock:",                # 分布式锁（避免误删导致并发保护失效）
+)
+
+
+def _is_forbidden_cache_key(key: str) -> bool:
+    """判断是否禁止通过 cache API 删除的系统内部键。"""
+    if not key:
+        return False
+    return any(key.startswith(prefix) for prefix in FORBIDDEN_KEY_PREFIXES)
 
 
 def set_memory_cache(cache: TTLCache):
@@ -261,48 +278,72 @@ async def get_cache_details(
         )
 
 
-@router.get("/backend-info")
-async def get_cache_backend_info(current_user: dict = Depends(get_current_user)):
+@router.delete("/items/{key:path}")
+async def delete_cache_item(
+    key: str,
+    current_user: dict = Depends(require_admin)
+):
     """
-    获取缓存后端信息
+    删除单个缓存条目
+
+    同时清理 Redis（若存在该 key）与内存 TTLCache（若存在）。
+
+    Args:
+        key: 缓存键（URL 解码后传入，支持包含冒号等分隔符）
 
     Returns:
-        dict: 缓存后端配置信息
+        dict: 删除结果
     """
     try:
+        # 路径遍历防护：禁止删除系统内部缓存键（认证状态、限流配额等）
+        if _is_forbidden_cache_key(key):
+            logger.warning(
+                f"用户 {current_user['username']} 试图删除系统内部缓存键: {key[:32]}"
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="禁止访问系统内部缓存键",
+            )
+
         redis = get_redis()
-        redis_connected = False
-        redis_version = None
+        redis_deleted = False
 
         if redis:
             try:
-                await redis.ping()
-                redis_connected = True
-                info = await redis.info("server")
-                redis_version = info.get("redis_version")
+                deleted = await redis.delete(key)
+                redis_deleted = deleted > 0
             except Exception as e:
-                logger.debug(f"获取Redis信息失败: {e}")
-                redis_connected = False
+                logger.warning(f"Redis 单条删除失败: {e}")
 
-        memory_cache_active = _memory_cache is not None
+        memory_deleted = False
+        if _memory_cache:
+            memory_deleted = _memory_cache.invalidate(key)
 
-        logger.info(f"用户 {current_user['username']} 获取缓存后端信息")
+        if not (redis_deleted or memory_deleted):
+            logger.info(f"用户 {current_user['username']} 删除缓存键不存在: {key[:32]}")
+            return ok(
+                data={"key": key, "existed": False},
+                message="缓存键不存在"
+            )
+
+        logger.info(f"用户 {current_user['username']} 删除缓存键: {key[:32]}")
 
         return ok(
             data={
-                "system": "redis+memory",
-                "primary_backend": "redis",
-                "redis_connected": redis_connected,
-                "redis_version": redis_version,
-                "memory_cache_active": memory_cache_active,
-                "fallback_enabled": True,
+                "key": key,
+                "existed": True,
+                "redis_deleted": redis_deleted,
+                "memory_deleted": memory_deleted,
             },
-            message="获取缓存后端信息成功"
+            message="缓存项已删除"
         )
 
+    except HTTPException:
+        # 业务异常（403 等）直接透传，不要被 500 覆盖
+        raise
     except Exception as e:
-        logger.error(f"获取缓存后端信息失败: {e}")
+        logger.error(f"删除缓存项失败: {e}")
         raise HTTPException(
             status_code=500,
-            detail=safe_error_message(e, "获取缓存后端信息失败")
+            detail=safe_error_message(e, "删除缓存项失败")
         )

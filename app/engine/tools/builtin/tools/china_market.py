@@ -11,7 +11,6 @@ from datetime import timedelta
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
-from app.engine.tools.common.format import format_result
 from app.data.core.interface import DataInterface
 from app.core.async_utils import run_async
 logger = logging.getLogger(__name__)
@@ -77,7 +76,6 @@ def get_china_market_overview(
 
     if include_sectors:
         try:
-            import concurrent.futures
 
             sector_df = None
 

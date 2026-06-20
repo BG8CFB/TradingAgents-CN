@@ -12,11 +12,14 @@ import 'dayjs/locale/zh-cn'
 import App from './App.vue'
 import router from './router'
 import { setupGlobalComponents } from './components'
-import { useAuthStore } from './stores/auth'
+import { useAuthStore, setAppRouter, cleanupInvalidAuthStorage } from './stores/auth'
 import { useAppStore } from './stores/app'
 import { setupTokenRefreshTimer } from './utils/auth'
 import './styles/index.scss'
 import './styles/dark-theme.scss'
+
+// Vite 编译期注入的应用版本号（来源：frontend/package.json，与 pyproject.toml 保持一致）
+declare const __APP_VERSION__: string
 
 // 创建应用实例
 const app = createApp(App)
@@ -80,6 +83,11 @@ app.config.warnHandler = (msg, _vm, trace) => {
 // 初始化认证状态
 const initApp = async () => {
   try {
+    // 在创建 authStore 之前先清理无效 token，保持 state 工厂纯净（仅读不写）
+    cleanupInvalidAuthStorage()
+    // 注入 router 实例，供 authStore.redirectToLogin 走 SPA 路由
+    setAppRouter(router)
+
     const authStore = useAuthStore()
     const appStore = useAppStore()
 
@@ -90,17 +98,20 @@ const initApp = async () => {
     console.log('🎨 主题已应用:', appStore.theme)
 
     // 设置网络状态监听
-    window.addEventListener('online', () => {
+    const handleOnline = () => {
       console.log('🌐 网络已连接')
       appStore.setOnlineStatus(true)
       appStore.checkApiConnection()
-    })
+    }
 
-    window.addEventListener('offline', () => {
+    const handleOffline = () => {
       console.log('📱 网络已断开')
       appStore.setOnlineStatus(false)
       appStore.setApiConnected(false)
-    })
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
 
     // 检查API连接状态
     console.log('🔍 检查API连接状态...')
@@ -117,9 +128,16 @@ const initApp = async () => {
       await Promise.race([checkPromise, timeoutPromise])
       console.log('✅ 认证状态初始化完成')
 
-      // 如果用户已登录，启动 token 自动刷新定时器
+      // 已登录但浏览器 CSRF Cookie 丢失（如刚刷新页面或第三方 Cookie 被禁用）时，
+      // 主动通过 GET /api/auth/csrf-token 补刷；未登录则跳过，登录后会自动下发
       if (authStore.isAuthenticated) {
         setupTokenRefreshTimer()
+        try {
+          const { ensureCsrfToken } = await import('./api/csrf')
+          await ensureCsrfToken()
+        } catch (e) {
+          console.warn('⚠️ 启动时补刷 CSRF token 失败（不影响已登录状态）:', e)
+        }
       }
     } else {
       console.log('⚠️ API连接失败，跳过认证检查')
@@ -142,7 +160,7 @@ initApp()
 
 // 开发环境下的调试信息
 if (import.meta.env.DEV) {
-  console.log('🚀 TradingAgents-CN v1.1.0-preview 前端应用已启动')
+  console.log(`🚀 TradingAgents-CN v${__APP_VERSION__} 前端应用已启动`)
   console.log('📊 当前环境:', import.meta.env.MODE)
   console.log('🔗 API地址:', import.meta.env.VITE_API_BASE_URL || '/api')
 }

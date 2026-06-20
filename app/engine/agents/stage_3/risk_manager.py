@@ -6,18 +6,19 @@ import time
 from app.utils.logging_init import get_logger
 logger = get_logger("default")
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from app.engine.agents.utils.agent_config import (
+from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402 (intentional late import)
+from app.engine.agents.utils.agent_config import (  # noqa: E402 (intentional late import)
     build_stage3_report_path,
     load_agent_config,
     resolve_company_name,
 )
+from app.core.async_utils import ainvoke  # noqa: E402 (intentional late import)
 
 _STAGE3_PREFIXES = frozenset({"risky_", "safe_", "neutral_"})
 
 def create_risk_manager(llm, memory):
-    def risk_manager_node(state) -> dict:
-        logger.debug(f"👔 [DEBUG] ===== 首席风控官 (Risk Manager) 节点开始 =====")
+    async def risk_manager_node(state) -> dict:
+        logger.debug("👔 [DEBUG] ===== 首席风控官 (Risk Manager) 节点开始 =====")
         
         risk_debate_state = state.get("risk_debate_state", {})
         
@@ -71,7 +72,8 @@ def create_risk_manager(llm, memory):
         for key, content in all_reports.items():
             if content and "report" in key:
                 # 排除掉 Stage 3 自己的报告，避免冗余，或者选择性包含
-                if any(key.startswith(prefix) for prefix in _STAGE3_PREFIXES): continue
+                if any(key.startswith(prefix) for prefix in _STAGE3_PREFIXES):
+                    continue
                 display_name = key.replace("_report", "").replace("_", " ").title() + "报告"
                 messages.append(HumanMessage(content=f"=== 基础资料：{display_name} ===\n{content}"))
 
@@ -100,10 +102,10 @@ def create_risk_manager(llm, memory):
 """
         messages.append(HumanMessage(content=user_content))
         
-        logger.info(f"👔 [Risk Manager] 开始生成最终风控裁决报告...")
+        logger.info("👔 [Risk Manager] 开始生成最终风控裁决报告...")
         
-        # 5. 执行推理
-        response = llm.invoke(messages)
+        # 5. 执行推理（异步：通过 ainvoke 统一桥接）
+        response = await ainvoke(llm, messages)
         final_content = response.content
         
         # 6. 保存报告文件
@@ -117,7 +119,7 @@ def create_risk_manager(llm, memory):
             with open(tmp_filename, "w", encoding="utf-8") as f:
                 f.write(f"# {company_name} ({ticker}) 投资组合风控裁决报告\n\n")
                 f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"> 决策人：首席风控官\n\n")
+                f.write("> 决策人：首席风控官\n\n")
                 f.write(final_content)
             os.replace(tmp_filename, filename)
             logger.info(f"👔 [Risk Manager] 已生成裁决报告: {filename}")

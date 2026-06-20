@@ -6,14 +6,25 @@ from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import DataNotFoundError
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "daily_indicators"
 
 
 async def fetch_daily_indicators(symbol: str) -> Optional[pd.DataFrame]:
     """获取港股每日指标。
 
     AKShare 对港股 PE / PB / 市值等指标的支持有限，
-    当前返回 None。待后续 AKShare 提供对应接口后补充实现。
+    当前接口未实现。待后续 AKShare 提供对应接口后补充实现。
+
+    暂以 DataNotFoundError 抛出，便于上层 fallback 路由自动切换到其他数据源。
+
+    Raises
+    ------
+    DataNotFoundError
+        接口未实现，无数据。
 
     Parameters
     ----------
@@ -24,5 +35,5 @@ async def fetch_daily_indicators(symbol: str) -> Optional[pd.DataFrame]:
     -------
     None
     """
-    logger.debug(f"AKShare HK 每日指标暂不支持: {symbol}")
-    return None
+    logger.debug(f"akshare_hk 每日指标暂不支持: {symbol}")
+    raise DataNotFoundError("akshare_hk", _DOMAIN, f"{symbol} 接口未实现")

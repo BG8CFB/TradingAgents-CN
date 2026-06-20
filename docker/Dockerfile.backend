@@ -1,4 +1,4 @@
-# Backend Dockerfile for FastAPI service (TradingAgents-CN v1.0.0-preview)
+# Backend Dockerfile for FastAPI service (TradingAgents-CN v1.3.2)
 # 前后端分离架构 - 后端服务
 # 支持多架构: amd64, arm64
 

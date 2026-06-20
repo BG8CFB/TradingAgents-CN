@@ -3,6 +3,7 @@
 import logging
 import os
 import threading
+import time
 from typing import Dict, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -30,7 +31,7 @@ class SchedulerEngine:
 
     def __init__(self, scheduler: Optional[AsyncIOScheduler] = None):
         with self._instance_lock:
-            if getattr(self, '_initialized', False):
+            if getattr(self, "_initialized", False):
                 return
             self._initialized = True
         self._scheduler = scheduler or AsyncIOScheduler(timezone="UTC")
@@ -52,7 +53,9 @@ class SchedulerEngine:
             self._register_all_jobs()
             self._load_all_schedules()
             self._scheduler.start()
-            logger.info("调度引擎已启动，共注册 %d 个任务", len(self._registry.list_jobs()))
+            logger.info(
+                "调度引擎已启动，共注册 %d 个任务", len(self._registry.list_jobs())
+            )
 
     def shutdown(self, wait: bool = True) -> None:
         if self._scheduler.running:
@@ -65,6 +68,7 @@ class SchedulerEngine:
         from app.data.scheduler.jobs.cn import register_cn_jobs
         from app.data.scheduler.jobs.hk import register_hk_jobs
         from app.data.scheduler.jobs.us import register_us_jobs
+
         register_cn_jobs(self._registry)
         register_hk_jobs(self._registry)
         register_us_jobs(self._registry)
@@ -79,6 +83,7 @@ class SchedulerEngine:
     def load_schedule(self, market: str, yaml_path: str) -> None:
         """加载市场调度配置并注册任务。"""
         import yaml
+
         if not os.path.exists(yaml_path):
             logger.warning("调度配置不存在: %s", yaml_path)
             return
@@ -96,7 +101,9 @@ class SchedulerEngine:
 
             self._job_configs[(market, domain)] = job_conf
             for dep in job_conf.get("depends_on", []) or []:
-                self._dependency_graph.add_dependency(f"{market}:{domain}", f"{market}:{dep}")
+                self._dependency_graph.add_dependency(
+                    f"{market}:{domain}", f"{market}:{dep}"
+                )
 
             timezone = job_conf.get("timezone", "UTC")
             job_id = f"{market.lower()}_{domain}"
@@ -117,6 +124,12 @@ class SchedulerEngine:
                     id=job_id,
                     replace_existing=True,
                     max_instances=1,
+                    # 错过触发窗口的处理策略：
+                    # - misfire_grace_time=300：超过 5 分钟的堆积任务丢弃，避免重启后
+                    #   把长时间累积的 misfire 一次性补跑导致数据库被打挂
+                    # - coalesce=True：多个错过的实例合并为 1 次，避免重复执行
+                    misfire_grace_time=300,
+                    coalesce=True,
                 )
                 logger.info("注册调度: %s (%s %s)", job_id, cron_expr, timezone)
             except Exception as e:
@@ -124,11 +137,15 @@ class SchedulerEngine:
 
     def _make_job_func(self, market: str, domain: str):
         """创建任务函数 — 从 JobRegistry 查找并执行对应 Job。"""
+
         async def job():
             await self._run_job_with_dependencies(market, domain, set(), force=False)
+
         return job
 
-    async def _run_job_with_dependencies(self, market: str, domain: str, visited: set[str], force: bool = False) -> None:
+    async def _run_job_with_dependencies(
+        self, market: str, domain: str, visited: set[str], force: bool = False
+    ) -> None:
         node_key = f"{market}:{domain}"
         if node_key in visited:
             return
@@ -144,6 +161,12 @@ class SchedulerEngine:
             logger.warning("未注册任务: %s/%s", market, domain)
             return
 
+        # 调用监控钩子（若已启动）记录任务开始
+        monitor = self._get_monitor()
+        if monitor:
+            monitor.on_task_start(market, domain)
+        start_ts = time.time()
+
         try:
             job_instance = job_entry["class"]()
             job_instance.sync_mode = job_conf.get("mode", "incremental")
@@ -152,8 +175,35 @@ class SchedulerEngine:
             job_instance.force_sync = force
             result = await job_instance.execute()
             logger.info("调度完成 %s/%s: %s", market, domain, result)
+            if monitor:
+                monitor.on_task_complete(
+                    market,
+                    domain,
+                    success=True,
+                    latency_ms=int((time.time() - start_ts) * 1000),
+                )
         except Exception as e:
             logger.error("调度执行失败 %s/%s: %s", market, domain, e)
+            if monitor:
+                monitor.on_task_complete(
+                    market,
+                    domain,
+                    success=False,
+                    latency_ms=int((time.time() - start_ts) * 1000),
+                )
+
+    @staticmethod
+    def _get_monitor():
+        """获取已启动的 SchedulerMonitor 单例（未启动则返回 None）。"""
+        try:
+            from app.data.scheduler.monitors import SchedulerMonitor
+
+            monitor = SchedulerMonitor()
+            if getattr(monitor, "_running", False):
+                return monitor
+        except Exception:
+            pass
+        return None
 
     async def trigger_job(self, market: str, domain: str) -> str:
         """手动触发任务。"""

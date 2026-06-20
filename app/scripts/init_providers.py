@@ -6,13 +6,11 @@
 import asyncio
 import sys
 import os
-from datetime import datetime
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from app.core.database import init_db, get_mongo_db
-from app.models.config import LLMProvider
 from app.utils.time_utils import now_utc
 
 async def init_providers():

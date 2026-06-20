@@ -5,7 +5,6 @@
 
 import asyncio
 import logging
-from typing import Optional
 
 import pandas as pd
 
@@ -29,7 +28,7 @@ class TencentHKProvider(BaseProvider):
 
     async def get_market_quotes(
         self, symbols=None, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         try:
             import urllib.request
 

@@ -127,7 +127,7 @@
 
         <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
-            <el-button type="text" size="small" @click="viewReport(row)">
+            <el-button link size="small" @click="viewReport(row)">
               查看
             </el-button>
             <el-dropdown
@@ -135,7 +135,7 @@
               trigger="click"
               @command="(format) => downloadReport(row, format)"
             >
-              <el-button type="text" size="small">
+              <el-button link size="small">
                 下载 <el-icon class="el-icon--right"><arrow-down /></el-icon>
               </el-button>
               <template #dropdown>
@@ -156,7 +156,7 @@
               </template>
             </el-dropdown>
             <el-button
-              type="text"
+              link
               size="small"
               @click="deleteReport(row)"
               style="color: var(--el-color-danger)"

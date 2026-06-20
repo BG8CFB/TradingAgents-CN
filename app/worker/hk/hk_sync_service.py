@@ -6,7 +6,7 @@
 """
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from app.core.config import settings
 from app.data.storage.mongo.collections import get_collection_name

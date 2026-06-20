@@ -571,34 +571,17 @@ const handleSubmit = async () => {
     // 后端会判断截断值是否与数据库中的原值匹配
     const payload: any = { ...formData.value }
 
-    // 添加日志，显示发送的 API Key
-    if (payload.api_key) {
-      console.log('🔍 [保存] 发送 API Key:', payload.api_key, '(长度:', payload.api_key.length, ')')
-    } else {
-      console.log('🔍 [保存] API Key 为空')
-    }
-
-    if (payload.api_secret) {
-      console.log('🔍 [保存] 发送 API Secret:', payload.api_secret, '(长度:', payload.api_secret.length, ')')
-    } else {
-      console.log('🔍 [保存] API Secret 为空')
-    }
-
     // 处理占位符（your_xxx 或 your-xxx）
     if ('api_key' in payload) {
       const apiKey = payload.api_key || ''
-      // 如果是占位符，删除该字段（不更新）
       if (apiKey.startsWith('your_') || apiKey.startsWith('your-')) {
-        console.log('🔍 [保存] API Key 是占位符，删除字段')
         delete payload.api_key
       }
     }
 
     if ('api_secret' in payload) {
       const apiSecret = payload.api_secret || ''
-      // 如果是占位符，删除该字段（不更新）
       if (apiSecret.startsWith('your_') || apiSecret.startsWith('your-')) {
-        console.log('🔍 [保存] API Secret 是占位符，删除字段')
         delete payload.api_secret
       }
     }
@@ -650,19 +633,6 @@ const handleTest = async () => {
     // 🔥 修复：直接发送截断的 API Key 给后端
     // 后端会判断截断值是否与数据库中的原值匹配
     const testPayload: any = { ...formData.value }
-
-    // 添加日志，显示发送的 API Key
-    if (testPayload.api_key) {
-      console.log('🔍 [测试连接] 发送 API Key:', testPayload.api_key, '(长度:', testPayload.api_key.length, ')')
-    } else {
-      console.log('🔍 [测试连接] API Key 为空')
-    }
-
-    if (testPayload.api_secret) {
-      console.log('🔍 [测试连接] 发送 API Secret:', testPayload.api_secret, '(长度:', testPayload.api_secret.length, ')')
-    } else {
-      console.log('🔍 [测试连接] API Secret 为空')
-    }
 
     const result = await configApi.testConfig({
       config_type: 'datasource',

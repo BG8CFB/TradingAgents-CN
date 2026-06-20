@@ -17,14 +17,14 @@ export interface CacheStats {
 
 /**
  * 缓存详情项
+ *
+ * 与后端 /api/cache/details 实际返回字段对齐：
+ *   { key, ttl, type }
  */
 export interface CacheDetailItem {
+  key: string
+  ttl: number
   type: string
-  symbol: string
-  size: number
-  created_at: string
-  last_accessed: string
-  hit_count: number
 }
 
 /**
@@ -35,17 +35,6 @@ export interface CacheDetailsResponse {
   total: number
   page: number
   page_size: number
-}
-
-/**
- * 缓存后端信息
- */
-export interface CacheBackendInfo {
-  system: string
-  primary_backend: string
-  fallback_enabled: boolean
-  mongodb_available?: boolean
-  redis_available?: boolean
 }
 
 /**
@@ -80,8 +69,9 @@ export function getCacheDetails(page: number = 1, pageSize: number = 20) {
 }
 
 /**
- * 获取缓存后端信息
+ * 删除单个缓存项
+ * @param key 缓存键（自动 URL 编码）
  */
-export function getCacheBackendInfo() {
-  return ApiClient.get<CacheBackendInfo>('/api/cache/backend-info')
+export function deleteCacheItem(key: string) {
+  return ApiClient.delete(`/api/cache/items/${encodeURIComponent(key)}`)
 }

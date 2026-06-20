@@ -789,6 +789,7 @@ const progressInfo = ref({
   totalTime: 0         // 预计总时长（秒）
 })
 const pollingTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+let initialQueryTimer: ReturnType<typeof setTimeout> | null = null
 
 // 动态分析师列表
 const analysts = ref<Analyst[]>([])
@@ -964,11 +965,11 @@ const fetchStockInfo = async () => {
 
   try {
     const res = await stocksApi.getQuote(code)
-    if (res.success && res.data) {
-      console.log('股票信息获取成功:', res.data)
+    if (!res.success || !res.data) {
+      if (import.meta.env.DEV) console.warn('股票信息获取失败:', res.message)
     }
   } catch (error) {
-    console.error('获取股票信息失败:', error)
+    console.error('获取股票信息失败:', (error as any)?.message || error)
   }
 }
 
@@ -1159,22 +1160,16 @@ const submitAnalysis = async () => {
 
     const response = await analysisApi.startSingleAnalysis(request)
 
-    console.log('🔍 分析响应数据:', response)
-    console.log('🔍 响应数据结构:', response.data)
-    console.log('🔍 任务ID:', response.data?.task_id)
-
     ElMessage.success('分析任务已提交，正在处理中...')
 
     // 响应拦截器已返回 response.data，所以直接访问 response.data.task_id
     currentTaskId.value = response.data.task_id
 
     if (!currentTaskId.value) {
-      console.error('❌ 任务ID为空:', response)
+      console.error('[Analysis] startAnalysis: 任务ID为空')
       ElMessage.error('任务ID获取失败，请重试')
       return
     }
-
-    console.log('✅ 任务ID设置成功:', currentTaskId.value)
 
     // 保存任务状态到缓存
     saveTaskToCache(currentTaskId.value, {
@@ -1201,19 +1196,16 @@ const submitAnalysis = async () => {
     startPollingTaskStatus()
 
     // 立即查询一次状态（不等待第一次轮询）
-    setTimeout(async () => {
+    initialQueryTimer = setTimeout(async () => {
       try {
         const response = await analysisApi.getTaskStatus(currentTaskId.value)
         const status = response.data // 响应拦截器已返回 response.data
-        console.log('🔄 立即查询状态:', status)
-        console.log('🔄 当前 analysisStatus:', analysisStatus.value)
         if (status.status === 'running') {
           analysisStatus.value = 'running'
-          console.log('✅ 设置 analysisStatus 为 running')
           updateProgressInfo(status)
         }
       } catch (error) {
-        console.error('立即查询状态失败:', error)
+        console.error('[Analysis] 立即查询状态失败:', error)
       }
     }, 1000) // 1秒后查询
 
@@ -1232,58 +1224,38 @@ const startPollingTaskStatus = () => {
 
   // 检查任务ID是否有效
   if (!currentTaskId.value) {
-    console.error('❌ 任务ID为空，无法开始轮询')
+    console.error('[Analysis] startPolling: 任务ID为空')
     return
   }
-
-  console.log('🔄 开始轮询任务状态:', currentTaskId.value)
 
   pollingTimer.value = setInterval(async () => {
     try {
       if (!currentTaskId.value) {
-        console.error('❌ 轮询中任务ID为空')
         if (pollingTimer.value) {
           clearInterval(pollingTimer.value)
         }
         return
       }
 
-      console.log('🔄 开始查询任务状态:', currentTaskId.value)
       const response = await analysisApi.getTaskStatus(currentTaskId.value)
       const status = response.data // 响应拦截器已返回 response.data
 
-      console.log('🔍 任务状态响应:', response)
-      console.log('🔍 任务状态数据:', status)
-      console.log('🔍 当前状态:', status.status, '进度:', status.progress)
-
       if (status.status === 'completed') {
         // 分析完成，调用专门的结果API获取完整数据
-        console.log('🎉 分析完成，正在获取完整结果...')
 
         try {
           const resultData = await analysisApi.getTaskResult(currentTaskId.value)
           // resultData 是 ApiResponse: { success, data, message }
           if (resultData && resultData.success) {
             analysisResults.value = resultData.data
-            console.log('✅ 获取完整分析结果成功:', resultData.data)
-
-            // 添加调试信息
-            console.log('🔍 完整结果数据结构:', {
-              hasDecision: !!resultData.data?.decision,
-              hasState: !!resultData.data?.state,
-              hasReports: !!resultData.data?.reports,
-              hasSummary: !!resultData.data?.summary,
-              hasRecommendation: !!resultData.data?.recommendation,
-              keys: Object.keys(resultData.data || {})
-            })
           } else {
             // 回退到状态中的数据
-            console.error('❌ 获取分析结果失败:', resultData?.message)
+            console.error('[Analysis] 获取分析结果失败:', resultData?.message)
             analysisResults.value = status.result_data
           }
         } catch (error) {
           // 回退到状态中的数据
-          console.error('❌ 获取分析结果异常:', error)
+          console.error('[Analysis] 获取分析结果异常:', error)
           analysisResults.value = status.result_data
         }
 
@@ -1345,8 +1317,9 @@ const startPollingTaskStatus = () => {
 
 // 更新进度信息
 const updateProgressInfo = (status: any) => {
-  console.log('🔄 更新进度信息:', status)
-  console.log('🔄 当前进度信息:', progressInfo.value)
+  if (import.meta.env.DEV) {
+    console.log('🔄 更新进度信息:', { status: status?.status, progress: status?.progress_percentage })
+  }
 
   // 使用后端返回的实际进度数据（兼容 progress_percentage）
   const progressValue = status.progress_percentage ?? status.progress
@@ -1376,7 +1349,6 @@ const updateProgressInfo = (status: any) => {
   }
 
   if (status.message) {
-    console.log('💬 更新消息:', status.message)
     progressInfo.value.message = status.message
   }
 
@@ -1589,15 +1561,7 @@ const getReportDescription = (title: string) => {
 
 // 格式化报告内容
 const formatReportContent = (content: any) => {
-  console.log('🎨 [DEBUG] formatReportContent 被调用:', {
-    content: content,
-    type: typeof content,
-    length: typeof content === 'string' ? content.length : 'N/A'
-  })
-
-  // 确保content是字符串类型
   if (!content) {
-    console.log('⚠️ [DEBUG] content为空，返回空字符串')
     return ''
   }
 
@@ -1605,33 +1569,21 @@ const formatReportContent = (content: any) => {
   let stringContent = ''
   if (typeof content === 'string') {
     stringContent = content
-    console.log('✅ [DEBUG] content是字符串，长度:', stringContent.length)
   } else if (typeof content === 'object') {
-    // 如果是对象，尝试提取有用信息
     if (content.judge_decision) {
       stringContent = content.judge_decision
-      console.log('📝 [DEBUG] 从对象中提取judge_decision')
     } else {
       stringContent = JSON.stringify(content, null, 2)
-      console.log('📝 [DEBUG] 将对象转换为JSON字符串')
     }
   } else {
     stringContent = String(content)
-    console.log('📝 [DEBUG] 将内容转换为字符串')
   }
 
   try {
     // 使用 renderMarkdown 安全地将 Markdown 转换为经过 DOMPurify 消毒的 HTML
-    const htmlContent = renderMarkdown(stringContent)
-
-    if (import.meta.env.DEV) {
-      console.log('🎨 [DEBUG] Markdown渲染完成，HTML长度:', htmlContent.length)
-      console.log('🎨 [DEBUG] HTML前200字符:', htmlContent.substring(0, 200))
-    }
-
-    return htmlContent
+    return renderMarkdown(stringContent)
   } catch (error) {
-    console.error('❌ [ERROR] Markdown渲染失败:', error)
+    console.error('Markdown渲染失败:', (error as any)?.message || error)
     // 如果渲染失败，回退到简单的文本显示
     const escaped = stringContent.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     return `<pre style="white-space: pre-wrap; font-family: inherit;">${escaped}</pre>`
@@ -1721,6 +1673,10 @@ onUnmounted(() => {
     clearInterval(pollingTimer.value)
     pollingTimer.value = null
   }
+  if (initialQueryTimer) {
+    clearTimeout(initialQueryTimer)
+    initialQueryTimer = null
+  }
   if (visibilityRefreshTimer) {
     clearTimeout(visibilityRefreshTimer)
     visibilityRefreshTimer = null
@@ -1793,10 +1749,8 @@ const formatTime = (seconds: number) => {
 
 // 更新分析步骤状态
 const updateAnalysisSteps = (status: any) => {
-  console.log('📋 步骤更新输入:', status)
-
   if (analysisSteps.value.length === 0) {
-    console.log('📋 没有步骤定义，跳过更新')
+    if (import.meta.env.DEV) console.log('📋 没有步骤定义，跳过更新')
     return
   }
 
@@ -1837,7 +1791,7 @@ const updateAnalysisSteps = (status: any) => {
   })
 
   const statusSummary = analysisSteps.value.map((s, i) => `${i}:${s.status}`).join(', ')
-  console.log('📋 步骤状态更新完成:', statusSummary)
+  if (import.meta.env.DEV) console.log('📋 步骤状态更新完成:', statusSummary)
 }
 
 // 初始化模型设置
@@ -1852,18 +1806,15 @@ const initializeModelSettings = async () => {
     const llmConfigs = await configApi.getLLMConfigs()
     availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled)
 
-    console.log('✅ 加载模型配置成功:', {
-      quick: modelSettings.value.analystModel,
-      deep: modelSettings.value.debateModel,
-      available: availableModels.value.length
-    })
-    console.log('🔍 可用模型详细信息:', availableModels.value.map(m => ({
-      model_name: m.model_name,
-      model_display_name: m.model_display_name,
-      provider: m.provider
-    })))
+    if (import.meta.env.DEV) {
+      console.log('加载模型配置成功:', {
+        quick: modelSettings.value.analystModel,
+        deep: modelSettings.value.debateModel,
+        available: availableModels.value.length
+      })
+    }
   } catch (error) {
-    console.error('加载默认模型配置失败:', error)
+    console.error('加载默认模型配置失败:', (error as any)?.message || error)
     modelSettings.value.analystModel = 'qwen-turbo'
     modelSettings.value.debateModel = 'qwen-max'
   }
@@ -1927,7 +1878,9 @@ const restoreTaskFromCache = async () => {
     const response = await analysisApi.getTaskStatus(cached.taskId)
     const status = response.data // 响应拦截器已返回 response.data
 
-    console.log('📊 恢复的任务状态:', status)
+    if (import.meta.env.DEV) {
+      console.log('📊 恢复的任务状态:', { status: status?.status, task_id: cached.taskId })
+    }
 
     if (status.status === 'completed') {
       // 任务已完成，显示结果

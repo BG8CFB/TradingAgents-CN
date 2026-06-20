@@ -177,7 +177,7 @@
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button
-              type="text"
+              link
               size="small"
               @click="editFavorite(row)"
             >
@@ -186,7 +186,7 @@
             <!-- 只有A股显示同步按钮 -->
             <el-button
               v-if="row.market === 'A股'"
-              type="text"
+              link
               size="small"
               @click="showSingleSyncDialog(row)"
               style="color: var(--el-color-primary);"
@@ -194,14 +194,14 @@
               同步
             </el-button>
             <el-button
-              type="text"
+              link
               size="small"
               @click="analyzeFavorite(row)"
             >
               分析
             </el-button>
             <el-button
-              type="text"
+              link
               size="small"
               @click="removeFavorite(row)"
               style="color: #E57373;"
@@ -369,12 +369,12 @@
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <template v-if="row._editing">
-              <el-button type="text" size="small" @click="saveTag(row)">保存</el-button>
-              <el-button type="text" size="small" @click="cancelEditTag(row)">取消</el-button>
+              <el-button link size="small" @click="saveTag(row)">保存</el-button>
+              <el-button link size="small" @click="cancelEditTag(row)">取消</el-button>
             </template>
             <template v-else>
-              <el-button type="text" size="small" @click="editTag(row)">编辑</el-button>
-              <el-button type="text" size="small" style="color:#E57373" @click="deleteTag(row)">删除</el-button>
+              <el-button link size="small" @click="editTag(row)">编辑</el-button>
+              <el-button link size="small" style="color:#E57373" @click="deleteTag(row)">删除</el-button>
             </template>
           </template>
         </el-table-column>
@@ -510,6 +510,7 @@ import {
   Download
 } from '@element-plus/icons-vue'
 import { favoritesApi } from '@/api/favorites'
+import { useFavoritesStore } from '@/stores/favorites'
 import { tagsApi } from '@/api/tags'
 import { stockSyncApi } from '@/api/stockSync'
 import { stocksApi } from '@/api/stocks'
@@ -517,6 +518,8 @@ import { normalizeMarketForAnalysis } from '@/utils/market'
 
 import type { FavoriteItem } from '@/api/favorites'
 import { useAuthStore } from '@/stores/auth'
+
+const favoritesStore = useFavoritesStore()
 
 
 // 颜色可选项（20种预设颜色）
@@ -697,8 +700,8 @@ const selectedStocksAreAllAShares = computed(() => {
 const loadFavorites = async () => {
   loading.value = true
   try {
-    const res = await favoritesApi.list()
-    favorites.value = ((res as any)?.data || []) as FavoriteItem[]
+    const list = await favoritesStore.fetch(true)
+    favorites.value = list as FavoriteItem[]
   } catch (error: any) {
     console.error('加载自选股失败:', error)
     ElMessage.error(error.message || '加载自选股失败')
@@ -938,7 +941,7 @@ const handleAddFavorite = async () => {
     await addFormRef.value.validate()
     addLoading.value = true
     const payload = { ...addForm.value }
-    const res = await favoritesApi.add(payload as any)
+    const res = await favoritesStore.add(payload as any)
     if ((res as any)?.success === false) throw new Error((res as any)?.message || '添加失败')
     ElMessage.success('添加成功')
     addDialogVisible.value = false
@@ -958,7 +961,7 @@ const handleUpdateFavorite = async () => {
       tags: editForm.value.tags,
       notes: editForm.value.notes
     }
-    const res = await favoritesApi.update(editForm.value.stock_code, payload as any)
+    const res = await favoritesStore.update(editForm.value.stock_code, payload as any)
     if ((res as any)?.success === false) throw new Error((res as any)?.message || '更新失败')
     ElMessage.success('保存成功')
     editDialogVisible.value = false
@@ -1001,7 +1004,7 @@ const removeFavorite = async (row: any) => {
         type: 'warning'
       }
     )
-    const res = await favoritesApi.remove(row.stock_code)
+    const res = await favoritesStore.remove(row.stock_code)
     if ((res as any)?.success === false) throw new Error((res as any)?.message || '移除失败')
     ElMessage.success('移除成功')
     await loadFavorites()

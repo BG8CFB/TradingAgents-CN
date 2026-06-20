@@ -114,16 +114,19 @@ class AKShareHKAdapter(BaseAdapter):
         for _, row in df.iterrows():
             get = row.get
             title = get("标题", "") or get("title", "")
-            publish_time = get("公告日期", "") or get("publish_time", "")
+            publish_time = (
+                get("公告日期", "") or get("发布时间", "") or get("publish_time", "")
+            )
             content_hash = StockNewsSchema.compute_hash(title, str(publish_time)) if title else None
+            raw_symbol = str(get("symbol", "") or get("股票代码", ""))
             results.append(StockNewsSchema(
-                symbol=str(get("symbol", "") or get("股票代码", "")).zfill(5),
+                symbol=raw_symbol.zfill(5) if raw_symbol else "",
                 market="HK",
                 data_source="akshare_hk",
                 title=title,
-                content=get("内容", "") or get("content"),
+                content=get("内容", "") or get("摘要", "") or get("content"),
                 content_hash=content_hash,
-                source="hkexnews",
+                source=get("来源", "") or "hkexnews",
                 publish_time=publish_time,
                 url=get("链接", "") or get("url"),
             ))

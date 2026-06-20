@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.core.response import ok, fail
 from app.data.core.interface import DataInterface
-from app.routers.auth_db import get_current_user
+from app.routers.auth_db import get_current_user, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,12 @@ class SyncTriggerRequest(BaseModel):
 
 
 @router.post("/refresh/{symbol}")
-async def refresh_cn_stock(symbol: str, req: RefreshRequest, user=Depends(get_current_user)):
-    """按需刷新指定股票的数据"""
+async def refresh_cn_stock(
+    symbol: str,
+    req: RefreshRequest,
+    user: dict = Depends(require_admin),
+):
+    """按需刷新指定股票的数据（需管理员权限，会触发外部数据源调用）"""
     try:
         di = DataInterface.get_instance()
         result = await di.refresh(_MARKET, symbol, domains=req.domains, force=req.force, timeout=30)
@@ -69,7 +73,7 @@ async def refresh_cn_stock(symbol: str, req: RefreshRequest, user=Depends(get_cu
 
 
 @router.get("/refresh/{symbol}/status")
-async def get_refresh_status(symbol: str):
+async def get_refresh_status(symbol: str, user: dict = Depends(get_current_user)):
     """获取指定股票各域的新鲜度状态"""
     di = DataInterface.get_instance()
     domains = ["basic_info", "daily_quotes", "daily_indicators", "adj_factors", "financial_data", "news"]
@@ -89,17 +93,13 @@ async def get_refresh_status(symbol: str):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/sync/trigger")
-async def trigger_cn_sync(req: SyncTriggerRequest, user=Depends(get_current_user)):
-    """触发指定域的同步任务（通过 DataInterface）"""
-    di = DataInterface.get_instance()
-    task_id = await di.trigger_sync(_MARKET, req.domain)
-    return ok(data={"domain": req.domain, "task_id": task_id, "triggered": True})
-
-
 @router.post("/sync/{domain}")
-async def trigger_sync_by_domain(domain: str, request: SyncTriggerRequest, user=Depends(get_current_user)):
-    """手动触发指定域的同步（通过调度引擎或 DataInterface）"""
+async def trigger_sync_by_domain(
+    domain: str,
+    request: SyncTriggerRequest,
+    user: dict = Depends(require_admin),
+):
+    """手动触发指定域的同步（需管理员权限，通过调度引擎或 DataInterface）"""
     if domain not in _VALID_SYNC_DOMAINS:
         return fail(message=f"不支持的域: {domain}", code=400)
 
@@ -122,6 +122,7 @@ async def get_cn_sync_status(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     domain: Optional[str] = None,
+    user: dict = Depends(get_current_user),
 ):
     """获取同步任务状态"""
     try:
@@ -149,6 +150,7 @@ async def get_cn_sync_events(
     page_size: int = Query(20, ge=1, le=100),
     domain: Optional[str] = None,
     event_type: Optional[str] = None,
+    user: dict = Depends(get_current_user),
 ):
     """获取同步事件流"""
     try:

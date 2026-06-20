@@ -16,8 +16,8 @@ CN:
   block_trade: [tushare, akshare]
 
 HK:
-  basic_info: [tushare_hk, akshare_hk, yfinance_hk]
-  trade_calendar: [tushare_hk, akshare_hk]
+  basic_info: [tushare_hk, akshare_hk, yfinance_hk, tencent_hk]
+  trade_calendar: [tushare_hk, akshare_hk, yfinance_hk]
   daily_quotes: [tushare_hk, akshare_hk, yfinance_hk]
   daily_indicators: [akshare_hk, yfinance_hk, tushare_hk]
   adj_factors: [tushare_hk, akshare_hk, yfinance_hk]

@@ -3,7 +3,7 @@ Utility helpers for EnhancedScreeningService to separate analysis and conversion
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from app.models.screening import ScreeningCondition, FieldType, BASIC_FIELDS_INFO
 

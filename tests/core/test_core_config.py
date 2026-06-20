@@ -46,9 +46,11 @@ class TestSettingsDefaults:
         """JWT_ALGORITHM 默认为 HS256"""
         assert settings.JWT_ALGORITHM == "HS256"
 
-    def test_access_token_expire_default(self, settings):
-        """ACCESS_TOKEN_EXPIRE_MINUTES 默认为 60"""
-        assert settings.ACCESS_TOKEN_EXPIRE_MINUTES == 60
+    def test_access_token_expire_default(self):
+        """ACCESS_TOKEN_EXPIRE_MINUTES 的 Field 默认值为 60（不被 .env 覆盖时）"""
+        from app.core.config import Settings
+        field_info = Settings.model_fields["ACCESS_TOKEN_EXPIRE_MINUTES"]
+        assert field_info.default == 60
 
     def test_refresh_token_expire_default(self, settings):
         """REFRESH_TOKEN_EXPIRE_DAYS 默认为 30"""

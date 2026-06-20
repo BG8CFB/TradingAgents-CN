@@ -271,7 +271,7 @@ const articlesDatabase: Record<string, Article[]> = {
     {
       id: 'usage-guide-preview',
       title: '使用指南（试用版）',
-      description: 'TradingAgents-CN v1.0.0-preview 使用指南与试用说明',
+      description: 'TradingAgents-CN 使用指南与试用说明',
       readTime: '15分钟',
       views: 1288,
       difficulty: 'success',

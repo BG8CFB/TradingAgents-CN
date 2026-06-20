@@ -89,20 +89,6 @@ export interface PaginatedResult<T> {
   page_size: number
 }
 
-export interface RefreshResult {
-  symbol: string
-  status: string
-  domains: Record<string, {
-    status: string
-    source: string
-    fallback_from: string | null
-    records: number
-    error: string | null
-    latency_ms: number
-  }>
-  duration_ms: number
-}
-
 export interface CapabilityMatrix {
   [domain: string]: {
     [source: string]: string
@@ -179,16 +165,6 @@ export function getSyncEvents(market: MarketCode, params: { page?: number; page_
   return ApiClient.get<PaginatedResult<SyncEvent>>(`${base(market)}/sync/events`, params)
 }
 
-// ── Refresh ──
-
-export function refreshStock(market: MarketCode, symbol: string, domains?: string[], force = false) {
-  return ApiClient.post<RefreshResult>(`${base(market)}/refresh/${symbol}`, { domains, force })
-}
-
-export function getRefreshStatus(market: MarketCode, symbol: string) {
-  return ApiClient.get(`${base(market)}/refresh/${symbol}/status`)
-}
-
 // ── Stock Data ──
 
 export function getStockData(market: MarketCode, symbol: string, params?: { domain?: string; start_date?: string; end_date?: string; page?: number; page_size?: number }) {
@@ -199,8 +175,4 @@ export function getStockData(market: MarketCode, symbol: string, params?: { doma
 
 export function getQualityOverview(market: MarketCode) {
   return ApiClient.get(`${base(market)}/quality/overview`)
-}
-
-export function triggerQualityCheck(market: MarketCode, domain?: string) {
-  return ApiClient.post(`${base(market)}/quality/check`, null, { params: domain ? { domain } : {} })
 }

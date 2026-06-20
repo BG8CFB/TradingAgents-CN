@@ -141,11 +141,6 @@ export const analysisApi = {
     return request.get(`/api/analysis/tasks/${analysisId}/result`)
   },
 
-  // 取消分析任务
-  stopAnalysis(analysisId: string): Promise<{ message: string }> {
-    return request.post(`/api/analysis/tasks/${analysisId}/cancel`, {})
-  },
-
   // 获取分析历史（用户维度）
   getHistory(params?: {
     page?: number
@@ -163,15 +158,6 @@ export const analysisApi = {
   // 删除分析任务
   deleteAnalysis(analysisId: string): Promise<{ message: string }> {
     return request.delete(`/api/analysis/tasks/${analysisId}`)
-  },
-
-  // @deprecated 使用 reportsApi.download() 替代。后端无 /api/analysis/{id}/export 端点。
-  // reports download API 支持以 analysis_id / task_id / _id 三种方式查找报告。
-  exportAnalysis(analysisId: string, format: 'pdf' | 'excel' | 'json' | 'markdown' = 'pdf'): Promise<Blob> {
-    return request.get(`/api/reports/${analysisId}/download`, {
-      params: { format },
-      responseType: 'blob'
-    })
   },
 
   // 批量分析（方案A：与单股一致的进程内执行）
@@ -215,25 +201,6 @@ export const analysisApi = {
     return request.delete(`/api/analysis/tasks/${taskId}`)
   },
 
-  // 获取股票基础信息
-  getStockInfo(symbol: string, market: string): Promise<{
-    symbol: string
-    name: string
-    market: string
-    current_price: number
-    change: number
-    change_percent: number
-    volume: number
-    market_cap?: number
-    pe_ratio?: number
-    pb_ratio?: number
-    dividend_yield?: number
-  }> {
-    return request.get('/api/analysis/stock-info', {
-      params: { symbol, market }
-    })
-  },
-
   // 搜索股票
   searchStocks(query: string, market?: string): Promise<Array<{
     symbol: string
@@ -243,21 +210,6 @@ export const analysisApi = {
   }>> {
     return request.get('/api/analysis/search', {
       params: { query, market }
-    })
-  },
-
-  // 获取热门股票
-  getPopularStocks(market?: string, limit: number = 10): Promise<Array<{
-    symbol: string
-    name: string
-    market: string
-    current_price: number
-    change_percent: number
-    volume: number
-    analysis_count: number
-  }>> {
-    return request.get('/api/analysis/popular', {
-      params: { market, limit }
     })
   },
 
@@ -413,38 +365,6 @@ export const formatDataSource = (source: string): string => {
     yahoo: 'Yahoo Finance'
   }
   return sourceMap[source] ?? source
-}
-
-/**
- * 获取分析历史记录（当前用户）
- */
-export const getAnalysisHistory = async (params: {
-  page?: number
-  page_size?: number
-  status?: string
-}) => {
-  const response = await request.get('/api/analysis/user/history', { params })
-  return response.data
-}
-
-/**
- * 获取所有任务列表（不限用户）
- */
-export const getAllTasks = async (params: {
-  limit?: number
-  offset?: number
-  status?: string
-}) => {
-  return request<{
-    tasks: any[]
-    total: number
-    limit: number
-    offset: number
-  }>({
-    url: '/api/analysis/tasks/all',
-    method: 'GET',
-    params
-  })
 }
 
 // 工具函数

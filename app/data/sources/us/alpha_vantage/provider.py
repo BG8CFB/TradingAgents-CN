@@ -2,8 +2,6 @@
 
 import asyncio
 import logging
-import os
-from typing import Optional
 
 import pandas as pd
 
@@ -30,7 +28,7 @@ class AlphaVantageUSProvider(BaseProvider):
 
     async def get_daily_quotes(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         api_key = get_datasource_api_key("alpha_vantage") or ""
         if not api_key:
             return None
@@ -69,7 +67,7 @@ class AlphaVantageUSProvider(BaseProvider):
     async def get_financial_data(
         self, symbol: str, start_date: str, end_date: str,
         statement_type: str = "", **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         api_key = get_datasource_api_key("alpha_vantage") or ""
         if not api_key:
             return None
@@ -103,7 +101,7 @@ class AlphaVantageUSProvider(BaseProvider):
 
     async def get_corporate_actions(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         api_key = get_datasource_api_key("alpha_vantage") or ""
         if not api_key:
             return None

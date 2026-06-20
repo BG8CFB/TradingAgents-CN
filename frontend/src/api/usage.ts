@@ -66,13 +66,6 @@ export function getCostByProvider(days: number = 7) {
 }
 
 /**
- * 按模型统计成本
- */
-export function getCostByModel(days: number = 7) {
-  return ApiClient.get('/api/usage-statistics/cost/by-model', { days })
-}
-
-/**
  * 每日成本统计
  */
 export function getDailyCost(days: number = 7) {

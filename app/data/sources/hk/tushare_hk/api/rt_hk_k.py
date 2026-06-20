@@ -7,7 +7,16 @@ from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
+from app.data.sources.base.mappers import (
+    is_empty_result,
+    map_network_exception,
+    map_tushare_code,
+)
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "realtime_quotes"
 
 
 async def fetch_realtime_quotes(api) -> Optional[pd.DataFrame]:
@@ -27,9 +36,18 @@ async def fetch_realtime_quotes(api) -> Optional[pd.DataFrame]:
         return None
     try:
         df = await asyncio.to_thread(lambda: api.rt_hk_k())
-        if df is not None and not df.empty:
-            logger.info(f"Tushare HK 实时行情: {len(df)} 只")
-        return df
-    except Exception as e:
-        logger.error(f"Tushare HK 获取实时行情失败: {e}")
-        return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare_hk", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare_hk", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError("tushare_hk", _DOMAIN, str(exc))
+
+    if is_empty_result(df):
+        logger.warning("Tushare HK 实时行情返回空数据")
+        raise DataNotFoundError("tushare_hk", _DOMAIN, "无数据")
+
+    logger.info(f"Tushare HK 实时行情: {len(df)} 只")
+    return df

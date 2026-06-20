@@ -14,6 +14,8 @@ class TestDataErrorCode:
         assert DataErrorCode.AUTH_FAILED.value == "auth_failed"
         assert DataErrorCode.NETWORK_TIMEOUT.value == "network_timeout"
         assert DataErrorCode.CONNECTION_ERROR.value == "connection_error"
+        # P1-1：新增 SERVICE_UNAVAILABLE 与 CONNECTION_ERROR 区分（上游 5xx vs TCP 断连）
+        assert DataErrorCode.SERVICE_UNAVAILABLE.value == "service_unavailable"
         assert DataErrorCode.SERVER_ERROR.value == "server_error"
         assert DataErrorCode.DATA_INVALID.value == "data_invalid"
         assert DataErrorCode.EMPTY_RESULT.value == "empty_result"

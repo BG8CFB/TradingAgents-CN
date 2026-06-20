@@ -24,7 +24,7 @@ class FinancialDataRepo:
             if not sym or not rp or not st:
                 continue
             ops.append(UpdateOne(
-                {"symbol": sym, "report_period": rp, "statement_type": st},
+                {"symbol": sym, "report_period": rp, "statement_type": st, "data_source": rec.get("data_source")},
                 {"$set": rec},
                 upsert=True,
             ))

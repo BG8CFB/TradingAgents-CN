@@ -13,7 +13,7 @@ class LoggingContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             record.trace_id = trace_id_var.get()
-        except Exception as e:
+        except Exception:
             record.trace_id = "-"
         return True
 

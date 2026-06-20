@@ -1,14 +1,12 @@
 import json
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.database import db_manager
-from app.core.config import settings
 from app.core.env import get_env
 from app.utils.time_utils import now_utc
 from app.utils.passwords import hash_password as secure_hash_password

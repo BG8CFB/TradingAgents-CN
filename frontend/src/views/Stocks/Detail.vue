@@ -376,6 +376,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
 import type { EChartsOption } from 'echarts'
 import { favoritesApi } from '@/api/favorites'
+import { useFavoritesStore } from '@/stores/favorites'
 import { useNotificationStore } from '@/stores/notifications'
 import { agentConfigApi } from '@/api/agentConfigs'
 import { normalizeAnalystId } from '@/constants/analysts'
@@ -402,6 +403,7 @@ const activeReportTab = ref('')
 
 // @ts-expect-error
 const _notifStore = useNotificationStore()
+const favoritesStore = useFavoritesStore()
 
 // @ts-expect-error
 const _lastAnalysisTagType = computed(() => {
@@ -687,6 +689,7 @@ async function clearCache() {
   }
 }
 
+let quoteSeq = 0
 async function fetchQuote() {
   // 🔥 参数验证：确保股票代码不为空
   if (!symbol.value) {
@@ -694,8 +697,10 @@ async function fetchQuote() {
     return
   }
 
+  const seq = ++quoteSeq
   try {
     const res = await stocksApi.getQuote(symbol.value)
+    if (seq !== quoteSeq) return  // 已被新请求覆盖，丢弃旧响应
     const d: any = (res as any)?.data || {}
     // 后端为 snake_case，前端状态为 camelCase，这里进行映射
     quote.price = Number(d.price ?? d.close ?? quote.price)
@@ -719,13 +724,18 @@ async function fetchQuote() {
     if (d.market) market.value = d.market
     lastRefreshAt.value = new Date()
   } catch (e) {
+    if (seq !== quoteSeq) return
     console.error('获取报价失败', e)
   }
 }
 
+let fundamentalsSeq = 0
 async function fetchFundamentals() {
+  if (!symbol.value) return
+  const seq = ++fundamentalsSeq
   try {
     const res = await stocksApi.getFundamentals(symbol.value)
+    if (seq !== fundamentalsSeq) return
     const f: any = (res as any)?.data || {}
     // 基本面快照映射（以后台为准）
     if (f.name) stockName.value = f.name
@@ -750,6 +760,7 @@ async function fetchFundamentals() {
     basics.peSource = ff.pe_source || ''
     basics.peUpdatedAt = ff.pe_updated_at || null
   } catch (e) {
+    if (seq !== fundamentalsSeq) return
     console.error('获取基本面失败', e)
   }
 }
@@ -814,10 +825,15 @@ function periodLabelToParam(p: string): string {
 // 当周期切换时刷新K线
 watch(period, () => { fetchKline() })
 
+// K 线请求序列号：用于丢弃旧响应，避免快速切换周期时的竞态覆盖
+let klineSeq = 0
+
 async function fetchKline() {
+  const seq = ++klineSeq
   try {
     const param = periodLabelToParam(period.value)
     const res = await stocksApi.getKline(symbol.value, param as any, 200, 'none')
+    if (seq !== klineSeq) return  // 已被新请求覆盖，丢弃旧响应
     const d: any = (res as any)?.data || {}
     klineSource.value = d.source
     const items: any[] = Array.isArray(d.items) ? d.items : []
@@ -860,6 +876,7 @@ async function fetchKline() {
     }
     klineDataLoaded.value = true
   } catch (e) {
+    if (seq !== klineSeq) return
     console.error('获取K线失败', e)
   }
 }
@@ -875,9 +892,13 @@ function cleanTitle(s: any): string {
   return t.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
 }
 
+let newsSeq = 0
 async function fetchNews() {
+  if (!symbol.value) return
+  const seq = ++newsSeq
   try {
     const res = await stocksApi.getNews(symbol.value, 30, 50, true)
+    if (seq !== newsSeq) return
     const d: any = (res as any)?.data || {}
     const itemsRaw: any[] = Array.isArray(d.items) ? d.items : []
     newsItems.value = itemsRaw.map((it: any) => {
@@ -890,6 +911,7 @@ async function fetchNews() {
     })
     newsSource.value = d.source
   } catch (e) {
+    if (seq !== newsSeq) return
     console.error('获取新闻失败', e)
   }
 }
@@ -928,11 +950,11 @@ async function onToggleFavorite() {
         stock_name: stockName.value,
         market: market.value
       }
-      await favoritesApi.add(payload)
+      await favoritesStore.add(payload)
       isFav.value = true
       ElMessage.success('已加入自选')
     } else {
-      await favoritesApi.remove(symbol.value)
+      await favoritesStore.remove(symbol.value)
       isFav.value = false
       ElMessage.success('已移出自选')
     }

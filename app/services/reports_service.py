@@ -318,34 +318,6 @@ class ReportsService:
         # 兜底：从 tasks 集合中查找
         return await self._restore_report_from_tasks(task_id)
 
-    async def get_report_module_content(
-        self,
-        report_id: str,
-        module_name: str,
-    ) -> Optional[Dict[str, Any]]:
-        """
-        获取报告特定模块的内容。
-
-        Returns:
-            {"module": str, "content": Any, "content_type": str} 或 None
-        """
-        query = _build_report_query(report_id)
-        doc = await self.db.analysis_reports.find_one(query)
-
-        if not doc:
-            return None
-
-        reports = doc.get("reports", {})
-        if module_name not in reports:
-            return None
-
-        content = reports[module_name]
-        return {
-            "module": module_name,
-            "content": content,
-            "content_type": "markdown" if isinstance(content, str) else "json",
-        }
-
     async def delete_report(
         self,
         report_id: str,

@@ -1,8 +1,10 @@
-"""港股/美股同步路由测试 — 使用真实 DataInterface + SimulatedMongoDB。
+"""港股/美股同步路由测试 — 使用真实 DataInterface + SimulatedMongoDB + 真实 DB 鉴权。
 
-设计原则：不使用 unittest.mock。通过 inject_sim_db 注入内存 MongoDB，
-DataInterface 走真实代码路径。dependency_overrides 是 FastAPI 官方推荐
-的测试方式，不属于 unittest.mock。
+设计原则（已迁移到真实 DB 鉴权路径）：
+- 不使用 unittest.mock / MagicMock
+- 不使用 dependency_overrides 模拟身份
+- 通过 inject_sim_db 注入内存 MongoDB（DataInterface 走真实代码路径）
+- 预置真实管理员用户文档（含真实密码哈希）+ 真实 JWT，走完整 get_current_user/require_admin 流程
 """
 
 import pytest
@@ -13,47 +15,131 @@ from httpx import ASGITransport, AsyncClient
 from app.data.core.interface import DataInterface
 
 
-def _create_router_app(router):
+# 管理员测试用户数据（与真实 DB 鉴权路径对齐）
+_ADMIN_FIXTURE = {
+    "id": "507f1f77bcf86cd799430001",
+    "username": "sync_routes_test_admin",
+    "email": "sync_routes_admin@test.com",
+    "is_admin": True,
+    "preferences": {"language": "zh-CN", "ui_theme": "light"},
+}
+
+
+async def _setup_admin_user(sim_db) -> str:
+    """预置管理员用户文档并返回真实 JWT。
+
+    复用 conftest.admin_client 的模式：真实密码哈希 + 真实 access_token，
+    让请求走完整的 get_current_user → user_service.get_user_by_username → require_admin 路径。
+    """
+    from app.services.user_service import user_service
+    from app.services.auth_service import AuthService
+    from app.utils.passwords import hash_password
+    from app.utils.time_utils import now_utc
+
+    user_service.set_database(sim_db)
+    user_doc = {
+        "_id": _ADMIN_FIXTURE["id"],
+        "username": _ADMIN_FIXTURE["username"],
+        "email": _ADMIN_FIXTURE["email"],
+        "hashed_password": hash_password("Admin@1234"),
+        "is_admin": True,
+        "is_active": True,
+        "created_at": now_utc(),
+        "preferences": _ADMIN_FIXTURE.get("preferences", {}),
+    }
+    await sim_db.users.insert_one(user_doc)
+    return AuthService.create_access_token(sub=_ADMIN_FIXTURE["username"])
+
+
+async def _teardown_admin_user(sim_db, original_db) -> None:
+    from app.services.user_service import user_service
+    user_service.set_database(original_db)
+    try:
+        await sim_db.users.delete_many({"username": _ADMIN_FIXTURE["username"]})
+    except Exception as exc:
+        import motor.errors
+        if not isinstance(exc, motor.errors.PyMongoError):
+            raise
+
+
+def _create_router_app(router) -> tuple[FastAPI, str]:
+    """创建测试 app：不做 dependency_overrides，依赖真实 JWT 解析路径。
+
+    返回 (app, csrf_token)：CSRF token 由调用方注入到 AsyncClient 的 cookies 与 header，
+    详见 hk_client / us_client fixture。
+
+    注意：CSRF 双提交 Cookie 必须在请求头中提供，否则会被 CSRFMiddleware 拒绝。
+    """
+    from app.middleware.csrf import generate_csrf_token
+    csrf_token = generate_csrf_token("test-session-fixed")
+
     app = FastAPI()
     app.include_router(router)
-    # 覆盖认证依赖，测试中不需要真实登录
-    from app.routers.auth_db import get_current_user
-    app.dependency_overrides[get_current_user] = lambda: {"username": "testuser", "role": "admin"}
-    return app
+    return app, csrf_token
 
 
 @pytest_asyncio.fixture
 async def hk_client(inject_sim_db):
-    """创建港股测试客户端，注入 SimulatedMongoDB 到 DataInterface。"""
+    """创建港股测试客户端：真实 DataInterface + 真实 DB 鉴权路径。"""
     from app.routers.hk.sync import router
+    from app.services.user_service import user_service
+    from app.middleware.csrf import (
+        CSRF_COOKIE_NAME,
+        CSRF_HEADER_NAME,
+    )
 
     DataInterface.reset_instance()
     di = DataInterface()
     DataInterface._instance = di
 
-    app = _create_router_app(router)
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        yield client
+    original_db = user_service.db
+    admin_token = await _setup_admin_user(inject_sim_db)
 
-    DataInterface.reset_instance()
+    try:
+        app, csrf_token = _create_router_app(router)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
+            client.headers.update({
+                CSRF_HEADER_NAME: csrf_token,
+                "Authorization": f"Bearer {admin_token}",
+            })
+            yield client
+    finally:
+        await _teardown_admin_user(inject_sim_db, original_db)
+        DataInterface.reset_instance()
 
 
 @pytest_asyncio.fixture
 async def us_client(inject_sim_db):
-    """创建美股测试客户端，注入 SimulatedMongoDB 到 DataInterface。"""
+    """创建美股测试客户端：真实 DataInterface + 真实 DB 鉴权路径。"""
     from app.routers.us.sync import router
+    from app.services.user_service import user_service
+    from app.middleware.csrf import (
+        CSRF_COOKIE_NAME,
+        CSRF_HEADER_NAME,
+    )
 
     DataInterface.reset_instance()
     di = DataInterface()
     DataInterface._instance = di
 
-    app = _create_router_app(router)
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        yield client
+    original_db = user_service.db
+    admin_token = await _setup_admin_user(inject_sim_db)
 
-    DataInterface.reset_instance()
+    try:
+        app, csrf_token = _create_router_app(router)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
+            client.headers.update({
+                CSRF_HEADER_NAME: csrf_token,
+                "Authorization": f"Bearer {admin_token}",
+            })
+            yield client
+    finally:
+        await _teardown_admin_user(inject_sim_db, original_db)
+        DataInterface.reset_instance()
 
 
 # ---------------------------------------------------------------------------
@@ -89,35 +175,6 @@ class TestHKRefresh:
         assert "duration_ms" in body
 
 
-class TestHKSyncTrigger:
-    """港股同步触发路由。"""
-
-    @pytest.mark.asyncio
-    async def test_sync_trigger_returns_200(self, hk_client, inject_sim_db):
-        resp = await hk_client.post(
-            "/api/hk/data/sync/trigger",
-            json={"domain": "daily_quotes"},
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_sync_trigger_writes_event(self, hk_client, inject_sim_db):
-        await hk_client.post(
-            "/api/hk/data/sync/trigger",
-            json={"domain": "daily_quotes"},
-        )
-
-        events = await inject_sim_db["sync_events"].find({}).to_list()
-        assert len(events) >= 1
-        event = events[-1]
-        assert event["market"] == "HK"
-        assert event["domain"] == "daily_quotes"
-        assert event["event_type"] == "SYNC_START"
-        assert event["task_id"].startswith("sync_HK_daily_quotes_")
-
-
 class TestHKSyncStatus:
     """港股同步状态路由。"""
 
@@ -134,7 +191,7 @@ class TestHKSyncStatus:
     @pytest.mark.asyncio
     async def test_sync_status_with_domain_filter(self, hk_client, inject_sim_db):
         await hk_client.post(
-            "/api/hk/data/sync/trigger",
+            "/api/hk/data/sync/daily_quotes",
             json={"domain": "daily_quotes"},
         )
 
@@ -157,7 +214,7 @@ class TestHKSyncEvents:
     @pytest.mark.asyncio
     async def test_sync_events_after_trigger(self, hk_client, inject_sim_db):
         await hk_client.post(
-            "/api/hk/data/sync/trigger",
+            "/api/hk/data/sync/daily_quotes",
             json={"domain": "daily_quotes"},
         )
 
@@ -185,31 +242,6 @@ class TestUSRefresh:
         body = resp.json()
         assert body["success"] is True
         assert body["data"]["symbol"] == "AAPL"
-
-
-class TestUSSyncTrigger:
-    """美股同步触发路由。"""
-
-    @pytest.mark.asyncio
-    async def test_sync_trigger_returns_200(self, us_client, inject_sim_db):
-        resp = await us_client.post(
-            "/api/us/data/sync/trigger",
-            json={"domain": "basic_info", "full_sync": True},
-        )
-        assert resp.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_sync_trigger_writes_event(self, us_client, inject_sim_db):
-        await us_client.post(
-            "/api/us/data/sync/trigger",
-            json={"domain": "basic_info"},
-        )
-
-        events = await inject_sim_db["sync_events"].find({}).to_list()
-        assert len(events) >= 1
-        event = events[-1]
-        assert event["market"] == "US"
-        assert event["domain"] == "basic_info"
 
 
 class TestUSSyncStatus:

@@ -13,7 +13,7 @@ CN:
     - SSE
     - SZSE
     - BSE
-  collection_suffix: _cn
+  collection_suffix: ""
   tushare_token_env: TUSHARE_CN_TOKEN
 
 HK:

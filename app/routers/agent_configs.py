@@ -14,7 +14,7 @@ from contextlib import nullcontext
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Path as FastAPIPath
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.routers.auth_db import get_current_user, require_admin
 from app.core.response import safe_error_message
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent-configs", tags=["Agent Configs"])
 
-from app.core.env import get_env
+from app.core.env import get_env  # noqa: E402 (intentional late import)
 
 
 def _get_config_dir() -> Path:
@@ -79,58 +79,66 @@ class AgentMode(BaseModel):
         description="初始任务描述（1阶段专用，系统会自动拼接股票信息）",
     )
 
-    @validator("slug", "name", "roleDefinition")
-    def _not_blank(cls, value: str) -> str:
-        if not isinstance(value, str) or not value.strip():
+    @field_validator("slug", "name", "roleDefinition")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        if not isinstance(v, str) or not v.strip():
             raise ValueError("必填字段不能为空")
-        return value.strip()
+        return v.strip()
 
-    @validator("slug", "name")
-    def _limit_title_length(cls, value: str) -> str:
-        if len(value) > MAX_TITLE_LEN:
+    @field_validator("slug", "name")
+    @classmethod
+    def _limit_title_length(cls, v: str) -> str:
+        if len(v) > MAX_TITLE_LEN:
             raise ValueError(f"字段长度超过限制（最多 {MAX_TITLE_LEN} 字符）")
-        return value
+        return v
 
-    @validator("roleDefinition")
-    def _limit_prompt_length(cls, value: str) -> str:
-        if len(value) > MAX_TEXT_LEN:
+    @field_validator("roleDefinition")
+    @classmethod
+    def _limit_prompt_length(cls, v: str) -> str:
+        if len(v) > MAX_TEXT_LEN:
             raise ValueError(f"roleDefinition 过长（最多 {MAX_TEXT_LEN} 字符）")
-        return value
+        return v
 
-    @validator("description", "whenToUse", "source")
-    def _limit_optional_fields(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return value
-        value = value.strip()
-        if len(value) > MAX_DESC_LEN:
+    @field_validator("description", "whenToUse", "source")
+    @classmethod
+    def _limit_optional_fields(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip()
+        if len(v) > MAX_DESC_LEN:
             raise ValueError(f"文本过长（最多 {MAX_DESC_LEN} 字符）")
-        return value or None
+        return v or None
 
-    @validator("groups", each_item=True)
-    def _validate_groups(cls, value: str) -> str:
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("分组名称不能为空")
-        value = value.strip()
-        if len(value) > MAX_GROUP_LEN:
-            raise ValueError(f"分组名称过长（最多 {MAX_GROUP_LEN} 字符）")
-        return value
+    @field_validator("groups")
+    @classmethod
+    def _validate_groups(cls, v: List[str]) -> List[str]:
+        cleaned: List[str] = []
+        for item in v:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError("分组名称不能为空")
+            item = item.strip()
+            if len(item) > MAX_GROUP_LEN:
+                raise ValueError(f"分组名称过长（最多 {MAX_GROUP_LEN} 字符）")
+            cleaned.append(item)
+        return cleaned
 
-    @validator("tools", each_item=True)
-    def _validate_tools(cls, value: str) -> str:
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("工具名称不能为空")
-        value = value.strip()
-        if len(value) > MAX_TOOL_NAME_LEN:
-            raise ValueError(f"工具名称过长（最多 {MAX_TOOL_NAME_LEN} 字符）")
-        return value
-
-    @validator("tools")
-    def _limit_tools(cls, value: Optional[List[str]]) -> Optional[List[str]]:
-        if value is None:
-            return value
-        unique = []
-        seen = set()
-        for item in value:
+    @field_validator("tools")
+    @classmethod
+    def _validate_tools(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return v
+        cleaned: List[str] = []
+        for item in v:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError("工具名称不能为空")
+            item = item.strip()
+            if len(item) > MAX_TOOL_NAME_LEN:
+                raise ValueError(f"工具名称过长（最多 {MAX_TOOL_NAME_LEN} 字符）")
+            cleaned.append(item)
+        unique: List[str] = []
+        seen: set = set()
+        for item in cleaned:
             if item in seen:
                 continue
             seen.add(item)
@@ -143,11 +151,12 @@ class AgentMode(BaseModel):
 class AgentConfigPayload(BaseModel):
     customModes: List[AgentMode] = Field(default_factory=list, description="智能体列表")
 
-    @validator("customModes")
-    def _limit_modes_count(cls, value: List[AgentMode]) -> List[AgentMode]:
-        if len(value) > MAX_MODES:
+    @field_validator("customModes")
+    @classmethod
+    def _limit_modes_count(cls, v: List[AgentMode]) -> List[AgentMode]:
+        if len(v) > MAX_MODES:
             raise ValueError(f"智能体数量过多（最多 {MAX_MODES} 个）")
-        return value
+        return v
 
 
 def _config_path(phase: int) -> Path:

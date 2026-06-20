@@ -27,6 +27,19 @@ __all__ = [
     "SystemService",
     "DatabaseService",
     "LLMService",
+    # 模型类型（作为公开 API 供外部类型注解使用）
+    "SystemConfig",
+    "LLMConfig",
+    "DataSourceConfig",
+    "DatabaseConfig",
+    "ModelProvider",
+    "DataSourceType",
+    "DatabaseType",
+    "LLMProvider",
+    "MarketCategory",
+    "DataSourceGrouping",
+    "ModelCatalog",
+    "ModelInfo",
 ]
 
 

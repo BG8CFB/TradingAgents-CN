@@ -2,20 +2,10 @@
 数据库管理服务
 """
 
-import json
-import os
-import csv
-import gzip
-import shutil
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
-from bson import ObjectId
-import motor.motor_asyncio
-import redis.asyncio as redis
-from pymongo.errors import ServerSelectionTimeoutError
+from typing import Dict, Any, List
 
-from app.core.database import get_mongo_db, get_redis_client, db_manager
+from app.core.database import get_mongo_db
 from app.core.config import settings
 from app.utils.runtime_paths import get_backups_dir, get_exports_dir
 

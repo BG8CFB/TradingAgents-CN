@@ -7,8 +7,8 @@ Token 预算管理器
 - 压缩策略：保留最近 N 条消息，旧消息总结为一条摘要消息
 """
 
-from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
+from typing import List, Tuple
 
 from langchain_core.messages import (
     AIMessage,

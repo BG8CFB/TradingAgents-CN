@@ -50,7 +50,8 @@
 - **实时进度** — SSE + WebSocket 双通道推送，实时掌握分析进度
 - **批量分析** — 支持多只股票并发分析
 - **专业报告** — 支持 Markdown / Word / PDF 格式导出
-- **MCP 工具生态** — 内置 MCP Provider / Consumer 双向架构，可扩展外部工具
+- **MCP 工具生态** — MCP Consumer 架构，可消费外部 MCP 服务器的工具
+- **Skill 技能包** — 对齐 [Agent Skills](https://agentskills.io/specification) 标准，支持纯 prompt / 带脚本 / 带依赖三种形态，首次加载自动安装依赖，可从 Git URL 分发
 
 ---
 
@@ -121,7 +122,7 @@
 
 ### 一键部署（推荐）
 
-最快 5 分钟完成部署，无需克隆代码仓库。
+最快 5 分钟完成部署，无需克隆代码仓库。**所有变量都有合理默认值，不创建 `.env` 也能启动**。
 
 #### 1. 下载部署文件
 
@@ -134,23 +135,45 @@ curl -O https://raw.githubusercontent.com/BG8CFB/TradingAgents-CN/main/docker-co
 # 或浏览器访问上方链接，右键"另存为"
 ```
 
-#### 2.（可选）配置 AI 模型密钥
+#### 2.（可选）创建 .env 自定义配置
 
-在 `docker-compose.hub.nginx.yml` 同目录下创建 `.env` 文件：
+`docker-compose.hub.nginx.yml` 内置了所有默认值，开箱即用。如需自定义密码、Token 或端口，在部署目录创建 `.env`：
 
-```env
-# AI 模型密钥（至少配置一个，不配置也能启动系统）
-DASHSCOPE_API_KEY=your_dashscope_key
-DASHSCOPE_ENABLED=true
-
-# DEEPSEEK_API_KEY=your_deepseek_key
-# DEEPSEEK_ENABLED=true
-
-# 数据源（可选）
-# TUSHARE_TOKEN=your_tushare_token
-# TUSHARE_ENABLED=true
+```bash
+# 模板参考：deploy/.env.example
+# 下载后重命名为 .env 即可
+curl -o .env https://raw.githubusercontent.com/BG8CFB/TradingAgents-CN/main/deploy/.env.example
 ```
 
+最常用的自定义项：
+
+```env
+# 对外端口（默认 8080）
+NGINX_PORT=8080
+
+# 数据库密码（首次部署后请勿修改）
+MONGODB_PASSWORD=change-me-strong-password
+REDIS_PASSWORD=change-me-strong-password
+
+# 首次管理员账号（首次启动后从数据库读取）
+INITIAL_ADMIN_USERNAME=admin
+INITIAL_ADMIN_PASSWORD=change-me-immediately
+
+# 安全密钥（留空则首次启动自动生成并持久化到数据库）
+# 生产环境建议显式设置，生成方式：python -c "import secrets; print(secrets.token_urlsafe(32))"
+JWT_SECRET=
+CSRF_SECRET=
+
+# 数据源 Token（也可通过 Web UI 配置）
+TUSHARE_TOKEN=
+```
+
+> **配置加载优先级（高 → 低）**：
+> 1. 部署目录 `.env`（用户显式配置）
+> 2. `docker-compose.hub.nginx.yml` 的 `${VAR:-default}` 内联默认值
+> 3. 应用代码默认值
+>
+> LLM API Key（DeepSeek、通义千问等）请在系统启动后通过 Web UI 的"配置中心"配置，无需写入 `.env`。
 > AkShare 和 BaoStock 数据源默认启用，无需密钥。
 
 #### 3. 启动服务
@@ -175,7 +198,7 @@ docker compose -f docker-compose.hub.nginx.yml ps
 # 查看后端日志
 docker compose -f docker-compose.hub.nginx.yml logs -f backend
 
-# 停止服务
+# 停止服务（保留数据）
 docker compose -f docker-compose.hub.nginx.yml down
 
 # 更新到最新版本
@@ -191,6 +214,8 @@ NGINX_PORT=9090 docker compose -f docker-compose.hub.nginx.yml up -d
 ```
 
 > **注意**: 分析股票前，请先完成数据同步（系统内"数据管理"页面），否则可能导致分析结果异常。
+>
+> 详细部署说明请参考 [deploy/README.md](./deploy/README.md)。
 
 ### 本地开发
 
@@ -227,7 +252,6 @@ cd frontend && npm install && npm run dev
 |------|------|
 | 前端（Vite HMR） | http://localhost:3000 |
 | 后端 API 文档 | http://localhost:8000/docs |
-| Nginx 统一入口 | http://localhost:3080 |
 
 ---
 
@@ -309,7 +333,7 @@ TradingAgents-CN/
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.10%20--%203.13-blue.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/Version-v1.1.0_preview-green.svg)](./VERSION)
+[![Version](https://img.shields.io/badge/Version-v1.3.2-green.svg)](./pyproject.toml)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
 **如果这个项目对您有帮助，请点亮 Star 支持我们！**

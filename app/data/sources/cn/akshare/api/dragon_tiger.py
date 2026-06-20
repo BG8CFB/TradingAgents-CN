@@ -1,22 +1,36 @@
 """AKShare 龙虎榜 API"""
 import asyncio
 import logging
-from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import (
+    DataFormatError,
+    DataNotFoundError,
+    DataSourceUnavailableError,
+)
+from app.data.sources.base.mappers import is_empty_result, map_network_exception
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "dragon_tiger"
 
 
 async def fetch_dragon_tiger(
     start_date: str,
     end_date: str,
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame:
     """获取龙虎榜数据。
 
     Args:
         start_date: 开始日期 YYYYMMDD
         end_date: 结束日期 YYYYMMDD
+
+    Raises:
+        NetworkError: 网络/超时异常（可重试）
+        DataFormatError: AKShare 返回结构异常（不可重试）
+        DataNotFoundError: 返回空数据（不可重试）
+        DataSourceUnavailableError: 其他未知异常
     """
     try:
         import akshare as ak
@@ -27,9 +41,31 @@ async def fetch_dragon_tiger(
             return ak.stock_lhb_detail_em(start_date=start_date, end_date=end_date)
 
         df = await asyncio.to_thread(_fetch)
-        if df is not None and not df.empty:
-            logger.info(f"AKShare 龙虎榜: {start_date}-{end_date} {len(df)} 条")
-        return df
-    except Exception as e:
-        logger.error(f"AKShare 获取龙虎榜失败: {e}")
-        return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        # 网络异常：可重试
+        raise map_network_exception(exc, "akshare", _DOMAIN)
+    except (KeyError, IndexError, AttributeError, ValueError) as exc:
+        # 数据格式异常：AKShare 返回结构不符合预期，不可重试
+        raise DataFormatError(
+            "akshare", _DOMAIN,
+            f"start_date={start_date}, end_date={end_date}: {exc}",
+        )
+    except Exception as exc:
+        # 其他未知异常
+        raise DataSourceUnavailableError(
+            "akshare", _DOMAIN,
+            f"start_date={start_date}, end_date={end_date}: {exc}",
+        )
+
+    # 空结果：业务正确但无数据，不可重试
+    if is_empty_result(df):
+        logger.warning(
+            f"AKShare 龙虎榜返回空: start_date={start_date}, end_date={end_date}"
+        )
+        raise DataNotFoundError(
+            "akshare", _DOMAIN,
+            f"start_date={start_date}, end_date={end_date} 无龙虎榜数据",
+        )
+
+    logger.info(f"AKShare 龙虎榜: {start_date}-{end_date} {len(df)} 条")
+    return df

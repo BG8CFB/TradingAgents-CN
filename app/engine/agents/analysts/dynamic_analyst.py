@@ -1,12 +1,10 @@
 
 import os
 import yaml
-import logging
 import threading
 from typing import List, Dict, Any, Optional
 
 from app.core.env import get_env
-from app.engine.tools.registry import get_all_tools
 from app.utils.logging_init import get_logger
 
 logger = get_logger("analysts.dynamic")
@@ -30,6 +28,10 @@ class ProgressManager:
     _callbacks: Dict[str, Any] = {}       # task_id -> callback
     _current_nodes: Dict[str, str] = {}   # task_id -> current_node
     _node_start_times: Dict[str, float] = {}  # task_id -> start_time
+    # threading.Lock 的选择是刻意的：
+    # - 所有操作均为 O(1) 字典变更（微秒级），不会显著阻塞事件循环
+    # - 进度回调可从 async 节点和 sync 上下文（如线程池中的分析执行）双调用，
+    #   asyncio.Lock 会拒绝跨循环访问；threading.Lock 跨上下文兼容
     _lock = threading.Lock()
 
     @classmethod
@@ -368,7 +370,7 @@ class DynamicAnalystFactory:
 
         # 回退：字符串推断
         search_key = slug.lower()
-        name_lower = name.lower() if name else ""
+        name.lower() if name else ""
 
         if "news" in search_key or "新闻" in name:
             return "news"

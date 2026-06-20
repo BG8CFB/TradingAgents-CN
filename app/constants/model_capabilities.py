@@ -11,7 +11,7 @@
 """
 
 from enum import IntEnum, Enum
-from typing import Dict, List, Any, Tuple
+from typing import Dict, Any, Tuple
 
 
 class ModelCapabilityLevel(IntEnum):

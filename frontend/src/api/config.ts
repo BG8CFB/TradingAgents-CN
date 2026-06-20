@@ -398,24 +398,9 @@ export const configApi = {
     return ApiClient.get('/api/config/database')
   },
 
-  // 获取指定的数据库配置
-  getDatabaseConfig(dbName: string): Promise<ApiResponse<DatabaseConfig>> {
-    return ApiClient.get(`/api/config/database/${encodeURIComponent(dbName)}`)
-  },
-
-  // 添加数据库配置
-  addDatabaseConfig(config: Partial<DatabaseConfig>): Promise<ApiResponse<{ success: boolean; message: string }>> {
-    return ApiClient.post('/api/config/database', config)
-  },
-
   // 更新数据库配置
   updateDatabaseConfig(dbName: string, config: Partial<DatabaseConfig>): Promise<ApiResponse<{ success: boolean; message: string }>> {
     return ApiClient.put(`/api/config/database/${encodeURIComponent(dbName)}`, config)
-  },
-
-  // 删除数据库配置
-  deleteDatabaseConfig(dbName: string): Promise<ApiResponse<{ success: boolean; message: string }>> {
-    return ApiClient.delete(`/api/config/database/${encodeURIComponent(dbName)}`)
   },
 
   // 测试数据库配置连接

@@ -16,6 +16,7 @@ from app.models.analysis import SingleAnalysisRequest, BatchAnalysisRequest
 from app.core.config import settings
 from app.core.response import safe_error_message
 from app.utils.runtime_paths import get_analysis_results_dir, resolve_path
+from app.utils.secret_masking import token_fingerprint
 
 router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 logger = logging.getLogger("webapi")
@@ -96,7 +97,9 @@ async def get_task_status_new(
         from app.services.analysis_service import get_analysis_service
         analysis_service = get_analysis_service()
 
-        result = await analysis_service.get_task_with_status_fallback(task_id)
+        # 管理员不限制所有权；普通用户仅能查自己的任务状态
+        user_id = None if user.get("is_admin") else user["id"]
+        result = await analysis_service.get_task_with_status_fallback(task_id, user_id)
 
         if result:
             message = "任务状态获取成功"
@@ -133,7 +136,9 @@ async def get_task_result(
         from app.services.analysis_service import get_analysis_service
         analysis_service = get_analysis_service()
 
-        result_data = await analysis_service.get_task_result_data(task_id)
+        # 管理员不限制所有权；普通用户仅能读取自己的任务结果
+        user_id = None if user.get("is_admin") else user["id"]
+        result_data = await analysis_service.get_task_result_data(task_id, user_id)
 
         if not result_data:
             logger.warning(f"❌ [RESULT] 所有数据源都未找到结果: {task_id}")
@@ -169,7 +174,10 @@ async def get_task_result(
                     if d.exists() and d.is_dir():
                         for f in d.glob('*.md'):
                             try:
-                                content = f.read_text(encoding='utf-8')
+                                # 异步读取文件，避免阻塞事件循环
+                                content = await asyncio.to_thread(
+                                    f.read_text, encoding='utf-8'
+                                )
                                 if content and content.strip():
                                     loaded_reports[f.stem] = content.strip()
                             except Exception as e:
@@ -714,21 +722,6 @@ async def cancel_task(
     except Exception as e:
         raise HTTPException(status_code=400, detail=safe_error_message(e, "取消任务失败"))
 
-@router.get("/user/queue-status")
-async def get_user_queue_status(
-    user: dict = Depends(get_current_user),
-    svc: QueueService = Depends(get_queue_service)
-):
-    """获取用户队列状态"""
-    try:
-        status = await svc.get_user_queue_status(user["id"])
-        return {
-            "success": True,
-            "data": status
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=safe_error_message(e, "获取队列状态失败"))
-
 @router.get("/user/history")
 async def get_user_analysis_history(
     user: dict = Depends(get_current_user),
@@ -770,7 +763,14 @@ async def get_user_analysis_history(
 # WebSocket 端点
 @router.websocket("/ws/task/{task_id}")
 async def websocket_task_progress(websocket: WebSocket, task_id: str):
-    """WebSocket 端点：实时获取任务进度（需通过 query parameter 传递 token 认证）"""
+    """WebSocket 端点：实时获取任务进度（需通过 query parameter 传递 token 认证）。
+
+    鉴权错误码约定（与 RFC 6455 1000-2999 正常关闭区段错开，使用 4xxx 应用层错误）：
+    - 4404 task authentication required：未提供 token
+    - 4401 authentication failed：token 无效/过期/用户不存在
+    - 4404 task not found：任务不存在或用户无权访问（不泄露存在性，避免枚举攻击）
+    - 1011 internal error：权限校验过程异常
+    """
     import json
     from app.services.auth_service import AuthService
 
@@ -778,13 +778,16 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
     token = websocket.query_params.get("token")
     if not token:
         logger.warning(f"🔌 [WS] 连接拒绝：缺少 token, task_id={task_id}")
-        await websocket.close(code=4001, reason="Missing authentication token")
+        await websocket.close(code=4404, reason="task authentication required")
         return
+
+    # 用不可逆指纹记录 token，避免日志泄露原文
+    logger.debug(f"🔌 [WS] 收到连接：task_id={task_id}, token_fp={token_fingerprint(token)}")
 
     token_data = AuthService.verify_token(token)
     if not token_data:
-        logger.warning(f"🔌 [WS] 连接拒绝：token 无效, task_id={task_id}")
-        await websocket.close(code=4001, reason="Invalid or expired token")
+        logger.warning(f"🔌 [WS] 连接拒绝：token 无效, task_id={task_id}, token_fp={token_fingerprint(token)}")
+        await websocket.close(code=4401, reason="authentication failed")
         return
 
     # token_data.sub 是 username，需要查出 ObjectId 才能与 task 的 user_id 比较
@@ -792,25 +795,47 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
         from app.services.user_service import user_service
         ws_user = await user_service.get_user_by_username(token_data.sub)
         if not ws_user:
-            await websocket.close(code=4001, reason="User not found")
+            await websocket.close(code=4401, reason="authentication failed")
             return
         user_id = str(ws_user.id)
+        is_admin = getattr(ws_user, "is_admin", False)
     except Exception as e:
         logger.debug(f"WebSocket 用户查询失败，使用 token subject: {e}")
         user_id = token_data.sub
+        is_admin = False
 
-    logger.info(f"🔌 [WS] 认证成功: user={user_id}, task_id={task_id}")
+    logger.info(f"🔌 [WS] 认证成功: user={user_id}, admin={is_admin}, task_id={task_id}")
 
     try:
         from app.services.analysis_service import get_analysis_service
         analysis_service = get_analysis_service()
-        task = await analysis_service.get_task_with_status_fallback(task_id)
-        if task and str(task.get("user_id", "")) != str(user_id):
-            logger.warning(f"🔌 [WS] 连接拒绝：用户 {user_id} 无权访问任务 {task_id}")
-            await websocket.close(code=4003, reason="Forbidden")
+        # 管理员不限制所有权；普通用户仅能查自己的任务状态（与 HTTP 路径一致）
+        effective_user_id = None if is_admin else user_id
+        task = await analysis_service.get_task_with_status_fallback(task_id, effective_user_id)
+        # 任务不存在或无权访问：直接拒绝连接，避免空转
+        if not task:
+            logger.warning(f"🔌 [WS] 连接拒绝：任务不存在或无权访问, task_id={task_id}, user={user_id}")
+            # 必须先 accept 再 close，否则 Starlette 在握手未完成时回退为 HTTP 403，
+            # 自定义关闭码 4404 无法到达浏览器（与下方 except 路径同因）
+            try:
+                await websocket.accept()
+                await websocket.close(code=4404, reason="task not found")
+            except Exception:
+                pass
             return
     except Exception as e:
         logger.warning(f"🔌 [WS] 任务权限检查失败: {e}")
+        # fail-closed：权限校验异常时必须关闭连接，不能继续接受/处理消息
+        # 注意：此时握手尚未完成（accept 未调用），直接 close 会让 Starlette 回退为
+        # HTTP 403，1011 关闭码无法送达客户端。先 accept 再 close 才能让浏览器
+        # onClose 拿到 1011 code，便于前端区分"系统异常"与"鉴权失败"。
+        try:
+            await websocket.accept()
+            await websocket.close(code=1011, reason="权限校验失败")
+        except Exception:
+            # accept/close 自身失败时，Starlette 会兜底返回 HTTP 403
+            pass
+        return
 
     websocket_manager = get_websocket_manager()
 
@@ -859,62 +884,24 @@ async def get_task_details(
     user: dict = Depends(get_current_user),
     svc: QueueService = Depends(get_queue_service)
 ):
-    """获取任务详情（使用不同的路径避免冲突）"""
+    """获取任务详情。
+
+    优先查 Redis 队列（活跃任务），未命中时回退 MongoDB（历史任务）。
+    管理员可查任意任务；普通用户仅能查自己的。
+    """
     t = await svc.get_task(task_id)
-    if not t or t.get("user") != user["id"]:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    return t
+    if t and (user.get("is_admin") or t.get("user") == user["id"]):
+        return t
 
+    # 回退 MongoDB：队列数据过期后仍可查历史任务详情
+    from app.services.analysis_service import get_analysis_service
+    analysis_service = get_analysis_service()
+    user_id = None if user.get("is_admin") else user["id"]
+    fallback = await analysis_service.get_task_with_status_fallback(task_id, user_id)
+    if fallback:
+        return {"success": True, "data": fallback, "source": "mongodb_fallback"}
 
-# ==================== 僵尸任务管理 ====================
-
-@router.get("/admin/zombie-tasks")
-async def get_zombie_tasks(
-    max_running_hours: int = Query(default=2, ge=1, le=72, description="最大运行时长（小时）"),
-    user: dict = Depends(require_admin)
-):
-    """获取僵尸任务列表（仅管理员）
-
-    僵尸任务：长时间处于 processing/running/pending 状态的任务
-    """
-    try:
-        from app.services.analysis_service import get_analysis_service
-        svc = get_analysis_service()
-        zombie_tasks = await svc.get_zombie_tasks(max_running_hours)
-
-        return {
-            "success": True,
-            "data": zombie_tasks,
-            "total": len(zombie_tasks),
-            "max_running_hours": max_running_hours
-        }
-    except Exception as e:
-        logger.error(f"❌ 获取僵尸任务失败: {e}")
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取僵尸任务失败"))
-
-
-@router.post("/admin/cleanup-zombie-tasks")
-async def cleanup_zombie_tasks(
-    max_running_hours: int = Query(default=2, ge=1, le=72, description="最大运行时长（小时）"),
-    user: dict = Depends(require_admin)
-):
-    """清理僵尸任务（仅管理员）
-
-    将长时间处于 processing/running/pending 状态的任务标记为失败
-    """
-    try:
-        from app.services.analysis_service import get_analysis_service
-        svc = get_analysis_service()
-        result = await svc.cleanup_zombie_tasks(max_running_hours)
-
-        return {
-            "success": True,
-            "data": result,
-            "message": f"已清理 {result.get('total_cleaned', 0)} 个僵尸任务"
-        }
-    except Exception as e:
-        logger.error(f"❌ 清理僵尸任务失败: {e}")
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "清理僵尸任务失败"))
+    raise HTTPException(status_code=404, detail="任务不存在")
 
 
 @router.post("/tasks/{task_id}/mark-failed")

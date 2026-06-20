@@ -3,17 +3,16 @@ Google Gemini 原生 SDK 适配器
 使用 ChatGoogleGenerativeAI 直接调用 Google API，保留原生 SDK 对 tool calling 的完整支持。
 """
 
-import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 try:
     from google.api_core.exceptions import GoogleAPIError
 except ImportError:
     GoogleAPIError = Exception  # type: ignore[misc,assignment]
 
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.outputs import ChatGeneration, LLMResult
+from langchain_core.messages import BaseMessage
+from langchain_core.outputs import LLMResult
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.engine.llm_adapters.base import BaseChatAdapter

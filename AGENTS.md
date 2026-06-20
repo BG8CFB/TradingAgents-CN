@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-**TradingAgents-CN** (`v1.1.0-preview`) is a Chinese stock analysis platform using a multi-agent AI system built with LangGraph. It consists of:
+**TradingAgents-CN** (`v1.3.2`) is a Chinese stock analysis platform using a multi-agent AI system built with LangGraph. It consists of:
 
 - **Backend API**: FastAPI (`app/`) — Web server, database management, real-time notifications
 - **Frontend**: Vue 3 + Element Plus + Vite (`frontend/`) — Single SPA UI
@@ -192,10 +192,7 @@ Graph construction: `app/engine/graph/setup.py`. State propagation: `propagation
 
 ### MCP Architecture
 
-Two separate MCP-related directories — do not confuse them:
-
-- **`app/engine/tools/mcp/`** — MCP tool **consumer** infrastructure (loader, task manager with circuit breakers, health monitor, tool node). Connections initialized at app startup in `main.py` lifespan.
-- **`app/engine/mcp_provider/`** — MCP tool **provider** server (FastMCP server exposing finance tools as MCP resources)
+- **`app/engine/tools/mcp/`** — MCP tool **consumer** infrastructure (loader, task manager with circuit breakers, health monitor, tool node). Connections initialized at app startup in `main.py` lifespan. The project only consumes external MCP servers configured in `config/mcp.json`; it is not an MCP server itself.
 
 ### Data Layer (`app/data/`)
 

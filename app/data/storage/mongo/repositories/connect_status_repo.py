@@ -19,10 +19,11 @@ class ConnectStatusRepo:
         ops = []
         for rec in records:
             trade_date = rec.get("trade_date")
-            if not trade_date:
+            sym = rec.get("symbol")
+            if not trade_date or not sym:
                 continue
             ops.append(UpdateOne(
-                {"trade_date": trade_date},
+                {"symbol": sym, "trade_date": trade_date, "data_source": rec.get("data_source")},
                 {"$set": rec},
                 upsert=True,
             ))

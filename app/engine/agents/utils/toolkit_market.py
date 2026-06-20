@@ -110,7 +110,7 @@ def get_stock_market_data_unified(
         market_info = StockUtils.get_market_info(ticker)
         is_china = market_info["is_china"]
         is_hk = market_info["is_hk"]
-        is_us = market_info["is_us"]
+        market_info["is_us"]
 
         logger.debug(f"📈 [统一市场工具] 股票类型: {market_info['market_name']}")
         logger.debug(
@@ -120,7 +120,7 @@ def get_stock_market_data_unified(
         result_data = []
 
         if is_china:
-            logger.info(f"🇨🇳 [统一市场工具] 处理A股市场数据...")
+            logger.info("🇨🇳 [统一市场工具] 处理A股市场数据...")
 
             try:
                 stock_data = _get_stock_data_sync("CN", ticker, start_date, end_date)
@@ -136,7 +136,7 @@ def get_stock_market_data_unified(
                 result_data.append(f"## A股市场数据\n获取失败: {e}")
 
         elif is_hk:
-            logger.info(f"🇭🇰 [统一市场工具] 处理港股市场数据...")
+            logger.info("🇭🇰 [统一市场工具] 处理港股市场数据...")
 
             try:
                 hk_data = _get_stock_data_sync("HK", ticker, start_date, end_date)
@@ -152,7 +152,7 @@ def get_stock_market_data_unified(
                 result_data.append(f"## 港股市场数据\n获取失败: {e}")
 
         else:
-            logger.debug(f"🇺🇸 [统一市场工具] 处理美股市场数据...")
+            logger.debug("🇺🇸 [统一市场工具] 处理美股市场数据...")
 
             try:
                 from app.data.core.interface import DataInterface

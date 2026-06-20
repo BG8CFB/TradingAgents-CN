@@ -1,6 +1,7 @@
 """统一读取层 — 从 MongoDB 读标准数据 + 新鲜度判定 + 异步刷新通知。"""
 
 import logging
+import math
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -8,6 +9,27 @@ from typing import Any, Dict, Optional, Tuple
 from app.data.schema.base.enums import FreshnessState
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_nan(value: Any) -> Any:
+    """递归剔除 NaN/Inf，替换为 None，确保返回值可被 JSON 序列化。
+
+    历史脏数据（如 basic_info.industry 为 NaN）会在 BSON→Python 反序列化后
+    变成 float('nan')，FastAPI 默认 JSON 编码器会抛出
+    "Out of range float values are not JSON compliant"。这里作为读取层的
+    最后防线，统一兜底。
+    """
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    if isinstance(value, dict):
+        return {k: _strip_nan(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_strip_nan(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_nan(v) for v in value)
+    return value
 
 
 class Reader:
@@ -212,7 +234,7 @@ class Reader:
         if freshness == FreshnessState.STALE and symbol:
             await self.notify_refresh_async(market, symbol, domain)
 
-        return data, freshness
+        return _strip_nan(data), freshness
 
     async def check_freshness(
         self, market: str, symbol: str, domain: str, data: Any = None
@@ -227,12 +249,21 @@ class Reader:
         if not domain_rule:
             return FreshnessState.UNKNOWN
 
-        # 获取最新更新时间
+        # 获取最新更新时间：
+        # 注意：daily_quotes 等仓储返回的列表可能是 trade_date 升序排列，
+        # 因此 data[0] 是最早记录而非最新记录。必须取 max(updated_at) 才正确。
         updated_at = None
         if isinstance(data, dict):
             updated_at = data.get("updated_at")
         elif isinstance(data, list) and data:
-            updated_at = data[0].get("updated_at") if isinstance(data[0], dict) else None
+            # 从所有记录中取 updated_at 最大值（兼容仓储升序/降序排列）
+            candidates = [
+                d.get("updated_at")
+                for d in data
+                if isinstance(d, dict) and d.get("updated_at")
+            ]
+            if candidates:
+                updated_at = max(candidates)
 
         if not updated_at:
             return FreshnessState.UNKNOWN

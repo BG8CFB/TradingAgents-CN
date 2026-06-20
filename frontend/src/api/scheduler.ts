@@ -48,32 +48,12 @@ export interface JobExecution {
   cancel_requested?: boolean
 }
 
-export interface JobExecutionStats {
-  total: number
-  success: number
-  failed: number
-  missed: number
-  avg_execution_time: number
-  last_execution?: {
-    status: string
-    timestamp: string
-    execution_time?: number
-  }
-}
-
 export interface SchedulerStats {
   total_jobs: number
   running_jobs: number
   paused_jobs: number
   scheduler_running: boolean
   scheduler_state: number
-}
-
-export interface SchedulerHealth {
-  status: string
-  running: boolean
-  state: number
-  timestamp: string
 }
 
 /**
@@ -112,46 +92,10 @@ export function triggerJob(jobId: string, force: boolean = true) {
 }
 
 /**
- * 获取任务执行历史
- */
-export function getJobHistory(jobId: string, params?: { limit?: number; offset?: number }) {
-  return ApiClient.get<{
-    history: JobHistory[]
-    total: number
-    limit: number
-    offset: number
-  }>(`/api/scheduler/jobs/${jobId}/history`, params)
-}
-
-/**
- * 获取所有任务执行历史
- */
-export function getAllHistory(params?: {
-  limit?: number
-  offset?: number
-  job_id?: string
-  status?: string
-}) {
-  return ApiClient.get<{
-    history: JobHistory[]
-    total: number
-    limit: number
-    offset: number
-  }>('/api/scheduler/history', params)
-}
-
-/**
  * 获取调度器统计信息
  */
 export function getSchedulerStats() {
   return ApiClient.get<SchedulerStats>('/api/scheduler/stats')
-}
-
-/**
- * 调度器健康检查
- */
-export function getSchedulerHealth() {
-  return ApiClient.get<SchedulerHealth>('/api/scheduler/health')
 }
 
 /**
@@ -200,13 +144,6 @@ export function getSingleJobExecutions(
     limit: number
     offset: number
   }>(`/api/scheduler/jobs/${jobId}/executions`, params)
-}
-
-/**
- * 获取任务执行统计信息
- */
-export function getJobExecutionStats(jobId: string) {
-  return ApiClient.get<JobExecutionStats>(`/api/scheduler/jobs/${jobId}/execution-stats`)
 }
 
 /**

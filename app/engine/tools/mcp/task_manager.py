@@ -17,11 +17,9 @@ import asyncio
 import logging
 import threading
 import time
-from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Dict, Set, Optional, Any, Callable, Tuple
+from dataclasses import dataclass
+from typing import Dict, Set, Optional, Any, Callable
 from enum import Enum
-import functools
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +89,7 @@ class CircuitBreaker:
         if self.state == CircuitState.OPEN:
             # 检查是否超时，可以进入半开状态
             if now - self.last_state_change >= self.config.timeout:
-                logger.info(f"断路器超时，进入半开状态")
+                logger.info("断路器超时，进入半开状态")
                 self.state = CircuitState.HALF_OPEN
                 self.last_state_change = now
                 self.success_count = 0
@@ -122,7 +120,7 @@ class CircuitBreaker:
             if self.state == CircuitState.HALF_OPEN:
                 self.success_count += 1
                 if self.success_count >= self.config.success_threshold:
-                    logger.info(f"断路器恢复，进入关闭状态")
+                    logger.info("断路器恢复，进入关闭状态")
                     self.state = CircuitState.CLOSED
                     self.failure_count = 0
             elif self.state == CircuitState.CLOSED:
@@ -139,7 +137,7 @@ class CircuitBreaker:
 
             if self.state == CircuitState.HALF_OPEN:
                 # 半开状态失败，重新打开断路器
-                logger.warning(f"半开状态失败，重新打开断路器")
+                logger.warning("半开状态失败，重新打开断路器")
                 self.state = CircuitState.OPEN
                 self.last_state_change = now
                 self.success_count = 0
@@ -255,6 +253,10 @@ class TaskLevelMCPManager:
         # 避免在非 asyncio 上下文中创建 asyncio.Lock
         self._lock = threading.Lock()
 
+        # in-flight execute_tool 任务集合：close() 时等待这些任务收尾，
+        # 避免 manager 被 evict 后还在执行的调用方持着 dangling 引用
+        self._inflight_tasks: Set[asyncio.Task] = set()
+
         # 默认服务器并发限制
         self._default_server_concurrency = 5
 
@@ -318,9 +320,54 @@ class TaskLevelMCPManager:
         2. 服务器级并发控制
         3. 自动重试
         4. 失败记录
+        5. in-flight 任务登记（供 close() 等待收尾）
         """
         tool_key = self._get_tool_key(tool_name, server_name)
 
+        # 把自身作为 task 登记到 _inflight_tasks，便于 close() 等待收尾；
+        # 当前协程已经是 async（由调用方 await），用 create_task 包装可拿到
+        # asyncio.Task 引用，done 后由 _discard 自动从集合中移除
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is None:
+            # 退化路径（不在事件循环中）：直接执行不登记，由调用方负责
+            return await self._execute_tool_inner(
+                tool_name, func, *args,
+                server_name=server_name, tool_key=tool_key, **kwargs
+            )
+
+        # 把整个调用包成一个 task，登记到 _inflight_tasks 后 await 它
+        coro = self._execute_tool_inner(
+            tool_name, func, *args,
+            server_name=server_name, tool_key=tool_key, **kwargs
+        )
+        task = running_loop.create_task(coro, name=f"mcp_exec:{self.task_id}:{tool_name}")
+        self._inflight_tasks.add(task)
+
+        def _discard(t: asyncio.Task) -> None:
+            self._inflight_tasks.discard(t)
+
+        task.add_done_callback(_discard)
+        try:
+            return await task
+        except asyncio.CancelledError:
+            # 调用方主动 cancel：确保从集合中清理
+            self._inflight_tasks.discard(task)
+            raise
+
+    async def _execute_tool_inner(
+        self,
+        tool_name: str,
+        func: Callable,
+        *args,
+        server_name: Optional[str],
+        tool_key: str,
+        **kwargs
+    ) -> Any:
+        """实际的工具执行逻辑（被 execute_tool 包装）。"""
         # 检查工具是否可用（只读检查）
         if not await self.is_tool_available(tool_name, server_name):
             logger.warning(f"工具 {tool_name} 在当前任务中已禁用")
@@ -507,39 +554,122 @@ class TaskLevelMCPManager:
 
         return manager
 
+    async def close(self) -> None:
+        """关闭管理器，释放内部资源。
 
-# 全局任务管理器注册表
-_task_managers: Dict[str, TaskLevelMCPManager] = {}
+        重要：当任务结束或 manager 被 LRU evict 时必须调用此方法，
+        否则 ``_tool_states`` / ``_circuit_breakers`` / ``_server_semaphores``
+        会随时间无限累积，造成内存与 asyncio semaphore 资源泄漏。
+
+        释放策略：
+        - 等待 in-flight execute_tool 任务完成（避免 manager evict 后悬挂引用）
+        - 清空各内部 dict（断开对 CircuitBreaker / Semaphore 的引用）
+        """
+        try:
+            # 等待所有 in-flight execute_tool 完成（最长 5s）；
+            # 不主动 cancel，让调用方拿到正常返回值或异常
+            if self._inflight_tasks:
+                inflight_snapshot = list(self._inflight_tasks)
+                logger.debug(
+                    f"TaskLevelMCPManager[{self.task_id}] close 等待 "
+                    f"{len(inflight_snapshot)} 个 in-flight 任务收尾"
+                )
+                await asyncio.wait_for(
+                    asyncio.gather(*inflight_snapshot, return_exceptions=True),
+                    timeout=5.0,
+                )
+            self._tool_states.clear()
+            self._circuit_breakers.clear()
+            self._server_semaphores.clear()
+            with self._lock:
+                self._failed_tools.clear()
+            logger.debug(f"TaskLevelMCPManager[{self.task_id}] 已关闭")
+        except Exception as exc:
+            logger.warning(
+                f"TaskLevelMCPManager[{self.task_id}] close 异常: {exc}"
+            )
+
+
+# 全局任务管理器注册表（有界 LRU，TTL=1小时）
+# 防止长跑进程累积 task manager 不释放；不破坏 from_dict/to_dict 序列化（仅缓存层）。
+from app.core.lru_cache import BoundedLRUCache  # noqa: E402 (intentional late import)
+
+
+# 持有 in-flight close task 的强引用，避免被 GC 中断（Python 3.10+ 文档明确警告）
+_pending_evict_tasks: set = set()
+
+
+def _on_manager_evict(task_id: Any, manager: Any) -> None:
+    """LRU evict 时调用的回调：异步触发 manager.close()。
+
+    设计要点：
+    - 同步签名（``BoundedLRUCache`` 限制），内部用 ``loop.create_task`` 异步调度
+    - 持强引用到模块级 ``_pending_evict_tasks``，避免 task 被 GC（Python 文档警告）
+    - 进程退出阶段（无 running loop）静默跳过：此时所有 manager 都会随进程死亡
+    - 单次异常不影响 LRU 主流程（BoundedLRUCache 内部已捕获）
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(manager.close())
+        _pending_evict_tasks.add(task)
+        task.add_done_callback(_pending_evict_tasks.discard)
+    except RuntimeError:
+        # 没有 running loop（进程退出阶段）：无需 close，让 OS 回收
+        logger.debug(
+            f"LRU evict task_id={task_id} 时无 running loop，跳过 close"
+        )
+
+
+_task_managers: BoundedLRUCache = BoundedLRUCache(
+    maxsize=100, ttl=3600, name="task_mcp_managers", on_evict=_on_manager_evict,
+)
 _managers_lock: Optional[asyncio.Lock] = None  # 懒初始化
 _managers_thread_lock = threading.Lock()
 
 
 def _get_managers_async_lock() -> asyncio.Lock:
-    """懒初始化全局 asyncio.Lock"""
+    """懒初始化全局 asyncio.Lock（线程安全）。
+
+    必须在事件循环已运行的线程中调用（asyncio.Lock 绑定 loop）。
+    使用 _managers_thread_lock 保护初始化，避免并发 worker thread 创建多个 Lock 实例。
+    """
     global _managers_lock
     if _managers_lock is None:
-        _managers_lock = asyncio.Lock()
+        with _managers_thread_lock:
+            if _managers_lock is None:
+                _managers_lock = asyncio.Lock()
     return _managers_lock
 
 
 def get_task_mcp_manager(task_id: str) -> TaskLevelMCPManager:
     """获取或创建任务级 MCP 管理器"""
     with _managers_thread_lock:
-        if task_id not in _task_managers:
-            _task_managers[task_id] = TaskLevelMCPManager(task_id)
-        return _task_managers[task_id]
+        manager = _task_managers.get(task_id)
+        if manager is None:
+            manager = TaskLevelMCPManager(task_id)
+            _task_managers.set(task_id, manager)
+        return manager
 
 
-async def remove_task_mcp_manager(task_id: str):
-    """移除任务级 MCP 管理器"""
+async def remove_task_mcp_manager(task_id: str) -> None:
+    """移除任务级 MCP 管理器（先 close 释放资源，再从 LRU 删除）。"""
     async with _get_managers_async_lock():
-        if task_id in _task_managers:
-            del _task_managers[task_id]
+        manager = _task_managers.get(task_id)
+        if manager is not None:
+            try:
+                await manager.close()
+            except Exception as exc:
+                logger.warning(
+                    f"remove_task_mcp_manager close 失败 task_id={task_id}: {exc}"
+                )
+            _task_managers.invalidate(task_id)
             logger.info(f"移除任务级 MCP 管理器: {task_id}")
 
 
-async def cleanup_all_managers():
-    """清理所有管理器"""
+async def cleanup_all_managers() -> None:
+    """清理所有管理器（先逐个 close，再清空 LRU）。"""
     async with _get_managers_async_lock():
-        _task_managers.clear()
-        logger.info("清理所有任务级 MCP 管理器")
+        # clear() 返回清理数量并触发 on_evict 回调；回调内 create_task 会
+        # 在事件循环中排队执行，无需在此 await
+        count = _task_managers.clear()
+        logger.info(f"清理所有任务级 MCP 管理器: {count} 个")

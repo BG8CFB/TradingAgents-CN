@@ -3,9 +3,6 @@
 测试 /health, /healthz, /readyz 端点
 """
 
-import time
-import os
-
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -46,6 +43,19 @@ class TestHealthEndpoint:
         body = resp.json()
         assert "timestamp" in body["data"]
 
+    @pytest.mark.asyncio
+    async def test_health_alias_api_path_also_works(self, health_client):
+        """/api/health 是 /health 的别名路由，必须同时可用。
+
+        防止 ruff format 误删多层装饰器导致某个路径 404（曾发生回归）。
+        """
+        for path in ("/health", "/api/health"):
+            resp = await health_client.get(path)
+            assert resp.status_code == 200, f"路径 {path} 应返回 200，实际 {resp.status_code}"
+            body = resp.json()
+            assert body["success"] is True
+            assert body["data"]["status"] == "ok"
+
 
 class TestHealthzEndpoint:
     """测试 GET /healthz 存活探针"""
@@ -76,21 +86,14 @@ class TestGetVersion:
         assert isinstance(version, str)
         assert len(version) > 0
 
-    def test_get_version_fallback_on_missing_file(self):
-        """VERSION 文件不存在时返回默认版本号"""
-        import tempfile
-        import shutil
-        from pathlib import Path
-        from app.routers import health as health_module
+    def test_get_version_matches_pyproject(self):
+        """get_version() 必须与 pyproject.toml 的 version 一致（单一来源保证）"""
+        from importlib.metadata import version as pkg_version, PackageNotFoundError
+        from app.routers.health import get_version
 
-        # 临时修改 __file__ 指向一个不存在的路径
-        original_file = health_module.__file__
+        # 包已安装时，get_version() 等价于直接读包元数据
         try:
-            # 创建临时目录结构，不包含 VERSION 文件
-            tmp_dir = tempfile.mkdtemp()
-            health_module.__file__ = os.path.join(tmp_dir, "health.py")
-            version = health_module.get_version()
-            assert version == "0.1.16"
-        finally:
-            health_module.__file__ = original_file
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            expected = pkg_version("tradingagents")
+        except PackageNotFoundError:
+            pytest.skip("tradingagents 包未安装，无法验证版本一致性")
+        assert get_version() == expected

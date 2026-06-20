@@ -57,7 +57,7 @@ def get_stock_fundamentals_unified(
         market_info = StockUtils.get_market_info(ticker)
         is_china = market_info["is_china"]
         is_hk = market_info["is_hk"]
-        is_us = market_info["is_us"]
+        market_info["is_us"]
 
         logger.debug(
             f"🔍 [股票代码追踪] StockUtils.get_market_info 返回的市场信息: {market_info}"
@@ -78,20 +78,15 @@ def get_stock_fundamentals_unified(
             curr_date = get_current_date()
 
         if data_depth == "basic":
-            analysis_modules = "basic"
-            logger.debug(f"📊 [基本面策略] 快速分析模式：获取基础财务指标")
+            logger.debug("📊 [基本面策略] 快速分析模式：获取基础财务指标")
         elif data_depth == "standard":
-            analysis_modules = "standard"
-            logger.debug(f"📊 [基本面策略] 标准分析模式：获取标准财务分析")
+            logger.debug("📊 [基本面策略] 标准分析模式：获取标准财务分析")
         elif data_depth == "full":
-            analysis_modules = "full"
-            logger.debug(f"📊 [基本面策略] 深度分析模式：获取完整基本面分析")
+            logger.debug("📊 [基本面策略] 深度分析模式：获取完整基本面分析")
         elif data_depth == "comprehensive":
-            analysis_modules = "comprehensive"
-            logger.debug(f"📊 [基本面策略] 全面分析模式：获取综合基本面分析")
+            logger.debug("📊 [基本面策略] 全面分析模式：获取综合基本面分析")
         else:
-            analysis_modules = "standard"
-            logger.debug(f"📊 [基本面策略] 默认模式：获取标准基本面分析")
+            logger.debug("📊 [基本面策略] 默认模式：获取标准基本面分析")
 
         days_to_fetch = 10
         days_to_analyze = 2
@@ -118,7 +113,7 @@ def get_stock_fundamentals_unified(
                 f"🔍 [股票代码追踪] 进入A股处理分支，ticker: '{ticker}'"
             )
             logger.debug(
-                f"💡 [优化策略] 基本面分析只获取当前价格和财务数据，不获取历史日线数据"
+                "💡 [优化策略] 基本面分析只获取当前价格和财务数据，不获取历史日线数据"
             )
 
             try:
@@ -172,7 +167,7 @@ def get_stock_fundamentals_unified(
             hk_data_success = False
 
             logger.debug(
-                f"🔍 [港股基本面] 统一策略：获取完整数据（忽略 data_depth 参数）"
+                "🔍 [港股基本面] 统一策略：获取完整数据（忽略 data_depth 参数）"
             )
 
             try:
@@ -189,11 +184,11 @@ def get_stock_fundamentals_unified(
                     result_data.append(f"## 港股数据\n{hk_data}")
                     hk_data_success = True
                     logger.debug(
-                        f"✅ [统一基本面工具] 港股主要数据源成功"
+                        "✅ [统一基本面工具] 港股主要数据源成功"
                     )
                 else:
                     logger.warning(
-                        f"⚠️ [统一基本面工具] 港股主要数据源质量不佳"
+                        "⚠️ [统一基本面工具] 港股主要数据源质量不佳"
                     )
 
             except Exception as e:
@@ -218,7 +213,7 @@ def get_stock_fundamentals_unified(
 """
                     result_data.append(basic_info)
                     logger.debug(
-                        f"✅ [统一基本面工具] 港股备用信息成功"
+                        "✅ [统一基本面工具] 港股备用信息成功"
                     )
 
                 except Exception as e2:
@@ -242,10 +237,10 @@ def get_stock_fundamentals_unified(
                     )
 
         else:
-            logger.debug(f"🇺🇸 [统一基本面工具] 处理美股数据...")
+            logger.debug("🇺🇸 [统一基本面工具] 处理美股数据...")
 
             logger.debug(
-                f"🔍 [美股基本面] 统一策略：获取完整数据（忽略 data_depth 参数）"
+                "🔍 [美股基本面] 统一策略：获取完整数据（忽略 data_depth 参数）"
             )
 
             try:
@@ -257,7 +252,7 @@ def get_stock_fundamentals_unified(
                 )
                 us_data = _r.get("data")
                 result_data.append(f"## 美股基本面数据\n{us_data}")
-                logger.debug(f"✅ [统一基本面工具] 美股数据获取成功")
+                logger.debug("✅ [统一基本面工具] 美股数据获取成功")
             except Exception as e:
                 result_data.append(f"## 美股基本面数据\n获取失败: {e}")
                 logger.error(f"❌ [统一基本面工具] 美股数据获取失败: {e}")
@@ -277,7 +272,7 @@ def get_stock_fundamentals_unified(
 """
 
         logger.debug(
-            f"📊 [统一基本面工具] ===== 数据获取完成摘要 ====="
+            "📊 [统一基本面工具] ===== 数据获取完成摘要 ====="
         )
         logger.debug(f"📊 [统一基本面工具] 股票代码: {ticker}")
         logger.info(
@@ -310,17 +305,17 @@ def get_stock_fundamentals_unified(
 
         if data_depth in ["basic", "standard"]:
             logger.info(
-                f"📊 [统一基本面工具] 基础/标准级别策略: 仅获取核心价格数据和基础信息"
+                "📊 [统一基本面工具] 基础/标准级别策略: 仅获取核心价格数据和基础信息"
             )
         elif data_depth in ["full", "detailed", "comprehensive"]:
             logger.debug(
-                f"📊 [统一基本面工具] 完整/详细/全面级别策略: 获取价格数据 + 基本面数据"
+                "📊 [统一基本面工具] 完整/详细/全面级别策略: 获取价格数据 + 基本面数据"
             )
         else:
-            logger.info(f"📊 [统一基本面工具] 默认策略: 获取完整数据")
+            logger.info("📊 [统一基本面工具] 默认策略: 获取完整数据")
 
         logger.debug(
-            f"📊 [统一基本面工具] ===== 数据获取摘要结束 ====="
+            "📊 [统一基本面工具] ===== 数据获取摘要结束 ====="
         )
 
         return combined_result

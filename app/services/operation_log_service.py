@@ -13,10 +13,10 @@ from app.models.operation_log import (
     OperationLogResponse,
     OperationLogQuery,
     OperationLogStats,
-    convert_objectid_to_str,
-    ActionType
+    convert_objectid_to_str
 )
 from app.utils.timezone import now_tz, now_config_tz
+from app.utils.secret_masking import mask_username
 
 logger = logging.getLogger("webapi")
 
@@ -60,8 +60,8 @@ class OperationLogService:
             
             # 插入数据库
             result = await db[self.collection_name].insert_one(log_doc)
-            
-            logger.info(f"📝 操作日志已记录: {username} - {log_data.action}")
+
+            logger.info(f"📝 操作日志已记录: {mask_username(username)} - {log_data.action}")
             return str(result.inserted_id)
             
         except Exception as e:
@@ -127,7 +127,48 @@ class OperationLogService:
         except Exception as e:
             logger.error(f"获取操作日志失败: {e}")
             raise RuntimeError(f"获取操作日志失败: {str(e)}") from e
-    
+
+    async def get_all_for_export(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        action_type: Optional[str] = None,
+        limit: int = 10000,
+    ) -> List[OperationLogResponse]:
+        """导出专用：绕过分页校验，按筛选条件拉取最多 limit 条日志。
+
+        OperationLogQuery.page_size 上限为 100，无法满足 CSV 导出场景，
+        因此导出端点直接调用本方法，不经过 Pydantic 分页约束。
+        """
+        try:
+            db = get_mongo_db()
+            filter_query: Dict[str, Any] = {}
+            if start_date or end_date:
+                time_filter: Dict[str, Any] = {}
+                if start_date:
+                    time_filter["$gte"] = datetime.fromisoformat(start_date.replace("Z", ""))
+                if end_date:
+                    time_filter["$lte"] = datetime.fromisoformat(end_date.replace("Z", ""))
+                filter_query["timestamp"] = time_filter
+            if action_type:
+                filter_query["action_type"] = action_type
+
+            cursor = (
+                db[self.collection_name]
+                .find(filter_query)
+                .sort("timestamp", -1)
+                .limit(limit)
+            )
+            logs: List[OperationLogResponse] = []
+            async for doc in cursor:
+                doc = convert_objectid_to_str(doc)
+                logs.append(OperationLogResponse(**doc))
+            logger.info(f"📋 导出操作日志: 返回 {len(logs)} 条 (limit={limit})")
+            return logs
+        except Exception as e:
+            logger.error(f"导出操作日志失败: {e}")
+            raise RuntimeError(f"导出操作日志失败: {str(e)}") from e
+
     async def get_stats(self, days: int = 30) -> OperationLogStats:
         """获取操作日志统计"""
         try:

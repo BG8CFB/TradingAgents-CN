@@ -5,10 +5,15 @@
 - fetch_daily_basic_mv_map：根据交易日获取日度基础指标映射（市值/估值/交易）
 """
 from __future__ import annotations
+
+import logging
+import time
 from datetime import datetime, timedelta
 from typing import Dict
 
 from app.utils.time_utils import now_config_tz, format_date_compact
+
+logger = logging.getLogger(__name__)
 
 
 def fetch_stock_basic_df():
@@ -18,11 +23,7 @@ def fetch_stock_basic_df():
 
     注意：这是一个同步函数，会等待 Tushare 连接完成。
     """
-    import time
-    import logging
     from app.data.sources.cn.tushare.api.connection import get_tushare_api
-
-    logger = logging.getLogger(__name__)
 
     # 检查 Tushare 是否可用（DB 优先，.env 兜底）
     try:
@@ -47,24 +48,24 @@ def fetch_stock_basic_df():
     wait_interval = 0.1
     elapsed = 0.0
 
-    logger.info(f"⏳ 等待 Tushare 连接...")
-    while not getattr(provider, "connected", False) and elapsed < max_wait_seconds:
+    logger.info("⏳ 等待 Tushare 连接...")
+    while not getattr(conn, "connected", False) and elapsed < max_wait_seconds:
         time.sleep(wait_interval)
         elapsed += wait_interval
 
     # 检查连接状态和API可用性
-    if not getattr(provider, "connected", False) or conn.api is None:
+    if not getattr(conn, "connected", False) or conn.api is None:
         logger.error(f"❌ Tushare 连接失败（等待 {max_wait_seconds}s 后超时）")
-        logger.error(f"💡 请检查：")
-        logger.error(f"   1. .env 文件中配置了有效的 TUSHARE_TOKEN")
-        logger.error(f"   2. Tushare Token 未过期且有足够的积分")
-        logger.error(f"   3. 网络连接正常")
+        logger.error("💡 请检查：")
+        logger.error("   1. .env 文件中配置了有效的 TUSHARE_TOKEN")
+        logger.error("   2. Tushare Token 未过期且有足够的积分")
+        logger.error("   3. 网络连接正常")
         raise RuntimeError(
             f"Tushare not connected after waiting {max_wait_seconds}s. "
             "Check TUSHARE_TOKEN in .env and ensure it's valid."
         )
 
-    logger.info(f"✅ Tushare 已连接，开始获取股票列表...")
+    logger.info("✅ Tushare 已连接，开始获取股票列表...")
 
     # 直接调用 Tushare API 获取 DataFrame
     try:
@@ -75,19 +76,19 @@ def fetch_stock_basic_df():
 
         # 🔧 增强错误诊断
         if df is None:
-            logger.error(f"❌ Tushare API 返回 None")
-            logger.error(f"💡 可能原因：")
-            logger.error(f"   1. Tushare Token 无效或过期")
-            logger.error(f"   2. API 积分不足")
-            logger.error(f"   3. 网络连接问题")
+            logger.error("❌ Tushare API 返回 None")
+            logger.error("💡 可能原因：")
+            logger.error("   1. Tushare Token 无效或过期")
+            logger.error("   2. API 积分不足")
+            logger.error("   3. 网络连接问题")
             raise RuntimeError("Tushare API returned None. Check token validity and API credits.")
 
         if hasattr(df, 'empty') and df.empty:
-            logger.error(f"❌ Tushare API 返回空 DataFrame")
-            logger.error(f"💡 可能原因：")
-            logger.error(f"   1. list_status='L' 参数可能不正确")
-            logger.error(f"   2. Tushare 数据源暂时不可用")
-            logger.error(f"   3. API 调用限制（请检查积分和调用频率）")
+            logger.error("❌ Tushare API 返回空 DataFrame")
+            logger.error("💡 可能原因：")
+            logger.error("   1. list_status='L' 参数可能不正确")
+            logger.error("   2. Tushare 数据源暂时不可用")
+            logger.error("   3. API 调用限制（请检查积分和调用频率）")
             raise RuntimeError("Tushare API returned empty DataFrame. Check API parameters and data availability.")
 
         logger.info(f"✅ 成功获取 {len(df)} 条股票数据")
@@ -181,7 +182,6 @@ def fetch_latest_roe_map() -> Dict[str, Dict[str, float]]:
     优先按最近季度的 end_date 逆序探测，找到第一期非空数据。
     """
     from app.data.sources.cn.tushare.api.connection import get_tushare_api
-    from datetime import datetime
 
     conn = get_tushare_api()
     api = conn.api
@@ -222,7 +222,7 @@ def fetch_latest_roe_map() -> Dict[str, Dict[str, float]]:
                         continue
                     try:
                         v = float(val)
-                    except Exception as e:
+                    except Exception:
                         continue
                     data_map[str(ts_code)] = {"roe": v}
                 if data_map:

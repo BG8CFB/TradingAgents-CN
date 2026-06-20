@@ -1,9 +1,8 @@
 """域级同步基类"""
 
 import logging
-import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -52,9 +51,8 @@ class BaseDomainSync(ABC):
 
     def __init__(self, router: Optional[FallbackRouter] = None):
         if router is None:
-            from app.data.core.registry.capability import CapabilityRegistry
-            from app.data.core.registry.priority import PriorityConfig
-            router = FallbackRouter(CapabilityRegistry(), PriorityConfig())
+            # 使用进程级单例，与其他 sync_job 共享熔断器 + 限流器
+            router = FallbackRouter.get_instance()
         self._router = router
 
     async def _get_incremental_start_date(self, symbol: str) -> str:
@@ -64,8 +62,8 @@ class BaseDomainSync(ABC):
         策略：sync_checkpoints → stock_basic_info.list_date → 兜底 30 天前
         """
         try:
-            from app.core.database import get_database
-            db = await get_database()
+            from app.core.database import get_mongo_db
+            db = get_mongo_db()
         except Exception as e:
             logger.debug(f"获取数据库连接失败，使用默认30天前: {e}")
             return (now_utc() - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -145,8 +143,8 @@ class BaseDomainSync(ABC):
             return 0
 
         try:
-            from app.core.database import get_database
-            db = await get_database()
+            from app.core.database import get_mongo_db
+            db = get_mongo_db()
         except Exception as e:
             logger.warning(f"无法连接 MongoDB，跳过写入: {e}")
             return 0
@@ -189,8 +187,8 @@ class BaseDomainSync(ABC):
     ) -> None:
         """写入同步检查点"""
         try:
-            from app.core.database import get_database
-            db = await get_database()
+            from app.core.database import get_mongo_db
+            db = get_mongo_db()
         except Exception as e:
             logger.debug(f"获取数据库连接失败，跳过写入检查点: {e}")
             return
@@ -223,8 +221,8 @@ class BaseDomainSync(ABC):
     ) -> None:
         """写入同步事件"""
         try:
-            from app.core.database import get_database
-            db = await get_database()
+            from app.core.database import get_mongo_db
+            db = get_mongo_db()
         except Exception as e:
             logger.debug(f"获取数据库连接失败，跳过写入同步事件: {e}")
             return

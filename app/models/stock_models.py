@@ -2,7 +2,7 @@
 股票数据模型 - 基于现有集合扩展
 采用方案B: 在现有集合基础上扩展字段，保持向后兼容
 """
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional, Dict, Any, List, Literal
 from pydantic import BaseModel, Field, ConfigDict
 from bson import ObjectId
@@ -14,7 +14,7 @@ def to_str_id(v: Any) -> str:
         if isinstance(v, ObjectId):
             return str(v)
         return str(v)
-    except Exception as e:
+    except Exception:
         return ""
 
 

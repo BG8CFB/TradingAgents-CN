@@ -14,7 +14,7 @@ def to_str_id(v: Any) -> str:
         if isinstance(v, ObjectId):
             return str(v)
         return str(v)
-    except Exception as e:
+    except Exception:
         return ""
 
 

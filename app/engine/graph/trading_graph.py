@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-from pathlib import Path
 import json
 import copy
 from typing import Dict, Any, Tuple, List, Optional
@@ -10,29 +9,23 @@ import time
 
 from app.engine.llm_adapters import create_llm
 from app.models.config import LLMConfig
-from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TIMEOUT
 
-from app.engine.agents import *
-from app.engine.default_config import DEFAULT_CONFIG
+from app.engine.agents.utils.agent_utils import Toolkit
 from app.engine.agents.utils.memory import FinancialSituationMemory
+from app.engine.default_config import DEFAULT_CONFIG
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
 from app.utils.runtime_paths import get_cache_dir, get_eval_results_dir
 logger = get_logger('agents')
-from app.engine.agents.utils.agent_states import (
-    AgentState,
-    InvestDebateState,
-    RiskDebateState,
-)
-import logging as _logging
+import logging as _logging  # noqa: E402 (intentional late import)
 _logger_compat = _logging.getLogger(__name__)
 
-from .conditional_logic import ConditionalLogic
-from .setup import GraphSetup
-from .propagation import Propagator
-from .reflection import Reflector
-from .signal_processing import SignalProcessor
+from .conditional_logic import ConditionalLogic  # noqa: E402 (intentional late import)
+from .setup import GraphSetup  # noqa: E402 (intentional late import)
+from .propagation import Propagator  # noqa: E402 (intentional late import)
+from .reflection import Reflector  # noqa: E402 (intentional late import)
+from .signal_processing import SignalProcessor  # noqa: E402 (intentional late import)
 
 
 def _classify_node(node_name: str) -> str:
@@ -268,7 +261,7 @@ class TradingAgentsGraph:
             max_debate_rounds=max_debate_rounds,
             max_risk_discuss_rounds=max_risk_rounds
         )
-        logger.info(f"🔧 [ConditionalLogic] 初始化完成:")
+        logger.info("🔧 [ConditionalLogic] 初始化完成:")
         logger.info(f"   - max_debate_rounds: {self.conditional_logic.max_debate_rounds}")
         logger.info(f"   - max_risk_discuss_rounds: {self.conditional_logic.max_risk_discuss_rounds}")
 
@@ -323,7 +316,7 @@ class TradingAgentsGraph:
             logger.debug(f"🔧 [进度管理器] 已注册进度回调, task_id={effective_task_id}")
 
         # 添加详细的接收日志
-        logger.debug(f"🔍 [GRAPH DEBUG] ===== TradingAgentsGraph.propagate 接收参数 =====")
+        logger.debug("🔍 [GRAPH DEBUG] ===== TradingAgentsGraph.propagate 接收参数 =====")
         logger.debug(f"🔍 [GRAPH DEBUG] 接收到的company_name: '{company_name}' (类型: {type(company_name)})")
         logger.debug(f"🔍 [GRAPH DEBUG] 接收到的trade_date: '{trade_date}' (类型: {type(trade_date)})")
         logger.debug(f"🔍 [GRAPH DEBUG] 接收到的task_id: '{task_id}'")
@@ -537,7 +530,7 @@ class TradingAgentsGraph:
 
             # 检查是否为结束节点
             if '__end__' in chunk:
-                logger.info(f"📊 [Progress] 检测到__end__节点")
+                logger.info("📊 [Progress] 检测到__end__节点")
                 progress_callback("📊 生成报告")
                 return
 
@@ -697,7 +690,7 @@ class TradingAgentsGraph:
             logger.info(f"⚡ 最快节点: {fastest_node[0]} ({fastest_node[1]:.2f}秒)")
 
         # 打印LLM配置信息
-        logger.info(f"\n🤖 LLM配置:")
+        logger.info("\n🤖 LLM配置:")
         logger.info(f"  • 提供商: {self.config.get('llm_provider', 'unknown')}")
         logger.info(f"  • 辩论推理模型: {self.config.get('debate_llm', 'unknown')}")
         logger.info(f"  • 分析师模型: {self.config.get('analyst_llm', 'unknown')}")

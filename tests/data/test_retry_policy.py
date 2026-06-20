@@ -82,6 +82,8 @@ class TestIsRetryable:
             DataErrorCode.RATE_LIMITED,
             DataErrorCode.NETWORK_TIMEOUT,
             DataErrorCode.CONNECTION_ERROR,
+            # P1-1：服务暂时不可用（上游 5xx）也作为可重试错误
+            DataErrorCode.SERVICE_UNAVAILABLE,
         }
 
     def test_non_retryable_codes_cover_all_others(self):

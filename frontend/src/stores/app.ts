@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia'
 import type { RouteLocationNormalized } from 'vue-router'
 
+// Vite 编译期注入的应用版本号（来源：frontend/package.json，与 pyproject.toml 保持一致）
+declare const __APP_VERSION__: string
+declare const __BUILD_TIME__: string
+
 export interface AppState {
   // 应用基础状态
   loading: boolean
@@ -72,8 +76,8 @@ export const useAppStore = defineStore('app', {
       }
     })() as AppState['preferences'],
 
-    version: '1.1.0-preview',
-    buildTime: new Date().toISOString(),
+    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0+unknown',
+    buildTime: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString(),
     apiVersion: ''
   }),
 

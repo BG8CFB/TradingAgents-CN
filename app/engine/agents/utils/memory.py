@@ -1,11 +1,7 @@
 import chromadb
 from chromadb.config import Settings
-from openai import OpenAI
-import dashscope
-from dashscope import TextEmbedding
 import threading
-import hashlib
-from typing import Dict, Optional
+from typing import Dict
 
 from app.core.env import get_env
 # 导入统一日志系统
@@ -44,7 +40,7 @@ class ChromaDBManager:
                     if is_windows_11():
                         logger.info(f"📚 [ChromaDB] Windows 11优化配置初始化完成 (构建号: {platform.version()})")
                     else:
-                        logger.info(f"📚 [ChromaDB] Windows 10兼容配置初始化完成")
+                        logger.info("📚 [ChromaDB] Windows 10兼容配置初始化完成")
                 else:
                     logger.info(f"📚 [ChromaDB] {system}标准配置初始化完成")
 
@@ -59,7 +55,7 @@ class ChromaDBManager:
                         is_persistent=False
                     )
                     self._client = chromadb.Client(settings)
-                    logger.info(f"📚 [ChromaDB] 使用备用配置初始化完成")
+                    logger.info("📚 [ChromaDB] 使用备用配置初始化完成")
                 except Exception as backup_error:
                     # 最后的备用方案
                     self._client = chromadb.Client()
@@ -124,17 +120,17 @@ class FinancialSituationMemory:
         # 检查记忆功能是否被禁用
         if self.client == "DISABLED":
             # 内存功能已禁用，返回空向量
-            logger.debug(f"⚠️ 记忆功能已禁用，返回空向量")
+            logger.debug("⚠️ 记忆功能已禁用，返回空向量")
             return [0.0] * 1024  # 返回1024维的零向量
 
         # 验证输入文本
         if not text or not isinstance(text, str):
-            logger.warning(f"⚠️ 输入文本为空或无效，返回空向量")
+            logger.warning("⚠️ 输入文本为空或无效，返回空向量")
             return [0.0] * 1024
 
         text_length = len(text)
         if text_length == 0:
-            logger.warning(f"⚠️ 输入文本长度为0，返回空向量")
+            logger.warning("⚠️ 输入文本长度为0，返回空向量")
             return [0.0] * 1024
         
         # 检查是否启用长度限制
@@ -180,7 +176,7 @@ class FinancialSituationMemory:
 
                 # 检查DashScope API密钥是否可用
                 if not hasattr(dashscope, 'api_key') or not dashscope.api_key:
-                    logger.warning(f"⚠️ DashScope API密钥未设置，记忆功能降级")
+                    logger.warning("⚠️ DashScope API密钥未设置，记忆功能降级")
                     return [0.0] * 1024  # 返回空向量
 
                 # 尝试调用DashScope API
@@ -205,7 +201,7 @@ class FinancialSituationMemory:
                         
                         # 检查是否有降级选项
                         if hasattr(self, 'fallback_available') and self.fallback_available:
-                            logger.info(f"💡 尝试使用OpenAI降级处理长文本")
+                            logger.info("💡 尝试使用OpenAI降级处理长文本")
                             try:
                                 response = self.fallback_client.embeddings.create(
                                     model=self.fallback_embedding,
@@ -216,10 +212,10 @@ class FinancialSituationMemory:
                                 return embedding
                             except Exception as fallback_error:
                                 logger.error(f"❌ OpenAI降级失败: {str(fallback_error)}")
-                                logger.info(f"💡 所有降级选项失败，记忆功能降级")
+                                logger.info("💡 所有降级选项失败，记忆功能降级")
                                 return [0.0] * 1024
                         else:
-                            logger.info(f"💡 无可用降级选项，记忆功能降级")
+                            logger.info("💡 无可用降级选项，记忆功能降级")
                             return [0.0] * 1024
                     else:
                         logger.error(f"❌ DashScope API错误: {error_msg}")
@@ -234,7 +230,7 @@ class FinancialSituationMemory:
                     
                     # 检查是否有降级选项
                     if hasattr(self, 'fallback_available') and self.fallback_available:
-                        logger.info(f"💡 尝试使用OpenAI降级处理长文本")
+                        logger.info("💡 尝试使用OpenAI降级处理长文本")
                         try:
                             response = self.fallback_client.embeddings.create(
                                 model=self.fallback_embedding,
@@ -245,10 +241,10 @@ class FinancialSituationMemory:
                             return embedding
                         except Exception as fallback_error:
                             logger.error(f"❌ OpenAI降级失败: {str(fallback_error)}")
-                            logger.info(f"💡 所有降级选项失败，记忆功能降级")
+                            logger.info("💡 所有降级选项失败，记忆功能降级")
                             return [0.0] * 1024
                     else:
-                        logger.info(f"💡 无可用降级选项，记忆功能降级")
+                        logger.info("💡 无可用降级选项，记忆功能降级")
                         return [0.0] * 1024
                 elif 'import' in error_str:
                     logger.error(f"❌ DashScope包未安装: {str(e)}")
@@ -259,16 +255,16 @@ class FinancialSituationMemory:
                 else:
                     logger.error(f"❌ DashScope embedding异常: {str(e)}")
                 
-                logger.warning(f"⚠️ 记忆功能降级，返回空向量")
+                logger.warning("⚠️ 记忆功能降级，返回空向量")
                 return [0.0] * 1024
         else:
             # 使用OpenAI兼容的嵌入模型
             if self.client is None:
-                logger.warning(f"⚠️ 嵌入客户端未初始化，返回空向量")
+                logger.warning("⚠️ 嵌入客户端未初始化，返回空向量")
                 return [0.0] * 1024  # 返回空向量
             elif self.client == "DISABLED":
                 # 内存功能已禁用，返回空向量
-                logger.debug(f"⚠️ 内存功能已禁用，返回空向量")
+                logger.debug("⚠️ 内存功能已禁用，返回空向量")
                 return [0.0] * 1024  # 返回1024维的零向量
 
             # 尝试调用OpenAI兼容的embedding API
@@ -295,7 +291,7 @@ class FinancialSituationMemory:
                 if is_length_error:
                     # 长度限制错误：直接降级，不截断重试
                     logger.warning(f"⚠️ {self.llm_provider}长度限制: {str(e)}")
-                    logger.info(f"💡 为保证分析准确性，不截断文本，记忆功能降级")
+                    logger.info("💡 为保证分析准确性，不截断文本，记忆功能降级")
                 else:
                     # 其他类型的错误
                     if 'attributeerror' in error_str:
@@ -309,7 +305,7 @@ class FinancialSituationMemory:
                     else:
                         logger.error(f"❌ {self.llm_provider} embedding异常: {str(e)}")
                 
-                logger.warning(f"⚠️ 记忆功能降级，返回空向量")
+                logger.warning("⚠️ 记忆功能降级，返回空向量")
                 return [0.0] * 1024
 
     def get_embedding_config_status(self):
@@ -357,13 +353,13 @@ class FinancialSituationMemory:
         
         # 检查是否为空向量（记忆功能被禁用或出错）
         if all(x == 0.0 for x in query_embedding):
-            logger.debug(f"⚠️ 查询embedding为空向量，返回空结果")
+            logger.debug("⚠️ 查询embedding为空向量，返回空结果")
             return []
         
         # 检查是否有足够的数据进行查询
         collection_count = self.situation_collection.count()
         if collection_count == 0:
-            logger.debug(f"📭 记忆库为空，返回空结果")
+            logger.debug("📭 记忆库为空，返回空结果")
             return []
         
         # 调整查询数量，不能超过集合中的文档数量

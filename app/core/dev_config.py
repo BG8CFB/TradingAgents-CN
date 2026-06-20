@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import List, Optional
+from typing import List
 
 
 class DevConfig:

@@ -1,19 +1,41 @@
+from pathlib import Path
+
 from fastapi import APIRouter
 import time
-from pathlib import Path
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
 
 router = APIRouter()
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PYPROJECT = _PROJECT_ROOT / "pyproject.toml"
+
 
 def get_version() -> str:
-    """从 VERSION 文件读取版本号"""
+    """读取项目版本号，以 pyproject.toml 为唯一权威源。
+
+    解析顺序：
+    1. 直接读取项目根目录的 pyproject.toml（热重载友好，容器内修改即生效）
+    2. 安装的包元数据（作为兜底）
+    3. 返回 "0.0.0+unknown" 表示版本未知
+
+    不缓存结果，保证每次调用都读取最新值。
+    """
+    # 优先读源码目录的 pyproject.toml（开发模式热重载场景）
     try:
-        version_file = Path(__file__).parent.parent.parent / "VERSION"
-        if version_file.exists():
-            return version_file.read_text(encoding='utf-8').strip()
-    except Exception as e:
+        if _PYPROJECT.is_file():
+            text = _PYPROJECT.read_text(encoding="utf-8")
+            for line in text.splitlines():
+                if line.strip().startswith("version"):
+                    parts = line.split("=", 1)
+                    if len(parts) == 2:
+                        return parts[1].strip().strip('"').strip("'")
+    except OSError:
         pass
-    return "0.1.16"  # 默认版本号
+
+    try:
+        return _pkg_version("tradingagents")
+    except PackageNotFoundError:
+        return "0.0.0+unknown"
 
 
 def _health_response():

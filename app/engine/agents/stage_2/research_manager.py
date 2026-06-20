@@ -1,20 +1,19 @@
 
 import time
-import json
-import os
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
 logger = get_logger("default")
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402 (intentional late import)
+from app.core.async_utils import ainvoke  # noqa: E402 (intentional late import)
 
 # Stage 2 内部报告 key — 裁决者中屏蔽，避免与 debate_state 中的报告重复注入
 _STAGE2_REPORT_KEYS = frozenset({"bull_researcher", "bear_researcher"})
 
 def create_research_manager(llm, memory):
-    def research_manager_node(state) -> dict:
-        logger.debug(f"👔 [DEBUG] ===== 研究经理 (Research Manager) 节点开始 =====")
+    async def research_manager_node(state) -> dict:
+        logger.debug("👔 [DEBUG] ===== 研究经理 (Research Manager) 节点开始 =====")
         
         investment_debate_state = state.get("investment_debate_state", {})
 
@@ -98,10 +97,10 @@ def create_research_manager(llm, memory):
         
         messages.append(HumanMessage(content=user_content))
         
-        logger.info(f"👔 [Research Manager] 开始生成最终裁决报告...")
+        logger.info("👔 [Research Manager] 开始生成最终裁决报告...")
         
-        # 4. 执行推理
-        response = llm.invoke(messages)
+        # 4. 执行推理（异步：通过 ainvoke 统一桥接）
+        response = await ainvoke(llm, messages)
         final_content = response.content
         
         # 5. 保存报告文件
@@ -115,7 +114,7 @@ def create_research_manager(llm, memory):
             with open(tmp_filename, "w", encoding="utf-8") as f:
                 f.write(f"# {company_name} ({ticker}) 投资裁决报告\n\n")
                 f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"> 决策人：研究部主管\n\n")
+                f.write("> 决策人：研究部主管\n\n")
                 f.write(final_content)
             os.replace(tmp_filename, filename)
             logger.info(f"👔 [Research Manager] 已生成裁决报告: {filename}")

@@ -3,12 +3,9 @@ LLM 适配器统一基类
 提供 token 跟踪、API Key 解析等通用能力
 """
 
-import os
 import time
 from typing import Optional
 
-from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatResult
 
 from app.utils.logging_manager import get_logger, get_logger_manager
 

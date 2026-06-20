@@ -30,7 +30,7 @@
             </el-tag>
           </div>
           <div class="header-actions">
-            <el-button type="text" @click="resetFilters">
+            <el-button link @click="resetFilters">
               <el-icon><Refresh /></el-icon>
               重置
             </el-button>
@@ -234,7 +234,7 @@
               <el-icon><TrendCharts /></el-icon>
               批量分析 ({{ selectedStocks.length }})
             </el-button>
-            <el-button type="text" @click="exportResults">
+            <el-button link @click="exportResults">
               <el-icon><Download /></el-icon>
               导出结果
             </el-button>
@@ -325,10 +325,10 @@
 
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button type="text" size="small" @click="analyzeSingle(row)">
+            <el-button link size="small" @click="analyzeSingle(row)">
               分析
             </el-button>
-            <el-button type="text" size="small" @click="toggleFavorite(row)">
+            <el-button link size="small" @click="toggleFavorite(row)">
               <el-icon><Star /></el-icon>
               {{ isFavorited(row.symbol || row.code) ? '取消自选' : '加入自选' }}
             </el-button>
@@ -370,7 +370,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, TrendCharts, Download, Star, Connection, Warning } from '@element-plus/icons-vue'
 import type { StockInfo } from '@/types/analysis'
 import { screeningApi, type FieldConfigResponse } from '@/api/screening'
-import { favoritesApi } from '@/api/favorites'
+import { useFavoritesStore } from '@/stores/favorites'
 import { getSourceConfig } from '@/api/marketData'
 import { normalizeMarketForAnalysis, exchangeCodeToMarket, getMarketByStockCode } from '@/utils/market'
 
@@ -384,6 +384,7 @@ const pageSize = ref(20)
 
 // 路由 & 自选集
 const router = useRouter()
+const favoritesStore = useFavoritesStore()
 const favoriteSet = ref<Set<string>>(new Set())
 
 // 当前数据源
@@ -502,19 +503,15 @@ const performScreening = async () => {
     }
 
     // 调试日志：打印请求payload
-    console.log('🔍 筛选请求 payload:', JSON.stringify(payload, null, 2))
-    console.log('🔍 筛选条件 children:', children)
-
     const res = await screeningApi.run(payload, { timeout: 120000 })
     const data = (res as any)?.data || res // ApiClient封装会返回 {success,data} 格式
     const items = data?.items || []
 
-    // 直接使用后端返回的数据，字段名已统一
+    // 直接使用后端返回的数据，字段统一为 symbol（CLAUDE.md 规则：不再使用 code）
     screeningResults.value = items.map((it: any) => ({
-      symbol: it.symbol || it.code,  // 主字段
-      code: it.symbol || it.code,    // 兼容字段
-      name: it.name || it.symbol || it.code,  // 使用股票名称，如果没有则用代码
-      market: it.market || 'A股',
+      symbol: it.symbol || it.code,  // 主字段，code 仅作兼容回退
+      name: it.name || it.symbol || it.code,
+      market: normalizeMarketForAnalysis(it.market || filters.market),
       industry: it.industry,
       area: it.area,
       board: it.board,  // 板块（主板、创业板、科创板等）
@@ -636,7 +633,7 @@ const toggleFavorite = async (stock: StockInfo) => {
     const code = (stock.symbol || stock.code) as string
     if (favoriteSet.value.has(code)) {
       // 取消自选
-      const res = await favoritesApi.remove(code)
+      const res = await favoritesStore.remove(code)
       if ((res as any)?.success === false) throw new Error((res as any)?.message || '取消失败')
       favoriteSet.value.delete(code)
       ElMessage.success(`已取消自选：${stock.name || code}`)
@@ -658,7 +655,7 @@ const toggleFavorite = async (stock: StockInfo) => {
         stock_name: stock.name || code,
         market: marketType
       }
-      const res = await favoritesApi.add(payload)
+      const res = await favoritesStore.add(payload)
       if ((res as any)?.success === false) throw new Error((res as any)?.message || '添加失败')
       favoriteSet.value.add(code)
       ElMessage.success(`已加入自选：${stock.name || code}`)
@@ -703,7 +700,6 @@ const loadFieldConfig = async () => {
   try {
     const response = await screeningApi.getFields()
     fieldConfig.value = response.data || response
-    console.log('字段配置加载成功:', fieldConfig.value)
   } catch (error) {
     console.error('加载字段配置失败:', error)
     ElMessage.error('加载字段配置失败')
@@ -719,7 +715,6 @@ const loadIndustries = async () => {
     const data = response.data || response
     const loaded = (data.industries || []).filter((i: any) => i.value && i.label)
     industryOptions.value = loaded
-    console.log('行业列表加载成功:', loaded.length, '个行业', loaded.length === 0 ? '(可能需要先同步数据)' : '')
 
     if (loaded.length === 0) {
       console.warn('行业列表为空，可能尚未同步基础数据或当前数据源不支持行业分类')
@@ -734,8 +729,7 @@ const loadIndustries = async () => {
 // 加载自选列表，初始化 favoriteSet
 const loadFavorites = async () => {
   try {
-    const resp = await favoritesApi.list()
-    const list = (resp as any)?.data || resp
+    const list = await favoritesStore.fetch()
     const set = new Set<string>()
     ;(list || []).forEach((item: any) => {
       // 兼容新旧字段

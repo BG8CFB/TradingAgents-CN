@@ -13,7 +13,6 @@ from app.core.database import (
     get_mongo_db,
     get_redis_client,
     get_mongo_client,
-    get_database,
     init_database_views_and_indexes,
     db_manager,
 )
@@ -125,19 +124,19 @@ class TestGetRedisClient:
             db_module.redis_client = original
 
 
-class TestGetDatabase:
-    """测试 get_database() 函数"""
+class TestGetMongoDB:
+    """测试 get_mongo_db() 函数"""
 
     def test_raises_runtime_error_when_not_initialized(self):
         import app.core.database as db_module
 
-        original_client = db_module.db_manager.mongo_client
-        db_module.db_manager.mongo_client = None
+        original_db = db_module.mongo_db
+        db_module.mongo_db = None
         try:
-            with pytest.raises(RuntimeError, match="MongoDB客户端未初始化"):
-                get_database()
+            with pytest.raises(RuntimeError, match="MongoDB数据库未初始化"):
+                get_mongo_db()
         finally:
-            db_module.db_manager.mongo_client = original_client
+            db_module.mongo_db = original_db
 
 
 class TestInitDatabaseViewsAndIndexes:

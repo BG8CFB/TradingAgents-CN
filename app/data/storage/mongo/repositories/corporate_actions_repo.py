@@ -24,7 +24,7 @@ class CorporateActionsRepo:
             if not sym or not ex or not at:
                 continue
             ops.append(UpdateOne(
-                {"symbol": sym, "ex_date": ex, "action_type": at},
+                {"symbol": sym, "ex_date": ex, "action_type": at, "data_source": rec.get("data_source")},
                 {"$set": rec},
                 upsert=True,
             ))

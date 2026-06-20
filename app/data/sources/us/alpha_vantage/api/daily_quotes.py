@@ -4,7 +4,6 @@ Alpha Vantage US 美股日线行情 API
 import asyncio
 import json
 import logging
-import os
 import urllib.request
 from typing import Optional
 
@@ -12,7 +11,18 @@ from app.utils.ds_key_utils import get_datasource_api_key
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import (
+    DataNotFoundError,
+    DataSourceUnavailableError,
+)
+from app.data.sources.base.mappers import (
+    is_empty_result,
+    map_network_exception,
+)
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "daily_quotes"
 
 _AV_BASE_URL = "https://www.alphavantage.co/query"
 
@@ -34,17 +44,25 @@ async def fetch_daily_quotes(
 
     Returns:
         日线行情 DataFrame，失败返回 None
+
+    Raises:
+        NetworkError: 网络/超时异常（可重试）
+        DataFormatError: Alpha Vantage 返回结构异常（不可重试）
+        DataNotFoundError: 返回空数据（不可重试）
+        DataSourceUnavailableError: 其他未知异常
     """
     api_key = get_datasource_api_key("alpha_vantage") or ""
     if not api_key:
         logger.debug("Alpha Vantage API Key 未配置")
         return None
+
+    ticker = symbol.upper().strip()
+    url = (
+        f"{_AV_BASE_URL}?function=TIME_SERIES_DAILY"
+        f"&symbol={ticker}&outputsize=full&apikey={api_key}"
+    )
+
     try:
-        ticker = symbol.upper().strip()
-        url = (
-            f"{_AV_BASE_URL}?function=TIME_SERIES_DAILY"
-            f"&symbol={ticker}&outputsize=full&apikey={api_key}"
-        )
 
         def _fetch():
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -68,9 +86,17 @@ async def fetch_daily_quotes(
             return pd.DataFrame(records) if records else None
 
         df = await asyncio.to_thread(_fetch)
-        if df is not None and not df.empty:
-            logger.info(f"Alpha Vantage 日线行情: {ticker} {len(df)} 条")
-        return df
-    except Exception as e:
-        logger.debug(f"Alpha Vantage 获取日线行情失败 {symbol}: {e}")
-        return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError, urllib.error.URLError) as exc:
+        raise map_network_exception(exc, "alpha_vantage", _DOMAIN)
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+        from app.data.sources.base.exceptions import DataFormatError
+        raise DataFormatError("alpha_vantage", _DOMAIN, f"symbol={symbol}: {exc}")
+    except Exception as exc:
+        raise DataSourceUnavailableError("alpha_vantage", _DOMAIN, f"symbol={symbol}: {exc}")
+
+    if is_empty_result(df):
+        logger.warning(f"Alpha Vantage 返回空数据: {symbol}")
+        raise DataNotFoundError("alpha_vantage", _DOMAIN, f"{symbol} 无数据")
+
+    logger.info(f"Alpha Vantage 获取成功: {symbol} {len(df) if df is not None else 0} 条")
+    return df

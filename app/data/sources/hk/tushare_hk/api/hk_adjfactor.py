@@ -7,7 +7,16 @@ from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
+from app.data.sources.base.mappers import (
+    is_empty_result,
+    map_network_exception,
+    map_tushare_code,
+)
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "adj_factors"
 
 
 def _format_compact(date_str: str) -> str:
@@ -41,9 +50,9 @@ async def fetch_adj_factors(
     """
     if api is None:
         return None
+    start_str = _format_compact(start_date)
+    end_str = _format_compact(end_date)
     try:
-        start_str = _format_compact(start_date)
-        end_str = _format_compact(end_date)
         df = await asyncio.to_thread(
             lambda: api.hk_adjfactor(
                 ts_code=ts_code,
@@ -51,9 +60,20 @@ async def fetch_adj_factors(
                 end_date=end_str,
             )
         )
-        if df is not None and not df.empty:
-            logger.info(f"Tushare HK 复权因子: {ts_code} {len(df)} 条")
-        return df
-    except Exception as e:
-        logger.error(f"Tushare HK 获取复权因子失败: {ts_code} - {e}")
-        return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare_hk", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare_hk", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError(
+            "tushare_hk", _DOMAIN, f"ts_code={ts_code}: {exc}"
+        )
+
+    if is_empty_result(df):
+        logger.warning(f"Tushare HK 复权因子返回空数据: {ts_code}")
+        raise DataNotFoundError("tushare_hk", _DOMAIN, f"{ts_code} 无数据")
+
+    logger.info(f"Tushare HK 复权因子: {ts_code} {len(df)} 条")
+    return df

@@ -44,7 +44,17 @@ def _parse_exchange(ts_code: str) -> str:
     return {"SH": "SSE", "SZ": "SZSE", "BJ": "BSE"}.get(suffix, suffix)
 
 
-from app.data.sources.cn.stock_name_utils import infer_exchange as _infer_exchange
+def _net_inflow(buy_amount: Any, sell_amount: Any) -> Any:
+    """计算资金净流入（买入额 - 卖出额），单位万元 → 元。
+
+    Tushare moneyflow 返回的 buy_xxx_amount / sell_xxx_amount 单位为万元，
+    净流入 = (buy - sell) * 10000。当任一端缺失时返回 None。
+    """
+    buy = _safe_float(buy_amount)
+    sell = _safe_float(sell_amount)
+    if buy is None or sell is None:
+        return None
+    return (buy - sell) * 10000
 
 
 class TushareCNAdapter(BaseAdapter):
@@ -63,20 +73,26 @@ class TushareCNAdapter(BaseAdapter):
         for _, row in df.iterrows():
             get = row.get
             ts_code = str(get("ts_code", ""))
-            symbol = str(get("symbol", "") or _parse_symbol_from_ts_code(ts_code)).zfill(6)
-            results.append(StockBasicInfoSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                name=get("name", ""),
-                full_symbol=f"{symbol}.{_parse_exchange(ts_code)}" if _parse_exchange(ts_code) else symbol,
-                exchange=_parse_exchange(ts_code),
-                industry=get("industry"),
-                list_status=get("list_status"),
-                list_date=_parse_date(get("list_date")),
-                delist_date=_parse_date(get("delist_date")),
-                currency="CNY",
-            ))
+            symbol = str(
+                get("symbol", "") or _parse_symbol_from_ts_code(ts_code)
+            ).zfill(6)
+            results.append(
+                StockBasicInfoSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    name=get("name", ""),
+                    full_symbol=f"{symbol}.{_parse_exchange(ts_code)}"
+                    if _parse_exchange(ts_code)
+                    else symbol,
+                    exchange=_parse_exchange(ts_code),
+                    industry=get("industry"),
+                    list_status=get("list_status"),
+                    list_date=_parse_date(get("list_date")),
+                    delist_date=_parse_date(get("delist_date")),
+                    currency="CNY",
+                )
+            )
         return results
 
     # ── trade_calendar ──
@@ -91,15 +107,17 @@ class TushareCNAdapter(BaseAdapter):
             cal_date = _parse_date(get("cal_date"))
             if not cal_date:
                 continue
-            results.append(TradeCalendarSchema(
-                symbol="__calendar__",
-                market="CN",
-                data_source="tushare",
-                exchange=get("exchange", "SSE"),
-                cal_date=cal_date,
-                is_open=bool(get("is_open", 1)),
-                pretrade_date=_parse_date(get("pretrade_date")),
-            ))
+            results.append(
+                TradeCalendarSchema(
+                    symbol="__calendar__",
+                    market="CN",
+                    data_source="tushare",
+                    exchange=get("exchange", "SSE"),
+                    cal_date=cal_date,
+                    is_open=bool(get("is_open", 1)),
+                    pretrade_date=_parse_date(get("pretrade_date")),
+                )
+            )
         return results
 
     # ── daily_quotes ──
@@ -132,26 +150,33 @@ class TushareCNAdapter(BaseAdapter):
 
             if change is None and close is not None and pre_close is not None:
                 change = round(close - pre_close, 4)
-            if pct_chg is None and close is not None and pre_close is not None and pre_close != 0:
+            if (
+                pct_chg is None
+                and close is not None
+                and pre_close is not None
+                and pre_close != 0
+            ):
                 pct_chg = round((close - pre_close) / pre_close * 100, 4)
 
-            results.append(DailyQuotesSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                trade_date=trade_date,
-                period="daily",
-                open=_safe_float(get("open")),
-                high=_safe_float(get("high")),
-                low=_safe_float(get("low")),
-                close=close,
-                pre_close=pre_close,
-                change=change,
-                pct_chg=pct_chg,
-                volume=volume,
-                amount=amount,
-                turnover_rate=_safe_float(get("turn") or get("turnover_rate")),
-            ))
+            results.append(
+                DailyQuotesSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    trade_date=trade_date,
+                    period="daily",
+                    open=_safe_float(get("open")),
+                    high=_safe_float(get("high")),
+                    low=_safe_float(get("low")),
+                    close=close,
+                    pre_close=pre_close,
+                    change=change,
+                    pct_chg=pct_chg,
+                    volume=volume,
+                    amount=amount,
+                    turnover_rate=_safe_float(get("turn") or get("turnover_rate")),
+                )
+            )
         return results
 
     # ── daily_indicators ──
@@ -176,20 +201,22 @@ class TushareCNAdapter(BaseAdapter):
             if circ_mv is not None:
                 circ_mv = circ_mv * 10000
 
-            results.append(DailyIndicatorsSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                trade_date=trade_date,
-                pe_ttm=_safe_float(get("pe")),
-                pb=_safe_float(get("pb")),
-                ps_ttm=_safe_float(get("ps")),
-                turnover_rate=_safe_float(get("turnover_rate")),
-                turnover_rate_f=_safe_float(get("turnover_rate_f")),
-                total_mv=total_mv,
-                circ_mv=circ_mv,
-                volume_ratio=_safe_float(get("volume_ratio")),
-            ))
+            results.append(
+                DailyIndicatorsSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    trade_date=trade_date,
+                    pe_ttm=_safe_float(get("pe")),
+                    pb=_safe_float(get("pb")),
+                    ps_ttm=_safe_float(get("ps")),
+                    turnover_rate=_safe_float(get("turnover_rate")),
+                    turnover_rate_f=_safe_float(get("turnover_rate_f")),
+                    total_mv=total_mv,
+                    circ_mv=circ_mv,
+                    volume_ratio=_safe_float(get("volume_ratio")),
+                )
+            )
         return results
 
     # ── adj_factors ──
@@ -205,15 +232,17 @@ class TushareCNAdapter(BaseAdapter):
             trade_date = _parse_date(get("trade_date"))
             if not trade_date:
                 continue
-            results.append(AdjFactorsSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                trade_date=trade_date,
-                adj_factor=_safe_float(get("adj_factor")),
-                fore_adj_factor=_safe_float(get("fore_adj_factor")),
-                back_adj_factor=_safe_float(get("back_adj_factor")),
-            ))
+            results.append(
+                AdjFactorsSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    trade_date=trade_date,
+                    adj_factor=_safe_float(get("adj_factor")),
+                    fore_adj_factor=_safe_float(get("fore_adj_factor")),
+                    back_adj_factor=_safe_float(get("back_adj_factor")),
+                )
+            )
         return results
 
     # ── financial_data ──
@@ -225,7 +254,9 @@ class TushareCNAdapter(BaseAdapter):
         results = []
         for _, row in df.iterrows():
             get = row.get
-            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "") or get("symbol", "")))
+            symbol = _parse_symbol_from_ts_code(
+                str(get("ts_code", "") or get("symbol", ""))
+            )
             report_period = _parse_date(
                 get("report_period") or get("end_date") or get("ann_date")
             )
@@ -233,29 +264,31 @@ class TushareCNAdapter(BaseAdapter):
             # 判断报表类型
             stmt_type = get("statement_type") or self._detect_stmt_type(row)
 
-            results.append(FinancialDataSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                report_period=report_period,
-                statement_type=stmt_type,
-                announce_date=_parse_date(get("ann_date")),
-                revenue=_safe_float(get("total_revenue") or get("revenue")),
-                net_profit=_safe_float(get("net_profit") or get("n_income")),
-                total_assets=_safe_float(get("total_assets")),
-                total_equity=_safe_float(
-                    get("total_hldr_eqy_exc_min_int") or get("total_equity")
-                ),
-                roe=_safe_float(get("roe")),
-                roa=_safe_float(get("roa")),
-                gross_margin=_safe_float(get("grossprofit_margin")),
-                net_margin=_safe_float(get("netprofit_margin")),
-                debt_ratio=_safe_float(get("debt_to_assets")),
-                current_ratio=_safe_float(get("current_ratio")),
-                eps=_safe_float(get("eps")),
-                bps=_safe_float(get("bps")),
-                operating_cashflow=_safe_float(get("n_cashflow_act")),
-            ))
+            results.append(
+                FinancialDataSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    report_period=report_period,
+                    statement_type=stmt_type,
+                    announce_date=_parse_date(get("ann_date")),
+                    revenue=_safe_float(get("total_revenue") or get("revenue")),
+                    net_profit=_safe_float(get("net_profit") or get("n_income")),
+                    total_assets=_safe_float(get("total_assets")),
+                    total_equity=_safe_float(
+                        get("total_hldr_eqy_exc_min_int") or get("total_equity")
+                    ),
+                    roe=_safe_float(get("roe")),
+                    roa=_safe_float(get("roa")),
+                    gross_margin=_safe_float(get("grossprofit_margin")),
+                    net_margin=_safe_float(get("netprofit_margin")),
+                    debt_ratio=_safe_float(get("debt_to_assets")),
+                    current_ratio=_safe_float(get("current_ratio")),
+                    eps=_safe_float(get("eps")),
+                    bps=_safe_float(get("bps")),
+                    operating_cashflow=_safe_float(get("n_cashflow_act")),
+                )
+            )
         return results
 
     @staticmethod
@@ -280,18 +313,24 @@ class TushareCNAdapter(BaseAdapter):
             get = row.get
             title = get("title", "")
             publish_time = get("datetime", "") or get("publish_time", "")
-            content_hash = StockNewsSchema.compute_hash(title, str(publish_time)) if title else None
-            results.append(StockNewsSchema(
-                symbol=str(get("symbol", "")),
-                market="CN",
-                data_source="tushare",
-                title=title,
-                content=get("content"),
-                content_hash=content_hash,
-                source=get("source") or get("channels", ""),
-                publish_time=publish_time,
-                url=get("url"),
-            ))
+            content_hash = (
+                StockNewsSchema.compute_hash(title, str(publish_time))
+                if title
+                else None
+            )
+            results.append(
+                StockNewsSchema(
+                    symbol=str(get("symbol", "")),
+                    market="CN",
+                    data_source="tushare",
+                    title=title,
+                    content=get("content"),
+                    content_hash=content_hash,
+                    source=get("source") or get("channels", ""),
+                    publish_time=publish_time,
+                    url=get("url"),
+                )
+            )
         return results
 
     # ── market_quotes ──
@@ -318,24 +357,26 @@ class TushareCNAdapter(BaseAdapter):
             if amount is not None:
                 amount = amount * 1000
 
-            results.append(MarketQuotesSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                open=_safe_float(get("open")),
-                high=_safe_float(get("high")),
-                low=_safe_float(get("low")),
-                close=close,
-                pre_close=pre_close,
-                pct_chg=pct_chg,
-                volume=volume,
-                amount=amount,
-                turnover_rate=_safe_float(get("turn") or get("turnover_rate")),
-                last_price=close,
-                last_volume=volume,
-                last_updated=get("update_time"),
-                trade_date=get("trade_date"),
-            ))
+            results.append(
+                MarketQuotesSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    open=_safe_float(get("open")),
+                    high=_safe_float(get("high")),
+                    low=_safe_float(get("low")),
+                    close=close,
+                    pre_close=pre_close,
+                    pct_chg=pct_chg,
+                    volume=volume,
+                    amount=amount,
+                    turnover_rate=_safe_float(get("turn") or get("turnover_rate")),
+                    last_price=close,
+                    last_volume=volume,
+                    last_updated=get("update_time"),
+                    trade_date=get("trade_date"),
+                )
+            )
         return results
 
     # ── money_flow ──
@@ -357,34 +398,30 @@ class TushareCNAdapter(BaseAdapter):
                 continue
 
             # 万元 → 元
+            # Tushare moneyflow 返回 buy_xxx_amount / sell_xxx_amount（买入/卖出额），
+            # 净流入 = 买入额 - 卖出额。直接用 buy 字段会导致净流入全部偏大。
             main_net_inflow = _safe_float(get("net_mf_amount"))
             if main_net_inflow is not None:
                 main_net_inflow = main_net_inflow * 10000
-            huge_net_inflow = _safe_float(get("buy_elg_amount"))
-            if huge_net_inflow is not None:
-                huge_net_inflow = huge_net_inflow * 10000
-            large_net_inflow = _safe_float(get("buy_lg_amount"))
-            if large_net_inflow is not None:
-                large_net_inflow = large_net_inflow * 10000
-            medium_net_inflow = _safe_float(get("buy_md_amount"))
-            if medium_net_inflow is not None:
-                medium_net_inflow = medium_net_inflow * 10000
-            small_net_inflow = _safe_float(get("buy_sm_amount"))
-            if small_net_inflow is not None:
-                small_net_inflow = small_net_inflow * 10000
+            huge_net_inflow = _net_inflow(get("buy_elg_amount"), get("sell_elg_amount"))
+            large_net_inflow = _net_inflow(get("buy_lg_amount"), get("sell_lg_amount"))
+            medium_net_inflow = _net_inflow(get("buy_md_amount"), get("sell_md_amount"))
+            small_net_inflow = _net_inflow(get("buy_sm_amount"), get("sell_sm_amount"))
 
-            results.append(MoneyFlowSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                trade_date=td,
-                main_net_inflow=main_net_inflow,
-                main_net_inflow_pct=_safe_float(get("net_mf_vol")),
-                huge_net_inflow=huge_net_inflow,
-                large_net_inflow=large_net_inflow,
-                medium_net_inflow=medium_net_inflow,
-                small_net_inflow=small_net_inflow,
-            ))
+            results.append(
+                MoneyFlowSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    trade_date=td,
+                    main_net_inflow=main_net_inflow,
+                    main_net_inflow_pct=_safe_float(get("net_mf_vol")),
+                    huge_net_inflow=huge_net_inflow,
+                    large_net_inflow=large_net_inflow,
+                    medium_net_inflow=medium_net_inflow,
+                    small_net_inflow=small_net_inflow,
+                )
+            )
         return results
 
     # ── margin_trading ──
@@ -401,18 +438,20 @@ class TushareCNAdapter(BaseAdapter):
             td = _parse_date(get("trade_date"))
             if not td:
                 continue
-            results.append(MarginTradingSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                trade_date=td,
-                rzye=_safe_float(get("rzye")),
-                rqye=_safe_float(get("rqye")),
-                rz_buy=_safe_float(get("rzmre")),
-                rq_sell=_safe_float(get("rqmcl")),
-                rzrqye=_safe_float(get("rzrqye")),
-                rqyl=_safe_float(get("rqyl")),
-            ))
+            results.append(
+                MarginTradingSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    trade_date=td,
+                    rzye=_safe_float(get("rzye")),
+                    rqye=_safe_float(get("rqye")),
+                    rz_buy=_safe_float(get("rzmre")),
+                    rq_sell=_safe_float(get("rqmcl")),
+                    rzrqye=_safe_float(get("rzrqye")),
+                    rqyl=_safe_float(get("rqyl")),
+                )
+            )
         return results
 
     # ── dragon_tiger ──
@@ -429,19 +468,21 @@ class TushareCNAdapter(BaseAdapter):
             td = _parse_date(get("trade_date"))
             if not td:
                 continue
-            results.append(DragonTigerSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                trade_date=td,
-                name=str(get("name", "")),
-                close=_safe_float(get("close")),
-                pct_chg=_safe_float(get("pct_change")),
-                direction=str(get("reason", "")),
-                buy_amount=_safe_float(get("l_buy")),
-                sell_amount=_safe_float(get("l_sell")),
-                net_amount=_safe_float(get("net_amount")),
-            ))
+            results.append(
+                DragonTigerSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    trade_date=td,
+                    name=str(get("name", "")),
+                    close=_safe_float(get("close")),
+                    pct_chg=_safe_float(get("pct_change")),
+                    direction=str(get("reason", "")),
+                    buy_amount=_safe_float(get("l_buy")),
+                    sell_amount=_safe_float(get("l_sell")),
+                    net_amount=_safe_float(get("net_amount")),
+                )
+            )
         return results
 
     # ── block_trade ──
@@ -458,18 +499,22 @@ class TushareCNAdapter(BaseAdapter):
             td = _parse_date(get("trade_date"))
             if not td:
                 continue
-            results.append(BlockTradeSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                trade_date=td,
-                name=str(get("name", "")),
-                price=_safe_float(get("price")),
-                volume=_safe_float(get("vol")),
-                amount=_safe_float(get("amount")),
-                buyer=str(get("buyer", "")),
-                seller=str(get("seller", "")),
-            ))
+            results.append(
+                BlockTradeSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    trade_date=td,
+                    name=str(get("name", "")),
+                    price=_safe_float(get("price")),
+                    # 大宗交易 tushare vol 字段单位为"手"（1 手 = 100 股），
+                    # 统一转换为"股"写入，与其他行情数据的 volume 单位一致
+                    volume=float(int(round(_safe_float(get("vol")) * 100))),
+                    amount=_safe_float(get("amount")),
+                    buyer=str(get("buyer", "")),
+                    seller=str(get("seller", "")),
+                )
+            )
         return results
 
     # ── intraday_quotes ──
@@ -487,17 +532,22 @@ class TushareCNAdapter(BaseAdapter):
             dt = str(get("trade_time", ""))
             if not dt:
                 continue
-            results.append(IntradayQuotesSchema(
-                symbol=symbol,
-                market="CN",
-                data_source="tushare",
-                datetime=dt,
-                freq="30min",
-                open=_safe_float(get("open")),
-                close=_safe_float(get("close")),
-                high=_safe_float(get("high")),
-                low=_safe_float(get("low")),
-                volume=_safe_float(get("vol")),
-                amount=_safe_float(get("amount")),
-            ))
+            # 单位转换与日线一致：手→股（×100），千元→元（×1000）
+            vol = _safe_float(get("vol"))
+            amt = _safe_float(get("amount"))
+            results.append(
+                IntradayQuotesSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    datetime=dt,
+                    freq="30min",
+                    open=_safe_float(get("open")),
+                    close=_safe_float(get("close")),
+                    high=_safe_float(get("high")),
+                    low=_safe_float(get("low")),
+                    volume=vol * 100 if vol is not None else None,
+                    amount=amt * 1000 if amt is not None else None,
+                )
+            )
         return results

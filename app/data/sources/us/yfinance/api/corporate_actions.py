@@ -7,7 +7,17 @@ from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import (
+    DataNotFoundError,
+    DataSourceUnavailableError,
+)
+from app.data.sources.base.mappers import (
+    map_network_exception,
+)
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "corporate_actions"
 
 
 async def fetch_corporate_actions(
@@ -27,6 +37,12 @@ async def fetch_corporate_actions(
 
     Returns:
         公司行为 DataFrame（含 date/action_type/amount 或 ratio/symbol），失败返回 None
+
+    Raises:
+        NetworkError: 网络/超时异常（可重试）
+        DataFormatError: yfinance 返回结构异常（不可重试）
+        DataNotFoundError: 返回空数据（不可重试）
+        DataSourceUnavailableError: 其他未知异常
     """
     try:
         import yfinance as yf
@@ -38,38 +54,46 @@ async def fetch_corporate_actions(
             return {"dividends": t.dividends, "splits": t.splits}
 
         result = await asyncio.to_thread(_fetch)
-        records = []
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "yfinance", _DOMAIN)
+    except (KeyError, IndexError, ValueError, AttributeError) as exc:
+        from app.data.sources.base.exceptions import DataFormatError
+        raise DataFormatError("yfinance", _DOMAIN, f"symbol={symbol}: {exc}")
+    except Exception as exc:
+        raise DataSourceUnavailableError("yfinance", _DOMAIN, f"symbol={symbol}: {exc}")
 
-        divs = result.get("dividends")
-        if divs is not None and not divs.empty:
-            for date, val in divs.items():
-                ds = str(date)[:10]
-                if start_date <= ds <= end_date:
-                    records.append({
-                        "date": ds,
-                        "action_type": "cash_dividend",
-                        "amount": val,
-                        "symbol": ticker,
-                    })
+    # 业务逻辑：解析 + 日期过滤
+    records = []
 
-        splits = result.get("splits")
-        if splits is not None and not splits.empty:
-            for date, val in splits.items():
-                ds = str(date)[:10]
-                if start_date <= ds <= end_date:
-                    action = "stock_split" if val > 1 else "reverse_split"
-                    records.append({
-                        "date": ds,
-                        "action_type": action,
-                        "ratio": val,
-                        "symbol": ticker,
-                    })
+    divs = result.get("dividends")
+    if divs is not None and not divs.empty:
+        for date, val in divs.items():
+            ds = str(date)[:10]
+            if start_date <= ds <= end_date:
+                records.append({
+                    "date": ds,
+                    "action_type": "cash_dividend",
+                    "amount": val,
+                    "symbol": ticker,
+                })
 
-        if not records:
-            return None
-        df = pd.DataFrame(records)
-        logger.info(f"yfinance-US 公司行为: {ticker} {len(df)} 条")
-        return df
-    except Exception as e:
-        logger.debug(f"yfinance-US 获取公司行为失败 {symbol}: {e}")
-        return None
+    splits = result.get("splits")
+    if splits is not None and not splits.empty:
+        for date, val in splits.items():
+            ds = str(date)[:10]
+            if start_date <= ds <= end_date:
+                action = "stock_split" if val > 1 else "reverse_split"
+                records.append({
+                    "date": ds,
+                    "action_type": action,
+                    "ratio": val,
+                    "symbol": ticker,
+                })
+
+    if not records:
+        logger.warning(f"yfinance 返回空数据: {symbol} 公司行为")
+        raise DataNotFoundError("yfinance", _DOMAIN, f"{symbol} 无公司行为数据")
+
+    df = pd.DataFrame(records)
+    logger.info(f"yfinance 获取成功: {symbol} {len(df)} 条")
+    return df

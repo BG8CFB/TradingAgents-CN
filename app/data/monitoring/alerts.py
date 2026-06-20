@@ -75,7 +75,8 @@ class AlertService:
             try:
                 redis = None
                 try:
-                    redis = __import__("app.data.storage.redis.client", fromlist=["get_redis"]).get_redis()
+                    from app.data.storage.redis.client import get_redis
+                    redis = get_redis()
                 except Exception as e:
                     logger.debug(f"获取 Redis 连接失败: {e}")
                 if redis:

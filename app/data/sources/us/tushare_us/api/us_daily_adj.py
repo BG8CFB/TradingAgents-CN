@@ -7,7 +7,16 @@ from typing import Optional
 
 import pandas as pd
 
+from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
+from app.data.sources.base.mappers import (
+    is_empty_result,
+    map_network_exception,
+    map_tushare_code,
+)
+
 logger = logging.getLogger(__name__)
+
+_DOMAIN = "daily_quotes"
 
 
 def _to_us_ts_code(symbol: str) -> str:
@@ -50,9 +59,20 @@ async def fetch_daily_adj(
             start_date=start_date.replace("-", ""),
             end_date=end_date.replace("-", ""),
         )
-        if df is not None and not df.empty:
-            logger.info(f"Tushare US 前复权行情: {us_code} {len(df)} 条")
-        return df
-    except Exception as e:
-        logger.debug(f"Tushare US 获取前复权行情失败 {ts_code}: {e}")
-        return None
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare_us", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare_us", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError(
+            "tushare_us", _DOMAIN, f"ts_code={us_code}: {exc}"
+        )
+
+    if is_empty_result(df):
+        logger.warning(f"Tushare US 前复权行情返回空数据: {us_code}")
+        raise DataNotFoundError("tushare_us", _DOMAIN, f"{us_code} 无数据")
+
+    logger.info(f"Tushare US 前复权行情: {us_code} {len(df)} 条")
+    return df

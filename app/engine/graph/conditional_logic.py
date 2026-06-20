@@ -47,7 +47,7 @@ class ConditionalLogic:
         logger.info(f"🔍 [投资辩论控制] 最后发言者: {latest_speaker}")
 
         if current_count >= max_count:
-            logger.info(f"✅ [投资辩论控制] 达到最大次数，结束辩论 -> Research Manager")
+            logger.info("✅ [投资辩论控制] 达到最大次数，结束辩论 -> Research Manager")
             return "Research Manager"
 
         # 使用结构化 latest_speaker 字段路由
@@ -83,7 +83,7 @@ class ConditionalLogic:
         logger.info(f"🔍 [风险讨论控制] 最后发言者: {latest_speaker}")
 
         if current_count >= max_count:
-            logger.info(f"✅ [风险讨论控制] 达到最大次数，结束讨论 -> Risk Judge")
+            logger.info("✅ [风险讨论控制] 达到最大次数，结束讨论 -> Risk Judge")
             return "Risk Judge"
 
         # 确定下一个发言者

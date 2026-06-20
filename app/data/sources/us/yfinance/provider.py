@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import Optional
 
 import pandas as pd
 
@@ -28,13 +27,12 @@ class YFinanceUSProvider(BaseProvider):
         except ImportError:
             return False
 
-    async def get_stock_list(self, **kwargs) -> Optional[pd.DataFrame]:
-        # yfinance 不支持全市场列表，返回 None（由 Finnhub 承担）
-        return None
+    async def get_stock_list(self, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_stock_list")
 
     async def get_daily_quotes(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         try:
             import yfinance as yf
             ticker = symbol.upper()
@@ -55,7 +53,7 @@ class YFinanceUSProvider(BaseProvider):
 
     async def get_corporate_actions(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         try:
             import yfinance as yf
             ticker = symbol.upper()
@@ -92,14 +90,14 @@ class YFinanceUSProvider(BaseProvider):
 
     async def get_daily_indicators(
         self, symbol: str, start_date: str, end_date: str, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         # yfinance 不直接提供 PE/PB 等指标，通过 info 获取
         return None
 
     async def get_financial_data(
         self, symbol: str, start_date: str, end_date: str,
         statement_type: str = "", **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         try:
             import yfinance as yf
             ticker = symbol.upper()
@@ -116,9 +114,20 @@ class YFinanceUSProvider(BaseProvider):
             logger.debug(f"yfinance-US 财务数据失败 {symbol}: {e}")
             return None
 
+    async def get_news(
+        self, symbol: str, start_date: str, end_date: str, **kwargs
+    ) -> pd.DataFrame:
+        # 市场级新闻（symbol=None）：复用 CN 的全球财经快讯（覆盖美股）
+        if not symbol:
+            from app.data.sources.cn.akshare.api.news import fetch_market_news
+            result = await fetch_market_news(limit=100)
+            return pd.DataFrame(result) if result else None
+        # 个股新闻：yfinance 限流频繁，市场级路径已覆盖，个股暂不支持
+        return None
+
     async def get_market_quotes(
         self, symbols=None, **kwargs
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame:
         # 单只快照
         if not symbols or len(symbols) != 1:
             return None

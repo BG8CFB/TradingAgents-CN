@@ -4,7 +4,7 @@ OpenAI 兼容协议适配器
 SiliconFlow、OpenRouter、Ollama、自定义端点等。
 """
 
-import threading
+import copy
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -19,8 +19,6 @@ from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, 
 
 logger = get_logger("agents")
 
-# 线程锁：保护 monkey-patch 操作的线程安全
-_patch_lock = threading.Lock()
 # Ollama reasoning 回填调用计数器（防止同一会话多次调用）
 _ollama_fetch_count: dict[int, int] = {}
 
@@ -253,19 +251,18 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
         if hook == "_truncate_messages_for_qianfan":
             messages = self._truncate_messages_for_qianfan(messages)
 
-        # DeepSeek thinking mode 兼容：
-        # 1. _create_chat_result（响应方向）：已在上面覆盖，自动注入 reasoning_content
-        # 2. _convert_message_to_dict（请求方向）：需要 monkey-patch 以回传 reasoning_content
+        # DeepSeek thinking mode 兼容（per-instance 一次性预处理，无 monkey-patch）：
+        # 把每个 AIMessage.additional_kwargs.reasoning_content 作为前缀合并到 content，
+        # 让 LangChain 的标准序列化（_convert_message_to_dict）能正确把它放入请求 dict。
+        # 旧实现通过模块级 monkey-patch _convert_message_to_dict 实现，存在并发数据竞争
+        # （refcount 跨实例共享），且 patch 安装/恢复依赖时序。本方案彻底移除模块级状态，
+        # 每个 _generate 调用独立处理自己的 messages，无并发问题。
         provider = getattr(self, "_provider_name", "")
         model_name = getattr(self, "model_name", None) or getattr(self, "_model_name_alias", "")
-        needs_reasoning_fix = _is_deepseek_thinking_model(provider, model_name)
+        if _is_deepseek_thinking_model(provider, model_name):
+            messages = self._merge_reasoning_into_content(messages)
 
-        if needs_reasoning_fix:
-            result = self._generate_with_reasoning_fix(
-                messages, stop, run_manager, **kwargs
-            )
-        else:
-            result = super()._generate(messages, stop, run_manager, **kwargs)
+        result = super()._generate(messages, stop, run_manager, **kwargs)
 
         # 修复 content 为空的情况：部分模型（如 Qwen3.6 + Ollama）
         # 在 think 模式下将实际回复放在非标准 reasoning 字段中，
@@ -275,76 +272,58 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
         self._track_token_usage(result, kwargs, start_time)
         return result
 
-    def _generate_with_reasoning_fix(
-        self,
+    @staticmethod
+    def _merge_reasoning_into_content(
         messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> ChatResult:
+    ) -> List[BaseMessage]:
+        """把 AIMessage.additional_kwargs.reasoning_content 合并到 content。
+
+        DeepSeek thinking mode 要求多轮对话中把 assistant 的 reasoning_content
+        回传给 API，否则返回 HTTP 400。LangChain 的 _convert_message_to_dict
+        默认不会序列化 reasoning_content，因此把它直接拼到 content 字段，
+        API 在请求 dict 中即能看到。
+
+        设计要点：
+        - 使用 copy.copy 浅拷贝每个 AIMessage，避免修改共享消息历史
+        - reasoning_content 仅合并 assistant 角色（HumanMessage/SystemMessage 无此字段）
+        - 合并后从 additional_kwargs 中删除 reasoning_content，避免双重发送
         """
-        DeepSeek thinking mode 的 _generate 包装。
+        if not messages:
+            return messages
 
-        通过临时 monkey-patch langchain_openai.chat_models.base 模块的
-        _convert_message_to_dict 函数，确保 AIMessage 的 reasoning_content
-        被注入到序列化后的 dict 中。调用完成后恢复原函数。
-
-        仅对 DeepSeek thinking mode 模型生效，不影响其他 provider。
-
-        ── 为什么需要 monkey-patch ──────────────────────────────
-        LangChain ChatOpenAI 的消息序列化（_convert_message_to_dict）
-        只处理标准 OpenAI 字段，不会将 AIMessage.additional_kwargs
-        中的 reasoning_content 放入请求 dict。而 DeepSeek API 要求在
-        多轮工具调用中回传 assistant 消息的 reasoning_content，
-        否则返回 HTTP 400。
-
-        ── 线程安全权衡 ─────────────────────────────────────────
-        使用全局锁（_patch_lock）保护 patch/unpatch 操作。锁的持有范围
-        覆盖整个 _generate 调用（包括网络 I/O），这意味着：
-        - 同一进程内的多个 DeepSeek 调用会被序列化执行
-        - LangGraph 节点本身是顺序执行的，单次分析任务内无并发问题
-        - 并发风险仅来自同时运行多个分析任务（不同股票）
-        如果未来需要更高并发度，可考虑将 patch 改为 per-instance 方式。
-
-        ── reasoning_content 来源 ───────────────────────────────
-        由 _create_chat_result 中的 _inject_reasoning_from_response
-        从原始 API 响应中提取并注入到 AIMessage.additional_kwargs。
-        """
-        import langchain_openai.chat_models.base as _lc_openai_base
-
-        _original_fn = getattr(_lc_openai_base, "_convert_message_to_dict", None)
-        if _original_fn is None:
-            logger.warning(
-                "[deepseek] 无法获取 LangChain _convert_message_to_dict，"
-                "跳过 reasoning_content 注入（可能触发 400 错误）"
-            )
-            return super()._generate(messages, stop, run_manager, **kwargs)
-
-        def _patched_convert_message_to_dict(message, *args, **ckwargs):
-            msg_dict = _original_fn(message, *args, **ckwargs)
-            # 对 AIMessage，注入 additional_kwargs 中的 reasoning_content
-            if isinstance(message, AIMessage) and msg_dict.get("role") == "assistant":
-                reasoning = message.additional_kwargs.get("reasoning_content")
-                if reasoning is not None:
-                    msg_dict["reasoning_content"] = reasoning
-            return msg_dict
-
-        try:
-            with _patch_lock:
-                _lc_openai_base._convert_message_to_dict = _patched_convert_message_to_dict
-                logger.debug(
-                    f"[deepseek] 已启用 reasoning_content 序列化补丁 "
-                    f"(messages 含 {sum(1 for m in messages if isinstance(m, AIMessage))} 条 AIMessage)"
+        result: List[BaseMessage] = []
+        for msg in messages:
+            if not isinstance(msg, AIMessage):
+                result.append(msg)
+                continue
+            reasoning = msg.additional_kwargs.get("reasoning_content")
+            if not reasoning:
+                result.append(msg)
+                continue
+            # 浅拷贝以保留原 message 不可变；additional_kwargs 也需独立拷贝
+            new_msg = copy.copy(msg)
+            new_msg.additional_kwargs = {
+                k: v for k, v in (msg.additional_kwargs or {}).items()
+                if k != "reasoning_content"
+            }
+            original_content = msg.content or ""
+            if isinstance(original_content, str):
+                new_msg.content = (
+                    f"[思考]\n{reasoning}\n[/思考]\n\n{original_content}"
                 )
-                result = super(OpenAICompatibleAdapter, self)._generate(
-                    messages, stop, run_manager, **kwargs
-                )
-            return result
-        finally:
-            # 确保恢复原函数，避免影响其他调用
-            with _patch_lock:
-                if _original_fn is not None:
-                    _lc_openai_base._convert_message_to_dict = _original_fn
+            else:
+                # LangChain content 也可能是 list[ContentBlock]，此场景少见；
+                # 在最前面插入一段文本块即可
+                text_block = {
+                    "type": "text",
+                    "text": f"[思考]\n{reasoning}\n[/思考]\n\n",
+                }
+                if isinstance(original_content, list):
+                    new_msg.content = [text_block] + list(original_content)
+                else:
+                    new_msg.content = text_block["text"] + str(original_content)
+            result.append(new_msg)
+        return result
 
     def _fix_empty_content(
         self, result: ChatResult, messages: List[BaseMessage]

@@ -1,7 +1,7 @@
 """Finnhub US Adapter — 原始数据 → 标准 Schema。"""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List
 
 import pandas as pd
@@ -85,7 +85,7 @@ class FinnhubUSAdapter(BaseAdapter):
             get = row.get
             title = get("headline", "")
             ts = get("datetime", 0)
-            publish_time = datetime.fromtimestamp(ts).isoformat() if ts else ""
+            publish_time = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else ""
             content_hash = StockNewsSchema.compute_hash(title, publish_time) if title else None
             results.append(StockNewsSchema(
                 symbol=str(get("related", "")).upper(),

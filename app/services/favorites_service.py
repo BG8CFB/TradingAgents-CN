@@ -2,12 +2,15 @@
 自选股服务
 """
 
+import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
 from app.utils.timezone import now_utc
+
+logger = logging.getLogger("webapi")
 
 
 class FavoritesService:
@@ -139,7 +142,7 @@ class FavoritesService:
                     else:
                         it["board"] = self._infer_board(code)
                         it["exchange"] = "-"
-            except Exception as e:
+            except Exception:
                 # 查询失败时设置默认值
                 for it in items:
                     it["board"] = "-"
@@ -173,7 +176,7 @@ class FavoritesService:
                         )
                         if latest:
                             pct_map[code] = latest
-                    except Exception as e:
+                    except Exception:
                         pass
 
                 for it in items:
@@ -216,9 +219,9 @@ class FavoritesService:
                                 q2 = quotes_online.get(code, {})
                                 it["current_price"] = q2.get("close")
                                 it["change_percent"] = q2.get("pct_chg")
-                    except Exception as e:
+                    except Exception:
                         pass
-            except Exception as e:
+            except Exception:
                 pass
 
         return items
@@ -235,8 +238,6 @@ class FavoritesService:
         alert_price_low: Optional[float] = None
     ) -> bool:
         """添加股票到自选股（兼容字符串ID与ObjectId）"""
-        import logging
-        logger = logging.getLogger("webapi")
 
         try:
             logger.info(f"🔧 [add_favorite] 开始添加自选股: user_id={user_id}, stock_code={stock_code}")
@@ -383,8 +384,6 @@ class FavoritesService:
 
     async def is_favorite(self, user_id: str, stock_code: str) -> bool:
         """检查股票是否在自选股中（兼容字符串ID与ObjectId）"""
-        import logging
-        logger = logging.getLogger("webapi")
 
         try:
             logger.info(f"🔧 [is_favorite] 检查自选股: user_id={user_id}, stock_code={stock_code}")

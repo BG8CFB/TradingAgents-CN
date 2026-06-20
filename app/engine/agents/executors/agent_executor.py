@@ -21,7 +21,6 @@ from langchain_core.messages import (
     AIMessage,
     BaseMessage,
     HumanMessage,
-    SystemMessage,
     ToolMessage,
 )
 
@@ -29,7 +28,7 @@ from app.utils.logging_init import get_logger
 
 from .loop_detector import LoopDetector, LoopDetectionResult, ToolCallRecord
 from .state_injector import StateInjector
-from .token_budget import CompactResult, TokenBudget
+from .token_budget import TokenBudget
 from .tool_result_processor import ToolResultProcessor
 
 logger = get_logger("executors.agent_executor")
@@ -426,7 +425,7 @@ class AgentExecutor:
                     from app.engine.tools.builtin.registry import get_spec_by_id
                     if get_spec_by_id(tool_name):
                         messages.append(ToolMessage(
-                            content=f"该数据已在上下文中预加载，请直接使用已有的数据进行分析。",
+                            content="该数据已在上下文中预加载，请直接使用已有的数据进行分析。",
                             tool_call_id=tool_call_id,
                             name=tool_name,
                         ))

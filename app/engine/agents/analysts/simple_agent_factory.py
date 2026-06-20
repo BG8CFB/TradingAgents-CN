@@ -9,9 +9,7 @@ from typing import Dict, Any, List, Callable
 
 from app.engine.tools.registry import get_all_tools, ToolRegistry
 from app.engine.tools.builtin.registry import (
-    BUILTIN_TOOL_REGISTRY,
     get_specs_by_ids,
-    get_spec_by_id,
 )
 from app.engine.tools.builtin.domain_checker import AvailabilityCache
 from app.utils.logging_init import get_logger
@@ -131,12 +129,20 @@ class SimpleAgentFactory:
             if not registry._initialized:
                 registry.initialize()
 
-            # 只保留非内置工具（MCP + Skill）
+            # 只保留非内置工具（MCP + Skill 脚本入口）
             # 双重检查：metadata 标记 + tool_id 名称白名单，防止 metadata 设置失败时内置工具泄露到 bind_tools
+            # 注意：skill 脚本入口（如 technical-screening.calc-indicators）虽然通过
+            # BuiltinToolSpec 注册，但属于 LLM 可调用工具，不能被排除。
+            from app.engine.tools.builtin.registry import is_skill_tool
+
             builtin_tool_ids = {spec.tool_id for spec in config_specs}
             callable_tools = []
             for t in all_tools:
                 tool_name = getattr(t, "name", None)
+                # skill 脚本入口工具：始终保留为可调用
+                if tool_name and is_skill_tool(tool_name):
+                    callable_tools.append(t)
+                    continue
                 # 检查1：metadata 标记
                 if registry.is_builtin_tool(t):
                     continue

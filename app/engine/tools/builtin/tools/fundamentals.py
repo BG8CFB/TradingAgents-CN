@@ -9,7 +9,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
-from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
 from app.data.core.interface import DataInterface
 from app.core.async_utils import run_async
@@ -55,7 +55,7 @@ def get_stock_fundamentals(
         market_info = StockUtils.get_market_info(stock_code)
         is_china = market_info['is_china']
         is_hk = market_info['is_hk']
-        is_us = market_info['is_us']
+        market_info['is_us']
 
         logger.info(f"[基本面工具] 股票类型: {market_info['market_name']}")
 
@@ -64,7 +64,6 @@ def get_stock_fundamentals(
         if is_china:
             logger.info("[基本面工具] 处理A股数据...")
 
-            current_price_data = ""
             try:
                 recent_end_date = current_date
                 recent_start_date = (datetime.strptime(current_date, '%Y-%m-%d') - timedelta(days=2)).strftime('%Y-%m-%d')
@@ -78,10 +77,9 @@ def get_stock_fundamentals(
                 if _d:
                     import pandas as pd
                     if isinstance(_d, list) and _d:
-                        current_price_data = pd.DataFrame(_d).to_string()
+                        pd.DataFrame(_d).to_string()
             except Exception as e:
                 logger.error(f"[基本面工具] A股价格数据获取失败: {e}")
-                current_price_data = ""
 
             try:
                 from app.services.fundamentals import get_fundamentals_provider

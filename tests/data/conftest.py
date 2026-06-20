@@ -4,10 +4,23 @@
 替代 unittest.mock.patch 方案，使用真实的代码路径 + 内存数据库。
 """
 
-import os
 import pytest
 
-from test_infra import SimulatedMongoDB, SimulatedRedis
+from test_infra import SimulatedMongoDB
+
+
+@pytest.fixture(autouse=True)
+def _clear_memory_counters():
+    """每个测试前后清理模块级 _memory_counters，防跨测试污染。
+
+    SlidingWindowCounter 的内存降级路径使用模块级全局 _memory_counters；
+    RateLimiter 内部也有自己的 _memory_counters 实例字段（不共享）。
+    本 fixture 只清前者，避免与限流器逻辑耦合。
+    """
+    from app.data.storage.redis.counters import _memory_counters
+    _memory_counters.clear()
+    yield
+    _memory_counters.clear()
 
 
 # ============================================================

@@ -18,7 +18,6 @@ def get_available_data_sources() -> Set[str]:
         可用数据源名称的集合，如 {"tushare", "akshare"}
     """
     try:
-        from app.data.core.registry.capability import CapabilityRegistry
         from app.data.config import load_yaml
 
         # 从 capability_matrix.yaml 获取所有数据源名称

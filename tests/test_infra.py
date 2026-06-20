@@ -141,6 +141,15 @@ class SimulatedMongoCollection:
                 return type("Result", (), {"deleted_count": 1})()
         return type("Result", (), {"deleted_count": 0})()
 
+    async def delete_many(self, filter_dict):
+        """批量删除匹配的文档。"""
+        deleted = 0
+        for key, doc in list(self._data.items()):
+            if _match_filter(doc, filter_dict):
+                del self._data[key]
+                deleted += 1
+        return type("Result", (), {"deleted_count": deleted})()
+
     async def count_documents(self, filter_dict=None):
         if not filter_dict:
             return len(self._data)
@@ -252,6 +261,8 @@ class SimulatedRedis:
         self._sets = {}
         self._lists = {}
         self._hashes = {}
+        # sorted set: key → list of (member, score)，保持插入顺序便于测试可预测
+        self._zsets = {}
 
     async def ping(self):
         return True
@@ -266,8 +277,20 @@ class SimulatedRedis:
     async def delete(self, *keys):
         count = 0
         for k in keys:
+            hit = False
             if k in self._data:
                 del self._data[k]
+                hit = True
+            if k in self._zsets:
+                del self._zsets[k]
+                hit = True
+            if k in self._sets:
+                del self._sets[k]
+                hit = True
+            if k in self._lists:
+                del self._lists[k]
+                hit = True
+            if hit:
                 count += 1
         return count
 
@@ -316,3 +339,98 @@ class SimulatedRedis:
         val = int(self._data.get(key, 0)) + 1
         self._data[key] = str(val)
         return val
+
+    # ── Sorted set 操作（用于限流器）────────────────────────────────
+    async def zadd(self, key, mapping):
+        """mapping: {member: score}，相同 member 更新 score。"""
+        zset = self._zsets.setdefault(key, {})
+        for member, score in mapping.items():
+            zset[member] = float(score)
+        return len(mapping)
+
+    async def zremrangebyscore(self, key, min_score, max_score):
+        """删除 score 在 [min, max] 区间内的所有 member。"""
+        zset = self._zsets.get(key, {})
+        if not zset:
+            return 0
+        # min/max 可以是数字或字符串（含 "(" 表示开区间），这里简化为闭区间数字
+        def _to_float(v):
+            if isinstance(v, (int, float)):
+                return float(v), True
+            if isinstance(v, str) and v.startswith("("):
+                return float(v[1:]), False  # 开区间
+            return float(v), True
+        lo, lo_inclusive = _to_float(min_score)
+        hi, hi_inclusive = _to_float(max_score)
+        removed = 0
+        for member in list(zset.keys()):
+            score = zset[member]
+            ok_low = score >= lo if lo_inclusive else score > lo
+            ok_high = score <= hi if hi_inclusive else score < hi
+            if ok_low and ok_high:
+                del zset[member]
+                removed += 1
+        return removed
+
+    async def zcard(self, key):
+        return len(self._zsets.get(key, {}))
+
+    def pipeline(self):
+        """返回一个支持上下文管理器的 SimulatedPipeline。
+
+        pipeline 缓存命令并在 execute() 时按顺序执行，返回结果列表。
+        """
+        return SimulatedPipeline(self)
+
+
+class SimulatedPipeline:
+    """模拟 redis-py 的 Pipeline：缓存命令、按序执行、返回结果列表。"""
+
+    def __init__(self, redis: "SimulatedRedis"):
+        self._redis = redis
+        self._commands = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            # 不立即执行，留给 execute() 触发；模拟 redis-py 行为
+            pass
+        return False
+
+    def zadd(self, key, mapping):
+        self._commands.append(("zadd", key, mapping))
+        return self
+
+    def zremrangebyscore(self, key, min_score, max_score):
+        self._commands.append(("zremrangebyscore", key, min_score, max_score))
+        return self
+
+    def zcard(self, key):
+        self._commands.append(("zcard", key))
+        return self
+
+    def expire(self, key, ttl):
+        self._commands.append(("expire", key, ttl))
+        return self
+
+    async def execute(self):
+        results = []
+        for cmd in self._commands:
+            op = cmd[0]
+            if op == "zadd":
+                _, key, mapping = cmd
+                results.append(await self._redis.zadd(key, mapping))
+            elif op == "zremrangebyscore":
+                _, key, lo, hi = cmd
+                results.append(await self._redis.zremrangebyscore(key, lo, hi))
+            elif op == "zcard":
+                _, key = cmd
+                results.append(await self._redis.zcard(key))
+            elif op == "expire":
+                results.append(True)
+            else:
+                raise NotImplementedError(f"SimulatedPipeline 不支持命令: {op}")
+        self._commands.clear()
+        return results

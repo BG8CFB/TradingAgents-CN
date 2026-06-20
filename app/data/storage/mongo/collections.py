@@ -34,11 +34,13 @@ _METADATA_COLLECTIONS: Dict[str, str] = {
     "sync_events": "sync_events",
     "source_health": "source_health",
     "system_configs": "system_configs",
+    # 系统级安全密钥（JWT/CSRF）— 多 worker 首启时通过 unique index 强制收敛到单条
+    "system_secrets": "system_secrets",
 }
 
-# 市场后缀
+# 市场后缀：CN 不加后缀（基础名），HK/US 加市场后缀
 _MARKET_SUFFIX = {
-    "CN": "_cn",
+    "CN": "",
     "HK": "_hk",
     "US": "_us",
 }

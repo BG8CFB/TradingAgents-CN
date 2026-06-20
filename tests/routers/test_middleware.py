@@ -365,12 +365,11 @@ class TestOperationLogMiddleware:
         from app.middleware.operation_log_middleware import OperationLogMiddleware
 
         middleware = self._make_middleware()
-        request = _build_real_request(path="/api/analysis/single", method="POST")
 
-        desc = middleware._get_action_description("POST", "/api/analysis/single", request)
+        desc = middleware._get_action_description("POST", "/api/analysis/single")
         assert "单股分析" in desc
 
-        desc = middleware._get_action_description("POST", "/api/analysis/batch", request)
+        desc = middleware._get_action_description("POST", "/api/analysis/batch")
         assert "批量分析" in desc
 
     def test_action_description_for_auth(self):
@@ -378,12 +377,11 @@ class TestOperationLogMiddleware:
         from app.middleware.operation_log_middleware import OperationLogMiddleware
 
         middleware = self._make_middleware()
-        request = _build_real_request(path="/api/auth/login", method="POST")
 
-        desc = middleware._get_action_description("POST", "/api/auth/login", request)
+        desc = middleware._get_action_description("POST", "/api/auth/login")
         assert "登录" in desc
 
-        desc = middleware._get_action_description("POST", "/api/auth/logout", request)
+        desc = middleware._get_action_description("POST", "/api/auth/logout")
         assert "登出" in desc
 
     def test_get_client_ip(self):

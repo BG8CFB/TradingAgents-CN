@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -9,35 +9,26 @@ from app.routers.auth_db import get_current_user, require_admin
 from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
 from app.engine.tools.mcp.config_utils import (
     MCPServerConfig,
-    MCPServerType,
-    HealthCheckConfig,
     get_config_path,
     load_mcp_config,
     merge_servers,
     write_mcp_config,
 )
-from app.engine.tools.mcp.health_monitor import ServerStatus
 from app.core.response import safe_error_message
 
 router = APIRouter(prefix="/api/mcp", tags=["MCP"])
 CONFIG_FILE = get_config_path()
 logger = logging.getLogger("app.routers.mcp")
 
+# 安全模型说明：
+# MCP 服务器是管理员通过 /api/mcp/connectors/update 自配置的——
+# 这是用户对自己服务器负责的场景，访问控制由 require_admin 守门即可。
+# 命令执行由 langchain-mcp 的 stdio_client / streamablehttp_client 隔离，
+# 不存在直接的 subprocess.Popen 路径。配置类型/字段校验由 Pydantic schema 完成。
+
 
 class UpdatePayload(BaseModel):
     mcpServers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
-
-
-class ServerConfigInput(BaseModel):
-    """服务器配置输入模型"""
-    type: str = Field(default="stdio", description="服务器类型: stdio 或 http")
-    command: Optional[str] = Field(default=None, description="stdio 模式的命令")
-    args: List[str] = Field(default_factory=list, description="命令参数")
-    env: Dict[str, str] = Field(default_factory=dict, description="环境变量")
-    url: Optional[str] = Field(default=None, description="HTTP 模式的 URL")
-    headers: Dict[str, str] = Field(default_factory=dict, description="HTTP 请求头")
-    description: Optional[str] = Field(default=None, description="服务器描述")
-    healthCheck: Optional[Dict[str, Any]] = Field(default=None, description="健康检查配置")
 
 
 # -----------------------------------------------------------------------------
@@ -116,7 +107,9 @@ async def update_connectors(
     """
     更新 MCP 连接器配置
 
-    注意：配置更新后需要手动重载才能生效
+    访问控制由 require_admin 守门；命令执行通过 langchain-mcp 客户端隔离。
+    用户（管理员）自行对自己配置的 MCP 服务器负责。
+    配置更新后需要手动重载才能生效。
     """
     current_config = load_mcp_config(CONFIG_FILE)
     incoming = {name: cfg.sanitized() for name, cfg in payload.mcpServers.items()}
@@ -242,132 +235,3 @@ async def list_all_mcp_tools(user: dict = Depends(get_current_user)) -> Dict[str
     except Exception as exc:
         logger.error(f"获取 MCP 工具列表失败: {exc}")
         return {"success": False, "message": str(exc), "data": []}
-
-
-@router.get("/health")
-async def get_health_status(user: dict = Depends(get_current_user)) -> Dict[str, Any]:
-    """
-    获取所有 MCP 服务器的健康状态
-    """
-    if not LANGCHAIN_MCP_AVAILABLE:
-        return {"success": False, "message": "langchain-mcp 未安装", "data": {}}
-
-    try:
-        factory = get_mcp_loader_factory()
-        # 不再检查 _initialized，因为连接在应用启动时已建立
-        all_status = factory.get_all_server_status()
-        return {"success": True, "data": all_status}
-    except Exception as exc:
-        logger.error(f"获取健康状态失败: {exc}")
-        return {"success": False, "message": str(exc), "data": {}}
-
-
-# -----------------------------------------------------------------------------
-# 服务器管理端点（新增）
-# -----------------------------------------------------------------------------
-
-@router.post("/reload")
-async def reload_mcp_config(user: dict = Depends(require_admin)) -> Dict[str, Any]:
-    """
-    手动重载 MCP 配置并重新初始化所有连接
-
-    注意：此操作会关闭所有现有连接并重新建立，可能会短暂影响正在运行的任务
-    """
-    if not LANGCHAIN_MCP_AVAILABLE:
-        return {"success": False, "message": "langchain-mcp 未安装"}
-
-    try:
-        factory = get_mcp_loader_factory()
-        await factory.reload_config()
-        return {
-            "success": True,
-            "message": "MCP 配置重载完成，所有连接已重新建立"
-        }
-    except Exception as exc:
-        logger.error(f"重载 MCP 配置失败: {exc}")
-        return {"success": False, "message": str(exc)}
-
-
-@router.post("/servers/{name}/restart")
-async def restart_mcp_server(
-    name: str,
-    user: dict = Depends(require_admin)
-) -> Dict[str, Any]:
-    """
-    重启指定的 MCP 服务器
-
-    重启策略：
-    - 5分钟内最多重启 3 次
-    - 超过限制后停止自动重启
-    """
-    if not LANGCHAIN_MCP_AVAILABLE:
-        return {"success": False, "message": "langchain-mcp 未安装"}
-
-    try:
-        factory = get_mcp_loader_factory()
-        success = await factory.restart_server(name)
-
-        if success:
-            return {
-                "success": True,
-                "message": f"服务器 {name} 重启成功"
-            }
-        else:
-            return {
-                "success": False,
-                "message": f"服务器 {name} 重启失败或达到重启限制"
-            }
-    except Exception as exc:
-        logger.error(f"重启服务器 {name} 失败: {exc}")
-        return {"success": False, "message": str(exc)}
-
-
-@router.get("/servers/{name}/status")
-async def get_mcp_server_status(
-    name: str,
-    user: dict = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """
-    获取指定 MCP 服务器的详细状态
-    """
-    if not LANGCHAIN_MCP_AVAILABLE:
-        return {"success": False, "message": "langchain-mcp 未安装", "data": None}
-
-    try:
-        factory = get_mcp_loader_factory()
-        status = factory.get_server_status(name)
-        health_info = factory._health_monitor.get_server_health_info(name)
-
-        return {
-            "success": True,
-            "data": {
-                "name": name,
-                "status": status.value if hasattr(status, 'value') else str(status),
-                "healthInfo": health_info.to_dict() if health_info else None
-            }
-        }
-    except Exception as exc:
-        logger.error(f"获取服务器 {name} 状态失败: {exc}")
-        return {"success": False, "message": str(exc), "data": None}
-
-
-@router.post("/health-check")
-async def trigger_health_check(user: dict = Depends(get_current_user)) -> Dict[str, Any]:
-    """
-    手动触发健康检查并自动重启失败的服务器
-    """
-    if not LANGCHAIN_MCP_AVAILABLE:
-        return {"success": False, "message": "langchain-mcp 未安装"}
-
-    try:
-        factory = get_mcp_loader_factory()
-        results = await factory.health_check_all()
-
-        return {
-            "success": True,
-            "message": f"健康检查完成，检查了 {len(results)} 个服务器",
-            "data": {name: status.value if hasattr(status, 'value') else str(status) for name, status in results.items()}
-        }
-    except Exception as exc:
-        logger.error(f"健康检查失败: {exc}")
-        return {"success": False, "message": str(exc)}

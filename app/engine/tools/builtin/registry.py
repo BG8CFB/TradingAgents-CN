@@ -5,7 +5,7 @@
 所有工具元数据集中管理，按数据域组织。
 """
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -218,3 +218,50 @@ def get_spec_by_id(tool_id: str) -> Optional[BuiltinToolSpec]:
 def get_specs_by_ids(tool_ids: List[str]) -> List[BuiltinToolSpec]:
     """按 tool_id 列表查找，忽略不存在的"""
     return [_TOOL_ID_INDEX[tid] for tid in tool_ids if tid in _TOOL_ID_INDEX]
+
+
+def register_skill_entrypoint(spec: BuiltinToolSpec) -> bool:
+    """
+    运行时追加注册 skill 脚本入口为 builtin 工具。
+
+    由 SkillRegistry 发现 skill 的 entrypoints 后调用。
+    同名 tool_id 重复注册会被拒绝（避免覆盖）。
+
+    Args:
+        spec: skill 脚本的 BuiltinToolSpec（tool_id 形如 {skill}.{entrypoint}）
+
+    Returns:
+        注册是否成功
+    """
+    if spec.tool_id in _TOOL_ID_INDEX:
+        logger.warning(f"[BuiltinRegistry] tool_id 已存在，拒绝覆盖: {spec.tool_id}")
+        return False
+    BUILTIN_TOOL_REGISTRY.append(spec)
+    _TOOL_ID_INDEX[spec.tool_id] = spec
+    logger.info(f"[BuiltinRegistry] 已注册 skill 入口: {spec.tool_id}")
+    return True
+
+
+def unregister_skill_entrypoints(prefix: str) -> int:
+    """
+    按前缀（通常是 {skill_name}.）批量卸载 skill 工具。
+
+    Args:
+        prefix: skill_name 前缀（自动加 '.'）
+
+    Returns:
+        卸载的工具数量
+    """
+    full_prefix = prefix if prefix.endswith(".") else prefix + "."
+    to_remove = [tid for tid in _TOOL_ID_INDEX if tid.startswith(full_prefix)]
+    for tid in to_remove:
+        spec = _TOOL_ID_INDEX.pop(tid)
+        BUILTIN_TOOL_REGISTRY.remove(spec)
+    if to_remove:
+        logger.info(f"[BuiltinRegistry] 已卸载 {len(to_remove)} 个 skill 入口: {prefix}")
+    return len(to_remove)
+
+
+def is_skill_tool(tool_id: str) -> bool:
+    """判断 tool_id 是否属于 skill 脚本入口（通过约定：含 '.' 分隔）"""
+    return "." in tool_id and tool_id in _TOOL_ID_INDEX

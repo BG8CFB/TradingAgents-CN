@@ -24,7 +24,7 @@ class MoneyFlowRepo:
             if not sym or not td:
                 continue
             ops.append(UpdateOne(
-                {"symbol": sym, "trade_date": td},
+                {"symbol": sym, "trade_date": td, "data_source": rec.get("data_source")},
                 {"$set": rec},
                 upsert=True,
             ))

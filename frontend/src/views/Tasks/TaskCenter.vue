@@ -105,12 +105,12 @@
         </el-table-column>
         <el-table-column label="操作" width="350" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.status==='completed'" type="text" size="small" @click="openResult(row)">查看结果</el-button>
-            <el-button v-if="row.status==='completed'" type="text" size="small" @click="openReport(row)">报告详情</el-button>
-            <el-button v-if="row.status==='failed'" type="text" size="small" @click="showErrorDetail(row)">查看错误</el-button>
-            <el-button v-if="row.status==='failed'" type="text" size="small" @click="retryTask(row)">重试</el-button>
-            <el-button v-if="row.status==='processing' || row.status==='running' || row.status==='pending'" type="text" size="small" @click="markAsFailed(row)">标记失败</el-button>
-            <el-button type="text" size="small" @click="deleteTask(row)" style="color: #E57373;">删除</el-button>
+            <el-button v-if="row.status==='completed'" link size="small" @click="openResult(row)">查看结果</el-button>
+            <el-button v-if="row.status==='completed'" link size="small" @click="openReport(row)">报告详情</el-button>
+            <el-button v-if="row.status==='failed'" link size="small" @click="showErrorDetail(row)">查看错误</el-button>
+            <el-button v-if="row.status==='failed'" link size="small" @click="retryTask(row)">重试</el-button>
+            <el-button v-if="row.status==='processing' || row.status==='running' || row.status==='pending'" link size="small" @click="markAsFailed(row)">标记失败</el-button>
+            <el-button link size="small" @click="deleteTask(row)" style="color: #E57373;">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

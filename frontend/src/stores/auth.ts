@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
+import type { Router } from 'vue-router'
 import { authApi } from '@/api/auth'
 import type { User, LoginForm, RegisterForm } from '@/types/auth'
 
@@ -8,19 +9,88 @@ export interface AuthState {
   isAuthenticated: boolean
   token: string | null
   refreshToken: string | null
-  
+
   // 用户信息
   user: User | null
-  
+
   // 权限信息
   permissions: string[]
   roles: string[]
-  
+
   // 登录状态
   loginLoading: boolean
-  
+
   // 重定向路径
   redirectPath: string
+}
+
+// 路由实例注入入口（由 main.ts 在创建 router 后调用 setAppRouter 注入）
+let appRouter: Router | null = null
+
+export function setAppRouter(router: Router): void {
+  appRouter = router
+}
+
+/**
+ * JWT token 合法性校验（纯函数，无副作用）：
+ * - 非字符串或为空 → 无效
+ * - mock token（mock-token 或 mock-* 前缀）→ 无效
+ * - JWT 三段式结构不完整 → 无效
+ * - payload.exp 已过期 → 无效
+ *
+ * state 工厂与 cleanupInvalidAuthStorage 共用此函数，避免重复定义。
+ */
+function isValidAuthToken(t: string | null): boolean {
+  if (!t || typeof t !== 'string') return false
+  if (t === 'mock-token' || t.startsWith('mock-')) return false
+  const parts = t.split('.')
+  if (parts.length !== 3) return false
+  try {
+    const payload = JSON.parse(atob(parts[1]))
+    if (payload.exp && payload.exp * 1000 < Date.now()) return false
+  } catch {
+    return false
+  }
+  return true
+}
+
+/**
+ * 清理无效的本地认证存储（mock token / 格式非法 / 已过期）。
+ *
+ * 从 state 工厂抽出，避免 state 初始化阶段产生副作用。
+ * 由 main.ts 的 initApp 在使用 store 之前显式调用一次。
+ */
+export function cleanupInvalidAuthStorage(): void {
+  const token = localStorage.getItem('auth-token') || null
+  const refreshToken = localStorage.getItem('refresh-token') || null
+
+  // mock token 在 cleanup 阶段输出告警（state 工厂的纯函数版本静默）
+  if (token && (token === 'mock-token' || token.startsWith('mock-'))) {
+    console.warn('⚠️ 检测到mock token，将被清除:', token)
+  }
+  if (refreshToken && (refreshToken === 'mock-token' || refreshToken.startsWith('mock-'))) {
+    console.warn('⚠️ 检测到mock refresh token，将被清除:', refreshToken)
+  }
+  // 过期 token 输出统一告警
+  if (token && !isValidAuthToken(token) && !token.startsWith('mock-')) {
+    console.warn('Token 已过期或格式无效，将被清除')
+  }
+
+  // user-info JSON 合法性校验（防止与有效 token 配对的损坏 user-info 导致 user: null 不一致）
+  const userInfo = localStorage.getItem('user-info')
+  if (userInfo) {
+    try { JSON.parse(userInfo) } catch { localStorage.removeItem('user-info') }
+  }
+
+  const validToken = isValidAuthToken(token)
+  const validRefreshToken = isValidAuthToken(refreshToken)
+
+  if (!validToken || !validRefreshToken) {
+    console.log('🧹 清除无效的认证信息')
+    localStorage.removeItem('auth-token')
+    localStorage.removeItem('refresh-token')
+    localStorage.removeItem('user-info')
+  }
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -28,53 +98,40 @@ export const useAuthStore = defineStore('auth', {
     // TODO(安全): JWT Token 当前存储在 localStorage 中，存在 XSS 攻击窃取风险。
     // 长期方案：改为 HttpOnly Cookie + SameSite=Strict，需后端配合实现。
     // 参考：https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
+    // 注意：state 工厂保持纯净（仅读），无效 token 的清理由 cleanupInvalidAuthStorage() 在应用启动时执行。
     const token = localStorage.getItem('auth-token') || null
     const refreshToken = localStorage.getItem('refresh-token') || null
 
-    // 验证token格式并检查是否已过期
-    const isValidToken = (token: string | null): boolean => {
-      if (!token || typeof token !== 'string') return false
-      // 检查是否是mock token（开发时可能设置的测试token）
-      if (token === 'mock-token' || token.startsWith('mock-')) {
-        console.warn('⚠️ 检测到mock token，将被清除:', token)
-        return false
-      }
-      // JWT token应该有3个部分，用.分隔
-      const parts = token.split('.')
-      if (parts.length !== 3) return false
-      // 解码 payload 检查过期时间
+    const validToken = isValidAuthToken(token) ? token : null
+    const validRefreshToken = isValidAuthToken(refreshToken) ? refreshToken : null
+
+    // 持久化 user-info：恢复时同步提取 roles，避免路由守卫"窗口期"误把 admin 拦截到 dashboard
+    const user: User | null = validToken
+      ? (() => { try { const raw = localStorage.getItem('user-info'); return raw ? JSON.parse(raw) as User : null } catch { return null } })()
+      : null
+
+    // roles 优先从 localStorage 显式缓存读取（最稳）；缺失时从 user.is_admin 兜底
+    const cachedRoles: string[] = (() => {
       try {
-        const payload = JSON.parse(atob(parts[1]))
-        if (payload.exp && payload.exp * 1000 < Date.now()) {
-          console.warn('Token 已过期，将被清除')
-          return false
-        }
-      } catch {
-        return false
-      }
-      return true
-    }
-
-    const validToken = isValidToken(token) ? token : null
-    const validRefreshToken = isValidToken(refreshToken) ? refreshToken : null
-
-    // 如果token无效，清除相关数据
-    if (!validToken || !validRefreshToken) {
-      console.log('🧹 清除无效的认证信息')
-      localStorage.removeItem('auth-token')
-      localStorage.removeItem('refresh-token')
-      localStorage.removeItem('user-info')
-    }
+        const raw = localStorage.getItem('auth-roles')
+        if (!raw) return []
+        const parsed = JSON.parse(raw)
+        return Array.isArray(parsed) ? parsed : []
+      } catch { return [] }
+    })()
+    const roles: string[] = cachedRoles.length > 0
+      ? cachedRoles
+      : (user?.is_admin ? ['admin'] : [])
 
     return {
       isAuthenticated: !!validToken,
       token: validToken,
       refreshToken: validRefreshToken,
 
-      user: validToken ? (() => { try { const raw = localStorage.getItem('user-info'); return raw ? JSON.parse(raw) : null } catch { return null } })() : null,
+      user,
 
       permissions: [],
-      roles: [],
+      roles,
 
       loginLoading: false,
       redirectPath: '/'
@@ -95,6 +152,11 @@ export const useAuthStore = defineStore('auth', {
     // 是否为管理员
     isAdmin(): boolean {
       return this.roles.includes('admin')
+    },
+
+    // roles 是否已加载完成（用于路由守卫等待异步 fetchUserInfo）
+    rolesLoaded(): boolean {
+      return this.roles.length > 0
     },
     
     // 检查权限
@@ -135,6 +197,13 @@ export const useAuthStore = defineStore('auth', {
 
       if (user) {
         this.user = user
+        // 同步从 user.roles 推断 roles，保证 setAuthInfo 调用方未显式给 roles 时也有合理初值
+        const userRoles = (user as any)?.roles
+        if (Array.isArray(userRoles) && userRoles.length > 0) {
+          this.roles = userRoles
+        } else if (user.is_admin) {
+          this.roles = ['admin']
+        }
       }
 
       // 手动保存到localStorage（确保持久化）
@@ -145,6 +214,10 @@ export const useAuthStore = defineStore('auth', {
       if (user) {
         localStorage.setItem('user-info', JSON.stringify(user))
       }
+      // roles 持久化：刷新页面后路由守卫立即知道是否 admin，避免 fetchUserInfo 完成前的误伤
+      if (this.roles.length > 0) {
+        localStorage.setItem('auth-roles', JSON.stringify(this.roles))
+      }
 
       // 设置API请求头
       this.setAuthHeader(token)
@@ -153,10 +226,11 @@ export const useAuthStore = defineStore('auth', {
         token: token ? '已设置' : '未设置',
         refreshToken: refreshToken ? '已设置' : '未设置',
         user: user ? user.username : '未设置',
+        roles: this.roles,
         isAuthenticated: this.isAuthenticated
       })
     },
-    
+
     // 清除认证信息
     clearAuthInfo() {
       this.token = null
@@ -169,22 +243,42 @@ export const useAuthStore = defineStore('auth', {
       // 清除API请求头
       this.setAuthHeader(null)
 
-      // 清除本地存储
+      // 清除本地存储（含 roles 缓存）
       localStorage.removeItem('auth-token')
       localStorage.removeItem('refresh-token')
       localStorage.removeItem('user-info')
+      localStorage.removeItem('auth-roles')
     },
 
-    // 跳转到登录页
+    /**
+     * 等待 roles 加载完成（最多 timeoutMs 毫秒）。
+     *
+     * 用于路由守卫：应用冷启动时若直接访问 admin 页面，roles 可能尚未从
+     * 后端 /me 拉取到。守卫调用此 action 等待，避免误把 admin 重定向到 dashboard。
+     * 配合 state 工厂从 localStorage 恢复 roles 的设计，绝大多数情况下立即返回。
+     */
+    async waitForRoles(timeoutMs = 2000): Promise<boolean> {
+      if (this.roles.length > 0) return true
+      const start = Date.now()
+      while (Date.now() - start < timeoutMs) {
+        await new Promise(resolve => setTimeout(resolve, 50))
+        if (this.roles.length > 0) return true
+      }
+      return false
+    },
+
+    // 跳转到登录页（SPA 内导航，避免整页刷新）
     redirectToLogin() {
-      // 避免在非浏览器环境中使用router
-      if (typeof window !== 'undefined') {
-        // 使用window.location进行跳转，避免router依赖问题
-        const currentPath = window.location.pathname
-        if (currentPath !== '/login') {
-          console.log('🔄 跳转到登录页...')
-          window.location.href = '/login'
-        }
+      if (typeof window === 'undefined') return
+      const currentPath = window.location.pathname
+      if (currentPath === '/login') return
+      console.log('🔄 跳转到登录页...')
+      if (appRouter) {
+        appRouter.push('/login')
+      } else {
+        // 兜底：尚未注入 router（早期初始化阶段），回退到整页跳转
+        console.warn('[auth] appRouter 未注入，redirectToLogin 退化为整页跳转，请检查 main.ts setAppRouter 调用时序')
+        window.location.href = '/login'
       }
     },
     
@@ -208,14 +302,21 @@ export const useAuthStore = defineStore('auth', {
         const response = await authApi.login(loginForm)
 
         if (response.success) {
-          const { access_token, refresh_token, user } = response.data
+          // csrf_token：login 响应中显式返回，写入 state 供调试与启动校验使用；
+          // 实际 CSRF Cookie 已由后端 Set-Cookie 自动写入
+          const { access_token, refresh_token, user, csrf_token } = response.data
 
           // 设置认证信息
           this.setAuthInfo(access_token, refresh_token, user)
 
-          // 开源版admin用户拥有所有权限
+          // 后端响应已包含 roles 字段，优先采用；为兼容旧后端，缺失时退回 admin 兜底
+          const userRoles = (user as any)?.roles
+            || ((user as any)?.is_admin ? ['admin'] : ['user'])
+          this.roles = Array.isArray(userRoles) ? userRoles : ['user']
+          // 同步持久化 roles，刷新后路由守卫立即可用，避免 fetchUserInfo 窗口期误判
+          localStorage.setItem('auth-roles', JSON.stringify(this.roles))
+          // 开源版admin拥有所有权限
           this.permissions = ['*']
-          this.roles = ['admin']
 
           // 同步用户偏好设置到 appStore
           this.syncUserPreferencesToAppStore()
@@ -223,6 +324,10 @@ export const useAuthStore = defineStore('auth', {
           // 启动 token 自动刷新定时器
           const { setupTokenRefreshTimer } = await import('@/utils/auth')
           setupTokenRefreshTimer()
+
+          if (import.meta.env.DEV) {
+            console.log('✅ 登录完成：CSRF token 已', csrf_token ? '下发' : '缺失（建议启动时补刷）')
+          }
 
           // 不在这里显示成功消息，由调用方显示
           return true
@@ -266,6 +371,13 @@ export const useAuthStore = defineStore('auth', {
         // 清除 token 刷新定时器
         const { clearTokenRefreshTimer } = await import('@/utils/auth')
         clearTokenRefreshTimer()
+        // 断开通知 WebSocket，避免登出后旧 token 继续触发重连
+        try {
+          const { useNotificationStore } = await import('./notifications')
+          useNotificationStore().disconnect()
+        } catch (e) {
+          console.warn('断开通知连接失败:', e)
+        }
       } catch (error) {
         console.error('登出API调用失败:', error)
       } finally {
@@ -341,6 +453,12 @@ export const useAuthStore = defineStore('auth', {
         if (response.success) {
           this.user = response.data
           this.isAuthenticated = true
+          // 后端 /me 已返回 roles；缺失时基于 is_admin 兜底，保证路由守卫不误判
+          const userRoles = (response.data as any)?.roles
+            || (response.data?.is_admin ? ['admin'] : ['user'])
+          this.roles = Array.isArray(userRoles) ? userRoles : ['user']
+          // 持久化最新 roles，避免本地缓存与后端权限变更不一致
+          localStorage.setItem('auth-roles', JSON.stringify(this.roles))
           console.log('✅ 用户信息获取成功:', this.user?.username)
 
           // 同步用户偏好设置到 appStore
@@ -359,9 +477,15 @@ export const useAuthStore = defineStore('auth', {
     },
     
     // 开源版不需要权限检查，admin拥有所有权限
+    // roles 已由 login 响应或 fetchUserInfo 接口写入；此处仅同步 permissions，
+    // 不再硬编码覆盖 roles，避免普通用户被错误授予 admin 权限
     async fetchUserPermissions() {
       this.permissions = ['*']
-      this.roles = ['admin']
+      // 兼容老后端：若 user.is_admin 为 true 但 roles 未下发，则补 admin
+      if (this.roles.length === 0) {
+        this.roles = this.user?.is_admin ? ['admin'] : ['user']
+        localStorage.setItem('auth-roles', JSON.stringify(this.roles))
+      }
       return true
     },
     

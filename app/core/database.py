@@ -11,8 +11,6 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import MongoClient
 from pymongo.database import Database
 from redis.asyncio import Redis, ConnectionPool
-from pymongo.errors import ServerSelectionTimeoutError, ConnectionFailure
-from redis.exceptions import ConnectionError as RedisConnectionError
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -54,6 +52,7 @@ class DatabaseManager:
                 serverSelectionTimeoutMS=settings.MONGO_SERVER_SELECTION_TIMEOUT_MS,  # 服务器选择超时
                 connectTimeoutMS=settings.MONGO_CONNECT_TIMEOUT_MS,  # 连接超时
                 socketTimeoutMS=settings.MONGO_SOCKET_TIMEOUT_MS,  # 套接字超时
+                tz_aware=True,  # 从 BSON 读出的 datetime 统一带 UTC 时区，避免与 now_utc() 相减报错
             )
 
             # 获取数据库实例
@@ -205,22 +204,22 @@ async def init_database():
     global mongo_client, mongo_db, redis_client, redis_pool
 
     try:
-        # 初始化MongoDB
-        await db_manager.init_mongodb()
+        # MongoDB 与 Redis 初始化无依赖关系，可并行
+        mongo_task = db_manager.init_mongodb()
+        redis_task = db_manager.init_redis()
+        await asyncio.gather(mongo_task, redis_task)
+
         mongo_client = db_manager.mongo_client
         mongo_db = db_manager.mongo_db
-
-        # 初始化Redis
-        await db_manager.init_redis()
         redis_client = db_manager.redis_client
         redis_pool = db_manager.redis_pool
 
         logger.info("🎉 所有数据库连接初始化完成")
 
-        # 🔥 初始化配置文件（在数据库视图和索引之前）
+        # 配置文件初始化（同步 IO），用 asyncio.to_thread 避免阻塞事件循环
         try:
             from app.core.config_initializer import ensure_config_files
-            ensure_config_files()
+            await asyncio.to_thread(ensure_config_files)
         except Exception as e:
             logger.warning(f"⚠️ 配置文件初始化失败: {e}")
             # 不抛出异常，允许应用继续启动
@@ -238,11 +237,11 @@ async def init_database_views_and_indexes():
     try:
         db = get_mongo_db()
 
-        # 1. 创建股票筛选视图
-        await create_stock_screening_view(db)
-
-        # 2. 创建必要的索引
-        await create_database_indexes(db)
+        # 视图创建 + 索引创建无依赖关系，可并行
+        await asyncio.gather(
+            create_stock_screening_view(db),
+            create_database_indexes(db),
+        )
 
         logger.info("✅ 数据库视图和索引初始化完成")
 
@@ -252,112 +251,120 @@ async def init_database_views_and_indexes():
 
 
 async def create_stock_screening_view(db):
-    """创建股票筛选视图"""
-    try:
-        # 检查视图是否已存在
-        collections = await db.list_collection_names()
-        if "stock_screening_view" in collections:
-            logger.info("📋 视图 stock_screening_view 已存在，删除重建")
-            await db.stock_screening_view.drop()
+    """创建/更新股票筛选视图（幂等）。
 
-        # 创建视图：优先选择有 PE/PB 数据的数据源
-        pipeline = [
-            # 第一步：添加数据源优先级（有 PE 数据的优先级更高）
-            {
-                "$addFields": {
-                    "has_pe": {
-                        "$and": [
-                            {"$ne": ["$pe", None]},
-                            {"$ne": ["$pe", 0]}
-                        ]
-                    },
-                    "has_industry": {
-                        "$and": [
-                            {"$ne": ["$industry", None]},
-                            {"$ne": ["$industry", ""]}
-                        ]
-                    },
-                    "source_priority": {
-                        "$cond": {
-                            "if": {"$eq": ["$source", "tushare"]},
-                            "then": 1,
-                            "else": {
-                                "$cond": {
-                                    "if": {"$eq": ["$source", "akshare"]},
-                                    "then": 2,
-                                    "else": 3
-                                }
+    若视图已存在则使用 ``collMod`` 更新 pipeline，避免每次启动都 drop+create
+    造成的瞬态查询失败。
+    """
+    pipeline = [
+        # 第一步：添加数据源优先级（有 PE 数据的优先级更高）
+        {
+            "$addFields": {
+                "has_pe": {
+                    "$and": [
+                        {"$ne": ["$pe", None]},
+                        {"$ne": ["$pe", 0]}
+                    ]
+                },
+                "has_industry": {
+                    "$and": [
+                        {"$ne": ["$industry", None]},
+                        {"$ne": ["$industry", ""]}
+                    ]
+                },
+                "source_priority": {
+                    "$cond": {
+                        "if": {"$eq": ["$data_source", "tushare"]},
+                        "then": 1,
+                        "else": {
+                            "$cond": {
+                                "if": {"$eq": ["$data_source", "akshare"]},
+                                "then": 2,
+                                "else": 3
                             }
                         }
                     }
                 }
-            },
-            # 第二步：按优先级排序（优先有 PE 数据的，然后按数据源优先级）
-            {
-                "$sort": {
-                    "has_pe": -1,
-                    "has_industry": -1,
-                    "source_priority": 1
-                }
-            },
-            # 第三步：按 code 分组，保留优先级最高的数据
-            {
-                "$group": {
-                    "_id": "$code",
-                    "doc": {"$first": "$$ROOT"}
-                }
-            },
-            # 第四步：展开文档
-            {
-                "$replaceRoot": {
-                    "newRoot": "$doc"
-                }
-            },
-            # 第五步：重新组织字段结构
-            {
-                "$project": {
-                    # 基础信息字段
-                    "code": 1,
-                    "name": 1,
-                    "industry": 1,
-                    "area": 1,
-                    "market": 1,
-                    "list_date": 1,
-                    "source": 1,
-                    # 市值信息
-                    "total_mv": 1,
-                    "circ_mv": 1,
-                    # 估值指标
-                    "pe": 1,
-                    "pb": 1,
-                    "pe_ttm": 1,
-                    "pb_mrq": 1,
-                    # 财务指标
-                    "ps": 1,
-                    "ps_ttm": 1,
-                    # 交易指标
-                    "turnover_rate": 1,
-                    "volume_ratio": 1,
-                    # 股本数据
-                    "total_share": 1,
-                    "float_share": 1,
-                    # 时间戳
-                    "updated_at": 1
-                }
             }
-        ]
+        },
+        # 第二步：按优先级排序（优先有 PE 数据的，然后按数据源优先级）
+        {
+            "$sort": {
+                "has_pe": -1,
+                "has_industry": -1,
+                "source_priority": 1
+            }
+        },
+        # 第三步：按 symbol 分组，保留优先级最高的数据
+        {
+            "$group": {
+                "_id": "$symbol",
+                "doc": {"$first": "$$ROOT"}
+            }
+        },
+        # 第四步：展开文档
+        {
+            "$replaceRoot": {
+                "newRoot": "$doc"
+            }
+        },
+        # 第五步：重新组织字段结构
+        {
+            "$project": {
+                # 基础信息字段
+                "symbol": 1,
+                "name": 1,
+                "industry": 1,
+                "area": 1,
+                "market": 1,
+                "list_date": 1,
+                "data_source": 1,
+                # 市值信息
+                "total_mv": 1,
+                "circ_mv": 1,
+                # 估值指标
+                "pe": 1,
+                "pb": 1,
+                "pe_ttm": 1,
+                "pb_mrq": 1,
+                # 财务指标
+                "ps": 1,
+                "ps_ttm": 1,
+                # 交易指标
+                "turnover_rate": 1,
+                "volume_ratio": 1,
+                # 股本数据
+                "total_share": 1,
+                "float_share": 1,
+                # 时间戳
+                "updated_at": 1
+            }
+        }
+    ]
 
-        # 创建视图
+    try:
+        # 优先用 collMod 幂等更新现有视图的 pipeline
         await db.command({
-            "create": "stock_screening_view",
+            "collMod": "stock_screening_view",
             "viewOn": "stock_basic_info",
-            "pipeline": pipeline
+            "pipeline": pipeline,
         })
-
-        logger.info("✅ 视图 stock_screening_view 创建成功")
-
+        logger.info("✅ 视图 stock_screening_view 已更新（collMod 幂等）")
     except Exception as e:
-        logger.warning(f"⚠️ 创建视图失败: {e}")
+        msg = str(e)
+        # 视图不存在时（错误码 26 / "namespace not found"）→ 走 create 分支
+        if "namespace not found" in msg or "ns doesn't exist" in msg or "code 26" in msg:
+            try:
+                await db.command({
+                    "create": "stock_screening_view",
+                    "viewOn": "stock_basic_info",
+                    "pipeline": pipeline,
+                })
+                logger.info("✅ 视图 stock_screening_view 创建成功")
+            except Exception as create_err:
+                logger.warning(f"⚠️ 创建视图失败: {create_err}")
+        else:
+            logger.warning(f"⚠️ 更新视图失败（非命名空间错误，跳过）: {e}")
 
 
 async def create_database_indexes(db):
@@ -573,10 +580,3 @@ async def get_database_health() -> dict:
 # 兼容性别名
 init_db = init_database
 close_db = close_database
-
-
-def get_database():
-    """获取数据库实例"""
-    if db_manager.mongo_client is None:
-        raise RuntimeError("MongoDB客户端未初始化")
-    return db_manager.mongo_client[settings.MONGO_DB]
