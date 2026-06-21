@@ -44,6 +44,44 @@ async def is_trading_day(market: str, target_date: Optional[date] = None) -> boo
     return await repo.is_trading_day(target_date.isoformat(), exchange, market)
 
 
+async def get_latest_trade_day(
+    market: str, before: Optional[date] = None
+) -> Optional[date]:
+    """查询 <= before（默认今天）的最近一个交易日。
+
+    无交易日历数据时返回 None，由调用方决定兜底策略。
+    """
+    if before is None:
+        before = date.today()
+
+    from datetime import timedelta
+
+    from app.data.storage.mongo.repositories.trade_calendar_repo import TradeCalendarRepo
+
+    meta = MARKET_META.get(MarketType(market))
+    if not meta:
+        return None
+
+    repo = TradeCalendarRepo()
+    exchange = meta.exchanges[0] if meta.exchanges else ""
+    # 向前取 30 天窗口，足以覆盖任意节假日连休
+    start = before - timedelta(days=30)
+    docs = await repo.get_range(
+        exchange, market, start.isoformat(), before.isoformat()
+    )
+    open_days = [
+        d["cal_date"] for d in docs
+        if d.get("is_open") and d.get("cal_date")
+    ]
+    if not open_days:
+        return None
+    latest = max(open_days)
+    try:
+        return date.fromisoformat(latest)
+    except ValueError:
+        return None
+
+
 def is_dst(market: str) -> bool:
     """判断市场是否处于夏令时。"""
     tz = get_market_timezone(market)

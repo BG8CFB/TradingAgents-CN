@@ -432,6 +432,7 @@ async function handleQuickSync(domain: string) {
   try {
     await triggerSync(props.market, domain, 'incremental')
     ElMessage.success(`${domainLabel(domain)} 同步已触发`)
+    await loadData()
   } catch {
     ElMessage.error('触发同步失败')
   }

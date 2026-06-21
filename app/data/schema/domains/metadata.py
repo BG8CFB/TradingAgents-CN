@@ -12,6 +12,12 @@ class SyncCheckpointSchema:
     last_sync_time: Optional[str] = None
     status: Optional[str] = None       # success / failed / running
     record_count: Optional[int] = None
+    duration_ms: Optional[int] = None
+    # single=按需刷新单股 / batch=批量自选股 / market=全市场调度
+    scope: Optional[str] = None
+    # manual=用户手动触发 / scheduled=定时调度
+    trigger: Optional[str] = None
+    symbol: Optional[str] = None       # 仅 scope=single 时填充
 
     def to_db_doc(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if v is not None}

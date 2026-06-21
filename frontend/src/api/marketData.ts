@@ -157,7 +157,7 @@ export function triggerSync(market: MarketCode, domain: string, mode = 'incremen
   return ApiClient.post(`${base(market)}/sync/${domain}`, { domain, mode })
 }
 
-export function getSyncStatus(market: MarketCode, params: { page?: number; page_size?: number; domain?: string }) {
+export function getSyncStatus(market: MarketCode, params: { page?: number; page_size?: number; domain?: string; trigger?: string }) {
   return ApiClient.get<PaginatedResult<SyncCheckpoint>>(`${base(market)}/sync/status`, params)
 }
 

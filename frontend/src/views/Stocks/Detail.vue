@@ -610,7 +610,11 @@ async function handleSync() {
 
       if (data.historical_sync) {
         if (data.historical_sync.success) {
-          message += `✅ 历史数据: ${data.historical_sync.records || 0} 条记录\n`
+          if (data.historical_sync.status === 'fresh') {
+            message += `✅ 历史数据: 已是最新\n`
+          } else {
+            message += `✅ 历史数据: ${data.historical_sync.records || 0} 条记录\n`
+          }
         } else {
           message += `❌ 历史数据同步失败: ${data.historical_sync.error || '未知错误'}\n`
         }

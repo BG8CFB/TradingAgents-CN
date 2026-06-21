@@ -170,7 +170,7 @@ const refreshTimer = ref<NodeJS.Timeout | null>(null)
 // 获取同步状态（从 sync checkpoints 推断）
 const fetchSyncStatus = async () => {
   try {
-    const response = await getMarketSyncStatus(MARKET, { page: 1, page_size: 1 })
+    const response = await getMarketSyncStatus(MARKET, { page: 1, page_size: 1, trigger: 'scheduled' })
     if (response.success && response.data?.items?.length) {
       const latest = response.data.items[0]
       syncStatus.value = {

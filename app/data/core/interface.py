@@ -155,10 +155,14 @@ class DataInterface:
         return task_id
 
     async def get_sync_status(
-        self, market: str, domain: Optional[str] = None
+        self, market: str, domain: Optional[str] = None,
+        trigger: Optional[str] = None,
     ) -> List[Dict]:
-        """查询同步检查点列表。"""
-        return await self._metadata_repo.get_all_checkpoints(market, domain)
+        """查询同步检查点列表。
+
+        trigger: 仅返回该触发类型的检查点（manual/scheduled），None=不过滤。
+        """
+        return await self._metadata_repo.get_all_checkpoints(market, domain, trigger)
 
     async def get_sync_events(
         self, market: str, domain: Optional[str] = None, limit: int = 50

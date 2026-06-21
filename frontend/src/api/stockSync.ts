@@ -29,6 +29,7 @@ export interface BatchStockSyncRequest {
 
 export interface SyncResult {
   success: boolean
+  status?: string
   records?: number
   message?: string
   error?: string
@@ -134,6 +135,7 @@ export const stockSyncApi = {
         if (rd.domains.daily_quotes) {
           result.historical_sync = {
             success: _isSuccess(rd.domains.daily_quotes.status),
+            status: rd.domains.daily_quotes.status,
             records: rd.domains.daily_quotes.records || 0,
             error: rd.domains.daily_quotes.error || undefined,
           }
@@ -141,6 +143,7 @@ export const stockSyncApi = {
         if (rd.domains.financial_data) {
           result.financial_sync = {
             success: _isSuccess(rd.domains.financial_data.status),
+            status: rd.domains.financial_data.status,
             records: rd.domains.financial_data.records || 0,
             error: rd.domains.financial_data.error || undefined,
           }
@@ -148,6 +151,7 @@ export const stockSyncApi = {
         if (rd.domains.basic_info) {
           result.basic_sync = {
             success: _isSuccess(rd.domains.basic_info.status),
+            status: rd.domains.basic_info.status,
             records: rd.domains.basic_info.records || 0,
             error: rd.domains.basic_info.error || undefined,
           }

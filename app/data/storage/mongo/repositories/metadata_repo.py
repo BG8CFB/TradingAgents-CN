@@ -21,32 +21,52 @@ class MetadataRepo:
 
     async def update_checkpoint(
         self, market: str, domain: str, source: str,
-        last_sync_date: str, record_count: int, status: str = "success"
+        last_sync_date: str, record_count: int, status: str = "success",
+        duration_ms: Optional[int] = None,
+        scope: Optional[str] = None,
+        trigger: Optional[str] = None,
+        symbol: Optional[str] = None,
     ) -> None:
         db = get_motor_db()
         coll = db["sync_checkpoints"]
+        set_fields: Dict = {
+            "market": market,
+            "domain": domain,
+            "source": source,
+            "last_sync_date": last_sync_date,
+            "last_sync_time": datetime.now(timezone.utc).isoformat(),
+            "status": status,
+            "record_count": record_count,
+        }
+        if duration_ms is not None:
+            set_fields["duration_ms"] = duration_ms
+        if scope is not None:
+            set_fields["scope"] = scope
+        if trigger is not None:
+            set_fields["trigger"] = trigger
+        if symbol is not None:
+            set_fields["symbol"] = symbol
         await coll.update_one(
             {"market": market, "domain": domain, "source": source},
-            {
-                "$set": {
-                    "last_sync_date": last_sync_date,
-                    "last_sync_time": datetime.now(timezone.utc).isoformat(),
-                    "status": status,
-                    "record_count": record_count,
-                }
-            },
+            {"$set": set_fields},
             upsert=True,
         )
 
     async def get_all_checkpoints(
         self, market: str, domain: Optional[str] = None,
+        trigger: Optional[str] = None,
     ) -> List[Dict]:
-        """查询指定市场的所有同步检查点。"""
+        """查询指定市场的所有同步检查点。
+
+        trigger: 仅返回该触发类型的检查点（manual/scheduled），None=不过滤。
+        """
         db = get_motor_db()
         coll = db["sync_checkpoints"]
         query: Dict = {"market": market}
         if domain:
             query["domain"] = domain
+        if trigger:
+            query["trigger"] = trigger
         cursor = coll.find(query, {"_id": 0}).sort("last_sync_time", -1)
         return await cursor.to_list(length=None)
 
