@@ -41,6 +41,15 @@ class MoneyFlowRepo:
         cursor = coll.find(query, {"_id": 0}).sort("trade_date", -1)
         return await cursor.to_list(length=None)
 
+    async def get_by_date_range(
+        self, market: str, start_date: str, end_date: str, limit: int = 1000,
+    ) -> List[Dict]:
+        db = get_motor_db()
+        coll = db[get_collection_name("money_flow", market)]
+        query = {"trade_date": {"$gte": start_date, "$lte": end_date}}
+        cursor = coll.find(query, {"_id": 0}).sort("trade_date", -1).limit(limit)
+        return await cursor.to_list(length=None)
+
     async def get_latest_date(self, symbol: str, market: str) -> Optional[str]:
         db = get_motor_db()
         coll = db[get_collection_name("money_flow", market)]

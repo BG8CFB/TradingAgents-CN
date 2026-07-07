@@ -509,7 +509,7 @@ class TushareCNAdapter(BaseAdapter):
                     price=_safe_float(get("price")),
                     # 大宗交易 tushare vol 字段单位为"手"（1 手 = 100 股），
                     # 统一转换为"股"写入，与其他行情数据的 volume 单位一致
-                    volume=float(int(round(_safe_float(get("vol")) * 100))),
+                    volume=(lambda v: float(int(round(v * 100))) if v is not None else None)(_safe_float(get("vol"))),
                     amount=_safe_float(get("amount")),
                     buyer=str(get("buyer", "")),
                     seller=str(get("seller", "")),
@@ -551,3 +551,71 @@ class TushareCNAdapter(BaseAdapter):
                 )
             )
         return results
+
+    # ── B 类接口适配器（通用 dict 输出）──
+
+    def _generic_adapt(self, raw: Any, domain: str) -> List[dict]:
+        """通用适配：DataFrame → dict 列表，添加 symbol/market/data_source 字段。"""
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            doc = row.to_dict()
+            # 提取 symbol
+            ts_code = str(doc.get("ts_code", ""))
+            if ts_code and "." in ts_code:
+                doc["symbol"] = _parse_symbol_from_ts_code(ts_code)
+            doc["market"] = "CN"
+            doc["data_source"] = "tushare"
+            # 清理 NaN
+            for k, v in doc.items():
+                if isinstance(v, float) and v != v:
+                    doc[k] = None
+            results.append(doc)
+        return results
+
+    def adapt_northbound_flow(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "northbound_flow")
+
+    def adapt_northbound_holding(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "northbound_holding")
+
+    def adapt_share_unlock(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "share_unlock")
+
+    def adapt_pledge(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "pledge")
+
+    def adapt_trading_status(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "trading_status")
+
+    def adapt_price_limit(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "price_limit")
+
+    def adapt_index_data(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_data")
+
+    def adapt_chip_distribution(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "chip_distribution")
+
+    def adapt_sw_daily(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "sw_daily")
+
+    def adapt_ths_daily(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "ths_daily")
+
+    def adapt_forecast(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "forecast")
+
+    def adapt_express(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "express")
+
+    def adapt_limit_step(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "limit_step")
+
+    def adapt_moneyflow_ind_dc(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "moneyflow_ind_dc")
+
+    def adapt_dividend(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "dividend")

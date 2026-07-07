@@ -217,9 +217,9 @@ def _filter_df_by_report_period(
     def _norm(v):
         return str(v).replace("-", "") if v is not None else ""
 
-    mask = df[col].apply(_norm)
+    mask = pd.Series([True] * len(df), index=df.index)
     if start:
-        mask = mask & df[col].apply(lambda v: _norm(v) >= start)
+        mask = mask & (df[col].apply(_norm) >= start)
     if end:
-        mask = mask & df[col].apply(lambda v: _norm(v) <= end)
+        mask = mask & (df[col].apply(_norm) <= end)
     return df[mask]

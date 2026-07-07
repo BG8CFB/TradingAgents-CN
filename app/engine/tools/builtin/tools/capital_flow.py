@@ -126,3 +126,93 @@ def get_margin_trade(
             ErrorCodes.DATA_FETCH_ERROR,
             str(e)
         ))
+
+
+def get_northbound_flow(
+    trade_date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取北向资金流向数据。"""
+    try:
+        if not end_date:
+            end_date = get_current_date_compact()
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "northbound_flow", symbol="__all__",
+                                     start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, "北向资金流向")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, "北向资金数据暂不可用",
+            suggestion="请先同步北向资金数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_northbound_flow failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_northbound_holding(
+    ts_code: Optional[str] = None,
+    trade_date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取北向资金数据（沪深股通十大成交股）。
+
+    注：tushare 没有单只 A 股的北向持仓明细接口。
+    hk_hold 返回的是港股数据（南向），不是 A 股北向持仓。
+    此接口改用 hsgt_top10 返回北向资金活跃个股名单。
+    """
+    try:
+        if not trade_date:
+            if end_date:
+                trade_date = end_date
+            else:
+                trade_date = get_current_date_compact()
+        trade_date = str(trade_date).replace("-", "")
+
+        from app.data.sources.cn.tushare.api.connection import get_tushare_api
+        from app.data.sources.cn.tushare.api.northbound_holding import fetch_northbound_holding
+
+        conn = get_tushare_api()
+        if not conn.is_available():
+            return format_tool_result(error_result(
+                ErrorCodes.DATA_FETCH_ERROR,
+                "Tushare 连接不可用",
+                suggestion="请检查 TUSHARE_TOKEN 配置"
+            ))
+
+        result = run_async(fetch_northbound_holding(
+            conn, ts_code=ts_code, trade_date=trade_date
+        ))
+
+        if result is None or result.empty:
+            if ts_code:
+                # 股票不在 top10 名单中，先获取全量 top10 再说明
+                all_top10 = run_async(fetch_northbound_holding(conn, trade_date=trade_date))
+                top10_str = ""
+                if all_top10 is not None and not all_top10.empty:
+                    top10_str = f"\n\n当日十大成交股：\n" + format_result(all_top10, "北向资金十大成交股")
+                return format_tool_result(success_result(
+                    f"## 北向资金数据\n\n"
+                    f"**{ts_code}** 不在日期 {trade_date} 沪深股通十大成交股名单中。\n\n"
+                    f"说明：tushare 不提供单只 A 股的北向持仓明细，仅提供每日十大活跃股。"
+                    f"如需整体北向资金流向，请使用 moneyflow_hsgt 接口。"
+                    f"{top10_str}"
+                ))
+            return format_tool_result(error_result(
+                ErrorCodes.DATA_FETCH_ERROR,
+                f"日期 {trade_date} 无北向资金数据（可能为非交易日）",
+                suggestion="请确认日期是否为交易日"
+            ))
+
+        return format_tool_result(success_result(
+            format_result(result, f"北向资金十大成交股 ({trade_date})")
+        ))
+    except Exception as e:
+        logger.error(f"get_northbound_holding failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

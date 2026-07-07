@@ -335,24 +335,37 @@ class FallbackRouter:
         method_map = {
             "basic_info": lambda: provider.get_stock_list(),
             "trade_calendar": lambda: provider.get_trade_calendar(exchange, start, end),
-            "daily_quotes": lambda: provider.get_daily_quotes(symbol, start, end),
+            "daily_quotes": lambda: self._fetch_daily_quotes(provider, symbol, start, end),
             "daily_indicators": lambda: self._fetch_daily_indicators(
                 provider, symbol, start, end
             ),
             "financial_data": lambda: provider.get_financial_data(symbol, start, end),
-            "adj_factors": lambda: provider.get_adj_factors(symbol, start, end),
+            "adj_factors": lambda: self._fetch_adj_factors(provider, symbol, start, end),
             "corporate_actions": lambda: provider.get_corporate_actions(
                 symbol, start, end
             ),
-            "news": lambda: provider.get_news(
-                None if symbol == "__all__" else symbol, start, end
-            ),
+            "news": lambda: self._fetch_news(provider, symbol, start, end),
             "market_quotes": lambda: provider.get_market_quotes([symbol]),
-            "intraday_quotes": lambda: provider.get_intraday_quotes(symbol, start, end),
-            "money_flow": lambda: provider.get_money_flow(symbol, start, end),
-            "margin_trading": lambda: provider.get_margin_trading(symbol, start, end),
-            "dragon_tiger": lambda: provider.get_dragon_tiger(symbol, start, end),
+            "intraday_quotes": lambda: provider.get_intraday_quotes(symbol),
+            "money_flow": lambda: self._fetch_money_flow(provider, symbol, start, end),
+            "margin_trading": lambda: self._fetch_margin_trading(provider, symbol, start, end),
+            "dragon_tiger": lambda: provider.get_dragon_tiger(symbol=symbol, start_date=start, end_date=end),
             "block_trade": lambda: provider.get_block_trade(symbol, start, end),
+            "northbound_flow": lambda: provider.get_northbound_flow(start_date=start, end_date=end),
+            "northbound_holding": lambda: provider.get_northbound_holding(start_date=start, end_date=end),
+            "share_unlock": lambda: provider.get_share_unlock(start_date=start, end_date=end),
+            "pledge": lambda: provider.get_pledge_stat(),
+            "trading_status": lambda: provider.get_trading_status(start_date=start, end_date=end),
+            "price_limit": lambda: provider.get_price_limit(trade_date=end if end != "2099-12-31" else None),
+            "index_data": lambda: self._fetch_index_data(provider, symbol, start, end),
+            "chip_distribution": lambda: provider.get_chip_perf(symbol, start_date=start, end_date=end),
+            "sw_daily": lambda: provider.get_sw_daily(trade_date=end if end != "2099-12-31" else None, start_date=start, end_date=end),
+            "ths_daily": lambda: provider.get_ths_daily(trade_date=end if end != "2099-12-31" else None, start_date=start, end_date=end),
+            "forecast": lambda: provider.get_forecast(ts_code=symbol if symbol != "__all__" else None, start_date=start, end_date=end),
+            "express": lambda: provider.get_express(ts_code=symbol if symbol != "__all__" else None, start_date=start, end_date=end),
+            "limit_step": lambda: provider.get_limit_step(trade_date=end if end != "2099-12-31" else None, start_date=start, end_date=end),
+            "moneyflow_ind_dc": lambda: provider.get_moneyflow_ind_dc(trade_date=end if end != "2099-12-31" else None, start_date=start, end_date=end),
+            "dividend": lambda: provider.get_dividend(ts_code=symbol if symbol != "__all__" else None),
         }
         method = method_map.get(domain)
         if method:
@@ -383,6 +396,96 @@ class FallbackRouter:
             )
             return await provider.get_daily_indicators_batch(trade_date)
         return await provider.get_daily_indicators(symbol, start, end)
+
+    async def _fetch_daily_quotes(self, provider, symbol: str, start: str, end: str):
+        """获取日线行情：per-symbol 模式或按日期批量模式。"""
+        if symbol == "__all__":
+            base_method = BaseProvider.get_daily_quotes_batch
+            provider_method = type(provider).get_daily_quotes_batch
+            if provider_method is base_method:
+                return self._BATCH_NOT_SUPPORTED
+            from datetime import date
+            trade_date = end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")
+            return await provider.get_daily_quotes_batch(trade_date)
+        return await provider.get_daily_quotes(symbol, start, end)
+
+    async def _fetch_adj_factors(self, provider, symbol: str, start: str, end: str):
+        """获取复权因子：per-symbol 模式或按日期批量模式。"""
+        if symbol == "__all__":
+            base_method = BaseProvider.get_adj_factors_batch
+            provider_method = type(provider).get_adj_factors_batch
+            if provider_method is base_method:
+                return self._BATCH_NOT_SUPPORTED
+            from datetime import date
+            trade_date = end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")
+            return await provider.get_adj_factors_batch(trade_date)
+        return await provider.get_adj_factors(symbol, start, end)
+
+    async def _fetch_money_flow(self, provider, symbol: str, start: str, end: str):
+        """获取资金流向：per-symbol 模式或按日期批量模式。"""
+        if symbol == "__all__":
+            base_method = BaseProvider.get_money_flow_batch
+            provider_method = type(provider).get_money_flow_batch
+            if provider_method is base_method:
+                return self._BATCH_NOT_SUPPORTED
+            from datetime import date
+            trade_date = end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")
+            return await provider.get_money_flow_batch(trade_date)
+        return await provider.get_money_flow(symbol, start, end)
+
+    async def _fetch_margin_trading(self, provider, symbol: str, start: str, end: str):
+        """获取融资融券：per-symbol 模式或 ts_code 批量模式。"""
+        if symbol == "__all__":
+            base_method = BaseProvider.get_margin_trading_batch
+            provider_method = type(provider).get_margin_trading_batch
+            if provider_method is base_method:
+                return self._BATCH_NOT_SUPPORTED
+            from app.data.storage.mongo.repositories.basic_info_repo import BasicInfoRepo
+            repo = BasicInfoRepo()
+            stocks = await repo.get_active_symbols("CN")
+            symbols = [s["symbol"] for s in stocks]
+            if not symbols:
+                return self._BATCH_NOT_SUPPORTED
+            return await provider.get_margin_trading_batch(symbols, start, end)
+        return await provider.get_margin_trading(symbol, start, end)
+
+    async def _fetch_index_data(self, provider, symbol: str, start: str, end: str):
+        """获取指数数据：日线行情或权重。symbol 是 __all__ 时获取主要指数。"""
+        if symbol == "__all__":
+            # 获取主要指数列表
+            major_indices = [
+                "000001.SH",  # 上证指数
+                "399001.SZ",  # 深证成指
+                "399006.SZ",  # 创业板指
+                "000300.SH",  # 沪深300
+                "000016.SH",  # 上证50
+                "000905.SH",  # 中证500
+                "399005.SZ",  # 中小板指
+                "000688.SH",  # 科创50
+            ]
+            all_dfs = []
+            for idx in major_indices:
+                try:
+                    df = await provider.get_index_daily(idx, start_date=start, end_date=end)
+                    if df is not None and not df.empty:
+                        all_dfs.append(df)
+                except Exception:
+                    continue
+            if all_dfs:
+                import pandas as pd
+                return pd.concat(all_dfs, ignore_index=True)
+            return None
+        return await provider.get_index_daily(symbol, start_date=start, end_date=end)
+
+    async def _fetch_news(self, provider, symbol: str, start: str, end: str):
+        """获取新闻：按日期批量模式或 per-symbol 模式。"""
+        if symbol == "__all__":
+            base_method = BaseProvider.get_news_batch
+            provider_method = type(provider).get_news_batch
+            if provider_method is base_method:
+                return self._BATCH_NOT_SUPPORTED
+            return await provider.get_news_batch(start, end)
+        return await provider.get_news(symbol, start, end)
 
     async def _get_provider_adapter(self, market: str, source_name: str):
         try:

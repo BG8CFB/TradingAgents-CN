@@ -36,6 +36,19 @@ _SUPPORTED_ON_DEMAND_DOMAINS = {
     "margin_trading",
     "dragon_tiger",
     "block_trade",
+    # 限售解禁 / 股权质押 / 北向资金
+    "share_unlock",
+    "pledge",
+    "northbound_flow",
+    "northbound_holding",
+    # 行业板块 / 业绩预告 / 连板 / 资金流 / 分红
+    "sw_daily",
+    "ths_daily",
+    "forecast",
+    "express",
+    "limit_step",
+    "moneyflow_ind_dc",
+    "dividend",
 }
 
 # 按日期增量刷新的域：{domain: (date_field, default_lookback_days)}
@@ -51,6 +64,17 @@ _INCREMENTAL_DOMAINS = {
     "block_trade": ("trade_date", 60),
     "corporate_actions": ("ex_date", 365),
     "news": ("publish_time", 7),
+    "share_unlock": ("ann_date", 365),
+    "pledge": ("end_date", 90),
+    "northbound_flow": ("trade_date", 30),
+    "northbound_holding": ("trade_date", 30),
+    "sw_daily": ("trade_date", 30),
+    "ths_daily": ("trade_date", 30),
+    "forecast": ("ann_date", 90),
+    "express": ("ann_date", 90),
+    "limit_step": ("trade_date", 30),
+    "moneyflow_ind_dc": ("trade_date", 30),
+    "dividend": ("ex_date", 365),
 }
 
 

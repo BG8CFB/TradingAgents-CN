@@ -73,6 +73,22 @@ class BaseProvider(ABC):
         """
         raise NotImplementedError(f"{self.name} 不支持 get_daily_indicators_batch")
 
+    async def get_daily_quotes_batch(self, trade_date: str, **kwargs) -> pd.DataFrame:
+        """获取日线行情（按日期批量模式，一次获取全市场）。"""
+        raise NotImplementedError(f"{self.name} 不支持 get_daily_quotes_batch")
+
+    async def get_adj_factors_batch(self, trade_date: str, **kwargs) -> pd.DataFrame:
+        """获取复权因子（按日期批量模式，一次获取全市场）。"""
+        raise NotImplementedError(f"{self.name} 不支持 get_adj_factors_batch")
+
+    async def get_money_flow_batch(self, trade_date: str, **kwargs) -> pd.DataFrame:
+        """获取资金流向（按日期批量模式，一次获取全市场）。"""
+        raise NotImplementedError(f"{self.name} 不支持 get_money_flow_batch")
+
+    async def get_margin_trading_batch(self, symbols: list, start_date: str = None, end_date: str = None, **kwargs) -> pd.DataFrame:
+        """获取融资融券（ts_code 批量模式，每批 50 个）。"""
+        raise NotImplementedError(f"{self.name} 不支持 get_margin_trading_batch")
+
     async def get_financial_data(self, symbol: str, start_date: str, end_date: str,
                                 statement_type: str = "", **kwargs) -> pd.DataFrame:
         """获取财务数据。
@@ -105,6 +121,10 @@ class BaseProvider(ABC):
             NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
         """
         raise NotImplementedError(f"{self.name} 不支持 get_news")
+
+    async def get_news_batch(self, start_date: str, end_date: str, **kwargs) -> pd.DataFrame:
+        """按日期范围批量获取全市场新闻。"""
+        raise NotImplementedError(f"{self.name} 不支持 get_news_batch")
 
     async def get_market_quotes(self, symbols: Optional[List[str]] = None, **kwargs) -> pd.DataFrame:
         """获取市场快照。
@@ -153,3 +173,60 @@ class BaseProvider(ABC):
             NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
         """
         raise NotImplementedError(f"{self.name} 不支持 get_block_trade")
+
+    async def get_dragon_tiger_inst(self, trade_date: str = None, start_date: str = None, end_date: str = None, **kwargs) -> pd.DataFrame:
+        """获取龙虎榜机构交易明细（top_inst）。
+
+        Raises:
+            NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
+        """
+        raise NotImplementedError(f"{self.name} 不支持 get_dragon_tiger_inst")
+
+    async def get_margin_summary(self, trade_date: str = None, start_date: str = None, end_date: str = None, **kwargs) -> pd.DataFrame:
+        """获取融资融券交易汇总（market 级别）。
+
+        Raises:
+            NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
+        """
+        raise NotImplementedError(f"{self.name} 不支持 get_margin_summary")
+
+    async def get_stock_company(self, ts_code: str = None, exchange: str = None, **kwargs) -> pd.DataFrame:
+        """获取上市公司基本信息（stock_company）。
+
+        Raises:
+            NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
+        """
+        raise NotImplementedError(f"{self.name} 不支持 get_stock_company")
+
+    async def get_northbound_flow(self, trade_date=None, start_date=None, end_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_northbound_flow")
+
+    async def get_northbound_holding(self, ts_code=None, trade_date=None, start_date=None, end_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_northbound_holding")
+
+    async def get_share_unlock(self, ts_code=None, start_date=None, end_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_share_unlock")
+
+    async def get_pledge_stat(self, ts_code=None, end_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_pledge_stat")
+
+    async def get_pledge_detail(self, ts_code=None, end_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_pledge_detail")
+
+    async def get_trading_status(self, ts_code=None, trade_date=None, start_date=None, end_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_trading_status")
+
+    async def get_price_limit(self, ts_code=None, trade_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_price_limit")
+
+    async def get_index_daily(self, ts_code: str, start_date=None, end_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_index_daily")
+
+    async def get_index_weight(self, index_code=None, trade_date=None, start_date=None, end_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_index_weight")
+
+    async def get_chip_perf(self, ts_code: str, trade_date=None, start_date=None, end_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_chip_perf")
+
+    async def get_chip_distribution(self, ts_code: str, trade_date=None, **kwargs) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} 不支持 get_chip_distribution")

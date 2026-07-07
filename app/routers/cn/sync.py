@@ -19,6 +19,12 @@ _MARKET = "CN"
 _VALID_SYNC_DOMAINS = [
     "trade_calendar", "basic_info", "daily_quotes",
     "daily_indicators", "adj_factors", "financial_data", "news",
+    "market_quotes", "intraday_quotes", "money_flow", "margin_trading",
+    "dragon_tiger", "block_trade", "northbound_flow", "northbound_holding",
+    "share_unlock", "pledge", "trading_status", "price_limit",
+    "index_data", "chip_distribution",
+    "sw_daily", "ths_daily", "forecast", "express",
+    "limit_step", "moneyflow_ind_dc", "dividend",
 ]
 
 

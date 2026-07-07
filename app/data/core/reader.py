@@ -2,6 +2,7 @@
 
 import logging
 import math
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -30,6 +31,17 @@ def _strip_nan(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_strip_nan(v) for v in value)
     return value
+
+
+def _norm_date(d: str) -> str:
+    """归一化日期格式：YYYYMMDD → YYYY-MM-DD（已是 YYYY-MM-DD 则原样返回）。"""
+    if not d:
+        return d
+    if "-" in d:
+        return d
+    if re.match(r"^\d{8}$", d):
+        return f"{d[:4]}-{d[4:6]}-{d[6:]}"
+    return d
 
 
 class Reader:
@@ -82,9 +94,12 @@ class Reader:
             repo_cls = repo_map.get(domain)
             if repo_cls:
                 repo = repo_cls()
-                self._repo_cache[domain] = repo
-                return repo
-            return None
+            else:
+                # 新域使用通用 Repository
+                from app.data.storage.mongo.repositories.generic_repo import GenericRepo
+                repo = GenericRepo(domain)
+            self._repo_cache[domain] = repo
+            return repo
 
     async def get_data(
         self, market: str, domain: str, symbol: Optional[str] = None,
@@ -149,6 +164,22 @@ class Reader:
             if symbol:
                 limit = filters.get("limit", 20)
                 data = await repo.get_by_symbol(symbol, market, limit=limit)
+                # 补充市场级新闻（symbol="" 的全市场新闻）
+                market_news = await repo.get_by_symbol("", market, limit=limit)
+                if market_news:
+                    seen = {d.get("title") for d in (data or [])}
+                    for item in market_news:
+                        if item.get("title") not in seen:
+                            data.append(item)
+                            seen.add(item.get("title"))
+
+                    def _sort_key(x):
+                        pt = x.get("publish_time", "")
+                        if isinstance(pt, str):
+                            return pt
+                        return str(pt) if pt else ""
+                    data.sort(key=_sort_key, reverse=True)
+                    data = data[:limit]
             else:
                 limit = filters.get("limit", 100)
                 data = await repo.get_all(market, limit=limit)
@@ -164,18 +195,22 @@ class Reader:
                 )
 
         elif domain == "money_flow":
-            if symbol:
-                data = await repo.get_by_symbol_and_range(
-                    symbol, market,
-                    start_date or "1970-01-01", end_date or "2099-12-31",
-                )
+            sd = _norm_date(start_date) if start_date else "1970-01-01"
+            ed = _norm_date(end_date) if end_date else "2099-12-31"
+            if symbol and symbol not in ("__all__", "market"):
+                data = await repo.get_by_symbol_and_range(symbol, market, sd, ed)
+            else:
+                limit = filters.get("limit", 1000) if filters else 1000
+                data = await repo.get_by_date_range(market, sd, ed, limit=limit)
 
         elif domain == "margin_trading":
-            if symbol:
-                data = await repo.get_by_symbol_and_range(
-                    symbol, market,
-                    start_date or "1970-01-01", end_date or "2099-12-31",
-                )
+            sd = _norm_date(start_date) if start_date else "1970-01-01"
+            ed = _norm_date(end_date) if end_date else "2099-12-31"
+            if symbol and symbol not in ("__all__", "market"):
+                data = await repo.get_by_symbol_and_range(symbol, market, sd, ed)
+            else:
+                limit = filters.get("limit", 1000) if filters else 1000
+                data = await repo.get_by_date_range(market, sd, ed, limit=limit)
 
         elif domain == "dragon_tiger":
             if symbol:
@@ -223,6 +258,25 @@ class Reader:
             else:
                 limit = filters.get("limit", 100)
                 data = await repo.get_by_symbol("", market, limit=limit)
+
+        # ── B 类新域（GenericRepo，数据库日期为 YYYYMMDD） ──
+        elif domain in (
+            "northbound_flow", "northbound_holding", "share_unlock",
+            "pledge", "trading_status", "price_limit",
+            "index_data", "chip_distribution",
+        ):
+            if symbol and symbol != "__all__":
+                data = await repo.get_by_symbol_and_range(
+                    symbol, market,
+                    start_date or "19700101", end_date or "20991231",
+                )
+            else:
+                limit = filters.get("limit", 1000) if filters else 1000
+                data = await repo.get_by_date_range(
+                    market,
+                    start_date or "19700101", end_date or "20991231",
+                    limit=limit,
+                )
 
         if not data:
             return None, FreshnessState.UNKNOWN

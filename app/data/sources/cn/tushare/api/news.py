@@ -8,6 +8,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
 from app.data.sources.base.exceptions import DataSourceUnavailableError
 from app.data.sources.base.mappers import map_network_exception, map_tushare_code
 from app.utils.time_utils import now_utc
@@ -340,6 +342,156 @@ async def _fetch_cctv_news(
     except Exception as e:
         logger.debug(f"Tushare cctv_news 失败: {e}")
         return []
+
+
+async def fetch_news_by_date(
+    conn: TushareConnection,
+    start_date: str,
+    end_date: str,
+    limit: int = 500,
+) -> pd.DataFrame:
+    """按日期范围批量获取全市场新闻（一次请求返回多条新闻）
+
+    与 fetch_news 不同，此函数不按 symbol 过滤，直接返回指定时间范围内的所有新闻。
+    适用于批量同步场景，避免逐 symbol 遍历请求。
+
+    Args:
+        conn: Tushare 连接对象
+        start_date: 开始日期 (YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS)
+        end_date: 结束日期 (YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS)
+        limit: 每个数据源的最大返回条数
+
+    Returns:
+        DataFrame 包含新闻数据
+    """
+    if not conn.is_available():
+        return pd.DataFrame()
+
+    # 向前扩展 3 天，确保不遗漏跨天新闻
+    if start_date and len(start_date) >= 10:
+        try:
+            from datetime import datetime, timedelta
+            sd = datetime.strptime(start_date[:10], "%Y-%m-%d")
+            start_date = (sd - timedelta(days=3)).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
+    # tushare news API 需要 YYYY-MM-DD HH:MM:SS 格式
+    def _to_datetime_str(d: str, is_start: bool) -> str:
+        if not d:
+            return d
+        d = d[:10]
+        if len(d) == 10 and "-" in d:
+            return f"{d} 00:00:00" if is_start else f"{d} 23:59:59"
+        return d
+
+    api_start = _to_datetime_str(start_date, True)
+    api_end = _to_datetime_str(end_date, False)
+
+    all_items = []
+    seen_titles = set()
+
+    # 遍历多个数据源获取新闻
+    sources = NEWS_SOURCES[:3]  # eastmoney, sina, 10jqka
+    for source in sources:
+        try:
+            df = await asyncio.to_thread(
+                conn.api.news,
+                src=source,
+                fields='datetime,content',
+                limit=limit,
+                start_date=api_start,
+                end_date=api_end,
+            )
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    content = str(row.get("content", ""))
+                    title = content[:50].rstrip("。") + "..." if len(content) > 50 else content
+                    if title not in seen_titles:
+                        seen_titles.add(title)
+                        all_items.append({
+                            "title": title,
+                            "content": content,
+                            "summary": content[:200] + "..." if len(content) > 200 else content,
+                            "url": "",
+                            "source": SOURCE_NAMES.get(source, source),
+                            "publish_time": _parse_time(row.get("datetime", "")),
+                            "category": _classify("", content),
+                            "sentiment": _sentiment(content, title),
+                            "importance": _importance(content, title),
+                            "keywords": _keywords(content, title),
+                            "data_source": "tushare",
+                            "original_source": source,
+                        })
+        except Exception as e:
+            logger.debug(f"获取新闻数据失败 ({source}): {e}")
+            continue
+        await asyncio.sleep(0.2)
+
+    # 获取新闻联播
+    try:
+        # 从 start_date 提取日期部分
+        date_str = start_date[:10].replace("-", "") if start_date else now_utc().strftime("%Y%m%d")
+        df_cctv = await asyncio.to_thread(conn.api.cctv_news, date=date_str)
+        if df_cctv is not None and not df_cctv.empty:
+            for _, row in df_cctv.iterrows():
+                title = str(row.get("title", ""))
+                if title and title not in seen_titles:
+                    seen_titles.add(title)
+                    all_items.append({
+                        "title": title,
+                        "content": str(row.get("content", "")),
+                        "summary": str(row.get("content", ""))[:200],
+                        "url": "",
+                        "source": "央视新闻联播",
+                        "publish_time": _parse_time(row.get("date", "")),
+                        "category": "cctv_news",
+                        "sentiment": "neutral",
+                        "importance": "high",
+                        "keywords": [],
+                        "data_source": "tushare",
+                        "original_source": "cctv_news",
+                    })
+    except Exception as e:
+        logger.debug(f"Tushare cctv_news 失败: {e}")
+
+    # 获取长篇通讯（major_news — 带标题和 URL，质量更高）
+    try:
+        df_major = await asyncio.to_thread(
+            conn.api.major_news,
+            start_date=api_start,
+            end_date=api_end,
+        )
+        if df_major is not None and not df_major.empty:
+            for _, row in df_major.head(limit).iterrows():
+                title = str(row.get("title", ""))
+                if not title or title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                all_items.append({
+                    "title": title,
+                    "content": title,
+                    "summary": title,
+                    "url": str(row.get("url", "")),
+                    "source": str(row.get("src", "tushare_major")),
+                    "publish_time": _parse_time(row.get("pub_time", "")),
+                    "category": "major_news",
+                    "sentiment": _sentiment(title, title),
+                    "importance": "high",
+                    "keywords": [],
+                    "data_source": "tushare",
+                    "original_source": "major_news",
+                })
+    except Exception as e:
+        logger.debug(f"Tushare major_news 失败（可能积分不足）: {e}")
+
+    if not all_items:
+        logger.warning(f"Tushare 新闻返回空: {start_date} ~ {end_date}")
+        return pd.DataFrame()
+
+    result_df = pd.DataFrame(all_items)
+    logger.info(f"Tushare 新闻(按日期): {start_date} ~ {end_date} {len(result_df)} 条")
+    return result_df
 
 
 def _deduplicate_and_sort(

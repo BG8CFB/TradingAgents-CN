@@ -21,6 +21,21 @@ DOMAIN_METHOD_MAP = {
     "margin_trading": "adapt_margin_trading",
     "dragon_tiger": "adapt_dragon_tiger",
     "block_trade": "adapt_block_trade",
+    "northbound_flow": "adapt_northbound_flow",
+    "northbound_holding": "adapt_northbound_holding",
+    "share_unlock": "adapt_share_unlock",
+    "pledge": "adapt_pledge",
+    "trading_status": "adapt_trading_status",
+    "price_limit": "adapt_price_limit",
+    "index_data": "adapt_index_data",
+    "chip_distribution": "adapt_chip_distribution",
+    "sw_daily": "adapt_sw_daily",
+    "ths_daily": "adapt_ths_daily",
+    "forecast": "adapt_forecast",
+    "express": "adapt_express",
+    "limit_step": "adapt_limit_step",
+    "moneyflow_ind_dc": "adapt_moneyflow_ind_dc",
+    "dividend": "adapt_dividend",
 }
 
 

@@ -1007,6 +1007,51 @@ const validateStockCodeInput = () => {
 
   // 获取股票信息
   fetchStockInfo()
+
+  // 获取历史分析报告
+  fetchLatestAnalysis()
+}
+
+// 获取最新的历史分析报告
+const fetchLatestAnalysis = async () => {
+  const code = analysisForm.stockCode.trim()
+  if (!code) return
+
+  try {
+    console.log('🔍 [fetchLatestAnalysis] 开始获取历史分析报告, symbol:', code)
+
+    const resp: any = await analysisApi.getHistory({
+      symbol: code,
+      stock_code: code,
+      page: 1,
+      page_size: 1,
+      status: 'completed'
+    })
+
+    // API返回格式是 { success: true, data: { tasks: [...] } }
+    const responseData = resp?.data || resp
+    const actualData = responseData?.success ? responseData.data : responseData
+    const tasks = actualData?.tasks || actualData?.analyses || []
+
+    if (tasks && tasks.length > 0) {
+      const latestTask = tasks[0]
+      console.log('✅ [fetchLatestAnalysis] 找到历史分析任务:', latestTask.task_id)
+
+      // 获取完整结果
+      const resultData = await analysisApi.getTaskResult(latestTask.task_id)
+      if (resultData && resultData.success) {
+        analysisResults.value = resultData.data
+        analysisStatus.value = 'completed'
+        showResults.value = true
+        currentTaskId.value = latestTask.task_id
+        console.log('✅ 加载历史分析报告成功')
+      }
+    } else {
+      console.log('ℹ️ 该股票暂无历史分析报告')
+    }
+  } catch (e) {
+    console.warn('⚠️ 获取历史分析报告失败:', e)
+  }
 }
 
 // 解决图标组件

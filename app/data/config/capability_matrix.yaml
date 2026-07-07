@@ -48,6 +48,39 @@ CN:
   block_trade:
     tushare: full
     akshare: full
+  northbound_flow:
+    tushare: full
+  northbound_holding:
+    tushare: full
+  share_unlock:
+    tushare: full
+  pledge:
+    tushare: full
+  trading_status:
+    tushare: full
+  price_limit:
+    tushare: full
+  index_data:
+    tushare: full
+  chip_distribution:
+    tushare: full
+  sw_daily:
+    tushare: full
+    akshare: partial
+  ths_daily:
+    tushare: full
+  forecast:
+    tushare: full
+  express:
+    tushare: full
+  limit_step:
+    tushare: full
+    akshare: partial
+  moneyflow_ind_dc:
+    tushare: full
+  dividend:
+    tushare: full
+    akshare: partial
 
 HK:
   basic_info:

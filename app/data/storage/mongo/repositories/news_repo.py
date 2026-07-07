@@ -19,10 +19,19 @@ class NewsRepo:
         ops = []
         for rec in records:
             ch = rec.get("content_hash")
-            if not ch:
-                continue
+            if ch:
+                filter_query = {"content_hash": ch}
+            else:
+                # content_hash 缺失时用 symbol + title + publish_time 去重
+                filter_query = {
+                    "symbol": rec.get("symbol"),
+                    "title": rec.get("title"),
+                    "publish_time": rec.get("publish_time"),
+                }
+                if not filter_query["symbol"] or not filter_query["title"]:
+                    continue
             ops.append(UpdateOne(
-                {"content_hash": ch}, {"$set": rec}, upsert=True
+                filter_query, {"$set": rec}, upsert=True
             ))
         if not ops:
             return 0
@@ -41,7 +50,7 @@ class NewsRepo:
     async def get_all(self, market: str, limit: int = 100) -> List[Dict]:
         db = get_motor_db()
         coll = db[get_collection_name("news", market)]
-        cursor = coll.find({"_id": 0}).sort("publish_time", -1)
+        cursor = coll.find({}, {"_id": 0}).sort("publish_time", -1)
         if limit:
             cursor = cursor.limit(limit)
         return await cursor.to_list(length=None)

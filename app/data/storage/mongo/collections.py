@@ -26,6 +26,21 @@ _BUSINESS_COLLECTIONS: Dict[str, str] = {
     "dragon_tiger": "stock_dragon_tiger",
     "block_trade": "stock_block_trade",
     "tushare_universe": "stock_tushare_universe",
+    "northbound_flow": "northbound_flow",
+    "northbound_holding": "northbound_holding",
+    "share_unlock": "share_unlock",
+    "pledge": "pledge",
+    "trading_status": "trading_status",
+    "price_limit": "price_limit",
+    "index_data": "index_data",
+    "chip_distribution": "chip_distribution",
+    "sw_daily": "stock_sw_daily",
+    "ths_daily": "stock_ths_daily",
+    "forecast": "stock_forecast",
+    "express": "stock_express",
+    "limit_step": "stock_limit_step",
+    "moneyflow_ind_dc": "stock_moneyflow_ind_dc",
+    "dividend": "stock_dividend",
 }
 
 # 元数据集合: 无市场后缀

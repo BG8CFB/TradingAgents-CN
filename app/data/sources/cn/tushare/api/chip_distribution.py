@@ -1,5 +1,8 @@
 """
-Tushare 复权因子 API
+Tushare 筹码分布 API
+
+接口: cyq_perf (每日筹码及胜率) + cyq_chips (每日筹码分布)
+要求: >= 2000 积分
 """
 import asyncio
 import logging
@@ -18,60 +21,60 @@ from .connection import TushareConnection
 
 logger = logging.getLogger(__name__)
 
-_DOMAIN = "adj_factors"
+_DOMAIN = "chip_distribution"
 
 
-async def fetch_adj_factors(
+async def fetch_chip_perf(
     conn: TushareConnection,
     ts_code: str,
+    trade_date: str = None,
     start_date: str = None,
     end_date: str = None,
 ) -> Optional[pd.DataFrame]:
-    """获取复权因子"""
+    """获取每日筹码及胜率（cyq_perf）"""
     if not conn.is_available():
         return None
 
-    params: dict = {"ts_code": ts_code}
-    if start_date:
-        params["start_date"] = start_date.replace("-", "")
-    if end_date:
-        params["end_date"] = end_date.replace("-", "")
+    kwargs = {"ts_code": ts_code}
+    if trade_date:
+        kwargs["trade_date"] = str(trade_date).replace("-", "")
+    elif start_date:
+        kwargs["start_date"] = str(start_date).replace("-", "")
+        kwargs["end_date"] = str(end_date or start_date).replace("-", "")
 
     try:
-        df = await asyncio.to_thread(conn.api.adj_factor, **params)
+        df = await asyncio.to_thread(conn.api.cyq_perf, **kwargs)
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
-        # 网络异常：可重试
         raise map_network_exception(exc, "tushare", _DOMAIN)
     except Exception as exc:
-        # Tushare 业务异常（限流/token/积分等）：检测返回的 code 属性
         error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
         mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
         if mapped is not None:
             raise mapped
-        # 未知异常：抛 DataSourceUnavailableError 包装，保留原始信息
-        raise DataSourceUnavailableError(
-            "tushare", _DOMAIN, f"ts_code={ts_code}: {exc}"
-        )
+        raise DataSourceUnavailableError("tushare", _DOMAIN, str(exc))
 
-    # 空结果（业务正确但无数据）— 用 DataNotFoundError 表示
     if is_empty_result(df):
-        logger.warning(f"Tushare 复权因子返回空: ts_code={ts_code}")
         raise DataNotFoundError("tushare", _DOMAIN, f"ts_code={ts_code} 无数据")
 
-    logger.info(f"Tushare 复权因子: {ts_code} {len(df)} 条")
+    logger.info(f"Tushare 筹码胜率: {ts_code} {len(df)} 条")
     return df
 
 
-async def fetch_adj_factors_by_date(
-    conn: TushareConnection, trade_date: str
+async def fetch_chip_distribution(
+    conn: TushareConnection,
+    ts_code: str,
+    trade_date: str = None,
 ) -> Optional[pd.DataFrame]:
-    """按日期批量获取全市场复权因子（一次请求返回全部股票）"""
+    """获取每日筹码分布（cyq_chips）"""
     if not conn.is_available():
         return None
 
-    date_str = trade_date.replace("-", "")
+    kwargs = {"ts_code": ts_code}
+    if trade_date:
+        kwargs["trade_date"] = str(trade_date).replace("-", "")
+
     try:
-        df = await asyncio.to_thread(conn.api.adj_factor, trade_date=date_str)
+        df = await asyncio.to_thread(conn.api.cyq_chips, **kwargs)
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
         raise map_network_exception(exc, "tushare", _DOMAIN)
     except Exception as exc:
@@ -79,13 +82,10 @@ async def fetch_adj_factors_by_date(
         mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
         if mapped is not None:
             raise mapped
-        raise DataSourceUnavailableError(
-            "tushare", _DOMAIN, f"trade_date={trade_date}: {exc}"
-        )
+        raise DataSourceUnavailableError("tushare", _DOMAIN, str(exc))
 
     if is_empty_result(df):
-        logger.warning(f"Tushare 复权因子返回空: trade_date={trade_date}")
-        raise DataNotFoundError("tushare", _DOMAIN, f"trade_date={trade_date} 无数据")
+        raise DataNotFoundError("tushare", _DOMAIN, f"ts_code={ts_code} 无数据")
 
-    logger.info(f"Tushare 复权因子(按日期): {trade_date} {len(df)} 条")
+    logger.info(f"Tushare 筹码分布: {ts_code} {len(df)} 条")
     return df

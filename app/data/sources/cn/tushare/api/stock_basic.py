@@ -85,3 +85,41 @@ async def fetch_stock_basic_info(
         raise DataNotFoundError("tushare", _DOMAIN, f"ts_code={ts_code} 不存在")
 
     return df
+
+
+async def fetch_stock_company(
+    conn: TushareConnection,
+    ts_code: str = None,
+    exchange: str = None,
+) -> Optional[pd.DataFrame]:
+    """获取上市公司基本信息（stock_company）
+
+    补充 stock_basic 缺少的字段：董秘、注册地址、注册资本、上市日期、
+    法人代表、总经理、邮箱、传真等。
+    """
+    if not conn.is_available():
+        return None
+
+    kwargs = {}
+    if ts_code:
+        kwargs["ts_code"] = ts_code
+    if exchange:
+        kwargs["exchange"] = exchange
+
+    try:
+        df = await asyncio.to_thread(conn.api.stock_company, **kwargs)
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError("tushare", _DOMAIN, str(exc))
+
+    if is_empty_result(df):
+        logger.debug(f"Tushare stock_company 返回空: {kwargs}")
+        raise DataNotFoundError("tushare", _DOMAIN, f"{kwargs} 无数据")
+
+    logger.info(f"Tushare stock_company: {len(df)} 条")
+    return df

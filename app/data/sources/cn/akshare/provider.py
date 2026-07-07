@@ -113,3 +113,45 @@ class AKShareCNProvider(BaseProvider):
         sd = start_date.replace("-", "")
         ed = end_date.replace("-", "")
         return await fetch_block_trade(sd, ed)
+
+    async def get_dragon_tiger_inst(self, trade_date=None, start_date=None, end_date=None, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_dragon_tiger_inst")
+
+    async def get_margin_summary(self, trade_date=None, start_date=None, end_date=None, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_margin_summary")
+
+    async def get_stock_company(self, ts_code=None, exchange=None, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_stock_company")
+
+    async def get_northbound_flow(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_northbound_flow")
+
+    async def get_northbound_holding(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_northbound_holding")
+
+    async def get_share_unlock(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_share_unlock")
+
+    async def get_pledge_stat(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_pledge_stat")
+
+    async def get_pledge_detail(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_pledge_detail")
+
+    async def get_trading_status(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_trading_status")
+
+    async def get_price_limit(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_price_limit")
+
+    async def get_index_daily(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_index_daily")
+
+    async def get_index_weight(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_index_weight")
+
+    async def get_chip_perf(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_chip_perf")
+
+    async def get_chip_distribution(self, **kwargs):
+        raise NotImplementedError("AKShare 不支持 get_chip_distribution")

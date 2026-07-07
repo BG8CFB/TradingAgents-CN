@@ -234,6 +234,27 @@ def get_company_performance_unified(
             data = pd.DataFrame(perf_data) if isinstance(perf_data, list) else perf_data
             return format_tool_result(success_result(format_result(data, f"{stock_code} Performance ({market})")))
 
+        # DB 无数据时，直接从 tushare 获取（支持指定 period）
+        if market == "CN":
+            try:
+                from app.data.sources.cn.tushare.api.connection import get_tushare_api
+                from app.data.sources.cn.tushare.api.financial import fetch_financial_data
+                from app.data.sources.cn.tushare.provider import TushareCNProvider
+                conn = get_tushare_api()
+                if conn.is_available():
+                    ts_code = TushareCNProvider._to_ts_code(symbol)
+                    fetch_result = run_async(fetch_financial_data(
+                        conn, ts_code=ts_code, period=period,
+                        start_date=start_date, end_date=end_date,
+                    ))
+                    if fetch_result:
+                        import pandas as pd
+                        df = pd.DataFrame(fetch_result) if isinstance(fetch_result, list) else fetch_result
+                        if not df.empty:
+                            return format_tool_result(success_result(format_result(df, f"{stock_code} Performance (tushare实时)")))
+            except Exception as e:
+                logger.debug(f"tushare 财务数据实时获取失败: {e}")
+
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR,
             f"无法获取{market_name}业绩数据: {stock_code}, data_type: {data_type}（请先同步 financial_data 数据）",
@@ -311,3 +332,194 @@ def get_stock_basic_info(
             ErrorCodes.DATA_FETCH_ERROR,
             str(e)
         ))
+
+
+def get_share_unlock(
+    stock_code: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取限售股解禁数据。"""
+    try:
+        if not end_date:
+            end_date = get_current_date_compact()
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "share_unlock", symbol=stock_code,
+                                     start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"限售解禁: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"{stock_code} 无限售解禁数据",
+            suggestion="请先同步限售解禁数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_share_unlock failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_pledge_data(
+    stock_code: str,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取股权质押数据。"""
+    try:
+        if not end_date:
+            end_date = get_current_date_compact()
+        symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
+                           .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "pledge", symbol=symbol,
+                                     start_date="19700101", end_date=end_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"股权质押: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"{stock_code} 无股权质押数据",
+            suggestion="请先同步股权质押数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_pledge_data failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_forecast(
+    stock_code: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取业绩预告数据。"""
+    try:
+        from app.utils.stock_utils import StockUtils
+        market_info = StockUtils.get_market_info(stock_code)
+        market_key = "CN" if market_info.get("is_china") else "HK" if market_info.get("is_hk") else "US"
+
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=180)).strftime('%Y-%m-%d')
+
+        symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '')
+        di = DataInterface.get_instance()
+        result = run_async(di.read(market_key, "forecast", symbol=symbol,
+                                    start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"{stock_code} 业绩预告")))
+
+        # 回退到 tushare 直接获取
+        if market_key == "CN":
+            try:
+                from app.data.sources.cn.tushare.api.connection import get_tushare_api
+                from app.data.sources.cn.tushare.api.financial import fetch_forecast
+                from app.data.sources.cn.tushare.provider import TushareCNProvider
+                conn = get_tushare_api()
+                if conn.is_available():
+                    ts_code = TushareCNProvider._to_ts_code(symbol)
+                    fetch_result = run_async(fetch_forecast(conn, ts_code=ts_code))
+                    if fetch_result is not None and not fetch_result.empty:
+                        return format_tool_result(success_result(format_result(fetch_result, f"{stock_code} 业绩预告 (tushare实时)")))
+            except Exception as e:
+                logger.debug(f"tushare 业绩预告实时获取失败: {e}")
+
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            f"无法获取 {stock_code} 的业绩预告数据",
+            suggestion="请先同步 forecast 数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_forecast failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_express(
+    stock_code: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取业绩快报数据。"""
+    try:
+        from app.utils.stock_utils import StockUtils
+        market_info = StockUtils.get_market_info(stock_code)
+        market_key = "CN" if market_info.get("is_china") else "HK" if market_info.get("is_hk") else "US"
+
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=180)).strftime('%Y-%m-%d')
+
+        symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '')
+        di = DataInterface.get_instance()
+        result = run_async(di.read(market_key, "express", symbol=symbol,
+                                    start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"{stock_code} 业绩快报")))
+
+        if market_key == "CN":
+            try:
+                from app.data.sources.cn.tushare.api.connection import get_tushare_api
+                from app.data.sources.cn.tushare.api.financial import fetch_express
+                from app.data.sources.cn.tushare.provider import TushareCNProvider
+                conn = get_tushare_api()
+                if conn.is_available():
+                    ts_code = TushareCNProvider._to_ts_code(symbol)
+                    fetch_result = run_async(fetch_express(conn, ts_code=ts_code))
+                    if fetch_result is not None and not fetch_result.empty:
+                        return format_tool_result(success_result(format_result(fetch_result, f"{stock_code} 业绩快报 (tushare实时)")))
+            except Exception as e:
+                logger.debug(f"tushare 业绩快报实时获取失败: {e}")
+
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            f"无法获取 {stock_code} 的业绩快报数据",
+            suggestion="请先同步 express 数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_express failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_dividend(
+    stock_code: str,
+) -> str:
+    """获取分红送股数据。"""
+    try:
+        from app.utils.stock_utils import StockUtils
+        market_info = StockUtils.get_market_info(stock_code)
+        market_key = "CN" if market_info.get("is_china") else "HK" if market_info.get("is_hk") else "US"
+
+        symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '')
+        di = DataInterface.get_instance()
+        result = run_async(di.read(market_key, "dividend", symbol=symbol))
+        data = result.get("data")
+        if data:
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"{stock_code} 分红送股")))
+
+        if market_key == "CN":
+            try:
+                from app.data.sources.cn.tushare.api.connection import get_tushare_api
+                from app.data.sources.cn.tushare.api.dividend import fetch_dividend
+                from app.data.sources.cn.tushare.provider import TushareCNProvider
+                conn = get_tushare_api()
+                if conn.is_available():
+                    ts_code = TushareCNProvider._to_ts_code(symbol)
+                    fetch_result = run_async(fetch_dividend(conn, ts_code=ts_code))
+                    if fetch_result is not None and not fetch_result.empty:
+                        return format_tool_result(success_result(format_result(fetch_result, f"{stock_code} 分红送股 (tushare实时)")))
+            except Exception as e:
+                logger.debug(f"tushare 分红送股实时获取失败: {e}")
+
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            f"无法获取 {stock_code} 的分红送股数据",
+            suggestion="请先同步 dividend 数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_dividend failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

@@ -31,35 +31,116 @@ def _clean_symbol(stock_code: str) -> str:
                      .replace('.XSHE', '').replace('.XSHG', '').replace('.HK', '')
 
 
+def _get_industry_info(stock_code: str) -> dict:
+    """获取股票的行业分类信息（一级行业、二级行业、上下游）。"""
+    info = {"l1": None, "l2": None, "upstream": [], "downstream": [], "stock_name": None}
+    ts_code = f"{stock_code}.SZ" if stock_code.startswith(('0', '3')) else f"{stock_code}.SH"
+
+    try:
+        from app.data.sources.cn.stock_name_utils import get_stock_name_sync
+        info["stock_name"] = get_stock_name_sync(stock_code)
+    except Exception:
+        pass
+
+    try:
+        from app.data.sources.cn.tushare.api.connection import get_tushare_api
+        conn = get_tushare_api()
+        if not conn.is_available():
+            return info
+
+        # 遍历同花顺行业找到所属行业
+        df_industries = conn.api.ths_index(type='I')
+        if df_industries is None or df_industries.empty:
+            return info
+
+        for _, row in df_industries.iterrows():
+            try:
+                m = conn.api.ths_member(ts_code=row['ts_code'])
+                if m is not None and not m.empty and ts_code in m['con_code'].values:
+                    info["l1"] = row['name']
+                    break
+            except Exception:
+                continue
+    except Exception as e:
+        logger.debug(f"获取行业信息失败: {e}")
+
+    return info
+
+
+def _append_news(news_list: list, items: list, category: str, seen_titles: set):
+    """添加新闻到列表（去重）。"""
+    for item in items:
+        title = item.get('title', '')
+        if not title or title in seen_titles:
+            continue
+        seen_titles.add(title)
+        news_list.append({
+            'title': title,
+            'content': item.get('content', '') or item.get('summary', ''),
+            'source': f"{item.get('source', item.get('data_source', '未知'))} ({category})",
+            'publish_time': item.get('publish_time', now_utc()),
+            'sentiment': item.get('sentiment', 'neutral'),
+            'url': item.get('url', ''),
+        })
+
+
 def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
-    """内部辅助函数：通过 DataInterface 获取新闻数据列表。"""
+    """分层获取新闻：A股市场 → 一级行业 → 二级行业 → 上下游 → 个股。"""
     news_list = []
+    seen_titles = set()
     market = _get_market_for_code(stock_code)
     clean_code = _clean_symbol(stock_code)
 
+    # 获取行业信息
+    industry = _get_industry_info(clean_code)
+    stock_name = industry.get("stock_name") or clean_code
+
+    # ── 第1层：A股整体市场新闻（DB） ──
     try:
         from app.data.core.interface import DataInterface
         di = DataInterface.get_instance()
-        result = run_async(di.read(market, "news", symbol=clean_code))
+        result = run_async(di.read(market, "news"))
         data = result.get("data")
-
         if data and isinstance(data, list):
-            for item in data[:max_results]:
-                news_list.append({
-                    'title': item.get('title', '无标题'),
-                    'content': item.get('content', '') or item.get('summary', ''),
-                    'source': f"{item.get('data_source', item.get('source', '未知'))} (DB)",
-                    'publish_time': item.get('publish_time', now_utc()),
-                    'sentiment': item.get('sentiment', 'neutral'),
-                    'url': item.get('url', ''),
-                })
-            if news_list:
-                logger.info(f"[新闻工具] 数据库缓存命中: {len(news_list)} 条")
-                return news_list
+            _append_news(news_list, data[:max_results], "A股市场", seen_titles)
+            logger.info(f"[新闻工具] A股市场新闻: {len(data)} 条")
     except Exception as e:
-        logger.warning(f"[新闻工具] 通过 DataInterface 获取失败: {e}")
+        logger.warning(f"[新闻工具] 市场新闻获取失败: {e}")
 
-    # 回退：尝试 refresh 并重新读取
+    # ── 第2层：一级行业新闻（tushare 按行业搜索） ──
+    if industry.get("l1"):
+        try:
+            from app.data.sources.cn.tushare.api.connection import get_tushare_api
+            from app.data.sources.cn.tushare.api.news import fetch_news
+            conn = get_tushare_api()
+            if conn.is_available():
+                # 用行业名称作为关键词搜索
+                l1_name = industry["l1"].replace("(A股)", "").strip()
+                result = run_async(fetch_news(conn, symbol=l1_name, limit=max_results))
+                if result and isinstance(result, list):
+                    _append_news(news_list, result, f"行业:{l1_name}", seen_titles)
+                    logger.info(f"[新闻工具] 一级行业({l1_name})新闻: {len(result)} 条")
+        except Exception as e:
+            logger.debug(f"[新闻工具] 一级行业新闻失败: {e}")
+
+    # ── 第3层：个股新闻（tushare 按股票代码搜索） ──
+    try:
+        from app.data.sources.cn.tushare.api.connection import get_tushare_api
+        from app.data.sources.cn.tushare.api.news import fetch_news
+        conn = get_tushare_api()
+        if conn.is_available():
+            result = run_async(fetch_news(conn, symbol=clean_code, limit=max_results))
+            if result and isinstance(result, list):
+                _append_news(news_list, result, "个股", seen_titles)
+                logger.info(f"[新闻工具] 个股({clean_code})新闻: {len(result)} 条")
+    except Exception as e:
+        logger.debug(f"[新闻工具] 个股新闻失败: {e}")
+
+    if news_list:
+        logger.info(f"[新闻工具] 最终返回: {len(news_list)} 条")
+        return news_list
+
+    # 最终回退：DB refresh
     try:
         from app.data.core.interface import DataInterface
         di = DataInterface.get_instance()
@@ -68,25 +149,15 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
             result = run_async(di.read(market, "news", symbol=clean_code))
             data = result.get("data")
             if data and isinstance(data, list):
-                for item in data[:max_results]:
-                    news_list.append({
-                        'title': item.get('title', '无标题'),
-                        'content': item.get('content', '') or item.get('summary', ''),
-                        'source': f"{item.get('data_source', item.get('source', '未知'))} (Refreshed)",
-                        'publish_time': item.get('publish_time', now_utc()),
-                        'sentiment': item.get('sentiment', 'neutral'),
-                        'url': item.get('url', ''),
-                    })
-                if news_list:
-                    return news_list
+                _append_news(news_list, data, "Refreshed", seen_titles)
     except Exception as e:
-        logger.warning(f"[新闻工具] 刷新后获取失败: {e}")
+        logger.warning(f"[新闻工具] 刷新失败: {e}")
 
     return news_list
 
 
 def _format_news_list(news_list: list, source_label: str = None) -> str:
-    """格式化新闻列表为 Markdown"""
+    """格式化新闻列表为 Markdown（按来源分组）。"""
     if not news_list:
         return "暂无新闻数据"
 
@@ -94,32 +165,44 @@ def _format_news_list(news_list: list, source_label: str = None) -> str:
     report += f"查询时间: {now_utc().strftime('%Y-%m-%d %H:%M:%S')}\n"
     report += f"新闻数量: {len(news_list)} 条\n\n"
 
-    for i, news in enumerate(news_list, 1):
-        title = news.get('title', '无标题')
-        content = news.get('content', '')
+    # 按来源分组
+    groups = {}
+    for news in news_list:
         source = news.get('source', '未知来源')
-        pub_time = news.get('publish_time', now_utc())
-        if isinstance(pub_time, datetime):
-            pub_time_str = pub_time.strftime('%Y-%m-%d %H:%M')
+        # 从 source 中提取分组标签: "tushare (个股)" → "个股"
+        if '(' in source and ')' in source:
+            group = source.split('(')[-1].rstrip(')')
         else:
-            pub_time_str = str(pub_time)
+            group = "其他"
+        groups.setdefault(group, []).append(news)
 
-        sentiment = news.get('sentiment', 'neutral')
+    # 按优先级排序：A股市场 → 行业 → 个股 → 其他
+    priority = {"A股市场": 0, "行业": 1, "个股": 2, "其他": 3, "DB": 4, "Refreshed": 5}
+    sorted_groups = sorted(groups.items(), key=lambda x: priority.get(x[0], 99))
 
-        report += f"## {i}. {title}\n\n"
-        report += f"**来源**: {source} | **时间**: {pub_time_str}\n"
-        if sentiment:
-            report += f"**情绪**: {sentiment}\n"
-        report += "\n"
-
-        if content:
-            if len(content) > 1000 and "===" in content:
-                report += content
+    idx = 1
+    for group_name, items in sorted_groups:
+        report += f"## 【{group_name}】({len(items)} 条)\n\n"
+        for news in items[:8]:  # 每组最多8条
+            title = news.get('title', '无标题')
+            content = news.get('content', '')
+            source = news.get('source', '未知来源')
+            pub_time = news.get('publish_time', now_utc())
+            if isinstance(pub_time, datetime):
+                pub_time_str = pub_time.strftime('%m-%d %H:%M')
             else:
-                content_preview = content[:500] + '...' if len(content) > 500 else content
-                report += f"{content_preview}\n\n"
+                pub_time_str = str(pub_time)[:16]
 
-        report += "---\n\n"
+            sentiment = news.get('sentiment', 'neutral')
+            sentiment_icon = {"positive": "↑", "negative": "↓", "neutral": "→"}.get(sentiment, "")
+
+            report += f"{idx}. **{title}** {sentiment_icon}\n"
+            report += f"   {source} | {pub_time_str}\n"
+            if content:
+                preview = content[:200] + '...' if len(content) > 200 else content
+                report += f"   {preview}\n"
+            report += "\n"
+            idx += 1
 
     return report
 
@@ -150,15 +233,7 @@ def get_stock_news(
         news_list = _fetch_news_data(stock_code, max_results)
 
         if news_list:
-            source = news_list[0].get('source', 'Unknown')
-            if "(DB)" in source:
-                source_label = "数据库缓存"
-            elif "(Refreshed)" in source:
-                source_label = "实时刷新"
-            else:
-                source_label = "聚合数据"
-
-            return format_tool_result(success_result(_format_news_list(news_list, source_label)))
+            return format_tool_result(success_result(_format_news_list(news_list, "多源聚合")))
 
         return format_tool_result(no_data_result(
             message=f"未找到 {stock_code} 的新闻数据",

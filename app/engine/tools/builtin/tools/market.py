@@ -144,14 +144,11 @@ def get_stock_data_minutes(
         if not start_datetime:
             start_datetime = (now_utc() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
 
-        freq_map = {"1min": "1", "5min": "5", "15min": "15", "30min": "30", "60min": "60"}
-        freq_short = freq_map.get(freq, "30")
-
         di = DataInterface.get_instance()
         clean_symbol = _normalize_symbol(stock_code, "CN")
         result = run_async(di.read("CN", "intraday_quotes", symbol=clean_symbol,
                                      start_date=start_datetime, end_date=end_datetime,
-                                     filters={"freq": freq_short}))
+                                     filters={"freq": freq}))
         intraday_data = result.get("data")
         if intraday_data:
             import pandas as pd
@@ -290,3 +287,195 @@ def get_stock_indicators(
             ErrorCodes.DATA_FETCH_ERROR,
             str(e)
         ))
+
+
+def get_stock_technical_indicators(
+    stock_code: str,
+    market_type: str = "cn",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """
+    获取股票技术指标数据（MA/MACD/RSI/KDJ/布林带）。
+
+    从日线行情数据计算技术指标，供市场技术分析师使用。
+
+    Args:
+        stock_code: 股票代码
+        market_type: 市场类型
+        start_date: 开始日期，默认90天前
+        end_date: 结束日期，默认今天
+
+    Returns:
+        JSON 格式的技术指标数据
+    """
+    try:
+        from app.utils.stock_utils import StockUtils
+        from app.utils.indicators import add_all_indicators
+
+        market_info = StockUtils.get_market_info(stock_code)
+        market_key = None
+        for attr, (mkt, name) in _MARKET_MAP.items():
+            if market_info.get(attr):
+                market_key = mkt
+                break
+        if not market_key:
+            market_key = "CN" if market_type != "hk" and market_type != "us" else market_type.upper()
+
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y-%m-%d')
+        if not end_date:
+            end_date = get_current_date()
+
+        data = _read_daily_quotes(market_key, stock_code, start_date, end_date)
+        if data is None or data.empty:
+            return format_tool_result(error_result(
+                ErrorCodes.DATA_FETCH_ERROR,
+                f"无法获取 {stock_code} 的行情数据，无法计算技术指标",
+                suggestion="请先同步 daily_quotes 数据"
+            ))
+
+        # 确保按日期排序
+        if 'trade_date' in data.columns:
+            data = data.sort_values('trade_date').reset_index(drop=True)
+
+        # 计算技术指标
+        data = add_all_indicators(data, rsi_style='china')
+
+        # 只返回最近10个交易日的指标数据（精简输出）
+        recent = data.tail(10).copy()
+
+        # 选择指标列
+        indicator_cols = ['trade_date', 'open', 'high', 'low', 'close', 'volume',
+                         'ma5', 'ma10', 'ma20', 'ma60',
+                         'rsi6', 'rsi12', 'rsi24', 'rsi14',
+                         'macd_dif', 'macd_dea', 'macd',
+                         'boll_mid', 'boll_upper', 'boll_lower',
+                         'kdj_k', 'kdj_d', 'kdj_j']
+        available_cols = [c for c in indicator_cols if c in recent.columns]
+        result_data = recent[available_cols]
+
+        return format_tool_result(success_result(
+            format_result(result_data, f"{stock_code} 技术指标")
+        ))
+
+    except Exception as e:
+        logger.error(f"get_stock_technical_indicators failed: {e}")
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            f"计算技术指标失败: {str(e)}"
+        ))
+
+
+def get_trading_status(
+    stock_code: str,
+    trade_date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取停复牌信息。"""
+    try:
+        if not end_date:
+            end_date = get_current_date_compact()
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
+        symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
+                           .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "trading_status", symbol=symbol,
+                                     start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"停复牌: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"{stock_code} 无停复牌信息",
+            suggestion="请先同步停复牌数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_trading_status failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_price_limit(
+    stock_code: str,
+    trade_date: Optional[str] = None,
+) -> str:
+    """获取涨跌停价格数据。"""
+    try:
+        if not trade_date:
+            trade_date = get_current_date_compact()
+        symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
+                           .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "price_limit", symbol=symbol,
+                                     start_date=trade_date, end_date=trade_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"涨跌停价格: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"{stock_code} 无涨跌停数据",
+            suggestion="请先同步涨跌停价格数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_price_limit failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_index_daily_data(
+    stock_code: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取指数日线行情数据。"""
+    try:
+        if not end_date:
+            end_date = get_current_date_compact()
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
+        di = DataInterface.get_instance()
+        clean_symbol = _normalize_symbol(stock_code, "CN")
+        result = run_async(di.read("CN", "index_data", symbol=clean_symbol,
+                                     start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"指数行情: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"无法获取 {stock_code} 指数数据",
+            suggestion="请先同步指数行情数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_index_daily_data failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_chip_distribution(
+    stock_code: str,
+    trade_date: Optional[str] = None,
+) -> str:
+    """获取筹码分布数据。"""
+    try:
+        if not trade_date:
+            trade_date = get_current_date_compact()
+        symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
+                           .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "chip_distribution", symbol=symbol,
+                                     start_date=trade_date, end_date=trade_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"筹码分布: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"{stock_code} 无筹码数据",
+            suggestion="请先同步筹码分布数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_chip_distribution failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
