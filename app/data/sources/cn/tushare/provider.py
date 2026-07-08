@@ -94,6 +94,61 @@ class TushareCNProvider(BaseProvider):
         if result is None:
             return None
         if isinstance(result, dict):
+            # 从 raw_data 中提取多个报告期的数据
+            raw_data = result.get("raw_data", {})
+            if raw_data:
+                income_stmts = raw_data.get("income_statement", [])
+                balance_stmts = raw_data.get("balance_sheet", [])
+                cashflow_stmts = raw_data.get("cashflow_statement", [])
+                indicator_stmts = raw_data.get("financial_indicators", [])
+
+                if income_stmts:
+                    # 构建包含多个报告期的 DataFrame，去重
+                    records = []
+                    seen_periods = set()
+                    for income in income_stmts:
+                        end_date = income.get("end_date")
+                        # 去重：同一报告期只保留一条记录
+                        if end_date in seen_periods:
+                            continue
+                        seen_periods.add(end_date)
+
+                        # 查找对应的 balance sheet、cashflow、indicator
+                        balance = next((b for b in balance_stmts if b.get("end_date") == end_date), {})
+                        cashflow = next((c for c in cashflow_stmts if c.get("end_date") == end_date), {})
+                        indicator = next((i for i in indicator_stmts if i.get("end_date") == end_date), {})
+
+                        record = {
+                            "ts_code": ts_code,
+                            "symbol": result.get("symbol"),
+                            "end_date": end_date,
+                            "ann_date": income.get("ann_date"),
+                            "statement_type": "indicator",  # 综合财务指标
+                            # 利润表
+                            "revenue": income.get("revenue"),
+                            "n_income": income.get("n_income"),
+                            "n_income_attr_p": income.get("n_income_attr_p"),
+                            "oper_cost": income.get("oper_cost"),
+                            # 资产负债表
+                            "total_assets": balance.get("total_assets"),
+                            "total_liab": balance.get("total_liab"),
+                            "total_hldr_eqy_exc_min_int": balance.get("total_hldr_eqy_exc_min_int"),
+                            # 现金流量表
+                            "n_cashflow_act": cashflow.get("n_cashflow_act"),
+                            # 财务指标
+                            "roe": indicator.get("roe"),
+                            "roa": indicator.get("roa"),
+                            "grossprofit_margin": indicator.get("grossprofit_margin"),
+                            "netprofit_margin": indicator.get("netprofit_margin"),
+                            "debt_to_assets": indicator.get("debt_to_assets"),
+                            "current_ratio": indicator.get("current_ratio"),
+                            "quick_ratio": indicator.get("quick_ratio"),
+                            "eps": indicator.get("eps"),
+                            "bps": indicator.get("bps"),
+                        }
+                        records.append(record)
+                    return pd.DataFrame(records)
+            # 如果 raw_data 为空或无法提取，返回标准化后的单一数据
             return pd.DataFrame([result])
         return result
 

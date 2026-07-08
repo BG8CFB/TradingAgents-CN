@@ -42,7 +42,7 @@ def web_search(
         query = kwargs.get("keyword") or kwargs.get("q") or kwargs.get("search_query") or kwargs.get("keywords")
     if not query or not str(query).strip():
         return format_tool_result(error_result(
-            ErrorCodes.INVALID_INPUT, "搜索关键词不能为空"
+            ErrorCodes.INVALID_PARAM, "搜索关键词不能为空"
         ))
     query = str(query).strip()
 
@@ -207,6 +207,12 @@ _DATA_TYPE_KEYWORDS = {
     "industry_chain": "产业链 上下游 供需",
     "upstream": "上游 原材料 供应",
     "downstream": "下游 需求 应用",
+    # 政策相关搜索
+    "policy": "政策 产业政策 扶持",
+    "monetary_policy": "货币政策 降准 降息 MLF LPR",
+    "fiscal_policy": "财政政策 基建投资 减税降费 专项债",
+    "regulatory_policy": "监管政策 证监会 退市 减持",
+    "industrial_policy": "产业政策 新能源 半导体 高端制造 机器人",
 }
 
 
@@ -235,7 +241,7 @@ def search_stock_info(
         stock_code = kwargs.get("ts_code") or kwargs.get("ticker") or kwargs.get("symbol")
     if not stock_code:
         return format_tool_result(error_result(
-            ErrorCodes.INVALID_INPUT, "股票代码不能为空"
+            ErrorCodes.INVALID_PARAM, "股票代码不能为空"
         ))
 
     # 清洗代码
@@ -267,6 +273,21 @@ def search_stock_info(
         queries = [
             f"A股 {keywords} site:eastmoney.com OR site:10jqka.com.cn",
             f"A股 {keywords} 最新",
+        ]
+    elif data_type in ("policy", "monetary_policy", "fiscal_policy", "regulatory_policy", "industrial_policy"):
+        # 政策相关搜索：使用更精准的关键词
+        policy_keywords = {
+            "policy": "政策 产业政策 扶持 2025 2026",
+            "monetary_policy": "货币政策 降准 降息 MLF LPR 2025 2026",
+            "fiscal_policy": "财政政策 基建投资 减税降费 专项债 2025 2026",
+            "regulatory_policy": "监管政策 证监会 退市 减持 2025 2026",
+            "industrial_policy": "产业政策 新能源 半导体 高端制造 机器人 2025 2026",
+        }
+        policy_kw = policy_keywords.get(data_type, keywords)
+        queries = [
+            f"{name_part} {policy_kw} site:eastmoney.com OR site:10jqka.com.cn",
+            f"{name_part} {policy_kw} site:finance.sina.com.cn OR site:xueqiu.com",
+            f"{name_part} {policy_kw} 最新",
         ]
     else:
         queries = [
@@ -356,7 +377,7 @@ def get_industry_average(
         stock_code = kwargs.get("ts_code") or kwargs.get("ticker") or kwargs.get("symbol")
     if not stock_code:
         return format_tool_result(error_result(
-            ErrorCodes.INVALID_INPUT, "股票代码不能为空"
+            ErrorCodes.INVALID_PARAM, "股票代码不能为空"
         ))
 
     clean_code = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \

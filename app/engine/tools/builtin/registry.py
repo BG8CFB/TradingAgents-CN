@@ -379,7 +379,7 @@ def _build_registry() -> List[BuiltinToolSpec]:
             markets=["CN"],
             fn=_lazy_import(f"{_M}.community", "get_community_sentiment"),
             inject_args={"stock_code": "ticker"},
-            description="个股社区讨论热度、综合评分、机构参与度等量化指标",
+             description="个股社区讨论热度、综合评分、机构参与度等量化指标",
         ),
         BuiltinToolSpec(
             tool_id="web_search",
@@ -388,7 +388,7 @@ def _build_registry() -> List[BuiltinToolSpec]:
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.web_search", "web_search"),
             inject_args={},
-            description="互联网搜索，获取最新市场新闻、公司动态、行业分析等信息",
+            description="互联网搜索，获取最新市场新闻、行业动态、国家政策、上下游产业链等外围信息",
         ),
     ]
 

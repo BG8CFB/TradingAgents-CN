@@ -139,13 +139,28 @@ def get_northbound_flow(
             end_date = get_current_date_compact()
         if not start_date:
             start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
-        di = DataInterface.get_instance()
-        result = run_async(di.read("CN", "northbound_flow", symbol="__all__",
-                                     start_date=start_date, end_date=end_date))
-        data = result.get("data")
-        if data:
-            df = pd.DataFrame(data) if isinstance(data, list) else data
-            return format_tool_result(success_result(format_result(df, "北向资金流向")))
+        
+        # 尝试直接获取数据
+        try:
+            di = DataInterface.get_instance()
+            result = run_async(di.read("CN", "northbound_flow", symbol="__all__",
+                                         start_date=start_date, end_date=end_date))
+            data = result.get("data")
+            if data:
+                df = pd.DataFrame(data) if isinstance(data, list) else data
+                return format_tool_result(success_result(format_result(df, "北向资金流向")))
+        except Exception as e:
+            # 如果 run_async 失败，尝试使用 Tushare 直接获取
+            logger.debug(f"DataInterface 获取失败: {e}，尝试使用 Tushare 直接获取")
+            from app.data.sources.cn.tushare.api.connection import get_tushare_api
+            from app.data.sources.cn.tushare.api.northbound_flow import fetch_northbound_flow
+            
+            conn = get_tushare_api()
+            if conn.is_available():
+                df = run_async(fetch_northbound_flow(conn, start_date=start_date, end_date=end_date))
+                if df is not None and not df.empty:
+                    return format_tool_result(success_result(format_result(df, "北向资金流向")))
+        
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR, "北向资金数据暂不可用",
             suggestion="请先同步北向资金数据"
@@ -186,14 +201,33 @@ def get_northbound_holding(
                 suggestion="请检查 TUSHARE_TOKEN 配置"
             ))
 
-        result = run_async(fetch_northbound_holding(
-            conn, ts_code=ts_code, trade_date=trade_date
-        ))
+        # 尝试获取数据
+        try:
+            result = run_async(fetch_northbound_holding(
+                conn, ts_code=ts_code, trade_date=trade_date
+            ))
+        except RuntimeError as e:
+            # 如果 run_async 失败（可能在事件循环中），尝试直接获取
+            if "run_async() 不能在主线程的事件循环中调用" in str(e) or "cannot be called from a running event loop" in str(e):
+                logger.debug("run_async 失败，尝试直接获取")
+                import asyncio
+                result = asyncio.run(fetch_northbound_holding(
+                    conn, ts_code=ts_code, trade_date=trade_date
+                ))
+            else:
+                raise
 
         if result is None or result.empty:
             if ts_code:
                 # 股票不在 top10 名单中，先获取全量 top10 再说明
-                all_top10 = run_async(fetch_northbound_holding(conn, trade_date=trade_date))
+                try:
+                    all_top10 = run_async(fetch_northbound_holding(conn, trade_date=trade_date))
+                except RuntimeError as e:
+                    if "run_async() 不能在主线程的事件循环中调用" in str(e) or "cannot be called from a running event loop" in str(e):
+                        import asyncio
+                        all_top10 = asyncio.run(fetch_northbound_holding(conn, trade_date=trade_date))
+                    else:
+                        raise
                 top10_str = ""
                 if all_top10 is not None and not all_top10.empty:
                     top10_str = f"\n\n当日十大成交股：\n" + format_result(all_top10, "北向资金十大成交股")
