@@ -5,11 +5,14 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
 from app.data.sources.base.exceptions import (
     DataNotFoundError,
     DataSourceUnavailableError,
 )
 from app.data.sources.base.mappers import (
+    is_empty_result,
     map_network_exception,
     map_tushare_code,
 )
@@ -143,29 +146,51 @@ async def fetch_financial_data(
         ("main_business", "fina_mainbz"),
     ]
 
+    # 补充表：失败不影响核心校验，仅追加到 raw_data
+    supplementary_tables = [
+        ("forecast", "forecast"),       # 业绩预告
+        ("express", "express"),         # 业绩快报
+        ("dividend", "dividend"),       # 分红送股
+        ("fina_audit", "fina_audit"),   # 审计意见
+        ("disclosure_date", "disclosure_date"),  # 财报披露日期
+    ]
+
     # 致命异常：一旦遇到立即透传（鉴权/积分/网络）
     fatal_error: Optional[Exception] = None
 
-    for key, api_name in tables:
-        try:
-            df = await asyncio.to_thread(getattr(conn.api, api_name), **query_params)
-        except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
-            # 网络异常：整批请求视为失败
-            raise map_network_exception(exc, "tushare", _DOMAIN)
-        except Exception as exc:
-            error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
-            mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
-            if mapped is not None:
-                # 鉴权/积分/限流类异常：致命，直接透传
-                raise mapped
-            # 其他未知异常：fina_mainbz 缺失属正常（部分公司无主营构成），其余记 warning
-            if api_name != "fina_mainbz":
-                logger.warning(f"Tushare 获取 {api_name} 失败: {exc}")
-                if fatal_error is None:
-                    fatal_error = DataSourceUnavailableError(
-                        "tushare", _DOMAIN, f"{api_name}: {exc}"
-                    )
-            continue
+    for i, (key, api_name) in enumerate(tables):
+        # 请求间隔控制：避免触发限流（稳定 100-200次/分钟）
+        if i > 0:
+            await asyncio.sleep(0.3)
+
+        # 重试机制：并发场景下自建源可能瞬时返回空，重试 2 次
+        df = None
+        for attempt in range(3):
+            try:
+                df = await asyncio.to_thread(getattr(conn.api, api_name), **query_params)
+            except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+                raise map_network_exception(exc, "tushare", _DOMAIN)
+            except Exception as exc:
+                error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+                mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+                if mapped is not None:
+                    raise mapped
+                if api_name != "fina_mainbz":
+                    logger.warning(f"Tushare 获取 {api_name} 失败: {exc}")
+                    if fatal_error is None:
+                        fatal_error = DataSourceUnavailableError(
+                            "tushare", _DOMAIN, f"{api_name}: {exc}"
+                        )
+                break
+            if df is not None and not df.empty:
+                break
+            if attempt < 2:
+                wait = 2.0 * (attempt + 1)
+                logger.warning(
+                    f"Tushare {api_name} 返回空 (attempt {attempt+1}/3)，"
+                    f"ts_code={ts_code}，等待 {wait}s 重试"
+                )
+                await asyncio.sleep(wait)
 
         if df is not None and not df.empty:
             records = df.to_dict("records")
@@ -174,6 +199,36 @@ async def fetch_financial_data(
                 records = _filter_by_report_period(records, start_date, end_date)
             if records:
                 financial_data[key] = records
+
+    # 补充表：失败不影响核心校验，仅追加到 raw_data
+    for key, api_name in supplementary_tables:
+        await asyncio.sleep(0.3)
+        try:
+            # 各 API 参数不同，按接口分别构造
+            if api_name == "dividend":
+                params = {"ts_code": ts_code}
+            elif api_name == "fina_audit":
+                params = {"ts_code": ts_code}
+                if period:
+                    params["period"] = period
+            elif api_name == "disclosure_date":
+                params = {"ts_code": ts_code}
+                if period:
+                    params["end_date"] = period
+            else:
+                # forecast / express：支持 ts_code + period + limit
+                params = {"ts_code": ts_code, "limit": limit}
+                if period:
+                    params["period"] = period
+            df = await asyncio.to_thread(getattr(conn.api, api_name), **params)
+            if df is not None and not df.empty:
+                records = df.to_dict("records")
+                if (start_date or end_date) and api_name not in ("dividend", "disclosure_date"):
+                    records = _filter_by_report_period(records, start_date, end_date)
+                if records:
+                    financial_data[key] = records
+        except Exception as exc:
+            logger.debug(f"Tushare 补充表 {api_name} 获取失败（忽略）: {exc}")
 
     # 核心表校验：income_statement 是 TTM 计算 / 标准化必依赖的表。
     # 若缺失则不能继续标准化（否则会输出 revenue/net_profit 全空的半残数据）。
@@ -243,6 +298,11 @@ def _standardize(financial_data: Dict[str, Any], ts_code: str) -> Dict[str, Any]
     revenue_ttm = calculate_ttm(income_stmts, "revenue")
     net_profit_ttm = calculate_ttm(income_stmts, "n_income_attr_p")
 
+    # 补充数据：业绩预告、业绩快报、分红送股
+    latest_forecast = _first("forecast")
+    latest_express = _first("express")
+    latest_dividend = _first("dividend")
+
     return {
         "symbol": symbol,
         "ts_code": ts_code,
@@ -268,7 +328,98 @@ def _standardize(financial_data: Dict[str, Any], ts_code: str) -> Dict[str, Any]
         "quick_ratio": _safe_float(latest_indicator.get("quick_ratio")),
         "eps": _safe_float(latest_indicator.get("eps")),
         "bps": _safe_float(latest_indicator.get("bps")),
+        # 业绩预告
+        "forecast_type": latest_forecast.get("type"),
+        "forecast_min": _safe_float(latest_forecast.get("p_change_min")),
+        "forecast_max": _safe_float(latest_forecast.get("p_change_max")),
+        "forecast_summary": latest_forecast.get("summary"),
+        # 业绩快报
+        "express_revenue": _safe_float(latest_express.get("revenue")),
+        "express_net_profit": _safe_float(latest_express.get("net_profit")),
+        "express_roe": _safe_float(latest_express.get("roe")),
+        # 分红送股
+        "cash_div": _safe_float(latest_dividend.get("cash_div")),
+        "stock_div": _safe_float(latest_dividend.get("stock_div")),
+        "stock_bo": _safe_float(latest_dividend.get("stock_bo")),
         "raw_data": {k: v for k, v in financial_data.items()},
         "data_source": "tushare",
         "updated_at": now_utc(),
     }
+
+
+async def fetch_forecast(
+    conn: TushareConnection,
+    ts_code: str = None,
+    ann_date: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 8,
+) -> Optional[pd.DataFrame]:
+    """获取业绩预告数据"""
+    if not conn.is_available():
+        return None
+
+    kwargs = {"limit": limit}
+    if ts_code:
+        kwargs["ts_code"] = ts_code
+    if ann_date:
+        kwargs["ann_date"] = str(ann_date).replace("-", "")
+    elif start_date:
+        kwargs["start_date"] = str(start_date).replace("-", "")
+        kwargs["end_date"] = str(end_date or start_date).replace("-", "")
+
+    try:
+        df = await asyncio.to_thread(conn.api.forecast, **kwargs)
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare", "forecast")
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", "forecast", str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError("tushare", "forecast", str(exc))
+
+    if is_empty_result(df):
+        raise DataNotFoundError("tushare", "forecast", f"{kwargs} 无数据")
+
+    logger.info(f"Tushare 业绩预告: {len(df)} 条")
+    return df
+
+
+async def fetch_express(
+    conn: TushareConnection,
+    ts_code: str = None,
+    ann_date: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 8,
+) -> Optional[pd.DataFrame]:
+    """获取业绩快报数据"""
+    if not conn.is_available():
+        return None
+
+    kwargs = {"limit": limit}
+    if ts_code:
+        kwargs["ts_code"] = ts_code
+    if ann_date:
+        kwargs["ann_date"] = str(ann_date).replace("-", "")
+    elif start_date:
+        kwargs["start_date"] = str(start_date).replace("-", "")
+        kwargs["end_date"] = str(end_date or start_date).replace("-", "")
+
+    try:
+        df = await asyncio.to_thread(conn.api.express, **kwargs)
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare", "express")
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", "express", str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError("tushare", "express", str(exc))
+
+    if is_empty_result(df):
+        raise DataNotFoundError("tushare", "express", f"{kwargs} 无数据")
+
+    logger.info(f"Tushare 业绩快报: {len(df)} 条")
+    return df

@@ -8,6 +8,7 @@
 """
 
 import logging
+import re
 from typing import Any, List
 
 import pandas as pd
@@ -35,6 +36,46 @@ def _parse_symbol_from_ts_code(ts_code: str) -> str:
     if isinstance(ts_code, str) and "." in ts_code:
         return ts_code.split(".")[0]
     return str(ts_code).zfill(6)
+
+
+# 有效 A 股代码前缀：60/68=上交所(含科创板)，00/30=深交所(含创业板)，8/4=北交所
+_A_SHARE_CODE_RE = re.compile(r"\b(?:60\d{4}|68\d{4}|00\d{4}|30\d{4}|8\d{5}|4\d{5})\b")
+
+# 中文财经情绪词表（轻量级启发式，供情绪分析师使用）
+_POS_WORDS = (
+    "涨", "利好", "增长", "盈利", "新高", "上调", "回购", "中标", "签约", "突破",
+    "超预期", "大增", "预增", "收购", "扩产", "分红", "扭亏", "获批", "订单",
+)
+_NEG_WORDS = (
+    "跌", "利空", "下滑", "亏损", "新低", "下调", "减持", "退市", "违约", "暴雷",
+    "预减", "大幅下降", "被调查", "处罚", "风险", "诉讼", "停产", "警示", "问询",
+)
+
+
+def _classify_sentiment(text: str) -> str:
+    """轻量级中文财经情绪分类：positive / negative / neutral。"""
+    if not text:
+        return "neutral"
+    score = 0
+    for w in _POS_WORDS:
+        if w in text:
+            score += 1
+    for w in _NEG_WORDS:
+        if w in text:
+            score -= 1
+    if score > 0:
+        return "positive"
+    if score < 0:
+        return "negative"
+    return "neutral"
+
+
+def _extract_symbol(text: str) -> str:
+    """从新闻文本中提取首个有效 A 股代码（尽力而为，仅当原文无 symbol 时调用）。"""
+    if not text:
+        return ""
+    m = _A_SHARE_CODE_RE.search(text)
+    return m.group(0) if m else ""
 
 
 def _parse_exchange(ts_code: str) -> str:
@@ -318,9 +359,15 @@ class TushareCNAdapter(BaseAdapter):
                 if title
                 else None
             )
+            # symbol：优先用原文（定向新闻已带）；市场级快讯无 symbol 时，
+            # 从标题/正文尽力提取首个有效 A 股代码，支撑个股新闻检索。
+            raw_symbol = str(get("symbol", ""))
+            if not raw_symbol:
+                raw_symbol = _extract_symbol(f"{title} {get('content') or ''}")
+            text = f"{title} {get('content') or ''}"
             results.append(
                 StockNewsSchema(
-                    symbol=str(get("symbol", "")),
+                    symbol=raw_symbol,
                     market="CN",
                     data_source="tushare",
                     title=title,
@@ -329,6 +376,7 @@ class TushareCNAdapter(BaseAdapter):
                     source=get("source") or get("channels", ""),
                     publish_time=publish_time,
                     url=get("url"),
+                    sentiment=_classify_sentiment(text),
                 )
             )
         return results
@@ -509,7 +557,7 @@ class TushareCNAdapter(BaseAdapter):
                     price=_safe_float(get("price")),
                     # 大宗交易 tushare vol 字段单位为"手"（1 手 = 100 股），
                     # 统一转换为"股"写入，与其他行情数据的 volume 单位一致
-                    volume=float(int(round(_safe_float(get("vol")) * 100))),
+                    volume=(lambda v: float(int(round(v * 100))) if v is not None else None)(_safe_float(get("vol"))),
                     amount=_safe_float(get("amount")),
                     buyer=str(get("buyer", "")),
                     seller=str(get("seller", "")),
@@ -551,3 +599,86 @@ class TushareCNAdapter(BaseAdapter):
                 )
             )
         return results
+
+    # ── B 类接口适配器（通用 dict 输出）──
+
+    def _generic_adapt(self, raw: Any, domain: str) -> List[dict]:
+        """通用适配：DataFrame → dict 列表，添加 symbol/market/data_source 字段。"""
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            doc = row.to_dict()
+            # 提取 symbol
+            ts_code = str(doc.get("ts_code", ""))
+            if ts_code and "." in ts_code:
+                doc["symbol"] = _parse_symbol_from_ts_code(ts_code)
+            doc["market"] = "CN"
+            doc["data_source"] = "tushare"
+            # 清理 NaN
+            for k, v in doc.items():
+                if isinstance(v, float) and v != v:
+                    doc[k] = None
+            results.append(doc)
+        return results
+
+    def adapt_northbound_flow(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "northbound_flow")
+
+    def adapt_northbound_holding(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "northbound_holding")
+
+    def adapt_share_unlock(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "share_unlock")
+
+    def adapt_pledge(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "pledge")
+
+    def adapt_trading_status(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "trading_status")
+
+    def adapt_price_limit(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "price_limit")
+
+    def adapt_index_data(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_data")
+
+    def adapt_chip_distribution(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "chip_distribution")
+
+    def adapt_sw_daily(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "sw_daily")
+
+    def adapt_ths_daily(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "ths_daily")
+
+    def adapt_forecast(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "forecast")
+
+    def adapt_express(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "express")
+
+    def adapt_limit_step(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "limit_step")
+
+    def adapt_moneyflow_ind_dc(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "moneyflow_ind_dc")
+
+    def adapt_dividend(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "dividend")
+
+    def adapt_index_basic(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_basic")
+
+    def adapt_index_dailybasic(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_dailybasic")
+
+    def adapt_index_global(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_global")
+
+    def adapt_index_weight(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_weight")
+
+    def adapt_announcement(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "announcement")

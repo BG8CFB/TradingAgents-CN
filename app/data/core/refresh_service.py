@@ -36,6 +36,19 @@ _SUPPORTED_ON_DEMAND_DOMAINS = {
     "margin_trading",
     "dragon_tiger",
     "block_trade",
+    # 限售解禁 / 股权质押 / 北向资金
+    "share_unlock",
+    "pledge",
+    "northbound_flow",
+    "northbound_holding",
+    # 行业板块 / 业绩预告 / 连板 / 资金流 / 分红
+    "sw_daily",
+    "ths_daily",
+    "forecast",
+    "express",
+    "limit_step",
+    "moneyflow_ind_dc",
+    "dividend",
 }
 
 # 按日期增量刷新的域：{domain: (date_field, default_lookback_days)}
@@ -51,6 +64,17 @@ _INCREMENTAL_DOMAINS = {
     "block_trade": ("trade_date", 60),
     "corporate_actions": ("ex_date", 365),
     "news": ("publish_time", 7),
+    "share_unlock": ("ann_date", 365),
+    "pledge": ("end_date", 90),
+    "northbound_flow": ("trade_date", 30),
+    "northbound_holding": ("trade_date", 30),
+    "sw_daily": ("trade_date", 30),
+    "ths_daily": ("trade_date", 30),
+    "forecast": ("ann_date", 90),
+    "express": ("ann_date", 90),
+    "limit_step": ("trade_date", 30),
+    "moneyflow_ind_dc": ("trade_date", 30),
+    "dividend": ("ex_date", 365),
 }
 
 
@@ -120,14 +144,14 @@ class DataRefreshService:
         return result
 
     async def _get_incremental_date_range(
-        self, market: str, symbol: str, domain: str,
+        self, market: str, symbol: str, domain: str, force: bool = False
     ) -> Tuple[str, str, Optional[str]]:
-        """查询 MongoDB 最新记录，计算增量拉取的日期范围。
-
+        """增量域的日期范围。
+        
+        Args:
+            force: 是否强制刷新（忽略增量逻辑，拉取更长历史）
+        
         Returns:
-            (start_date, end_date, latest_db_date) —
-            start_date 为最新记录日期往前 7 天（重叠容错）；
-            end_date 为最近交易日（非交易日回退，避免周末空请求）；
             latest_db_date 为库中已有最新日期（"%Y-%m-%d" 或 None），
             调用方可据此判断数据是否已是最新。
             若无历史数据则 start 回退到默认 lookback。
@@ -154,9 +178,17 @@ class DataRefreshService:
                 else:
                     latest_date = datetime.strptime(str(latest), "%Y%m%d")
                 latest_db_date = latest_date.strftime("%Y-%m-%d")
-                start = (latest_date - timedelta(days=7)).strftime("%Y-%m-%d")
+                # 强制刷新时拉取更长历史（5年），否则只拉取最新记录之后的数据
+                if force:
+                    start = (datetime.now(timezone.utc) - timedelta(days=365*5)).strftime("%Y-%m-%d")
+                else:
+                    start = (latest_date - timedelta(days=7)).strftime("%Y-%m-%d")
             else:
-                start = (datetime.now(timezone.utc) - timedelta(days=default_lookback)).strftime("%Y-%m-%d")
+                # 强制刷新时拉取更长历史（5年），否则使用默认回溯
+                if force:
+                    start = (datetime.now(timezone.utc) - timedelta(days=365*5)).strftime("%Y-%m-%d")
+                else:
+                    start = (datetime.now(timezone.utc) - timedelta(days=default_lookback)).strftime("%Y-%m-%d")
         except Exception as e:
             logger.debug(f"查询最新日期失败，使用默认范围: {e}")
             start = (datetime.now(timezone.utc) - timedelta(days=default_lookback)).strftime("%Y-%m-%d")
@@ -215,15 +247,18 @@ class DataRefreshService:
             latest_db_date: Optional[str] = None
             if domain in _INCREMENTAL_DOMAINS:
                 start_date, end_date, latest_db_date = await self._get_incremental_date_range(
-                    market, symbol, domain
+                    market, symbol, domain, force=force
                 )
                 fetch_kwargs["start_date"] = start_date
                 fetch_kwargs["end_date"] = end_date
+                logger.debug(f"[{domain}] 日期范围: {start_date} ~ {end_date}, latest_db={latest_db_date}, force={force}")
 
             fetch_result = await asyncio.wait_for(
                 router.fetch(market, domain, symbol, **fetch_kwargs),
                 timeout=timeout,
             )
+            
+            logger.debug(f"[{domain}] fetch 结果: success={fetch_result.success}, records={len(fetch_result.records) if fetch_result.records else 0}, source={fetch_result.source}")
 
             # 区分"源失败"与"源正常但无新数据"：
             # 若库中已有最新日期 >= 请求 end_date（最近交易日），说明数据已是最新，
@@ -247,6 +282,7 @@ class DataRefreshService:
                 return dr
 
             count = await self._write_to_mongo(fetch_result.records, domain, market)
+            logger.debug(f"[{domain}] 写入 MongoDB: {count} 条记录")
 
             dr.status = "refreshed"
             dr.source = fetch_result.source

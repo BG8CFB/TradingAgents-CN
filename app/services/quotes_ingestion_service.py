@@ -780,7 +780,7 @@ class QuotesIngestionService:
             symbol6 = str(symbol).zfill(6)
 
             doc = await db[get_collection_name("daily_quotes", self._market)].find_one(
-                {"symbol": symbol6},
+                {"symbol": symbol6, "period": "daily"},
                 sort=[("trade_date", -1)]
             )
             return doc

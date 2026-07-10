@@ -263,24 +263,79 @@ async def sync_favorites_realtime(
 
         logger.info(f"🎯 需要同步的股票: {len(symbols)} 只 - {symbols}")
 
-        # 通过 DataInterface 刷新实时行情
-        from app.data.core.interface import DataInterface
-        di = DataInterface.get_instance()
-
-        logger.info("🔄 通过 DataInterface 刷新实时行情...")
+        # 使用 rt_min 接口获取实时数据（更新更及时）
+        from app.data.sources.cn.tushare.api.daily_quotes import fetch_realtime_min
+        from app.data.sources.cn.tushare.api.connection import get_tushare_api
+        from app.data.storage.mongo.client import get_motor_db
+        from app.data.storage.mongo.collections import get_collection_name
+        from pymongo import UpdateOne
+        from datetime import datetime, timezone
+        
+        conn = get_tushare_api()
+        db = get_motor_db()
+        mq_coll = db[get_collection_name("market_quotes", "CN")]
+        
+        logger.info("🔄 通过 rt_min 获取实时行情...")
+        
+        # 一次性获取所有自选股的实时数据
+        df = await fetch_realtime_min(conn, symbols)
+        
         success_count = 0
         failed_count = 0
-        data_source = "data_interface"
-
+        
+        if df is not None and not df.empty:
+            # 批量写入 MongoDB
+            ops = []
+            now_iso = datetime.now(timezone.utc).isoformat()
+            
+            for _, row in df.iterrows():
+                ts_code = str(row.get('ts_code', ''))
+                # 000725.SZ -> 000725
+                symbol = ts_code.split('.')[0] if '.' in ts_code else ts_code
+                
+                close = row.get('close')
+                if close is None:
+                    continue
+                
+                # 计算涨跌幅（如果有 pre_close）
+                pre_close = row.get('pre_close')
+                pct_chg = None
+                if pre_close and pre_close != 0:
+                    pct_chg = round((close - pre_close) / pre_close * 100, 2)
+                
+                doc = {
+                    "symbol": symbol,
+                    "market": "CN",
+                    "data_source": "tushare_rt_min",
+                    "last_price": close,
+                    "close": close,
+                    "high": row.get('high'),
+                    "low": row.get('low'),
+                    "open": row.get('open'),
+                    "volume": row.get('vol'),
+                    "amount": row.get('amount'),
+                    "pre_close": pre_close,
+                    "pct_chg": pct_chg,
+                    "updated_at": now_iso,
+                }
+                
+                ops.append(UpdateOne(
+                    {"symbol": symbol},
+                    {"$set": doc},
+                    upsert=True
+                ))
+            
+            if ops:
+                result = await mq_coll.bulk_write(ops, ordered=False)
+                success_count = result.modified_count + result.upserted_count
+                logger.info(f"✅ rt_min 写入 {success_count} 条记录")
+        else:
+            logger.warning("rt_min 返回空数据")
+        
+        # 检查未成功的股票
         for symbol in symbols:
-            try:
-                result = await di.refresh("CN", symbol, domains=["market_quotes"], force=True)
-                if result.status in ("refreshed", "fresh", "success"):
-                    success_count += 1
-                else:
-                    failed_count += 1
-            except Exception as e:
-                logger.debug(f"自选股行情同步失败 {symbol}: {e}")
+            doc = await mq_coll.find_one({"symbol": symbol})
+            if not doc or doc.get("last_price") is None:
                 failed_count += 1
 
         logger.info(f"✅ 自选股实时行情同步完成: 同步 {success_count} 条记录")
@@ -290,8 +345,8 @@ async def sync_favorites_realtime(
             "success_count": success_count,
             "failed_count": failed_count,
             "symbols": symbols,
-            "data_source": data_source,
-            "message": f"同步完成: {success_count} 条记录，来源 {data_source}"
+            "data_source": "tushare_rt_min",
+            "message": f"同步完成: {success_count} 条记录，来源 tushare_rt_min"
         })
 
     except HTTPException:

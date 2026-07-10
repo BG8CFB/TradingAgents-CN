@@ -74,15 +74,23 @@ def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
                 description=spec.description,
             )
 
-            # 附加元数据
+            # 附加元数据（web_search 不标记为 builtin，使其可被 LLM 直接调用）
             try:
                 existing_meta = getattr(tool, "metadata", None) or {}
-                tool.metadata = {
-                    **existing_meta,
-                    "tool_category": "builtin",
-                    "tool_id": spec.tool_id,
-                    "builtin_domains": spec.domains,
-                }
+                if spec.tool_id == "web_search":
+                    tool.metadata = {
+                        **existing_meta,
+                        "tool_category": "callable",
+                        "tool_id": spec.tool_id,
+                        "builtin_domains": spec.domains,
+                    }
+                else:
+                    tool.metadata = {
+                        **existing_meta,
+                        "tool_category": "builtin",
+                        "tool_id": spec.tool_id,
+                        "builtin_domains": spec.domains,
+                    }
             except Exception as e:
                 logger.debug(f"设置内置工具元数据失败 ({spec.tool_id}): {e}")
                 pass

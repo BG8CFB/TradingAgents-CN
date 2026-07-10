@@ -15,7 +15,12 @@ _REQUIRED_FIELDS = {
     "corporate_actions": ["symbol", "ex_date", "action_type"],
     "financial_data": ["symbol", "report_period", "statement_type"],
     "market_quotes": ["symbol", "last_price"],
-    "news": ["symbol", "title", "content_hash"],
+    "news": ["symbol", "title"],
+    "index_basic": ["symbol"],
+    "index_dailybasic": ["symbol", "trade_date"],
+    "index_global": ["symbol", "trade_date"],
+    "index_weight": ["index_code", "trade_date"],
+    "announcement": ["ts_code", "ann_date"],
 }
 
 # 价格字段 → 正数检查

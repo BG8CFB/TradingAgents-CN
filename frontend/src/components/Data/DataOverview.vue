@@ -231,6 +231,26 @@ const DOMAIN_ICON_MAP: Record<string, any> = {
   connect_status: markRaw(Connection),
   southbound_holding: markRaw(Coin),
   pre_post_market: markRaw(Monitor),
+  northbound_flow: markRaw(Coin),
+  northbound_holding: markRaw(Coin),
+  share_unlock: markRaw(Document),
+  pledge: markRaw(DataAnalysis),
+  trading_status: markRaw(WarningFilled),
+  price_limit: markRaw(DataLine),
+  index_data: markRaw(DataLine),
+  chip_distribution: markRaw(DataAnalysis),
+  sw_daily: markRaw(DataLine),
+  ths_daily: markRaw(DataLine),
+  forecast: markRaw(Document),
+  express: markRaw(Document),
+  limit_step: markRaw(DataLine),
+  moneyflow_ind_dc: markRaw(Coin),
+  dividend: markRaw(Coin),
+  index_basic: markRaw(InfoFilled),
+  index_dailybasic: markRaw(DataAnalysis),
+  index_global: markRaw(DataLine),
+  index_weight: markRaw(DataAnalysis),
+  announcement: markRaw(Document),
 }
 
 const DOMAIN_DESCRIPTIONS: Record<string, string> = {
@@ -239,7 +259,7 @@ const DOMAIN_DESCRIPTIONS: Record<string, string> = {
   daily_indicators: '存储 PE、PB、换手率等估值指标，用于基本面筛股和流动性分析。',
   adj_factors: '除权除息修复因子，保证收益率计算与长线趋势分析的准确性。',
   financial_data: '定期财报资产负债、利润等三大表数据，支撑财务健康度排雷。',
-  market_quotes: '盘中实时快照数据缓存，提供当前最新盘口和现价。',
+  market_quotes: '个股历史日线数据快照，用于回测和趋势分析。',
   news: '财经新闻与舆情文本数据，用于大模型情绪分析与事件驱动打分。',
   trade_calendar: '市场开闭市时间表，用于对齐时间序列和排除非交易日。',
   corporate_actions: '分红、配股等公司行为记录，用于追溯资本变动。',
@@ -251,6 +271,26 @@ const DOMAIN_DESCRIPTIONS: Record<string, string> = {
   connect_status: '互联互通额度使用情况，监控跨境资金通道状态。',
   southbound_holding: '南向资金持股明细，反映内地投资者持仓变动。',
   pre_post_market: '美股盘前盘后交易行情，追踪非常规时段价格波动。',
+  northbound_flow: '沪深港通每日资金流向，追踪外资对A股的资金配置。',
+  northbound_holding: '沪深股通持股明细，反映外资对个股的持仓变动。',
+  share_unlock: '限售股解禁数据，预判减持压力和流动性风险。',
+  pledge: '股权质押统计，评估大股东质押比例和爆仓风险。',
+  trading_status: '每日停复牌信息，排除停牌异常数据。',
+  price_limit: '涨跌停价格数据，监控涨跌停板和波动性。',
+  index_data: '指数日线行情和成分权重，跟踪大盘走势。',
+  chip_distribution: '筹码分布和胜率数据，分析主力持仓成本。',
+  sw_daily: '申万行业指数日行情，用于板块强弱分析和行业轮动。',
+  ths_daily: '同花顺概念/行业板块行情，用于热点板块追踪。',
+  forecast: '上市公司业绩预告，预判业绩变化方向。',
+  express: '上市公司业绩快报，提前获取财务数据。',
+  limit_step: '涨停连板天梯数据，衡量市场情绪和打板热度。',
+  moneyflow_ind_dc: '东方财富板块资金流向，判断哪个板块在吸金。',
+  dividend: '分红送股数据，计算股息率和送转股。',
+  index_basic: '全市场指数基本信息（代码、名称、类别、基日、上市日期），构建指数池。',
+  index_dailybasic: '指数每日指标（总市值、流通市值、PE、PB、换手率），用于指数估值分析。',
+  index_global: '全球主要指数（恒生、标普、日经等）行情，跟踪外围市场走势。',
+  index_weight: '指数成分股及权重数据，分析指数构成与权重变化。',
+  announcement: '上市公司历史公告（业绩、并购、分红等），用于事件驱动与基本面排雷。',
 }
 
 interface DomainCard {
@@ -356,10 +396,15 @@ function getDomainHealth(sources: SourceHealthItem[], hasRecords: boolean): { ta
     if (hasRecords) return { tagType: 'success', text: '正常', cls: 'state-healthy' }
     return { tagType: 'info', text: '未同步', cls: '' }
   }
-  const hasUnhealthy = sources.some(s => s.circuit_state === 'open')
+  // 熔断状态语义：closed=可用(正常)，open=已熔断(故障)，half_open=恢复中
+  // 仅当所有源都熔断（无 closed 源）才标「异常」；任一源可用即「正常」，
+  // 避免主源(primary)正常却因备源熔断而误报异常。
+  const hasClosed = sources.some(s => s.circuit_state === 'closed')
   const hasHalfOpen = sources.some(s => s.circuit_state === 'half_open')
-  if (hasUnhealthy) return { tagType: 'danger', text: '异常', cls: 'state-error' }
+  const hasOpen = sources.some(s => s.circuit_state === 'open')
+  if (hasClosed) return { tagType: 'success', text: '正常', cls: 'state-healthy' }
   if (hasHalfOpen) return { tagType: 'warning', text: '恢复中', cls: 'state-warning' }
+  if (hasOpen) return { tagType: 'danger', text: '异常', cls: 'state-error' }
   return { tagType: 'success', text: '正常', cls: 'state-healthy' }
 }
 

@@ -226,9 +226,9 @@ async def _fetch_em_search(
             for art in articles:
                 title = art.get("title", "").replace("<em>", "").replace("</em>", "")
                 content = art.get("content", "").replace("\u3000", " ").replace("\r\n", " ")
-                # 相关性过滤: 标题或内容包含股票名称
+                # 相关性过滤: 标题或内容包含股票名称（stock_name 为 None 时跳过过滤）
                 full_text = f"{title} {content}"
-                if stock_name not in full_text and symbol not in full_text:
+                if stock_name and stock_name not in full_text and symbol not in full_text:
                     continue
                 results.append({
                     "title": title,
@@ -281,8 +281,8 @@ async def _fetch_sina_news(
                 title = str(item.get("title", ""))
                 intro = str(item.get("intro", ""))
                 full_text = f"{title} {intro}"
-                # 相关性过滤
-                if stock_name not in full_text and symbol not in full_text:
+                # 相关性过滤（stock_name 为 None 时跳过）
+                if stock_name and stock_name not in full_text and symbol not in full_text:
                     continue
                 ctime = item.get("ctime", "")
                 publish_time = ""

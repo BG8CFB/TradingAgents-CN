@@ -62,3 +62,32 @@ async def fetch_money_flow(
 
     logger.info(f"Tushare 资金流向: {ts_code} {len(df)} 条")
     return df
+
+
+async def fetch_money_flow_by_date(
+    conn: TushareConnection, trade_date: str
+) -> Optional[pd.DataFrame]:
+    """按日期批量获取全市场资金流向（一次请求返回全部股票）"""
+    if not conn.is_available():
+        return None
+
+    date_str = trade_date.replace("-", "")
+    try:
+        df = await asyncio.to_thread(conn.api.moneyflow, trade_date=date_str)
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError(
+            "tushare", _DOMAIN, f"trade_date={trade_date}: {exc}"
+        )
+
+    if is_empty_result(df):
+        logger.debug(f"Tushare 资金流向为空: trade_date={trade_date}")
+        raise DataNotFoundError("tushare", _DOMAIN, f"trade_date={trade_date} 无数据")
+
+    logger.info(f"Tushare 资金流向(按日期): {trade_date} {len(df)} 条")
+    return df

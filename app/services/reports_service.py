@@ -419,16 +419,29 @@ class ReportsService:
         query: Dict[str, Any] = {}
 
         if user_id:
-            query["user_id"] = user_id
+            # 匹配 user_id 为指定值或为 None 的记录（兼容旧数据）
+            query["$or"] = [
+                {"user_id": user_id},
+                {"user_id": None},
+            ]
 
         search_keyword = filters.get("search_keyword")
         if search_keyword:
             escaped = re.escape(search_keyword)
-            query["$or"] = [
+            search_query = [
                 {"stock_symbol": {"$regex": escaped, "$options": "i"}},
                 {"analysis_id": {"$regex": escaped, "$options": "i"}},
                 {"summary": {"$regex": escaped, "$options": "i"}},
             ]
+            if "$or" in query:
+                # 合并 user_id 和 search_keyword 的查询条件
+                query["$and"] = [
+                    {"$or": query["$or"]},
+                    {"$or": search_query},
+                ]
+                del query["$or"]
+            else:
+                query["$or"] = search_query
 
         market_filter = filters.get("market_filter")
         if market_filter:

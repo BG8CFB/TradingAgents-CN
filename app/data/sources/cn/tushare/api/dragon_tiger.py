@@ -4,6 +4,7 @@ Tushare 龙虎榜 API
 接口: top_list (龙虎榜每日明细) + top_inst (龙虎榜机构明细)
 要求: >= 120 积分
 """
+# top_inst 接口：获取龙虎榜机构交易明细
 import asyncio
 import logging
 from datetime import timedelta
@@ -102,6 +103,16 @@ async def _fetch_by_date(
         logger.debug(f"Tushare 龙虎榜(日期)为空: {kwargs}")
         raise DataNotFoundError("tushare", _DOMAIN, f"{kwargs} 无数据")
 
+    # 同时获取机构明细（top_inst），合并到结果中
+    try:
+        df_inst = await asyncio.to_thread(conn.api.top_inst, **kwargs)
+        if df_inst is not None and not df_inst.empty:
+            df_inst = df_inst.rename(columns=lambda c: f"inst_{c}" if c not in ("ts_code", "trade_date") else c)
+            df = df.merge(df_inst, on=["ts_code", "trade_date"], how="left")
+            logger.info(f"Tushare 龙虎榜机构明细: {len(df_inst)} 条，已合并")
+    except Exception as exc:
+        logger.debug(f"Tushare top_inst 获取失败（忽略）: {exc}")
+
     logger.info(f"Tushare 龙虎榜(日期): {len(df)} 条")
     return df
 
@@ -163,3 +174,43 @@ async def _fetch_by_symbol(
             f"ts_code={ts_code} 近 30 天无记录 (last_err={last_business_error})",
         )
     raise DataNotFoundError("tushare", _DOMAIN, f"ts_code={ts_code} 近 30 天无记录")
+
+
+async def fetch_dragon_tiger_inst(
+    conn: TushareConnection,
+    trade_date: str = None,
+    start_date: str = None,
+    end_date: str = None,
+) -> Optional[pd.DataFrame]:
+    """获取龙虎榜机构交易明细（top_inst）
+
+    与 top_list 不同，top_inst 返回机构专用席位的买卖明细，
+    可以分析机构资金动向。
+    """
+    if not conn.is_available():
+        return None
+
+    kwargs = {}
+    if trade_date:
+        kwargs["trade_date"] = str(trade_date).replace("-", "")
+    elif start_date:
+        kwargs["start_date"] = str(start_date).replace("-", "")
+        kwargs["end_date"] = str(end_date or start_date).replace("-", "")
+
+    try:
+        df = await asyncio.to_thread(conn.api.top_inst, **kwargs)
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError("tushare", _DOMAIN, str(exc))
+
+    if is_empty_result(df):
+        logger.debug(f"Tushare 龙虎榜机构明细为空: {kwargs}")
+        raise DataNotFoundError("tushare", _DOMAIN, f"{kwargs} 无数据")
+
+    logger.info(f"Tushare 龙虎榜机构明细: {len(df)} 条")
+    return df

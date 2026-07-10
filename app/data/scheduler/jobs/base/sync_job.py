@@ -31,6 +31,26 @@ _SUPPORTED_SYNC_DOMAINS = {
     "connect_status",
     "southbound_holding",
     "pre_post_market",
+    "northbound_flow",
+    "northbound_holding",
+    "share_unlock",
+    "pledge",
+    "trading_status",
+    "price_limit",
+    "index_data",
+    "chip_distribution",
+    "sw_daily",
+    "ths_daily",
+    "forecast",
+    "express",
+    "limit_step",
+    "moneyflow_ind_dc",
+    "dividend",
+    "index_basic",
+    "index_dailybasic",
+    "index_global",
+    "index_weight",
+    "announcement",
 }
 
 
@@ -58,6 +78,7 @@ class BaseSyncJob(ABC):
         self.preferred_source = None
         self.dependencies = []
         self.force_sync = False
+        self.concurrency_override: int | None = None  # 按域覆盖并发数
         self._checkpoint = CheckpointManager()
         self._metadata = MetadataRepo()
 
@@ -118,7 +139,7 @@ class BaseSyncJob(ABC):
                     total_count += result.get("count", 0)
                     last_source = result.get("source")
             else:
-                concurrency = _resolve_sync_concurrency(self.market)
+                concurrency = self.concurrency_override or _resolve_sync_concurrency(self.market)
                 semaphore = asyncio.Semaphore(concurrency)
                 logger.info(
                     f"并发同步 {self.market}/{self.domain}: symbols={len(symbols)} concurrency={concurrency}"
@@ -126,7 +147,11 @@ class BaseSyncJob(ABC):
 
                 async def _limited_fetch(sym: str) -> dict:
                     async with semaphore:
-                        return await self._fetch_and_write(router, sym, start_date)
+                        result = await self._fetch_and_write(router, sym, start_date)
+                        # 串行模式下加入请求间隔，避免自建源过载
+                        if concurrency <= 1:
+                            await asyncio.sleep(0.5)
+                        return result
 
                 results = await asyncio.gather(
                     *[_limited_fetch(sym) for sym in symbols],
@@ -216,20 +241,47 @@ class BaseSyncJob(ABC):
     def _needs_symbol_list(self) -> bool:
         """是否需要逐符号同步。
 
-        basic_info 和 trade_calendar 是全量同步。
-        daily_indicators 使用按日期批量模式（trade_date 参数一次获取全市场）。
-        market_quotes 使用批量快照模式。
-        dragon_tiger / block_trade 按日期全量获取。
-        news 使用市场级抓取（全市场财经快讯，不依赖逐 symbol）。
+        按日期批量（无需 symbol 列表）：
+        - basic_info, trade_calendar: 全量同步
+        - daily_quotes, daily_indicators, adj_factors, money_flow: 按日期获取全市场
+        - market_quotes: 批量快照
+        - dragon_tiger / block_trade: 按日期全量获取
+        - news: 市场级抓取
+
+        逐 symbol 同步：
+        - financial_data: tushare API 不支持批量 ts_code
+        - margin_trading: 内部做 ts_code 分批（每批 50 个）
+        - intraday_quotes, corporate_actions: 逐 symbol
         """
         return self.domain not in (
             DataDomain.BASIC_INFO.value,
             DataDomain.TRADE_CALENDAR.value,
             DataDomain.MARKET_QUOTES.value,
+            DataDomain.DAILY_QUOTES.value,
             DataDomain.DAILY_INDICATORS.value,
+            DataDomain.ADJ_FACTORS.value,
+            DataDomain.MONEY_FLOW.value,
             DataDomain.DRAGON_TIGER.value,
             DataDomain.BLOCK_TRADE.value,
             DataDomain.NEWS.value,
+            DataDomain.NORTHBOUND_FLOW.value,
+            DataDomain.TRADING_STATUS.value,
+            DataDomain.PRICE_LIMIT.value,
+            DataDomain.SHARE_UNLOCK.value,
+            DataDomain.PLEDGE.value,
+            DataDomain.INDEX_DATA.value,
+            DataDomain.NORTHBOUND_HOLDING.value,
+            DataDomain.SW_DAILY.value,
+            DataDomain.THS_DAILY.value,
+            DataDomain.LIMIT_STEP.value,
+            DataDomain.MONEYFLOW_IND_DC.value,
+            DataDomain.INDEX_BASIC.value,
+            DataDomain.INDEX_DAILYBASIC.value,
+            DataDomain.INDEX_GLOBAL.value,
+            DataDomain.INDEX_WEIGHT.value,
+            DataDomain.ANNOUNCEMENT.value,
+            # forecast/express/dividend 是个股级 API，大量股票无数据会触发熔断器，
+            # 改为按需获取（分析时自动拉取），不走全量同步。
         )
 
     async def _get_symbols(self) -> list:

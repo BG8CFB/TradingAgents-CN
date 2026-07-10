@@ -68,7 +68,19 @@ def run_async(coro: Awaitable[T]) -> T:
         return future.result(timeout=60)
 
     # 没有主事件循环（纯脚本、测试）
-    return asyncio.run(coro)
+    # 检查是否已经在事件循环中
+    try:
+        current_loop = asyncio.get_running_loop()
+        # 如果已经在事件循环中，直接 await 协程
+        # 但这需要调用者是异步函数，所以我们需要创建一个新的事件循环
+        # 为了避免死锁，我们使用 asyncio.run_coroutine_threadsafe
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result(timeout=60)
+    except RuntimeError:
+        # 没有运行中的事件循环，可以安全地调用 asyncio.run()
+        return asyncio.run(coro)
 
 
 # ── LLM 同步→异步桥接 ────────────────────────────────────────────

@@ -155,7 +155,7 @@ class FavoritesService:
                 mq_coll = db["market_quotes"]
                 mq_cursor = mq_coll.find(
                     {"symbol": {"$in": codes}},
-                    {"symbol": 1, "last_price": 1, "last_volume": 1, "last_updated": 1},
+                    {"symbol": 1, "last_price": 1, "last_volume": 1, "last_updated": 1, "pre_close": 1, "close": 1},
                 )
                 mq_docs = await mq_cursor.to_list(length=None)
                 mq_map = {str(d.get("symbol")).zfill(6): d for d in (mq_docs or [])}
@@ -166,11 +166,14 @@ class FavoritesService:
                 dq_coll = db[dq_coll_name]
 
                 # 获取每只股票最新一条行情（包含 pct_chg）
+                # 注意：必须过滤 period="daily"，因为库中存在旧版 period="day" 的数据
+                # （日期格式为 YYYYMMDD），与 period="daily"（YYYY-MM-DD）排序时
+                # 字符串比较会导致旧数据被误选为最新。
                 pct_map = {}
                 for code in codes:
                     try:
                         latest = await dq_coll.find_one(
-                            {"symbol": code},
+                            {"symbol": code, "period": "daily"},
                             {"symbol": 1, "close": 1, "pct_chg": 1, "trade_date": 1},
                             sort=[("trade_date", -1)],
                         )
@@ -189,20 +192,32 @@ class FavoritesService:
                     elif dq and dq.get("close") is not None:
                         it["current_price"] = dq["close"]
 
-                    # 涨跌幅：从 daily_quotes 获取
-                    if dq and dq.get("pct_chg") is not None:
+                    # 涨跌幅：优先从 market_quotes 计算今日涨跌幅
+                    # (当前价 - 昨收价) / 昨收价 * 100
+                    if mq and mq.get("last_price") is not None and mq.get("pre_close") is not None:
+                        last_price = mq["last_price"]
+                        pre_close = mq["pre_close"]
+                        if pre_close and pre_close != 0:
+                            it["change_percent"] = round((last_price - pre_close) / pre_close * 100, 2)
+                    # 兜底：从 daily_quotes 获取昨日涨跌幅
+                    elif dq and dq.get("pct_chg") is not None:
                         it["change_percent"] = dq["pct_chg"]
 
                 # 3) 兜底：对未命中的代码通过 DataInterface 刷新
+                # 优化：只调用一次 refresh 获取全市场数据，而不是每只股票单独调用
                 missing = [c for c in codes if c not in mq_map and c not in pct_map]
                 if missing:
                     try:
                         from app.data.core.interface import DataInterface
                         di = DataInterface.get_instance()
+                        
+                        # 只需调用一次 refresh，它会获取全市场数据并写入 MongoDB
+                        await di.refresh("CN", missing[0], ["market_quotes"])
+                        
+                        # 从 MongoDB 读取所有缺失股票的数据
                         quotes_online = {}
                         for code in missing:
                             try:
-                                await di.refresh("CN", code, ["market_quotes"])
                                 r = await di.read("CN", "market_quotes", symbol=code)
                                 d = r.get("data")
                                 if d:
@@ -213,6 +228,7 @@ class FavoritesService:
                                     }
                             except Exception as e:
                                 logger.debug(f"获取行情数据失败: {e}")
+                        
                         for it in items:
                             code = it.get("stock_code")
                             if it.get("current_price") is None:

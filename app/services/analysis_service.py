@@ -2785,7 +2785,7 @@ class AnalysisService:
 
                 dq_coll = db[get_collection_name("daily_quotes", "CN")]
                 dq = await dq_coll.find_one(
-                    {"symbol": code6},
+                    {"symbol": code6, "period": "daily"},
                     {"_id": 0, "close": 1, "pct_chg": 1, "volume": 1},
                     sort=[("trade_date", -1)],
                 )

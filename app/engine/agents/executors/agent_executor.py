@@ -504,6 +504,9 @@ class AgentExecutor:
 
     async def _force_summary(self, messages: List[BaseMessage]) -> str:
         """强制生成总结报告"""
+        # 修复：过滤未完成的 tool_calls 消息，避免 LLM API 400 错误
+        messages = self._sanitize_messages_for_force_summary(messages)
+
         prompt = HumanMessage(
             content=(
                 "🚨【系统紧急指令】🚨\n"
@@ -521,6 +524,49 @@ class AgentExecutor:
         except Exception as e:
             logger.error(f"❌ [AgentExecutor] 强制总结失败: {e}")
             return self._extract_last_ai_content(messages) or f"分析失败: {e}"
+
+    def _sanitize_messages_for_force_summary(self, messages: List[BaseMessage]) -> List[BaseMessage]:
+        """清理消息列表，为未完成的 tool_calls 添加虚拟响应。
+
+        LLM API 要求：带有 tool_calls 的 AIMessage 后面必须紧跟 ToolMessage。
+        当强制总结时，可能存在未完成的 tool_calls，需要添加虚拟响应。
+        """
+        sanitized = []
+        pending_tool_call_ids = set()
+
+        for i, msg in enumerate(messages):
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                # 记录所有 tool_call_ids
+                for tc in msg.tool_calls:
+                    tc_id = tc.get("id", "") if isinstance(tc, dict) else getattr(tc, "id", "")
+                    if tc_id:
+                        pending_tool_call_ids.add(tc_id)
+                sanitized.append(msg)
+            elif isinstance(msg, ToolMessage):
+                # 移除已响应的 tool_call_id
+                pending_tool_call_ids.discard(msg.tool_call_id)
+                sanitized.append(msg)
+            else:
+                # 普通消息，先检查是否有未响应的 tool_calls
+                if pending_tool_call_ids:
+                    # 为未响应的 tool_calls 添加虚拟 ToolMessage
+                    for tc_id in list(pending_tool_call_ids):
+                        sanitized.append(ToolMessage(
+                            content="[系统] 工具调用已取消，正在生成总结报告。",
+                            tool_call_id=tc_id,
+                        ))
+                    pending_tool_call_ids.clear()
+                sanitized.append(msg)
+
+        # 处理末尾的未响应 tool_calls
+        if pending_tool_call_ids:
+            for tc_id in list(pending_tool_call_ids):
+                sanitized.append(ToolMessage(
+                    content="[系统] 工具调用已取消，正在生成总结报告。",
+                    tool_call_id=tc_id,
+                ))
+
+        return sanitized
 
     def _extract_last_ai_content(self, messages: List[BaseMessage]) -> str:
         """从消息历史中提取最后一条 AI 消息的内容"""

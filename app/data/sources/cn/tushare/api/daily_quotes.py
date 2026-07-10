@@ -116,6 +116,95 @@ async def fetch_realtime_batch(conn: TushareConnection) -> Optional[pd.DataFrame
     return df
 
 
+async def fetch_realtime_min(
+    conn: TushareConnection,
+    symbols: list[str],
+) -> Optional[pd.DataFrame]:
+    """使用 rt_min 接口获取指定股票的实时分钟数据（更新更及时）
+
+    Args:
+        conn: Tushare 连接
+        symbols: 股票代码列表，如 ['000725', '002747']
+
+    Returns:
+        DataFrame with real-time minute data
+    """
+    if not conn.is_available():
+        return None
+
+    if not symbols:
+        return None
+
+    # 转换为 tushare 格式：000725 -> 000725.SZ
+    ts_codes = []
+    for s in symbols:
+        code = str(s).strip()
+        if code.startswith('6'):
+            ts_codes.append(f"{code}.SH")
+        else:
+            ts_codes.append(f"{code}.SZ")
+
+    # 逗号分隔，一次请求
+    ts_code_str = ",".join(ts_codes)
+
+    try:
+        df = await asyncio.to_thread(
+            conn.api.rt_min,
+            ts_code=ts_code_str,
+        )
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare", "realtime_quotes")
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", "realtime_quotes", str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError("tushare", "realtime_quotes", str(exc))
+
+    if is_empty_result(df):
+        logger.warning("Tushare rt_min 返回空")
+        raise DataNotFoundError("tushare", "realtime_quotes", "无数据")
+
+    # 提取最新的快照数据（每只股票最后一条）
+    if 'time' in df.columns:
+        df = df.sort_values('time').groupby('ts_code').last().reset_index()
+
+    logger.info(f"Tushare rt_min 实时行情: {len(df)} 只")
+    return df
+
+
+async def fetch_daily_quotes_by_date(
+    conn: TushareConnection, trade_date: str
+) -> Optional[pd.DataFrame]:
+    """按日期批量获取全市场日线行情（一次请求返回全部股票）"""
+    if not conn.is_available():
+        return None
+
+    date_str = _format_compact(trade_date)
+    try:
+        df = await asyncio.to_thread(conn.api.daily, trade_date=date_str)
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError(
+            "tushare", _DOMAIN, f"trade_date={trade_date}: {exc}"
+        )
+
+    if is_empty_result(df):
+        logger.warning(f"Tushare 日线行情返回空: trade_date={trade_date}")
+        raise DataNotFoundError("tushare", _DOMAIN, f"trade_date={trade_date} 无数据")
+
+    if "vol" in df.columns:
+        df = df.rename(columns={"vol": "volume"})
+
+    logger.info(f"Tushare 日线行情(按日期): {trade_date} {len(df)} 条")
+    return df
+
+
 def _format_compact(date_str: str) -> str:
     """YYYY-MM-DD -> YYYYMMDD"""
     return str(date_str).replace("-", "")
