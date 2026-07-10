@@ -17,10 +17,19 @@ from app.data.processor.validator import Validator
 from app.data.core.registry.capability import CapabilityRegistry
 from app.data.core.registry.priority import PriorityConfig
 from app.data.monitoring.source_health import SourceHealthMonitor
-from app.data.sources.base.exceptions import DataSourceError
+from app.data.sources.base.exceptions import (
+    DataSourceError,
+    DataNotFoundError,
+    DataFormatError,
+    SymbolNotFoundError,
+)
 from app.data.sources.base.provider import BaseProvider
 
 logger = logging.getLogger(__name__)
+
+# 这些异常代表「该标的无数据 / 格式问题」，并非数据源不可用，
+# 不应触发熔断（否则个别股票缺数据会把整个源标记为异常）。
+_NON_TRIPPING_ERRORS = (DataNotFoundError, SymbolNotFoundError, DataFormatError)
 
 
 # 进程级单例 — 同一进程内所有调用方共享同一份熔断器 / 限流器状态
@@ -218,7 +227,7 @@ class FallbackRouter:
                     continue
 
                 if raw_data is None or (hasattr(raw_data, "empty") and raw_data.empty):
-                    self._circuit.record_failure(source_name, domain)
+                    # 该标的无数据：非源故障，不触发熔断，仅降级到下一源
                     self._health_monitor.record_call(
                         market,
                         source_name,
@@ -235,7 +244,7 @@ class FallbackRouter:
 
                 records = self._normalizer.normalize(raw_data, domain, adapter)
                 if not records:
-                    self._circuit.record_failure(source_name, domain)
+                    # 该标的无数据：非源故障，不触发熔断，仅降级到下一源
                     self._health_monitor.record_call(
                         market,
                         source_name,
@@ -289,16 +298,33 @@ class FallbackRouter:
                 return result
 
             except DataSourceError as e:
-                self._circuit.record_failure(source_name, domain, e.code)
-                self._health_monitor.record_call(
-                    market,
-                    source_name,
-                    domain,
-                    success=False,
-                    latency_ms=int((time.time() - start) * 1000),
-                    error=str(e),
-                    circuit_state=self._circuit.get_state(source_name, domain).value,
-                )
+                if isinstance(e, _NON_TRIPPING_ERRORS):
+                    # 该标的无数据 / 格式问题：非源故障，不触发熔断，仅降级到下一源
+                    self._health_monitor.record_call(
+                        market,
+                        source_name,
+                        domain,
+                        success=False,
+                        latency_ms=int((time.time() - start) * 1000),
+                        error=str(e),
+                        circuit_state=self._circuit.get_state(
+                            source_name, domain
+                        ).value,
+                    )
+                else:
+                    # 真正的源故障（不可用 / 限流 / 鉴权 / 网络等）：触发熔断
+                    self._circuit.record_failure(source_name, domain, e.code)
+                    self._health_monitor.record_call(
+                        market,
+                        source_name,
+                        domain,
+                        success=False,
+                        latency_ms=int((time.time() - start) * 1000),
+                        error=str(e),
+                        circuit_state=self._circuit.get_state(
+                            source_name, domain
+                        ).value,
+                    )
                 fallback_chain.append(source_name)
                 logger.warning(f"源 {source_name}/{domain} 失败: {e}")
             except NotImplementedError as e:
@@ -358,6 +384,11 @@ class FallbackRouter:
             "trading_status": lambda: provider.get_trading_status(start_date=start, end_date=end),
             "price_limit": lambda: provider.get_price_limit(trade_date=end if end != "2099-12-31" else None),
             "index_data": lambda: self._fetch_index_data(provider, symbol, start, end),
+            "index_basic": lambda: provider.get_index_basic(),
+            "index_dailybasic": lambda: self._fetch_index_dailybasic(provider, start, end),
+            "index_global": lambda: self._fetch_index_global(provider, start, end),
+            "index_weight": lambda: self._fetch_index_weight(provider, start, end),
+            "announcement": lambda: provider.get_announcement(start_date=start, end_date=end),
             "chip_distribution": lambda: provider.get_chip_perf(symbol, start_date=start, end_date=end),
             "sw_daily": lambda: provider.get_sw_daily(trade_date=end if end != "2099-12-31" else None, start_date=start, end_date=end),
             "ths_daily": lambda: provider.get_ths_daily(trade_date=end if end != "2099-12-31" else None, start_date=start, end_date=end),
@@ -476,6 +507,78 @@ class FallbackRouter:
                 return pd.concat(all_dfs, ignore_index=True)
             return None
         return await provider.get_index_daily(symbol, start_date=start, end_date=end)
+
+    # 主要 A 股指数列表（用于逐只循环获取指数子接口）
+    _MAJOR_INDICES = [
+        "000001.SH",  # 上证指数
+        "399001.SZ",  # 深证成指
+        "399006.SZ",  # 创业板指
+        "000300.SH",  # 沪深300
+        "000016.SH",  # 上证50
+        "000905.SH",  # 中证500
+        "399005.SZ",  # 中小板指
+        "000688.SH",  # 科创50
+    ]
+
+    # 全球指数列表（用于 index_global 手动/按需同步）
+    _GLOBAL_INDICES = [
+        "HSI.HI",    # 恒生指数
+        "SPX.GI",    # 标普500
+        "N225.GI",   # 日经225
+        "SX5E.GI",   # 欧洲斯托克50
+        "FTSE.GI",   # 富时100
+        "IXIC.GI",   # 纳斯达克
+        "GDAXI.GI",  # 德国DAX
+        "FCHI.GI",   # 法国CAC40
+    ]
+
+    async def _fetch_index_dailybasic(self, provider, start: str, end: str):
+        """获取指数每日指标：逐主要指数循环。"""
+        import pandas as pd
+
+        all_dfs = []
+        for idx in self._MAJOR_INDICES:
+            try:
+                df = await provider.get_index_dailybasic(idx, start_date=start, end_date=end)
+                if df is not None and not df.empty:
+                    all_dfs.append(df)
+            except Exception:
+                continue
+        if all_dfs:
+            return pd.concat(all_dfs, ignore_index=True)
+        return None
+
+    async def _fetch_index_weight(self, provider, start: str, end: str):
+        """获取指数成分和权重：逐主要指数循环。"""
+        import pandas as pd
+
+        all_dfs = []
+        for idx in self._MAJOR_INDICES:
+            try:
+                df = await provider.get_index_weight(index_code=idx, start_date=start, end_date=end)
+                if df is not None and not df.empty:
+                    all_dfs.append(df)
+            except Exception:
+                continue
+        if all_dfs:
+            return pd.concat(all_dfs, ignore_index=True)
+        return None
+
+    async def _fetch_index_global(self, provider, start: str, end: str):
+        """获取全球指数行情：逐全球指数循环。"""
+        import pandas as pd
+
+        all_dfs = []
+        for idx in self._GLOBAL_INDICES:
+            try:
+                df = await provider.get_index_global(idx, start_date=start, end_date=end)
+                if df is not None and not df.empty:
+                    all_dfs.append(df)
+            except Exception:
+                continue
+        if all_dfs:
+            return pd.concat(all_dfs, ignore_index=True)
+        return None
 
     async def _fetch_news(self, provider, symbol: str, start: str, end: str):
         """获取新闻：按日期批量模式或 per-symbol 模式。"""

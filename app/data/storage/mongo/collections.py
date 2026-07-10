@@ -41,6 +41,11 @@ _BUSINESS_COLLECTIONS: Dict[str, str] = {
     "limit_step": "stock_limit_step",
     "moneyflow_ind_dc": "stock_moneyflow_ind_dc",
     "dividend": "stock_dividend",
+    "index_basic": "index_basic",
+    "index_dailybasic": "index_dailybasic",
+    "index_global": "index_global",
+    "index_weight": "index_weight",
+    "announcement": "stock_announcement",
 }
 
 # 元数据集合: 无市场后缀

@@ -25,6 +25,8 @@ _VALID_SYNC_DOMAINS = [
     "index_data", "chip_distribution",
     "sw_daily", "ths_daily", "forecast", "express",
     "limit_step", "moneyflow_ind_dc", "dividend",
+    "index_basic", "index_dailybasic", "index_global", "index_weight",
+    "announcement",
 ]
 
 

@@ -1,5 +1,3 @@
-# 能力矩阵: market → domain → source → level (full / partial / none)
-
 CN:
   basic_info:
     tushare: full
@@ -50,38 +48,64 @@ CN:
     akshare: full
   northbound_flow:
     tushare: full
+    akshare: partial
   northbound_holding:
     tushare: full
+    akshare: none
   share_unlock:
     tushare: full
+    akshare: partial
   pledge:
     tushare: full
+    akshare: none
   trading_status:
     tushare: full
+    akshare: none
   price_limit:
     tushare: full
+    akshare: partial
   index_data:
     tushare: full
+    akshare: partial
+  index_basic:
+    tushare: full
+    akshare: partial
+  index_dailybasic:
+    tushare: full
+    akshare: partial
+  index_global:
+    tushare: full
+    akshare: partial
+  index_weight:
+    tushare: full
+    akshare: partial
+  announcement:
+    tushare: full
+    akshare: partial
   chip_distribution:
     tushare: full
+    akshare: partial
   sw_daily:
     tushare: full
     akshare: partial
   ths_daily:
     tushare: full
+    akshare: partial
   forecast:
     tushare: full
+    akshare: partial
   express:
     tushare: full
+    akshare: partial
   limit_step:
     tushare: full
     akshare: partial
   moneyflow_ind_dc:
     tushare: full
+    akshare: partial
   dividend:
     tushare: full
     akshare: partial
-
 HK:
   basic_info:
     tushare_hk: full
@@ -125,7 +149,6 @@ HK:
   southbound_holding:
     tushare_hk: full
     akshare_hk: full
-
 US:
   basic_info:
     finnhub: full

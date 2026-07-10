@@ -8,6 +8,7 @@
 """
 
 import logging
+import re
 from typing import Any, List
 
 import pandas as pd
@@ -35,6 +36,46 @@ def _parse_symbol_from_ts_code(ts_code: str) -> str:
     if isinstance(ts_code, str) and "." in ts_code:
         return ts_code.split(".")[0]
     return str(ts_code).zfill(6)
+
+
+# 有效 A 股代码前缀：60/68=上交所(含科创板)，00/30=深交所(含创业板)，8/4=北交所
+_A_SHARE_CODE_RE = re.compile(r"\b(?:60\d{4}|68\d{4}|00\d{4}|30\d{4}|8\d{5}|4\d{5})\b")
+
+# 中文财经情绪词表（轻量级启发式，供情绪分析师使用）
+_POS_WORDS = (
+    "涨", "利好", "增长", "盈利", "新高", "上调", "回购", "中标", "签约", "突破",
+    "超预期", "大增", "预增", "收购", "扩产", "分红", "扭亏", "获批", "订单",
+)
+_NEG_WORDS = (
+    "跌", "利空", "下滑", "亏损", "新低", "下调", "减持", "退市", "违约", "暴雷",
+    "预减", "大幅下降", "被调查", "处罚", "风险", "诉讼", "停产", "警示", "问询",
+)
+
+
+def _classify_sentiment(text: str) -> str:
+    """轻量级中文财经情绪分类：positive / negative / neutral。"""
+    if not text:
+        return "neutral"
+    score = 0
+    for w in _POS_WORDS:
+        if w in text:
+            score += 1
+    for w in _NEG_WORDS:
+        if w in text:
+            score -= 1
+    if score > 0:
+        return "positive"
+    if score < 0:
+        return "negative"
+    return "neutral"
+
+
+def _extract_symbol(text: str) -> str:
+    """从新闻文本中提取首个有效 A 股代码（尽力而为，仅当原文无 symbol 时调用）。"""
+    if not text:
+        return ""
+    m = _A_SHARE_CODE_RE.search(text)
+    return m.group(0) if m else ""
 
 
 def _parse_exchange(ts_code: str) -> str:
@@ -318,9 +359,15 @@ class TushareCNAdapter(BaseAdapter):
                 if title
                 else None
             )
+            # symbol：优先用原文（定向新闻已带）；市场级快讯无 symbol 时，
+            # 从标题/正文尽力提取首个有效 A 股代码，支撑个股新闻检索。
+            raw_symbol = str(get("symbol", ""))
+            if not raw_symbol:
+                raw_symbol = _extract_symbol(f"{title} {get('content') or ''}")
+            text = f"{title} {get('content') or ''}"
             results.append(
                 StockNewsSchema(
-                    symbol=str(get("symbol", "")),
+                    symbol=raw_symbol,
                     market="CN",
                     data_source="tushare",
                     title=title,
@@ -329,6 +376,7 @@ class TushareCNAdapter(BaseAdapter):
                     source=get("source") or get("channels", ""),
                     publish_time=publish_time,
                     url=get("url"),
+                    sentiment=_classify_sentiment(text),
                 )
             )
         return results
@@ -619,3 +667,18 @@ class TushareCNAdapter(BaseAdapter):
 
     def adapt_dividend(self, raw: Any) -> List[dict]:
         return self._generic_adapt(raw, "dividend")
+
+    def adapt_index_basic(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_basic")
+
+    def adapt_index_dailybasic(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_dailybasic")
+
+    def adapt_index_global(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_global")
+
+    def adapt_index_weight(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "index_weight")
+
+    def adapt_announcement(self, raw: Any) -> List[dict]:
+        return self._generic_adapt(raw, "announcement")

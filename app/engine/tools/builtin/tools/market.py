@@ -479,3 +479,153 @@ def get_chip_distribution(
     except Exception as e:
         logger.error(f"get_chip_distribution failed: {e}")
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_adj_factors(
+    stock_code: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取复权因子数据（前/后复权比例，用于精确收益计算）。"""
+    try:
+        if not end_date:
+            end_date = get_current_date_compact()
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
+        symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
+                           .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "adj_factors", symbol=symbol,
+                                   start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"复权因子: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"{stock_code} 无复权因子数据",
+            suggestion="请先同步复权因子数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_adj_factors failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_trade_calendar(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取 A 股交易日历（开市/休市日期）。"""
+    try:
+        if not end_date:
+            end_date = get_current_date_compact()
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "trade_calendar",
+                                   start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, "交易日历")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, "无交易日历数据",
+            suggestion="请先同步交易日历数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_trade_calendar failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_index_basic() -> str:
+    """获取指数基本信息（指数列表及元数据）。"""
+    try:
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "index_basic"))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, "指数基本信息")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, "无指数基本信息数据",
+            suggestion="请先同步指数基本信息数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_index_basic failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_index_daily_basic(
+    stock_code: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取指数每日指标（换手率、市盈率、市净率、市值等）。"""
+    try:
+        if not end_date:
+            end_date = get_current_date_compact()
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
+        di = DataInterface.get_instance()
+        clean_symbol = _normalize_symbol(stock_code, "CN")
+        result = run_async(di.read("CN", "index_dailybasic", symbol=clean_symbol,
+                                   start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"指数每日指标: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"无法获取 {stock_code} 指数每日指标",
+            suggestion="请先同步指数每日指标数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_index_daily_basic failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_index_global() -> str:
+    """获取国际/海外指数行情（如美股三大指数、恒生、日经等）。"""
+    try:
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "index_global"))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, "国际指数")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, "无国际指数数据",
+            suggestion="请先同步国际指数数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_index_global failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
+
+
+def get_index_weight(
+    stock_code: str,
+    trade_date: Optional[str] = None,
+) -> str:
+    """获取指数成分股及权重（分析指数贡献度、调仓影响）。"""
+    try:
+        if not trade_date:
+            trade_date = get_current_date_compact()
+        di = DataInterface.get_instance()
+        clean_symbol = _normalize_symbol(stock_code, "CN")
+        result = run_async(di.read("CN", "index_weight", symbol=clean_symbol,
+                                   start_date=trade_date, end_date=trade_date))
+        data = result.get("data")
+        if data:
+            import pandas as pd
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"指数成分权重: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"{stock_code} 无指数成分权重数据",
+            suggestion="请先同步指数成分权重数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_index_weight failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

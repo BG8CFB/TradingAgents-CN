@@ -449,10 +449,10 @@ class FinancialDataService:
             if roe is not None:
                 indicators["roe"] = self._safe_float(roe)
 
-            # 🔥 新增：提取负债率（资产负债率）
+            # 🔥 新增：提取负债率（资产负债率）—— 统一字段名为 debt_ratio，与 tushare adapter / FinancialDataSchema 一致
             debt_ratio = main_data.get('资产负债率') or main_data.get('负债率')
             if debt_ratio is not None:
-                indicators["debt_to_assets"] = self._safe_float(debt_ratio)
+                indicators["debt_ratio"] = self._safe_float(debt_ratio)
 
         # 从资产负债表中提取
         if 'balance_sheet' in financial_data and financial_data['balance_sheet']:
@@ -462,12 +462,12 @@ class FinancialDataService:
                 "cash_and_equivalents": self._safe_float(balance_data.get('货币资金')),
             })
 
-            # 🔥 如果主要指标中没有负债率，从资产负债表计算
-            if "debt_to_assets" not in indicators:
+            # 🔥 如果主要指标中没有负债率，从资产负债表计算（统一字段名为 debt_ratio）
+            if "debt_ratio" not in indicators:
                 total_liab = indicators.get("total_liab")
                 total_assets = indicators.get("total_assets")
                 if total_liab is not None and total_assets is not None and total_assets > 0:
-                    indicators["debt_to_assets"] = (total_liab / total_assets) * 100
+                    indicators["debt_ratio"] = (total_liab / total_assets) * 100
 
         return indicators
     

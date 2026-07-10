@@ -2,10 +2,12 @@
 新闻工具 - 股票新闻数据获取
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Optional
 
 from app.utils.time_utils import now_utc
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
+from app.engine.tools.common.format import format_result
 from app.core.async_utils import run_async
 logger = logging.getLogger(__name__)
 
@@ -245,3 +247,33 @@ def get_stock_news(
             ErrorCodes.DATA_FETCH_ERROR,
             str(e)
         ))
+
+
+def get_announcements(
+    stock_code: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> str:
+    """获取上市公司公告（重大事项、股东大会、业绩披露等）。"""
+    try:
+        import pandas as pd
+        from app.data.core.interface import DataInterface
+        if not end_date:
+            end_date = now_utc().strftime('%Y-%m-%d')
+        if not start_date:
+            start_date = (now_utc() - timedelta(days=90)).strftime('%Y-%m-%d')
+        clean_code = _clean_symbol(stock_code)
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "announcement", symbol=clean_code,
+                                   start_date=start_date, end_date=end_date))
+        data = result.get("data")
+        if data:
+            df = pd.DataFrame(data) if isinstance(data, list) else data
+            return format_tool_result(success_result(format_result(df, f"公告: {stock_code}")))
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR, f"{stock_code} 无公告数据",
+            suggestion="请先同步公告数据"
+        ))
+    except Exception as e:
+        logger.error(f"get_announcements failed: {e}")
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

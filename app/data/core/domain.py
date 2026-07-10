@@ -37,6 +37,11 @@ class DataDomain(str, Enum):
     LIMIT_STEP = "limit_step"
     MONEYFLOW_IND_DC = "moneyflow_ind_dc"
     DIVIDEND = "dividend"
+    INDEX_BASIC = "index_basic"
+    INDEX_DAILYBASIC = "index_dailybasic"
+    INDEX_GLOBAL = "index_global"
+    INDEX_WEIGHT = "index_weight"
+    ANNOUNCEMENT = "announcement"
 
 
 class SemanticType(str, Enum):
@@ -81,6 +86,11 @@ DOMAIN_SEMANTIC_TYPE = {
     DataDomain.LIMIT_STEP: SemanticType.TIMESERIES,
     DataDomain.MONEYFLOW_IND_DC: SemanticType.TIMESERIES,
     DataDomain.DIVIDEND: SemanticType.EVENT,
+    DataDomain.INDEX_BASIC: SemanticType.ENTITY,
+    DataDomain.INDEX_DAILYBASIC: SemanticType.TIMESERIES,
+    DataDomain.INDEX_GLOBAL: SemanticType.TIMESERIES,
+    DataDomain.INDEX_WEIGHT: SemanticType.TIMESERIES,
+    DataDomain.ANNOUNCEMENT: SemanticType.EVENT,
 }
 
 # 行情类数据域（非交易日跳过）
@@ -105,4 +115,7 @@ MARKET_DATA_DOMAINS = {
     DataDomain.THS_DAILY,
     DataDomain.LIMIT_STEP,
     DataDomain.MONEYFLOW_IND_DC,
+    DataDomain.INDEX_DAILYBASIC,
+    DataDomain.INDEX_GLOBAL,
+    DataDomain.INDEX_WEIGHT,
 }

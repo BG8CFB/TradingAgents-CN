@@ -49,6 +49,6 @@ class DailyQuotesRepo:
         db = get_motor_db()
         coll = db[get_collection_name("daily_quotes", market)]
         doc = await coll.find_one(
-            {"symbol": symbol}, {"trade_date": 1}, sort=[("trade_date", -1)]
+            {"symbol": symbol, "period": "daily"}, {"trade_date": 1}, sort=[("trade_date", -1)]
         )
         return doc["trade_date"] if doc else None

@@ -84,7 +84,7 @@ def get_stock_fundamentals(
             try:
                 from app.services.fundamentals import get_fundamentals_provider
                 _fp = get_fundamentals_provider()
-                fundamentals_raw = run_async(_fp.get_fundamentals(stock_code))
+                fundamentals_raw = run_async(_fp.get_fundamentals(clean_symbol))
                 if fundamentals_raw:
                     fundamentals_data = str(fundamentals_raw)
                 else:

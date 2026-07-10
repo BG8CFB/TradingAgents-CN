@@ -4,7 +4,7 @@ import logging
 import math
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from app.data.schema.base.enums import FreshnessState
@@ -42,6 +42,18 @@ def _norm_date(d: str) -> str:
     if re.match(r"^\d{8}$", d):
         return f"{d[:4]}-{d[4:6]}-{d[6:]}"
     return d
+
+
+def _to_ymd(d) -> str:
+    """归一化日期为 YYYYMMDD（兼容 YYYY-MM-DD / YYYYMMDD / date/datetime）。"""
+    if d is None:
+        return ""
+    if isinstance(d, (datetime, date)):
+        return d.strftime("%Y%m%d")
+    s = str(d).strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}", s):
+        return s.replace("-", "")[:8]
+    return s.replace("-", "")[:8]
 
 
 class Reader:
@@ -264,6 +276,8 @@ class Reader:
             "northbound_flow", "northbound_holding", "share_unlock",
             "pledge", "trading_status", "price_limit",
             "index_data", "chip_distribution",
+            "forecast", "express", "dividend",
+            "sw_daily", "ths_daily", "limit_step", "moneyflow_ind_dc",
         ):
             if symbol and symbol != "__all__":
                 data = await repo.get_by_symbol_and_range(
@@ -277,6 +291,15 @@ class Reader:
                     start_date or "19700101", end_date or "20991231",
                     limit=limit,
                 )
+
+        elif domain == "announcement":
+            sd = _to_ymd(start_date) if start_date else "19700101"
+            ed = _to_ymd(end_date) if end_date else "20991231"
+            if symbol and symbol not in ("__all__", "market"):
+                data = await repo.get_by_symbol_and_range(symbol, market, sd, ed)
+            else:
+                limit = filters.get("limit", 1000) if filters else 1000
+                data = await repo.get_by_date_range(market, sd, ed, limit=limit)
 
         if not data:
             return None, FreshnessState.UNKNOWN

@@ -11,6 +11,7 @@ import pandas as pd
 from app.data.sources.base.adapter import BaseAdapter
 from app.data.schema.base.types import _safe_float, _parse_date
 from app.data.schema.domains.basic_info import StockBasicInfoSchema
+from app.data.schema.domains.trade_calendar import TradeCalendarSchema
 from app.data.schema.domains.daily_quotes import DailyQuotesSchema
 from app.data.schema.domains.daily_indicators import DailyIndicatorsSchema
 from app.data.schema.domains.adj_factors import AdjFactorsSchema
@@ -395,4 +396,140 @@ class AKShareCNAdapter(BaseAdapter):
                 buyer=str(get("买方营业部", "") or get("buyer", "")),
                 seller=str(get("卖方营业部", "") or get("seller", "")),
             ))
+        return results
+
+    # ── trade_calendar：严格 Schema（与 tushare 对齐）──
+    def adapt_trade_calendar(self, raw: Any) -> List[TradeCalendarSchema]:
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            cal_date = _parse_date(get("cal_date"))
+            if not cal_date:
+                continue
+            results.append(TradeCalendarSchema(
+                symbol="__calendar__",
+                market="CN",
+                data_source="akshare",
+                exchange=str(get("exchange", "SSE")),
+                cal_date=cal_date,
+                is_open=bool(get("is_open", 1)),
+                pretrade_date=_parse_date(get("pretrade_date")),
+            ))
+        return results
+
+    # ── sw_daily / limit_step / dividend：通用透传（与 tushare _generic_adapt 对齐）──
+    def _generic_adapt_ak(self, raw: Any, domain: str) -> List[dict]:
+        """通用适配：DataFrame → dict 列表，附加 symbol/market/data_source。
+
+        AKShare 列名多为中文（代码/名称/日期），此处兼容中英文列名提取 symbol。
+        """
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            doc = row.to_dict()
+            sym = str(
+                doc.get("代码", "") or doc.get("symbol", "")
+                or doc.get("证券代码", "") or doc.get("code", "")
+            ).zfill(6)
+            if sym and sym != "000000":
+                doc["symbol"] = sym
+            doc["market"] = "CN"
+            doc["data_source"] = "akshare"
+            for k, v in list(doc.items()):
+                if isinstance(v, float) and v != v:  # NaN → None
+                    doc[k] = None
+            results.append(doc)
+        return results
+
+    def adapt_sw_daily(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "sw_daily")
+
+    def adapt_limit_step(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "limit_step")
+
+    def adapt_dividend(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "dividend")
+
+    def adapt_chip_distribution(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "chip_distribution")
+
+    # ── index_data / index_basic / index_dailybasic / index_weight / announcement /
+    #    ths_daily / forecast / express / moneyflow_ind_dc：通用透传（与 tushare 同集合兼容）──
+    def adapt_index_data(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "index_data")
+
+    def adapt_index_basic(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "index_basic")
+
+    def adapt_index_dailybasic(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "index_dailybasic")
+
+    def adapt_index_weight(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "index_weight")
+
+    def adapt_announcement(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "announcement")
+
+    def adapt_ths_daily(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "ths_daily")
+
+    def adapt_forecast(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "forecast")
+
+    def adapt_express(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "express")
+
+    def adapt_moneyflow_ind_dc(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "moneyflow_ind_dc")
+
+    # ── northbound_flow / share_unlock / price_limit：通用透传 ──
+    def adapt_northbound_flow(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "northbound_flow")
+
+    def adapt_share_unlock(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "share_unlock")
+
+    def adapt_price_limit(self, raw: Any) -> List[dict]:
+        return self._generic_adapt_ak(raw, "price_limit")
+
+    def adapt_index_global(self, raw: Any) -> List[dict]:
+        """适配全球指数（AKShare 回退源）。
+
+        akshare 仅有 OHLC（日期/今开/最高/最低/最新价），无成交量/成交额，
+        故只产出 symbol/trade_date/open/high/low/close，与 tushare 同集合兼容。
+        """
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+
+        def _f(v):
+            try:
+                if v is None or (isinstance(v, float) and v != v):
+                    return None
+                return float(v)
+            except (ValueError, TypeError):
+                return None
+
+        results = []
+        for _, row in df.iterrows():
+            doc = row.to_dict()
+            sym = str(doc.get("symbol") or doc.get("ts_code") or "").strip()
+            if not sym:
+                continue
+            out = {
+                "symbol": sym,
+                "trade_date": str(doc.get("trade_date", "")),
+                "open": _f(doc.get("open")),
+                "high": _f(doc.get("high")),
+                "low": _f(doc.get("low")),
+                "close": _f(doc.get("close")),
+                "market": "CN",
+                "data_source": "akshare",
+            }
+            results.append(out)
         return results

@@ -222,6 +222,11 @@ const DOMAIN_DESCRIPTIONS: Record<string, string> = {
   limit_step: '涨停连板天梯数据，衡量市场情绪强度和打板热度。',
   moneyflow_ind_dc: '东方财富板块资金流向数据，判断板块资金吸金/出逃。',
   dividend: '分红送股数据，计算股息率、送转比例和分红历史。',
+  index_basic: '全市场指数基本信息（代码、名称、类别、基日、上市日期等），构建指数标的池。',
+  index_dailybasic: '指数每日指标（总市值、流通市值、PE、PB、换手率等），用于指数估值分析。',
+  index_global: '全球主要指数（恒生、标普500、日经225等）行情，跟踪外围市场走势。',
+  index_weight: '指数成分股及权重数据，分析指数构成与权重变化。',
+  announcement: '上市公司历史公告（业绩、并购、分红等），用于事件驱动与基本面排雷。',
 }
 
 interface SourceInfo {

@@ -208,6 +208,51 @@ class CNIndexDataJob(BaseSyncJob):
         return "Asia/Shanghai"
 
 
+class CNIndexBasicJob(BaseSyncJob):
+    def __init__(self):
+        super().__init__("CN", "index_basic")
+    def get_cron(self) -> str:
+        return "0 2 * * *"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
+class CNIndexDailyBasicJob(BaseSyncJob):
+    def __init__(self):
+        super().__init__("CN", "index_dailybasic")
+    def get_cron(self) -> str:
+        return "0 12,15,16 * * 1-5"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
+class CNIndexWeightJob(BaseSyncJob):
+    def __init__(self):
+        super().__init__("CN", "index_weight")
+    def get_cron(self) -> str:
+        return "0 1 * * 1"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
+class CNAnnouncementJob(BaseSyncJob):
+    def __init__(self):
+        super().__init__("CN", "announcement")
+    def get_cron(self) -> str:
+        return "30 2 * * *"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
+class CNIndexGlobalJob(BaseSyncJob):
+    def __init__(self):
+        super().__init__("CN", "index_global")
+    def get_cron(self) -> str:
+        return "0 2 * * *"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+
+
 class CNChipDistributionJob(BaseSyncJob):
     def __init__(self):
         super().__init__("CN", "chip_distribution")
@@ -301,6 +346,11 @@ _CN_JOBS = [
     CNTradingStatusJob,
     CNPriceLimitJob,
     CNIndexDataJob,
+    CNIndexBasicJob,
+    CNIndexDailyBasicJob,
+    CNIndexWeightJob,
+    CNAnnouncementJob,
+    CNIndexGlobalJob,
     CNChipDistributionJob,
     CNSwDailyJob,
     CNThsDailyJob,

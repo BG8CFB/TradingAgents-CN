@@ -315,6 +315,22 @@ class TushareCNProvider(BaseProvider):
         from .api.index_data import fetch_index_weight
         return await fetch_index_weight(self._get_conn(), index_code=index_code, trade_date=trade_date, start_date=start_date, end_date=end_date)
 
+    async def get_index_basic(self, market=None, category=None, **kwargs):
+        from .api.index_data import fetch_index_basic
+        return await fetch_index_basic(self._get_conn(), market=market, category=category)
+
+    async def get_index_dailybasic(self, ts_code, start_date=None, end_date=None, **kwargs):
+        from .api.index_data import fetch_index_dailybasic
+        return await fetch_index_dailybasic(self._get_conn(), ts_code, start_date=start_date, end_date=end_date)
+
+    async def get_index_global(self, ts_code, start_date=None, end_date=None, **kwargs):
+        from .api.index_data import fetch_index_global
+        return await fetch_index_global(self._get_conn(), ts_code, start_date=start_date, end_date=end_date)
+
+    async def get_announcement(self, start_date=None, end_date=None, **kwargs):
+        from .api.news import fetch_announcement
+        return await fetch_announcement(self._get_conn(), start_date=start_date, end_date=end_date)
+
     async def get_chip_perf(self, symbol, trade_date=None, start_date=None, end_date=None, **kwargs):
         from .api.chip_distribution import fetch_chip_perf
         ts_code = self._to_ts_code(symbol)

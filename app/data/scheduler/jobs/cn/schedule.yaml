@@ -131,3 +131,30 @@ moneyflow_ind_dc:
   timezone: Asia/Shanghai
   mode: incremental
   description: 每交易日 17:00 同步板块资金流向
+index_basic:
+  cron: 0 2 * * *
+  timezone: Asia/Shanghai
+  mode: full
+  description: 每日 02:00 全量同步指数基本信息
+index_dailybasic:
+  cron: 30 16 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 16:30 增量同步指数每日指标
+  depends_on:
+  - index_data
+index_weight:
+  cron: 0 1 * * 1
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每周一 01:00 同步指数成分与权重
+index_global:
+  cron: 0 2 * * *
+  timezone: Asia/Shanghai
+  mode: full
+  description: 每日 02:00 全量同步全球指数行情（tushare 主源 + akshare 回退）
+announcement:
+  cron: 30 2 * * *
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每日 02:30 增量同步公司公告

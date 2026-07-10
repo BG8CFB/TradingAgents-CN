@@ -36,6 +36,11 @@ DOMAIN_METHOD_MAP = {
     "limit_step": "adapt_limit_step",
     "moneyflow_ind_dc": "adapt_moneyflow_ind_dc",
     "dividend": "adapt_dividend",
+    "index_basic": "adapt_index_basic",
+    "index_dailybasic": "adapt_index_dailybasic",
+    "index_global": "adapt_index_global",
+    "index_weight": "adapt_index_weight",
+    "announcement": "adapt_announcement",
 }
 
 

@@ -46,6 +46,11 @@ _SUPPORTED_SYNC_DOMAINS = {
     "limit_step",
     "moneyflow_ind_dc",
     "dividend",
+    "index_basic",
+    "index_dailybasic",
+    "index_global",
+    "index_weight",
+    "announcement",
 }
 
 
@@ -270,6 +275,11 @@ class BaseSyncJob(ABC):
             DataDomain.THS_DAILY.value,
             DataDomain.LIMIT_STEP.value,
             DataDomain.MONEYFLOW_IND_DC.value,
+            DataDomain.INDEX_BASIC.value,
+            DataDomain.INDEX_DAILYBASIC.value,
+            DataDomain.INDEX_GLOBAL.value,
+            DataDomain.INDEX_WEIGHT.value,
+            DataDomain.ANNOUNCEMENT.value,
             # forecast/express/dividend 是个股级 API，大量股票无数据会触发熔断器，
             # 改为按需获取（分析时自动拉取），不走全量同步。
         )

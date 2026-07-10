@@ -1,5 +1,11 @@
 """
-网络搜索工具 — 基于 Bing 的网页搜索
+智能搜索工具 — 基于 Bing 的网页搜索
+
+统一两种搜索模式：
+1) 个股定向搜索：传入 stock_code（及可选 data_type），自动解析公司名并在权威财经站点
+   （东方财富/同花顺/新浪/雪球）做多轮定向搜索。当数据库缺少某只股票的具体数据时使用。
+2) 泛化网络搜索：仅传入 query，做自由关键词的互联网搜索，适合获取宏观市场、政策、
+   行业动态等外围最新信息。
 
 无需 API Key，通过 Bing HTML 搜索获取结果。
 """
@@ -20,57 +26,7 @@ _HEADERS = {
 }
 
 
-def web_search(
-    query: str = None,
-    max_results: int = 5,
-    **kwargs,
-) -> str:
-    """
-    搜索互联网获取最新信息。
-
-    当工具数据不足、需要验证信息、或需要最新市场动态时使用。
-
-    Args:
-        query: 搜索关键词，建议使用中文或英文关键词
-        max_results: 最大返回结果数，默认 5
-
-    Returns:
-        JSON 格式的 ToolResult，包含搜索结果列表
-    """
-    # 兼容 LLM 传不同参数名
-    if not query:
-        query = kwargs.get("keyword") or kwargs.get("q") or kwargs.get("search_query") or kwargs.get("keywords")
-    if not query or not str(query).strip():
-        return format_tool_result(error_result(
-            ErrorCodes.INVALID_PARAM, "搜索关键词不能为空"
-        ))
-    query = str(query).strip()
-
-    try:
-        results = _search_bing(query.strip(), max_results)
-        if not results:
-            return format_tool_result(error_result(
-                ErrorCodes.DATA_FETCH_ERROR,
-                f"未找到与 '{query}' 相关的结果",
-                suggestion="尝试使用不同的关键词或更简洁的搜索词"
-            ))
-
-        lines = [f"## 搜索结果: {query}\n"]
-        for i, r in enumerate(results, 1):
-            lines.append(f"### {i}. {r['title']}")
-            lines.append(f"**来源**: {r['url']}")
-            lines.append(f"{r['snippet']}\n")
-
-        return format_tool_result(success_result("\n".join(lines)))
-
-    except Exception as e:
-        logger.error(f"web_search failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            f"搜索失败: {str(e)}",
-            suggestion="网络搜索暂时不可用，请稍后重试"
-        ))
-
+# ── 通用 Bing 搜索 ──
 
 def _search_bing(query: str, max_results: int) -> list:
     """通过 Bing 搜索获取结果。"""
@@ -174,7 +130,7 @@ def _strip_tags(html_str: str) -> str:
     return re.sub(r"<[^>]+>", "", html_str)
 
 
-# ── 股票信息智能搜索 ──
+# ── 个股定向搜索 ──
 
 # 权威财经站点优先级
 _AUTHORITATIVE_SITES = [
@@ -216,8 +172,85 @@ _DATA_TYPE_KEYWORDS = {
 }
 
 
-def search_stock_info(
+def web_search(
+    query: str = None,
     stock_code: str = None,
+    data_type: str = "news",
+    max_results: int = 5,
+    **kwargs,
+) -> str:
+    """
+    统一智能搜索工具，支持两种模式：
+
+    1) 个股定向搜索：传入 stock_code（及可选 data_type），自动解析公司名并在权威财经站点
+       （东方财富/同花顺/新浪/雪球）做多轮定向搜索。当数据库缺少某只股票的具体数据
+       （新闻/财务/龙虎榜/融资融券/筹码/政策/行业等）时使用。
+    2) 泛化网络搜索：仅传入 query，做自由关键词的互联网搜索，适合获取宏观市场、政策、
+       行业动态等外围最新信息。
+
+    调用约定（由 LLM 自行选择模式）：
+      - 查某只股票的具体信息 → web_search(stock_code="000001", data_type="news")
+      - 查宏观/政策/行业等无特定个股的信息 → web_search(query="央行最新货币政策")
+
+    Args:
+        query: 泛化搜索关键词（与 stock_code 二选一，stock_code 优先）
+        stock_code: 股票代码，如 "000001"、"000001.SZ"（个股模式）
+        data_type: 个股模式的数据类型: news/financial/dragon_tiger/margin/block_trade/
+                   northbound/chip/sentiment/analyst/dividend/pledge/unlock/announcement/
+                   market/industry/industry_chain/upstream/downstream/
+                   policy/monetary_policy/fiscal_policy/regulatory_policy/industrial_policy
+        max_results: 最大返回结果数，默认 5
+
+    Returns:
+        JSON 格式的 ToolResult，包含搜索结果
+    """
+    # 兼容不同参数名
+    if not query:
+        query = kwargs.get("keyword") or kwargs.get("q") or kwargs.get("search_query") or kwargs.get("keywords")
+    if not stock_code:
+        stock_code = kwargs.get("ts_code") or kwargs.get("ticker") or kwargs.get("symbol")
+
+    if stock_code:
+        return _stock_specific_search(stock_code, data_type, max_results, **kwargs)
+    if query and str(query).strip():
+        return _general_web_search(str(query).strip(), max_results)
+
+    return format_tool_result(error_result(
+        ErrorCodes.INVALID_PARAM,
+        "必须提供 query（泛化搜索）或 stock_code（个股定向搜索）之一"
+    ))
+
+
+def _general_web_search(query: str, max_results: int) -> str:
+    """泛化网络搜索：自由关键词，无站点过滤。"""
+    try:
+        results = _search_bing(query, max_results)
+        if not results:
+            return format_tool_result(error_result(
+                ErrorCodes.DATA_FETCH_ERROR,
+                f"未找到与 '{query}' 相关的结果",
+                suggestion="尝试使用不同的关键词或更简洁的搜索词"
+            ))
+
+        lines = [f"## 搜索结果: {query}\n"]
+        for i, r in enumerate(results, 1):
+            lines.append(f"### {i}. {r['title']}")
+            lines.append(f"**来源**: {r['url']}")
+            lines.append(f"{r['snippet']}\n")
+
+        return format_tool_result(success_result("\n".join(lines)))
+
+    except Exception as e:
+        logger.error(f"web_search failed: {e}")
+        return format_tool_result(error_result(
+            ErrorCodes.DATA_FETCH_ERROR,
+            f"搜索失败: {str(e)}",
+            suggestion="网络搜索暂时不可用，请稍后重试"
+        ))
+
+
+def _stock_specific_search(
+    stock_code: str,
     data_type: str = "news",
     max_results: int = 5,
     **kwargs,
@@ -226,24 +259,19 @@ def search_stock_info(
     搜索特定股票的相关信息，自动使用公司名称在权威财经网站查找。
 
     当数据库中没有对应数据时，使用此工具从权威财经网站获取信息。
-    比 web_search 更精准，会自动识别公司名称并限定搜索范围。
+    比泛化搜索更精准，会自动识别公司名称并限定搜索范围。
 
     Args:
         stock_code: 股票代码，如 "000001"、"000001.SZ"
         data_type: 数据类型: news/financial/dragon_tiger/margin/block_trade/
-                   northbound/chip/sentiment/analyst/dividend/pledge/unlock/announcement
+                   northbound/chip/sentiment/analyst/dividend/pledge/unlock/announcement/
+                   market/industry/industry_chain/upstream/downstream/
+                   policy/monetary_policy/fiscal_policy/regulatory_policy/industrial_policy
         max_results: 最大返回结果数，默认 5
 
     Returns:
         JSON 格式的 ToolResult，包含搜索结果
     """
-    if not stock_code:
-        stock_code = kwargs.get("ts_code") or kwargs.get("ticker") or kwargs.get("symbol")
-    if not stock_code:
-        return format_tool_result(error_result(
-            ErrorCodes.INVALID_PARAM, "股票代码不能为空"
-        ))
-
     # 清洗代码
     clean_code = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
                            .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
@@ -320,7 +348,7 @@ def search_stock_info(
         return format_tool_result(success_result("\n".join(lines)))
 
     except Exception as e:
-        logger.error(f"search_stock_info failed: {e}")
+        logger.error(f"_stock_specific_search failed: {e}")
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR, str(e)
         ))

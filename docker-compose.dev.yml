@@ -60,6 +60,8 @@ services:
       dockerfile: docker/Dockerfile.backend
     container_name: tradingagents-backend
     restart: unless-stopped
+    extra_hosts:
+      - "api.waditu.com:111.229.23.244"
     ports:
       - "8000:8000"
     volumes:
@@ -72,6 +74,8 @@ services:
       # pyproject.toml 变更后 pip install 生效（首次构建时安装）
       - ./pyproject.toml:/app/pyproject.toml:ro
       - ./README.md:/app/README.md:ro
+      # 同步脚本挂载（host 源码直接可用，编辑即时生效）
+      - /home/wang:/home/wang:ro
     env_file:
       - .env
     environment:

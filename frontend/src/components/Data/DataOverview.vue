@@ -246,6 +246,11 @@ const DOMAIN_ICON_MAP: Record<string, any> = {
   limit_step: markRaw(DataLine),
   moneyflow_ind_dc: markRaw(Coin),
   dividend: markRaw(Coin),
+  index_basic: markRaw(InfoFilled),
+  index_dailybasic: markRaw(DataAnalysis),
+  index_global: markRaw(DataLine),
+  index_weight: markRaw(DataAnalysis),
+  announcement: markRaw(Document),
 }
 
 const DOMAIN_DESCRIPTIONS: Record<string, string> = {
@@ -281,6 +286,11 @@ const DOMAIN_DESCRIPTIONS: Record<string, string> = {
   limit_step: '涨停连板天梯数据，衡量市场情绪和打板热度。',
   moneyflow_ind_dc: '东方财富板块资金流向，判断哪个板块在吸金。',
   dividend: '分红送股数据，计算股息率和送转股。',
+  index_basic: '全市场指数基本信息（代码、名称、类别、基日、上市日期），构建指数池。',
+  index_dailybasic: '指数每日指标（总市值、流通市值、PE、PB、换手率），用于指数估值分析。',
+  index_global: '全球主要指数（恒生、标普、日经等）行情，跟踪外围市场走势。',
+  index_weight: '指数成分股及权重数据，分析指数构成与权重变化。',
+  announcement: '上市公司历史公告（业绩、并购、分红等），用于事件驱动与基本面排雷。',
 }
 
 interface DomainCard {
@@ -386,10 +396,15 @@ function getDomainHealth(sources: SourceHealthItem[], hasRecords: boolean): { ta
     if (hasRecords) return { tagType: 'success', text: '正常', cls: 'state-healthy' }
     return { tagType: 'info', text: '未同步', cls: '' }
   }
-  const hasUnhealthy = sources.some(s => s.circuit_state === 'open')
+  // 熔断状态语义：closed=可用(正常)，open=已熔断(故障)，half_open=恢复中
+  // 仅当所有源都熔断（无 closed 源）才标「异常」；任一源可用即「正常」，
+  // 避免主源(primary)正常却因备源熔断而误报异常。
+  const hasClosed = sources.some(s => s.circuit_state === 'closed')
   const hasHalfOpen = sources.some(s => s.circuit_state === 'half_open')
-  if (hasUnhealthy) return { tagType: 'danger', text: '异常', cls: 'state-error' }
+  const hasOpen = sources.some(s => s.circuit_state === 'open')
+  if (hasClosed) return { tagType: 'success', text: '正常', cls: 'state-healthy' }
   if (hasHalfOpen) return { tagType: 'warning', text: '恢复中', cls: 'state-warning' }
+  if (hasOpen) return { tagType: 'danger', text: '异常', cls: 'state-error' }
   return { tagType: 'success', text: '正常', cls: 'state-healthy' }
 }
 

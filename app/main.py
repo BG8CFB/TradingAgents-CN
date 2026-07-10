@@ -185,6 +185,54 @@ async def _init_database(logger):
     user_service.set_database(get_mongo_db())
     logger.info("✅ UserService 数据库连接已初始化")
 
+    # 看板/质量概览所需索引（updated_at / trade_date 降序），后台确保、幂等、不阻塞启动
+    try:
+        asyncio.create_task(_ensure_dashboard_indexes(logger))
+    except Exception as e:
+        logger.warning(f"⚠️ 启动看板索引任务失败: {e}")
+
+
+async def _ensure_dashboard_indexes(logger):
+    """确保各数据域集合存在 updated_at / trade_date 降序索引。
+
+    看板与质量概览会对大集合做 sort([updated_at|-1]) / sort([trade_date|-1])，
+    若无索引将触发全表扫描（数千万级集合需 10s+，导致页面卡死）。
+    后台构建、幂等；建好后查询即时返回。
+    """
+    try:
+        from app.data.storage.mongo.client import get_motor_db
+        from app.data.storage.mongo.collections import get_collection_name
+        from app.data.core.registry.capability import CapabilityRegistry
+
+        db = get_motor_db()
+        reg = CapabilityRegistry()
+        tasks = []
+        for market in ["CN", "HK", "US"]:
+            try:
+                domains = reg.get_domains(market)
+            except Exception:
+                continue
+            for domain in domains:
+                try:
+                    coll = db[get_collection_name(domain, market)]
+                except Exception:
+                    continue
+                tasks.append(
+                    coll.create_index(
+                        [("updated_at", -1)], name="updated_at_-1", background=True
+                    )
+                )
+                tasks.append(
+                    coll.create_index(
+                        [("trade_date", -1)], name="trade_date_-1", background=True
+                    )
+                )
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        logger.info(f"✅ 看板索引确保完成（{len(tasks)} 个索引任务）")
+    except Exception as e:
+        logger.warning(f"⚠️ 看板索引确保失败（不影响启动）: {e}")
+
 
 async def _init_secrets(logger):
     """自动生成并持久化安全密钥（JWT/CSRF）。

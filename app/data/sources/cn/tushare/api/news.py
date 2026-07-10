@@ -610,3 +610,83 @@ def _is_relevant(item: Dict, symbol: str) -> bool:
         logger.debug(f"检查股票名称匹配失败: {e}")
         pass
     return False
+
+
+# 公告首次全量同步的起始日期下限，避免 1970 起的历史公告一次性拉取过大
+_ANNOUNCEMENT_MIN_START = "2010-01-01"
+
+
+async def fetch_announcement(
+    conn: TushareConnection,
+    start_date: str = None,
+    end_date: str = None,
+) -> Optional[pd.DataFrame]:
+    """获取历史公告（anns_d），按日期范围批量同步。
+
+    与 news 不同，anns_d 返回的是结构化公司公告（ann_date/ts_code/name/title/url），
+    适合持久化到独立集合按个股检索。
+
+    为兼顾首次全量同步与接口限流，按自然年分片拉取；并对起始日期做下限裁剪，
+    避免从 1970 年起一次性拉取全部历史公告导致超时。
+    """
+    if not conn.is_available():
+        return None
+
+    from datetime import datetime, date
+
+    def _parse(d: str) -> date:
+        d = (d or "")[:10]
+        try:
+            return datetime.strptime(d, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return date.today()
+
+    start = _parse(start_date) if start_date else date.today()
+    end = _parse(end_date) if end_date else date.today()
+    # 调度框架默认传入 end_date="2099-12-31"，需裁剪到今天，避免按年分片时
+    # 对大量未来年份发起无意义的空请求。
+    today = date.today()
+    if end > today:
+        end = today
+    min_start = datetime.strptime(_ANNOUNCEMENT_MIN_START, "%Y-%m-%d").date()
+    if start < min_start:
+        start = min_start
+
+    if end < start:
+        end = start
+
+    all_dfs = []
+    seen_keys = set()
+    year = start.year
+    while year <= end.year:
+        y_start = date(year, 1, 1) if year > start.year else start
+        y_end = date(year, 12, 31) if year < end.year else end
+        kwargs = {
+            "start_date": y_start.strftime("%Y%m%d"),
+            "end_date": y_end.strftime("%Y%m%d"),
+        }
+        try:
+            df = await asyncio.to_thread(conn.api.anns_d, **kwargs)
+        except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+            raise map_network_exception(exc, "tushare", _DOMAIN)
+        except Exception as exc:
+            error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+            mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+            if mapped is not None:
+                raise mapped
+            raise DataSourceUnavailableError("tushare", _DOMAIN, str(exc))
+
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                key = (str(row.get("ts_code", "")), str(row.get("ann_date", "")), str(row.get("title", "")))
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                all_dfs.append(row.to_dict())
+        year += 1
+
+    if not all_dfs:
+        raise DataNotFoundError("tushare", _DOMAIN, f"anns_d {start}~{end} 无数据")
+    result = pd.DataFrame(all_dfs)
+    logger.info(f"Tushare 历史公告: {start}~{end} {len(result)} 条")
+    return result

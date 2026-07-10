@@ -12,6 +12,12 @@ logger = logging.getLogger(__name__)
 _DATE_FIELD_MAP = {
     "share_unlock": "end_date",
     "pledge": "end_date",
+    # 业绩预告/快报/分红的日期字段为 end_date（非 trade_date）
+    "forecast": "end_date",
+    "express": "end_date",
+    "dividend": "end_date",
+    # 公告日期字段为 ann_date（非 trade_date）
+    "announcement": "ann_date",
 }
 
 
