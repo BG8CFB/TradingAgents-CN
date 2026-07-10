@@ -84,7 +84,7 @@ class UnifiedStockService:
             db = get_motor_db()
             dq_coll = db[get_collection_name("daily_quotes", "CN")]
             latest_dq = await dq_coll.find_one(
-                {"symbol": code6},
+                {"symbol": code6, "period": "daily"},
                 sort=[("trade_date", -1)],
             )
             if latest_dq:

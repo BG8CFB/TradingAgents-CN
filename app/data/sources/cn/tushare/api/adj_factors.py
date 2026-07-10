@@ -60,3 +60,32 @@ async def fetch_adj_factors(
 
     logger.info(f"Tushare 复权因子: {ts_code} {len(df)} 条")
     return df
+
+
+async def fetch_adj_factors_by_date(
+    conn: TushareConnection, trade_date: str
+) -> Optional[pd.DataFrame]:
+    """按日期批量获取全市场复权因子（一次请求返回全部股票）"""
+    if not conn.is_available():
+        return None
+
+    date_str = trade_date.replace("-", "")
+    try:
+        df = await asyncio.to_thread(conn.api.adj_factor, trade_date=date_str)
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "tushare", _DOMAIN)
+    except Exception as exc:
+        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+        if mapped is not None:
+            raise mapped
+        raise DataSourceUnavailableError(
+            "tushare", _DOMAIN, f"trade_date={trade_date}: {exc}"
+        )
+
+    if is_empty_result(df):
+        logger.warning(f"Tushare 复权因子返回空: trade_date={trade_date}")
+        raise DataNotFoundError("tushare", _DOMAIN, f"trade_date={trade_date} 无数据")
+
+    logger.info(f"Tushare 复权因子(按日期): {trade_date} {len(df)} 条")
+    return df

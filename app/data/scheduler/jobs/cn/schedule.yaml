@@ -1,58 +1,160 @@
-# A 股调度时间表 (CST = Asia/Shanghai)
-# cron 格式: "分 时 日 月 周"
-
 trade_calendar:
-  cron: "0 0 * * *"
-  timezone: "Asia/Shanghai"
+  cron: 0 0 * * *
+  timezone: Asia/Shanghai
   mode: full
-  description: "每日 00:00 全量同步交易日历"
-
+  description: 每日 00:00 全量同步交易日历
 basic_info:
-  cron: "0 9 * * *"
-  timezone: "Asia/Shanghai"
+  cron: 0 9 * * *
+  timezone: Asia/Shanghai
   mode: full
-  description: "每日 09:00 全量同步股票列表"
+  description: 每日 09:00 全量同步股票列表
   depends_on:
-    - trade_calendar
-
+  - trade_calendar
 daily_quotes:
-  cron: "15 16 * * 1-5"
-  timezone: "Asia/Shanghai"
+  cron: 15 16 * * 1-5
+  timezone: Asia/Shanghai
   mode: incremental
-  description: "每交易日 16:15 增量同步日线行情"
+  description: 每交易日 16:15 增量同步日线行情
   depends_on:
-    - basic_info
-
+  - basic_info
 daily_indicators:
-  cron: "45 16 * * 1-5"
-  timezone: "Asia/Shanghai"
+  cron: 45 16 * * 1-5
+  timezone: Asia/Shanghai
   mode: incremental
-  description: "每交易日 16:45 增量同步每日指标"
+  description: 每交易日 16:45 增量同步每日指标
   depends_on:
-    - daily_quotes
-
+  - daily_quotes
 adj_factors:
-  cron: "0 17 * * 1-5"
-  timezone: "Asia/Shanghai"
+  cron: 0 17 * * 1-5
+  timezone: Asia/Shanghai
   mode: incremental
-  description: "每交易日 17:00 增量同步复权因子"
+  description: 每交易日 17:00 增量同步复权因子
   depends_on:
-    - daily_quotes
-
+  - daily_quotes
 financial_data:
-  cron: "0 20 * * *"
-  timezone: "Asia/Shanghai"
+  cron: 0 20 * * *
+  timezone: Asia/Shanghai
   mode: incremental
-  description: "每日 20:00 增量同步财务数据"
-
+  description: 每日 20:00 增量同步财务数据
 market_quotes:
-  cron: "5 15 * * 1-5"
-  timezone: "Asia/Shanghai"
+  cron: 5 15 * * 1-5
+  timezone: Asia/Shanghai
   mode: full
-  description: "每交易日 15:05 全量市场快照"
-
+  description: 每交易日 15:05 全量市场快照
 news:
-  cron: "0 */2 * * *"
-  timezone: "Asia/Shanghai"
+  cron: 0 */2 * * *
+  timezone: Asia/Shanghai
   mode: incremental
-  description: "每 2 小时增量同步新闻"
+  description: 每 2 小时增量同步新闻
+intraday_quotes:
+  cron: '*/30 9-14 * * 1-5'
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 交易日每 30 分钟同步分钟行情
+money_flow:
+  cron: 30 16 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 16:30 增量同步资金流向
+margin_trading:
+  cron: 0 17 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 17:00 增量同步融资融券
+dragon_tiger:
+  cron: 0 18 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 18:00 增量同步龙虎榜
+block_trade:
+  cron: 30 18 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 18:30 增量同步大宗交易
+northbound_flow:
+  cron: 0 19 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 19:00 增量同步北向资金流向
+northbound_holding:
+  cron: 30 19 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 19:30 增量同步外资持仓
+share_unlock:
+  cron: 0 21 * * *
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每日 21:00 同步限售解禁
+pledge:
+  cron: 0 22 * * *
+  timezone: Asia/Shanghai
+  mode: full
+  description: 每日 22:00 全量同步股权质押
+trading_status:
+  cron: 0 16 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 16:00 同步停复牌
+price_limit:
+  cron: 10 16 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 16:10 同步涨跌停价格
+index_data:
+  cron: 0 16 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 16:00 同步指数行情
+chip_distribution:
+  cron: 0 20 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 20:00 同步筹码分布
+sw_daily:
+  cron: 5 16 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 16:05 同步申万行业指数
+ths_daily:
+  cron: 10 16 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 16:10 同步同花顺板块行情
+limit_step:
+  cron: 0 16 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 16:00 同步连板天梯
+moneyflow_ind_dc:
+  cron: 0 17 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 17:00 同步板块资金流向
+index_basic:
+  cron: 0 2 * * *
+  timezone: Asia/Shanghai
+  mode: full
+  description: 每日 02:00 全量同步指数基本信息
+index_dailybasic:
+  cron: 30 16 * * 1-5
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每交易日 16:30 增量同步指数每日指标
+  depends_on:
+  - index_data
+index_weight:
+  cron: 0 1 * * 1
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每周一 01:00 同步指数成分与权重
+index_global:
+  cron: 0 2 * * *
+  timezone: Asia/Shanghai
+  mode: full
+  description: 每日 02:00 全量同步全球指数行情（tushare 主源 + akshare 回退）
+announcement:
+  cron: 30 2 * * *
+  timezone: Asia/Shanghai
+  mode: incremental
+  description: 每日 02:30 增量同步公司公告

@@ -66,7 +66,7 @@ class BaseSyncService:
     # ── 同步方法 ──────────────────────────────────────────────────────
 
     async def sync_stock_basic_info(self, force_update: bool = False) -> Dict[str, Any]:
-        """同步基础信息 — 通过 DataInterface 刷新每只股票"""
+        """同步基础信息 — 批量模式：一次请求获取全市场数据"""
         await self._ensure_initialized()
         stats = self._make_stats(task="sync_stock_basic_info")
         di = self._get_data_interface()
@@ -75,6 +75,35 @@ class BaseSyncService:
         stats["total_processed"] = len(symbols)
         logger.info(f"开始同步{self.market_name}基础信息: {len(symbols)} 只股票")
 
+        # 批量模式：使用 __all__ 作为 symbol，一次获取全市场数据
+        try:
+            refresh_result = await di.refresh(
+                self.market, "__all__", domains=["basic_info"],
+                force=force_update, timeout=120,
+            )
+            domain_result = refresh_result.domains.get("basic_info")
+            if domain_result and domain_result.status in ("refreshed", "fresh"):
+                # 批量同步成功，所有股票都已更新
+                stats["success_count"] = len(symbols)
+                logger.info(f"{self.market_name}基础信息批量同步成功: {domain_result.record_count} 条记录")
+            else:
+                # 批量同步失败，尝试逐股票同步（降级）
+                logger.warning(f"{self.market_name}基础信息批量同步失败，降级为逐股票同步")
+                stats = await self._sync_basic_info_fallback(di, symbols, force_update, stats)
+        except Exception as e:
+            logger.warning(f"{self.market_name}基础信息批量同步异常，降级为逐股票同步: {e}")
+            stats = await self._sync_basic_info_fallback(di, symbols, force_update, stats)
+
+        return self._complete_stats(stats)
+
+    async def _sync_basic_info_fallback(
+        self,
+        di,
+        symbols: List[str],
+        force_update: bool,
+        stats: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """降级：逐股票同步基础信息"""
         for idx, symbol in enumerate(symbols, 1):
             if not force_update:
                 try:
@@ -105,7 +134,7 @@ class BaseSyncService:
                 logger.info(f"{self.market_name}基础信息同步进度: {idx}/{len(symbols)}")
                 await asyncio.sleep(self.rate_limit_delay)
 
-        return self._complete_stats(stats)
+        return stats
 
     async def sync_daily_quotes(
         self,
@@ -113,7 +142,7 @@ class BaseSyncService:
         end_date: Optional[str] = None,
         incremental: bool = True,
     ) -> Dict[str, Any]:
-        """同步日线行情 — 通过 DataInterface 刷新每只股票"""
+        """同步日线行情 — 批量模式：一次请求获取全市场数据"""
         await self._ensure_initialized()
         stats = self._make_stats(task="sync_daily_quotes")
         di = self._get_data_interface()
@@ -128,6 +157,41 @@ class BaseSyncService:
 
         logger.info(f"开始同步{self.market_name}日线: {len(symbols)} 只, {start_date} ~ {end_date}")
 
+        # 批量模式：使用 __all__ 作为 symbol，一次获取全市场数据
+        try:
+            refresh_result = await di.refresh(
+                self.market, "__all__", domains=["daily_quotes"],
+                force=True, timeout=120,
+            )
+            domain_result = refresh_result.domains.get("daily_quotes")
+            if domain_result and domain_result.status in ("refreshed", "fresh"):
+                # 批量同步成功，所有股票都已更新
+                stats["success_count"] = len(symbols)
+                logger.info(f"{self.market_name}日线批量同步成功: {domain_result.record_count} 条记录")
+            else:
+                # 批量同步失败，尝试逐股票同步（降级）
+                logger.warning(f"{self.market_name}日线批量同步失败，降级为逐股票同步")
+                stats = await self._sync_daily_quotes_fallback(
+                    di, symbols, start_date, end_date, incremental, stats
+                )
+        except Exception as e:
+            logger.warning(f"{self.market_name}日线批量同步异常，降级为逐股票同步: {e}")
+            stats = await self._sync_daily_quotes_fallback(
+                di, symbols, start_date, end_date, incremental, stats
+            )
+
+        return self._complete_stats(stats)
+
+    async def _sync_daily_quotes_fallback(
+        self,
+        di,
+        symbols: List[str],
+        start_date: str,
+        end_date: str,
+        incremental: bool,
+        stats: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """降级：逐股票同步日线行情"""
         for idx, symbol in enumerate(symbols, 1):
             actual_start = start_date
             if incremental:
@@ -170,7 +234,7 @@ class BaseSyncService:
                 logger.info(f"{self.market_name}日线同步进度: {idx}/{len(symbols)}")
                 await asyncio.sleep(self.rate_limit_delay)
 
-        return self._complete_stats(stats)
+        return stats
 
     async def run_status_check(self) -> Dict[str, Any]:
         """数据源状态检查"""

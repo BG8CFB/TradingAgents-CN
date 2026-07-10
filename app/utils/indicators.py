@@ -349,5 +349,12 @@ def add_all_indicators(df: pd.DataFrame, close_col: str = 'close',
     df['boll_upper'] = boll_df['boll_upper']
     df['boll_lower'] = boll_df['boll_lower']
 
+    # 计算KDJ（9,3,3）
+    if high_col in df.columns and low_col in df.columns:
+        kdj_df = kdj(df[high_col], df[low_col], df[close_col], n=9, m1=3, m2=3)
+        df['kdj_k'] = kdj_df['kdj_k']
+        df['kdj_d'] = kdj_df['kdj_d']
+        df['kdj_j'] = kdj_df['kdj_j']
+
     return df
 
