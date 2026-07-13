@@ -4,7 +4,7 @@
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict, field_serializer
+from pydantic import BaseModel, Field, ConfigDict, field_serializer, model_validator
 from enum import Enum
 from bson import ObjectId
 from .user import PyObjectId
@@ -160,6 +160,19 @@ class SingleAnalysisRequest(BaseModel):
     symbol: Optional[str] = Field(None, description="6位股票代码")
     stock_code: Optional[str] = Field(None, description="股票代码(已废弃,使用symbol)")
     parameters: Optional[AnalysisParameters] = None
+
+    @model_validator(mode="after")
+    def _validate_symbol_present(self) -> "SingleAnalysisRequest":
+        """确保 symbol 和 stock_code 至少一个非空。
+
+        对比 AddFavoriteRequest 的 model_validator 做法：不允许两个符号字段
+        同时为空，避免创建无意义空符号分析任务浪费后台资源。
+        """
+        if not (self.symbol and self.symbol.strip()) and not (
+            self.stock_code and self.stock_code.strip()
+        ):
+            raise ValueError("symbol 和 stock_code 不能同时为空，至少提供一个")
+        return self
 
     def get_symbol(self) -> str:
         """获取股票代码(兼容旧字段)"""

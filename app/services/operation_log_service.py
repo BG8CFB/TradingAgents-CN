@@ -3,6 +3,7 @@
 """
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 from bson import ObjectId
@@ -103,10 +104,11 @@ class OperationLogService:
             
             # 关键词搜索
             if query.keyword:
+                escaped_keyword = re.escape(query.keyword)
                 filter_query["$or"] = [
-                    {"action": {"$regex": query.keyword, "$options": "i"}},
-                    {"username": {"$regex": query.keyword, "$options": "i"}},
-                    {"details.stock_symbol": {"$regex": query.keyword, "$options": "i"}}
+                    {"action": {"$regex": escaped_keyword, "$options": "i"}},
+                    {"username": {"$regex": escaped_keyword, "$options": "i"}},
+                    {"details.stock_symbol": {"$regex": escaped_keyword, "$options": "i"}}
                 ]
             
             # 获取总数

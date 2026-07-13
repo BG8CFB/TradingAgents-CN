@@ -2,22 +2,94 @@
 大模型配置与厂家管理服务
 """
 
+import ipaddress
+import socket
 import time
 import asyncio
 import logging
 import re
 from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
 
 from bson import ObjectId
 
 from app.core.database import get_mongo_db
-from app.models.config import (
-    LLMConfig, LLMProvider
-)
+from app.models.config import LLMConfig, LLMProvider
 from app.utils.timezone import now_tz
 from app.utils.api_key_utils import is_valid_api_key
 
 logger = logging.getLogger(__name__)
+
+
+# ── SSRF 防御：校验 base_url 不指向内网/回环/元数据地址 ──
+_BANNED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),  # IPv4 loopback
+    ipaddress.ip_network("10.0.0.0/8"),  # RFC1918
+    ipaddress.ip_network("172.16.0.0/12"),  # RFC1918
+    ipaddress.ip_network("192.168.0.0/16"),  # RFC1918
+    ipaddress.ip_network(
+        "169.254.0.0/16"
+    ),  # link-local（含 AWS metadata 169.254.169.254）
+    ipaddress.ip_network("0.0.0.0/8"),  # "this network"
+    ipaddress.ip_network("::1/128"),  # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),  # IPv6 ULA
+    ipaddress.ip_network("fe80::/10"),  # IPv6 link-local
+]
+
+
+def _validate_llm_base_url(base_url: str) -> None:
+    """校验 LLM base_url，拒绝指向内网/回环/元数据地址的 URL（防 SSRF）。
+
+    Args:
+        base_url: 用户配置的 API 基础 URL
+
+    Raises:
+        ValueError: URL 协议非法或 hostname 指向受保护网段
+    """
+    if not base_url or not base_url.strip():
+        raise ValueError("base_url 不能为空")
+
+    parsed = urlparse(base_url.strip())
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"不支持的 URL 协议: {parsed.scheme!r}，仅允许 http/https")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL 缺少 hostname")
+
+    # 拒绝 localhost
+    if hostname.lower() == "localhost":
+        raise ValueError("禁止使用 localhost 作为目标地址")
+
+    # 如果 hostname 是 IP 地址，直接检查网段
+    try:
+        ip_obj = ipaddress.ip_address(hostname)
+    except ValueError:
+        # 不是 IP 字面量，是域名 → 尝试 DNS 解析后检查
+        try:
+            resolved = socket.getaddrinfo(hostname, None)
+        except socket.gaierror:
+            # 无法解析的域名允许通过（可能是测试时的假域名，后续 requests 会自然失败）
+            return
+        for family, _, _, _, sockaddr in resolved:
+            addr = sockaddr[0]
+            try:
+                ip_obj = ipaddress.ip_address(addr)
+            except ValueError:
+                continue
+            for network in _BANNED_NETWORKS:
+                if ip_obj in network:
+                    raise ValueError(
+                        f"域名 {hostname} 解析到受保护内网地址 {addr}，已拒绝"
+                    )
+        return
+
+    # hostname 是 IP 字面量
+    for network in _BANNED_NETWORKS:
+        if ip_obj in network:
+            raise ValueError(
+                f"目标地址 {hostname} 属于受保护网段 {network}，已拒绝（防 SSRF）"
+            )
 
 
 class LLMService:
@@ -44,12 +116,15 @@ class LLMService:
             db = await self._get_db()
             config_collection = db.system_configs
             config_data = await config_collection.find_one(
-                {"is_active": True},
-                sort=[("version", -1)]
+                {"is_active": True}, sort=[("version", -1)]
             )
             if config_data:
-                config_data.setdefault('config_name', config_data.get('config_name', 'bridged'))
-                config_data.setdefault('config_type', config_data.get('config_type', 'system'))
+                config_data.setdefault(
+                    "config_name", config_data.get("config_name", "bridged")
+                )
+                config_data.setdefault(
+                    "config_type", config_data.get("config_type", "system")
+                )
                 return SystemConfig(**config_data)
             return None
         except Exception as e:
@@ -70,9 +145,9 @@ class LLMService:
             config.version += 1
 
             config_dict = config.model_dump(by_alias=True)
-            if '_id' in config_dict:
-                del config_dict['_id']
-            config_dict['is_active'] = True
+            if "_id" in config_dict:
+                del config_dict["_id"]
+            config_dict["is_active"] = True
 
             # 尝试使用事务（需要 MongoDB 副本集）
             try:
@@ -128,7 +203,9 @@ class LLMService:
         匹配条件：provider 大小写不敏感，model_name 精确匹配。
         """
         try:
-            logger.info(f"🗑️ 删除大模型配置 - provider: {provider}, model_name: {model_name}")
+            logger.info(
+                f"🗑️ 删除大模型配置 - provider: {provider}, model_name: {model_name}"
+            )
 
             config = await self._get_system_config()
             if not config:
@@ -139,8 +216,12 @@ class LLMService:
 
             # provider 大小写不敏感匹配，model_name 精确匹配
             config.llm_configs = [
-                llm for llm in config.llm_configs
-                if not (str(llm.provider).lower() == provider.lower() and llm.model_name == model_name)
+                llm
+                for llm in config.llm_configs
+                if not (
+                    str(llm.provider).lower() == provider.lower()
+                    and llm.model_name == model_name
+                )
             ]
 
             new_count = len(config.llm_configs)
@@ -152,7 +233,9 @@ class LLMService:
 
             save_result = await self._save_system_config(config)
             if not save_result:
-                logger.error(f"💾 保存失败: provider={provider}, model_name={model_name}")
+                logger.error(
+                    f"💾 保存失败: provider={provider}, model_name={model_name}"
+                )
             return save_result
 
         except Exception as e:
@@ -186,9 +269,12 @@ class LLMService:
         """测试大模型配置 - 真实调用API进行验证"""
         start_time = time.time()
         try:
-
             # 获取 provider 字符串值（兼容枚举和字符串）
-            provider_str = llm_config.provider.value if hasattr(llm_config.provider, 'value') else str(llm_config.provider)
+            provider_str = (
+                llm_config.provider.value
+                if hasattr(llm_config.provider, "value")
+                else str(llm_config.provider)
+            )
 
             logger.info(f"🧪 测试大模型配置: {provider_str} - {llm_config.model_name}")
             logger.info(f"📍 API基础URL (模型配置): {llm_config.api_base}")
@@ -210,7 +296,7 @@ class LLMService:
                         "success": False,
                         "message": "模型配置和厂家配置都未设置 API 基础 URL",
                         "response_time": time.time() - start_time,
-                        "details": None
+                        "details": None,
                     }
 
             # 2. 验证 API Key
@@ -228,26 +314,47 @@ class LLMService:
                     "success": False,
                     "message": f"{provider_str} 未配置API密钥",
                     "response_time": time.time() - start_time,
-                    "details": None
+                    "details": None,
                 }
 
-            # 3. 根据厂家类型选择测试方法
+            # 3. 根据厂家类型选择测试方法（全部经线程池执行，避免阻塞事件循环）
+            loop = asyncio.get_running_loop()
             if provider_str == "google":
                 # Google AI 使用专门的测试方法
                 logger.info("🔍 使用 Google AI 专用测试方法")
-                result = self._test_google_api(api_key, f"{provider_str} {llm_config.model_name}", api_base, llm_config.model_name)
+                result = await loop.run_in_executor(
+                    None,
+                    self._test_google_api,
+                    api_key,
+                    f"{provider_str} {llm_config.model_name}",
+                    api_base,
+                    llm_config.model_name,
+                )
                 result["response_time"] = time.time() - start_time
                 return result
             elif provider_str == "deepseek":
                 # DeepSeek 使用专门的测试方法
                 logger.info("🔍 使用 DeepSeek 专用测试方法")
-                result = self._test_deepseek_api(api_key, f"{provider_str} {llm_config.model_name}", llm_config.model_name, api_base)
+                result = await loop.run_in_executor(
+                    None,
+                    self._test_deepseek_api,
+                    api_key,
+                    f"{provider_str} {llm_config.model_name}",
+                    llm_config.model_name,
+                    api_base,
+                )
                 result["response_time"] = time.time() - start_time
                 return result
             elif provider_str == "dashscope":
                 # DashScope 使用专门的测试方法
                 logger.info("🔍 使用 DashScope 专用测试方法")
-                result = self._test_dashscope_api(api_key, f"{provider_str} {llm_config.model_name}", llm_config.model_name)
+                result = await loop.run_in_executor(
+                    None,
+                    self._test_dashscope_api,
+                    api_key,
+                    f"{provider_str} {llm_config.model_name}",
+                    llm_config.model_name,
+                )
                 result["response_time"] = time.time() - start_time
                 return result
             else:
@@ -256,7 +363,11 @@ class LLMService:
                 result = await asyncio.get_running_loop().run_in_executor(
                     None,
                     self._test_openai_compatible_config,
-                    api_base, api_key, provider_str, llm_config.model_name, start_time,
+                    api_base,
+                    api_key,
+                    provider_str,
+                    llm_config.model_name,
+                    start_time,
                 )
                 return result
 
@@ -267,10 +378,12 @@ class LLMService:
                 "success": False,
                 "message": f"连接失败: {str(e)}",
                 "response_time": response_time,
-                "details": None
+                "details": None,
             }
 
-    def _truncate_api_key(self, api_key: str, prefix_len: int = 6, suffix_len: int = 6) -> str:
+    def _truncate_api_key(
+        self, api_key: str, prefix_len: int = 6, suffix_len: int = 6
+    ) -> str:
         """
         截断 API Key 用于显示
 
@@ -288,28 +401,39 @@ class LLMService:
         return f"{api_key[:prefix_len]}...{api_key[-suffix_len:]}"
 
     def _test_openai_compatible_config(
-        self, api_base: str, api_key: str, provider_str: str, model_name: str, start_time: float
+        self,
+        api_base: str,
+        api_key: str,
+        provider_str: str,
+        model_name: str,
+        start_time: float,
     ) -> Dict[str, Any]:
         """同步测试 OpenAI 兼容 API 配置（在 run_in_executor 中调用）"""
         try:
             import requests
 
+            # SSRF 防御：校验用户配置的 api_base
+            _validate_llm_base_url(api_base)
+
             api_base_normalized = api_base.rstrip("/")
-            if not re.search(r'/v\d+$', api_base_normalized):
+            if not re.search(r"/v\d+$", api_base_normalized):
                 api_base_normalized = api_base_normalized + "/v1"
 
             url = f"{api_base_normalized}/chat/completions"
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
+                "Authorization": f"Bearer {api_key}",
             }
             data = {
                 "model": model_name,
                 "messages": [
-                    {"role": "user", "content": "Hello, please respond with 'OK' if you can read this."}
+                    {
+                        "role": "user",
+                        "content": "Hello, please respond with 'OK' if you can read this.",
+                    }
                 ],
                 "max_tokens": 200,
-                "temperature": 0.1
+                "temperature": 0.1,
             }
 
             logger.info(f"发送测试请求到: {url}, 模型: {model_name}")
@@ -329,34 +453,86 @@ class LLMService:
                                 "provider": provider_str,
                                 "model": model_name,
                                 "api_base": api_base,
-                                "response_preview": content[:100]
-                            }
+                                "response_preview": content[:100],
+                            },
                         }
                     else:
-                        return {"success": False, "message": "API响应内容为空", "response_time": response_time, "details": None}
+                        return {
+                            "success": False,
+                            "message": "API响应内容为空",
+                            "response_time": response_time,
+                            "details": None,
+                        }
                 else:
-                    return {"success": False, "message": "API响应格式异常", "response_time": response_time, "details": None}
+                    return {
+                        "success": False,
+                        "message": "API响应格式异常",
+                        "response_time": response_time,
+                        "details": None,
+                    }
             elif response.status_code == 401:
-                return {"success": False, "message": "API密钥无效或已过期", "response_time": response_time, "details": None}
+                return {
+                    "success": False,
+                    "message": "API密钥无效或已过期",
+                    "response_time": response_time,
+                    "details": None,
+                }
             elif response.status_code == 403:
-                return {"success": False, "message": "API权限不足或配额已用完", "response_time": response_time, "details": None}
+                return {
+                    "success": False,
+                    "message": "API权限不足或配额已用完",
+                    "response_time": response_time,
+                    "details": None,
+                }
             elif response.status_code == 404:
-                return {"success": False, "message": f"API端点不存在，请检查API基础URL是否正确: {url}", "response_time": response_time, "details": None}
+                return {
+                    "success": False,
+                    "message": f"API端点不存在，请检查API基础URL是否正确: {url}",
+                    "response_time": response_time,
+                    "details": None,
+                }
             else:
                 try:
                     error_detail = response.json()
-                    error_msg = error_detail.get("error", {}).get("message", f"HTTP {response.status_code}")
-                    return {"success": False, "message": f"API测试失败: {error_msg}", "response_time": response_time, "details": None}
+                    error_msg = error_detail.get("error", {}).get(
+                        "message", f"HTTP {response.status_code}"
+                    )
+                    return {
+                        "success": False,
+                        "message": f"API测试失败: {error_msg}",
+                        "response_time": response_time,
+                        "details": None,
+                    }
                 except Exception as e:
                     logger.debug(f"解析API错误响应失败: {e}")
-                    return {"success": False, "message": f"API测试失败: HTTP {response.status_code}", "response_time": response_time, "details": None}
+                    return {
+                        "success": False,
+                        "message": f"API测试失败: HTTP {response.status_code}",
+                        "response_time": response_time,
+                        "details": None,
+                    }
 
         except requests.exceptions.Timeout:
-            return {"success": False, "message": "连接超时，请检查API基础URL是否正确或网络是否可达", "response_time": time.time() - start_time, "details": None}
+            return {
+                "success": False,
+                "message": "连接超时，请检查API基础URL是否正确或网络是否可达",
+                "response_time": time.time() - start_time,
+                "details": None,
+            }
         except requests.exceptions.ConnectionError as e:
-            return {"success": False, "message": f"连接失败，请检查API基础URL是否正确: {str(e)}", "response_time": time.time() - start_time, "details": None}
+            return {
+                "success": False,
+                "message": f"连接失败，请检查API基础URL是否正确: {str(e)}",
+                "response_time": time.time() - start_time,
+                "details": None,
+            }
         except Exception as e:
-            return {"success": False, "message": f"连接失败: {str(e)}", "response_time": time.time() - start_time, "details": None}
+            return {
+                "success": False,
+                "message": f"连接失败: {str(e)}",
+                "response_time": time.time() - start_time,
+                "details": None,
+            }
 
     # ==================== LLM 厂家管理 ====================
 
@@ -369,14 +545,18 @@ class LLMService:
             providers_data = await providers_collection.find().to_list(length=None)
             providers = []
 
-            logger.info(f"🔍 [get_llm_providers] 从数据库获取到 {len(providers_data)} 个供应商")
+            logger.info(
+                f"🔍 [get_llm_providers] 从数据库获取到 {len(providers_data)} 个供应商"
+            )
 
             for provider_data in providers_data:
                 provider = LLMProvider(**provider_data)
 
                 # 为了支持本地AI模型，不再验证API Key的有效性
                 db_key_valid = True  # 总是有效
-                logger.info(f"🔍 [get_llm_providers] 供应商 {provider.display_name} ({provider.name}): 数据库密钥有效={db_key_valid}")
+                logger.info(
+                    f"🔍 [get_llm_providers] 供应商 {provider.display_name} ({provider.name}): 数据库密钥有效={db_key_valid}"
+                )
 
                 # 初始化 extra_config
                 provider.extra_config = provider.extra_config or {}
@@ -384,7 +564,9 @@ class LLMService:
                 # 为了支持本地AI模型，总是使用数据库配置的API Key（即使为空）
                 provider.extra_config["source"] = "database"
                 provider.extra_config["has_api_key"] = bool(provider.api_key)
-                logger.info(f"✅ [get_llm_providers] 使用数据库配置的 {provider.display_name} API密钥 (长度: {len(provider.api_key) if provider.api_key else 0})")
+                logger.info(
+                    f"✅ [get_llm_providers] 使用数据库配置的 {provider.display_name} API密钥 (长度: {len(provider.api_key) if provider.api_key else 0})"
+                )
 
                 providers.append(provider)
 
@@ -425,7 +607,9 @@ class LLMService:
             logger.error(f"添加厂家失败: {e}")
             raise
 
-    async def update_llm_provider(self, provider_id: str, update_data: Dict[str, Any]) -> bool:
+    async def update_llm_provider(
+        self, provider_id: str, update_data: Dict[str, Any]
+    ) -> bool:
         """更新大模型厂家"""
         try:
             db = await self._get_db()
@@ -437,22 +621,19 @@ class LLMService:
             try:
                 # 先尝试作为 ObjectId 查询
                 result = await providers_collection.update_one(
-                    {"_id": ObjectId(provider_id)},
-                    {"$set": update_data}
+                    {"_id": ObjectId(provider_id)}, {"$set": update_data}
                 )
 
                 # 如果没有匹配到，再尝试作为字符串查询
                 if result.matched_count == 0:
                     result = await providers_collection.update_one(
-                        {"_id": provider_id},
-                        {"$set": update_data}
+                        {"_id": provider_id}, {"$set": update_data}
                     )
             except Exception as e:
                 logger.debug(f"ObjectId转换失败，使用字符串查询: {e}")
                 # 如果 ObjectId 转换失败，直接用字符串查询
                 result = await providers_collection.update_one(
-                    {"_id": provider_id},
-                    {"$set": update_data}
+                    {"_id": provider_id}, {"$set": update_data}
                 )
 
             # 修复：matched_count > 0 表示找到了记录（即使没有修改）
@@ -476,7 +657,9 @@ class LLMService:
             providers_collection = db.llm_providers
 
             # 兼容两种 _id 格式：ObjectId 优先（标准），字符串兜底（历史数据）
-            existing = await providers_collection.find_one({"_id": ObjectId(provider_id)})
+            existing = await providers_collection.find_one(
+                {"_id": ObjectId(provider_id)}
+            )
             delete_filter: dict
             if existing is not None:
                 delete_filter = {"_id": ObjectId(provider_id)}
@@ -493,7 +676,9 @@ class LLMService:
             result = await providers_collection.delete_one(delete_filter)
             success = result.deleted_count > 0
 
-            logger.info(f"🗑️ 删除结果: success={success}, deleted_count={result.deleted_count}")
+            logger.info(
+                f"🗑️ 删除结果: success={success}, deleted_count={result.deleted_count}"
+            )
             return success
 
         except Exception as e:
@@ -512,21 +697,21 @@ class LLMService:
                 # 先尝试作为 ObjectId 查询
                 result = await providers_collection.update_one(
                     {"_id": ObjectId(provider_id)},
-                    {"$set": {"is_active": is_active, "updated_at": now_tz()}}
+                    {"$set": {"is_active": is_active, "updated_at": now_tz()}},
                 )
 
                 # 如果没有匹配到，再尝试作为字符串查询
                 if result.matched_count == 0:
                     result = await providers_collection.update_one(
                         {"_id": provider_id},
-                        {"$set": {"is_active": is_active, "updated_at": now_tz()}}
+                        {"$set": {"is_active": is_active, "updated_at": now_tz()}},
                     )
             except Exception as e:
                 logger.debug(f"ObjectId转换失败，使用字符串查询: {e}")
                 # 如果 ObjectId 转换失败，直接用字符串查询
                 result = await providers_collection.update_one(
                     {"_id": provider_id},
-                    {"$set": {"is_active": is_active, "updated_at": now_tz()}}
+                    {"$set": {"is_active": is_active, "updated_at": now_tz()}},
                 )
 
             return result.matched_count > 0
@@ -565,14 +750,15 @@ class LLMService:
                         update_data = {
                             "api_key": api_key,
                             "is_active": True,  # 有 API Key 则自动启用
-                            "updated_at": now_tz()
+                            "updated_at": now_tz(),
                         }
                         await providers_collection.update_one(
-                            {"name": provider_name},
-                            {"$set": update_data}
+                            {"name": provider_name}, {"$set": update_data}
                         )
                         updated_count += 1
-                        logger.info(f"✅ 更新聚合渠道 {config['display_name']} 的 API Key")
+                        logger.info(
+                            f"✅ 更新聚合渠道 {config['display_name']} 的 API Key"
+                        )
                     else:
                         skipped_count += 1
                         logger.info(f"⏭️ 聚合渠道 {config['display_name']} 已存在，跳过")
@@ -587,18 +773,25 @@ class LLMService:
                     "api_doc_url": config.get("api_doc_url"),
                     "default_base_url": config["default_base_url"],
                     "is_active": bool(api_key),  # 有 API Key 则自动启用
-                    "supported_features": ["chat", "completion", "function_calling", "streaming"],
+                    "supported_features": [
+                        "chat",
+                        "completion",
+                        "function_calling",
+                        "streaming",
+                    ],
                     "api_key": api_key or "",
                     "extra_config": {
                         "supported_providers": config.get("supported_providers", []),
-                        "source": "environment" if api_key else "manual"
+                        "source": "environment" if api_key else "manual",
                     },
                     # 🆕 聚合渠道标识
                     "is_aggregator": True,
                     "aggregator_type": "openai_compatible",
-                    "model_name_format": config.get("model_name_format", "{provider}/{model}"),
+                    "model_name_format": config.get(
+                        "model_name_format", "{provider}/{model}"
+                    ),
                     "created_at": now_tz(),
-                    "updated_at": now_tz()
+                    "updated_at": now_tz(),
                 }
 
                 provider = LLMProvider(**provider_data)
@@ -610,9 +803,13 @@ class LLMService:
                 added_count += 1
 
                 if api_key:
-                    logger.info(f"✅ 添加聚合渠道: {config['display_name']} (已从环境变量获取 API Key)")
+                    logger.info(
+                        f"✅ 添加聚合渠道: {config['display_name']} (已从环境变量获取 API Key)"
+                    )
                 else:
-                    logger.info(f"✅ 添加聚合渠道: {config['display_name']} (需手动配置 API Key)")
+                    logger.info(
+                        f"✅ 添加聚合渠道: {config['display_name']} (需手动配置 API Key)"
+                    )
 
             message_parts = []
             if added_count > 0:
@@ -627,17 +824,13 @@ class LLMService:
                 "added": added_count,
                 "updated": updated_count,
                 "skipped": skipped_count,
-                "message": "，".join(message_parts) if message_parts else "无变更"
+                "message": "，".join(message_parts) if message_parts else "无变更",
             }
 
         except Exception as e:
             logger.error(f"❌ 初始化聚合渠道失败: {e}")
             logger.error("初始化聚合渠道失败", exc_info=True)
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "初始化聚合渠道失败"
-            }
+            return {"success": False, "error": str(e), "message": "初始化聚合渠道失败"}
 
     async def migrate_env_to_providers(self) -> Dict[str, Any]:
         """将环境变量配置迁移到厂家管理"""
@@ -654,7 +847,15 @@ class LLMService:
                     "website": "https://openai.com",
                     "api_doc_url": "https://platform.openai.com/docs",
                     "default_base_url": "https://api.openai.com/v1",
-                    "supported_features": ["chat", "completion", "embedding", "image", "vision", "function_calling", "streaming"]
+                    "supported_features": [
+                        "chat",
+                        "completion",
+                        "embedding",
+                        "image",
+                        "vision",
+                        "function_calling",
+                        "streaming",
+                    ],
                 },
                 {
                     "name": "anthropic",
@@ -663,7 +864,12 @@ class LLMService:
                     "website": "https://anthropic.com",
                     "api_doc_url": "https://docs.anthropic.com",
                     "default_base_url": "https://api.anthropic.com",
-                    "supported_features": ["chat", "completion", "function_calling", "streaming"]
+                    "supported_features": [
+                        "chat",
+                        "completion",
+                        "function_calling",
+                        "streaming",
+                    ],
                 },
                 {
                     "name": "dashscope",
@@ -672,7 +878,13 @@ class LLMService:
                     "website": "https://bailian.console.aliyun.com",
                     "api_doc_url": "https://help.aliyun.com/zh/dashscope/",
                     "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    "supported_features": ["chat", "completion", "embedding", "function_calling", "streaming"]
+                    "supported_features": [
+                        "chat",
+                        "completion",
+                        "embedding",
+                        "function_calling",
+                        "streaming",
+                    ],
                 },
                 {
                     "name": "deepseek",
@@ -681,8 +893,13 @@ class LLMService:
                     "website": "https://www.deepseek.com",
                     "api_doc_url": "https://platform.deepseek.com/api-docs",
                     "default_base_url": "https://api.deepseek.com",
-                    "supported_features": ["chat", "completion", "function_calling", "streaming"]
-                }
+                    "supported_features": [
+                        "chat",
+                        "completion",
+                        "function_calling",
+                        "streaming",
+                    ],
+                },
             ]
 
             migrated_count = 0
@@ -694,7 +911,9 @@ class LLMService:
                 api_key = None
 
                 # 检查是否已存在
-                existing = await providers_collection.find_one({"name": provider_config["name"]})
+                existing = await providers_collection.find_one(
+                    {"name": provider_config["name"]}
+                )
 
                 if existing:
                     # 如果已存在但没有API密钥，且环境变量中有密钥，则更新
@@ -703,17 +922,20 @@ class LLMService:
                             "api_key": api_key,
                             "is_active": True,
                             "extra_config": {"migrated_from": "environment"},
-                            "updated_at": now_tz()
+                            "updated_at": now_tz(),
                         }
                         await providers_collection.update_one(
-                            {"name": provider_config["name"]},
-                            {"$set": update_data}
+                            {"name": provider_config["name"]}, {"$set": update_data}
                         )
                         updated_count += 1
-                        logger.info(f"✅ 更新厂家 {provider_config['display_name']} 的API密钥")
+                        logger.info(
+                            f"✅ 更新厂家 {provider_config['display_name']} 的API密钥"
+                        )
                     else:
                         skipped_count += 1
-                        logger.info(f"⏭️ 跳过厂家 {provider_config['display_name']} (已有配置)")
+                        logger.info(
+                            f"⏭️ 跳过厂家 {provider_config['display_name']} (已有配置)"
+                        )
                     continue
 
                 # 创建新厂家配置
@@ -723,7 +945,7 @@ class LLMService:
                     "is_active": bool(api_key),  # 有密钥的自动启用
                     "extra_config": {"migrated_from": "environment"} if api_key else {},
                     "created_at": now_tz(),
-                    "updated_at": now_tz()
+                    "updated_at": now_tz(),
                 }
 
                 await providers_collection.insert_one(provider_data)
@@ -749,16 +971,12 @@ class LLMService:
                 "migrated_count": migrated_count,
                 "updated_count": updated_count,
                 "skipped_count": skipped_count,
-                "message": message
+                "message": message,
             }
 
         except Exception as e:
             logger.error(f"环境变量迁移失败: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "环境变量迁移失败"
-            }
+            return {"success": False, "error": str(e), "message": "环境变量迁移失败"}
 
     # ==================== 厂家 API 测试 ====================
 
@@ -774,41 +992,45 @@ class LLMService:
             provider_data = None
             try:
                 # 先尝试作为 ObjectId 查询
-                provider_data = await providers_collection.find_one({"_id": ObjectId(provider_id)})
+                provider_data = await providers_collection.find_one(
+                    {"_id": ObjectId(provider_id)}
+                )
             except Exception as e:
                 logger.debug(f"ObjectId查询失败: {e}")
                 pass
 
             # 如果没有找到，再尝试作为字符串查询
             if not provider_data:
-                provider_data = await providers_collection.find_one({"_id": provider_id})
+                provider_data = await providers_collection.find_one(
+                    {"_id": provider_id}
+                )
 
             if not provider_data:
-                return {
-                    "success": False,
-                    "message": f"厂家不存在 (ID: {provider_id})"
-                }
+                return {"success": False, "message": f"厂家不存在 (ID: {provider_id})"}
 
             provider_name = provider_data.get("name")
             api_key = provider_data.get("api_key")
             display_name = provider_data.get("display_name", provider_name)
 
             # 为了支持本地AI模型，直接使用数据库配置的API Key（可以为空）
-            logger.info(f"✅ 使用数据库配置的 {display_name} API密钥 (长度: {len(api_key) if api_key else 0})")
+            logger.info(
+                f"✅ 使用数据库配置的 {display_name} API密钥 (长度: {len(api_key) if api_key else 0})"
+            )
 
             # 根据厂家类型调用相应的测试函数
-            test_result = await self._test_provider_connection(provider_name, api_key, display_name)
+            test_result = await self._test_provider_connection(
+                provider_name, api_key, display_name
+            )
 
             return test_result
 
         except Exception as e:
             logger.error(f"测试厂家API失败: {e}")
-            return {
-                "success": False,
-                "message": f"测试失败: {str(e)}"
-            }
+            return {"success": False, "message": f"测试失败: {str(e)}"}
 
-    async def _test_provider_connection(self, provider_name: str, api_key: str, display_name: str) -> dict:
+    async def _test_provider_connection(
+        self, provider_name: str, api_key: str, display_name: str
+    ) -> dict:
         """测试具体厂家的连接"""
         try:
             # 聚合渠道（使用 OpenAI 兼容 API）
@@ -816,60 +1038,106 @@ class LLMService:
                 # 获取厂家的 base_url
                 db = await self._get_db()
                 providers_collection = db.llm_providers
-                provider_data = await providers_collection.find_one({"name": provider_name})
-                base_url = provider_data.get("default_base_url") if provider_data else None
+                provider_data = await providers_collection.find_one(
+                    {"name": provider_name}
+                )
+                base_url = (
+                    provider_data.get("default_base_url") if provider_data else None
+                )
                 return await asyncio.get_running_loop().run_in_executor(
-                    None, self._test_openai_compatible_api, api_key, display_name, base_url, provider_name
+                    None,
+                    self._test_openai_compatible_api,
+                    api_key,
+                    display_name,
+                    base_url,
+                    provider_name,
                 )
             elif provider_name == "google":
                 # 获取厂家的 base_url
                 db = await self._get_db()
                 providers_collection = db.llm_providers
-                provider_data = await providers_collection.find_one({"name": provider_name})
-                base_url = provider_data.get("default_base_url") if provider_data else None
-                return await asyncio.get_running_loop().run_in_executor(None, self._test_google_api, api_key, display_name, base_url)
+                provider_data = await providers_collection.find_one(
+                    {"name": provider_name}
+                )
+                base_url = (
+                    provider_data.get("default_base_url") if provider_data else None
+                )
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, self._test_google_api, api_key, display_name, base_url
+                )
             elif provider_name == "deepseek":
                 # 获取厂家的 base_url
                 db = await self._get_db()
                 providers_collection = db.llm_providers
-                provider_data = await providers_collection.find_one({"name": provider_name})
-                base_url = provider_data.get("default_base_url") if provider_data else None
-                return await asyncio.get_running_loop().run_in_executor(None, self._test_deepseek_api, api_key, display_name, None, base_url)
+                provider_data = await providers_collection.find_one(
+                    {"name": provider_name}
+                )
+                base_url = (
+                    provider_data.get("default_base_url") if provider_data else None
+                )
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, self._test_deepseek_api, api_key, display_name, None, base_url
+                )
             elif provider_name == "dashscope":
-                return await asyncio.get_running_loop().run_in_executor(None, self._test_dashscope_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, self._test_dashscope_api, api_key, display_name
+                )
             elif provider_name == "openrouter":
-                return await asyncio.get_running_loop().run_in_executor(None, self._test_openrouter_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, self._test_openrouter_api, api_key, display_name
+                )
             elif provider_name == "openai":
-                return await asyncio.get_running_loop().run_in_executor(None, self._test_openai_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, self._test_openai_api, api_key, display_name
+                )
             elif provider_name == "anthropic":
-                return await asyncio.get_running_loop().run_in_executor(None, self._test_anthropic_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, self._test_anthropic_api, api_key, display_name
+                )
             elif provider_name == "qianfan":
-                return await asyncio.get_running_loop().run_in_executor(None, self._test_qianfan_api, api_key, display_name)
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, self._test_qianfan_api, api_key, display_name
+                )
             else:
                 # 🔧 对于未知的自定义厂家，使用 OpenAI 兼容 API 测试
                 logger.info(f"🔍 使用 OpenAI 兼容 API 测试自定义厂家: {provider_name}")
                 # 获取厂家的 base_url
                 db = await self._get_db()
                 providers_collection = db.llm_providers
-                provider_data = await providers_collection.find_one({"name": provider_name})
-                base_url = provider_data.get("default_base_url") if provider_data else None
+                provider_data = await providers_collection.find_one(
+                    {"name": provider_name}
+                )
+                base_url = (
+                    provider_data.get("default_base_url") if provider_data else None
+                )
 
                 if not base_url:
                     return {
                         "success": False,
-                        "message": f"自定义厂家 {display_name} 未配置 API 基础 URL"
+                        "message": f"自定义厂家 {display_name} 未配置 API 基础 URL",
                     }
 
                 return await asyncio.get_running_loop().run_in_executor(
-                    None, self._test_openai_compatible_api, api_key, display_name, base_url, provider_name
+                    None,
+                    self._test_openai_compatible_api,
+                    api_key,
+                    display_name,
+                    base_url,
+                    provider_name,
                 )
         except Exception as e:
             return {
                 "success": False,
-                "message": f"{display_name} 连接测试失败: {str(e)}"
+                "message": f"{display_name} 连接测试失败: {str(e)}",
             }
 
-    def _test_google_api(self, api_key: str, display_name: str, base_url: str = None, model_name: str = None) -> dict:
+    def _test_google_api(
+        self,
+        api_key: str,
+        display_name: str,
+        base_url: str = None,
+        model_name: str = None,
+    ) -> dict:
         """测试Google AI API"""
         try:
             import requests
@@ -890,35 +1158,41 @@ class LLMService:
                 base_url = "https://generativelanguage.googleapis.com/v1beta"
                 logger.info(f"   ⚠️ base_url 为空，使用默认值: {base_url}")
 
+            # SSRF 防御：校验 base_url（含默认值）
+            _validate_llm_base_url(base_url)
+
             # 移除末尾的斜杠
-            base_url = base_url.rstrip('/')
+            base_url = base_url.rstrip("/")
             logger.info(f"   base_url (去除斜杠): {base_url}")
 
             # 如果 base_url 以 /v1 结尾，替换为 /v1beta（Google AI 的正确端点）
-            if base_url.endswith('/v1'):
-                base_url = base_url[:-3] + '/v1beta'
+            if base_url.endswith("/v1"):
+                base_url = base_url[:-3] + "/v1beta"
                 logger.info(f"   ✅ 将 /v1 替换为 /v1beta: {base_url}")
 
             # 构建完整的 API 端点（使用用户配置的模型）
-            url = f"{base_url}/models/{model_name}:generateContent?key={api_key}"
+            # 不再将 api_key 拼到 URL query，改用 header 传递，避免凭据泄露到日志/访问记录
+            url = f"{base_url}/models/{model_name}:generateContent"
 
-            logger.info(f"🔗 [Google AI 测试] 最终请求 URL: {url.replace(api_key, '***') if api_key else url}")
+            logger.info(f"🔗 [Google AI 测试] 最终请求 URL: {url}")
 
             headers = {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
             }
 
             # 🔧 增加 token 限制到 2000，避免思考模式消耗导致无输出
             data = {
-                "contents": [{
-                    "parts": [{
-                        "text": "Hello, please respond with 'OK' if you can read this."
-                    }]
-                }],
-                "generationConfig": {
-                    "maxOutputTokens": 2000,
-                    "temperature": 0.1
-                }
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": "Hello, please respond with 'OK' if you can read this."
+                            }
+                        ]
+                    }
+                ],
+                "generationConfig": {"maxOutputTokens": 2000, "temperature": 0.1},
             }
 
             response = requests.post(url, json=data, headers=headers, timeout=15)
@@ -927,7 +1201,9 @@ class LLMService:
 
             if response.status_code == 200:
                 # 打印完整的响应内容用于调试
-                logger.info(f"📥 [Google AI 测试] 响应内容（前1000字符）: {response.text[:1000]}")
+                logger.info(
+                    f"📥 [Google AI 测试] 响应内容（前1000字符）: {response.text[:1000]}"
+                )
 
                 result = response.json()
                 logger.info("📥 [Google AI 测试] 解析后的 JSON 结构:")
@@ -935,8 +1211,10 @@ class LLMService:
                 logger.info(f"   - 是否包含 'candidates': {'candidates' in result}")
                 if "candidates" in result:
                     logger.info(f"   - candidates 长度: {len(result['candidates'])}")
-                    if len(result['candidates']) > 0:
-                        logger.info(f"   - candidates[0] 的键: {list(result['candidates'][0].keys())}")
+                    if len(result["candidates"]) > 0:
+                        logger.info(
+                            f"   - candidates[0] 的键: {list(result['candidates'][0].keys())}"
+                        )
 
                 if "candidates" in result and len(result["candidates"]) > 0:
                     candidate = result["candidates"][0]
@@ -957,13 +1235,13 @@ class LLMService:
                             if text and len(text.strip()) > 0:
                                 return {
                                     "success": True,
-                                    "message": f"{display_name} API连接测试成功"
+                                    "message": f"{display_name} API连接测试成功",
                                 }
                             else:
                                 logger.error("❌ [Google AI 测试] 文本为空")
                                 return {
                                     "success": False,
-                                    "message": f"{display_name} API响应内容为空"
+                                    "message": f"{display_name} API响应内容为空",
                                 }
                         else:
                             # content 中没有 parts，可能是因为 MAX_TOKENS 或其他原因
@@ -973,49 +1251,57 @@ class LLMService:
                             if finish_reason == "MAX_TOKENS":
                                 return {
                                     "success": False,
-                                    "message": f"{display_name} API响应被截断（MAX_TOKENS），请增加 maxOutputTokens 配置"
+                                    "message": f"{display_name} API响应被截断（MAX_TOKENS），请增加 maxOutputTokens 配置",
                                 }
                             else:
                                 return {
                                     "success": False,
-                                    "message": f"{display_name} API响应格式异常（缺少 parts，finishReason: {finish_reason}）"
+                                    "message": f"{display_name} API响应格式异常（缺少 parts，finishReason: {finish_reason}）",
                                 }
                     else:
                         logger.error("❌ [Google AI 测试] candidate 中缺少 'content'")
                         logger.info(f"   candidate 的键: {list(candidate.keys())}")
                         return {
                             "success": False,
-                            "message": f"{display_name} API响应格式异常（缺少 content）"
+                            "message": f"{display_name} API响应格式异常（缺少 content）",
                         }
                 else:
-                    logger.error("❌ [Google AI 测试] 缺少 candidates 或 candidates 为空")
+                    logger.error(
+                        "❌ [Google AI 测试] 缺少 candidates 或 candidates 为空"
+                    )
                     return {
                         "success": False,
-                        "message": f"{display_name} API无有效候选响应"
+                        "message": f"{display_name} API无有效候选响应",
                     }
             elif response.status_code == 400:
-                logger.error(f"❌ [Google AI 测试] 400 错误，响应内容: {response.text[:500]}")
+                logger.error(
+                    f"❌ [Google AI 测试] 400 错误，响应内容: {response.text[:500]}"
+                )
                 try:
                     error_detail = response.json()
                     error_msg = error_detail.get("error", {}).get("message", "未知错误")
                     return {
                         "success": False,
-                        "message": f"{display_name} API请求错误: {error_msg}"
+                        "message": f"{display_name} API请求错误: {error_msg}",
                     }
                 except Exception as e:
                     logger.debug(f"解析API错误响应失败: {e}")
                     return {
                         "success": False,
-                        "message": f"{display_name} API请求格式错误"
+                        "message": f"{display_name} API请求格式错误",
                     }
             elif response.status_code == 403:
-                logger.error(f"❌ [Google AI 测试] 403 错误，响应内容: {response.text[:500]}")
+                logger.error(
+                    f"❌ [Google AI 测试] 403 错误，响应内容: {response.text[:500]}"
+                )
                 return {
                     "success": False,
-                    "message": f"{display_name} API密钥无效或权限不足"
+                    "message": f"{display_name} API密钥无效或权限不足",
                 }
             elif response.status_code == 503:
-                logger.error(f"❌ [Google AI 测试] 503 错误，响应内容: {response.text[:500]}")
+                logger.error(
+                    f"❌ [Google AI 测试] 503 错误，响应内容: {response.text[:500]}"
+                )
                 try:
                     error_detail = response.json()
                     error_code = error_detail.get("code", "")
@@ -1024,33 +1310,41 @@ class LLMService:
                     if error_code == "NO_KEYS_AVAILABLE":
                         return {
                             "success": False,
-                            "message": f"{display_name} 中转服务暂时无可用密钥，请稍后重试或联系中转服务提供商"
+                            "message": f"{display_name} 中转服务暂时无可用密钥，请稍后重试或联系中转服务提供商",
                         }
                     else:
                         return {
                             "success": False,
-                            "message": f"{display_name} 服务暂时不可用: {error_msg}"
+                            "message": f"{display_name} 服务暂时不可用: {error_msg}",
                         }
                 except Exception as e:
                     logger.debug(f"解析503错误响应失败: {e}")
                     return {
                         "success": False,
-                        "message": f"{display_name} 服务暂时不可用 (HTTP 503)"
+                        "message": f"{display_name} 服务暂时不可用 (HTTP 503)",
                     }
             else:
-                logger.error(f"❌ [Google AI 测试] {response.status_code} 错误，响应内容: {response.text[:500]}")
+                logger.error(
+                    f"❌ [Google AI 测试] {response.status_code} 错误，响应内容: {response.text[:500]}"
+                )
                 return {
                     "success": False,
-                    "message": f"{display_name} API测试失败: HTTP {response.status_code}"
+                    "message": f"{display_name} API测试失败: HTTP {response.status_code}",
                 }
 
         except Exception as e:
             return {
                 "success": False,
-                "message": f"{display_name} API测试异常: {str(e)}"
+                "message": f"{display_name} API测试异常: {str(e)}",
             }
 
-    def _test_deepseek_api(self, api_key: str, display_name: str, model_name: str = None, base_url: str = None) -> dict:
+    def _test_deepseek_api(
+        self,
+        api_key: str,
+        display_name: str,
+        model_name: str = None,
+        base_url: str = None,
+    ) -> dict:
         """测试DeepSeek API"""
         try:
             import requests
@@ -1061,13 +1355,17 @@ class LLMService:
                 logger.info(f"未指定模型，使用默认模型: {model_name}")
 
             resolved_base = base_url or "https://api.deepseek.com"
+
+            # SSRF 防御：校验 resolved_base
+            _validate_llm_base_url(resolved_base)
+
             url = f"{resolved_base.rstrip('/')}/chat/completions"
 
             logger.info(f"[DeepSeek 测试] 使用模型: {model_name}, URL: {url}")
 
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
+                "Authorization": f"Bearer {api_key}",
             }
 
             data = {
@@ -1076,7 +1374,7 @@ class LLMService:
                     {"role": "user", "content": "你好，请简单介绍一下你自己。"}
                 ],
                 "max_tokens": 500,
-                "temperature": 0.1
+                "temperature": 0.1,
             }
 
             response = requests.post(url, json=data, headers=headers, timeout=10)
@@ -1088,40 +1386,44 @@ class LLMService:
                     content = msg.get("content", "")
                     # DeepSeek 推理模型可能返回空 content 但非空 reasoning_content
                     if not content or len(content.strip()) == 0:
-                        reasoning = msg.get("reasoning_content", "") or msg.get("reasoning", "")
+                        reasoning = msg.get("reasoning_content", "") or msg.get(
+                            "reasoning", ""
+                        )
                         if reasoning and len(reasoning.strip()) > 0:
                             return {
                                 "success": True,
-                                "message": f"{display_name} API连接测试成功（推理模式）"
+                                "message": f"{display_name} API连接测试成功（推理模式）",
                             }
                     if content and len(content.strip()) > 0:
                         return {
                             "success": True,
-                            "message": f"{display_name} API连接测试成功"
+                            "message": f"{display_name} API连接测试成功",
                         }
                     else:
                         return {
                             "success": False,
-                            "message": f"{display_name} API响应为空"
+                            "message": f"{display_name} API响应为空",
                         }
                 else:
                     return {
                         "success": False,
-                        "message": f"{display_name} API响应格式异常"
+                        "message": f"{display_name} API响应格式异常",
                     }
             else:
                 return {
                     "success": False,
-                    "message": f"{display_name} API测试失败: HTTP {response.status_code}"
+                    "message": f"{display_name} API测试失败: HTTP {response.status_code}",
                 }
 
         except Exception as e:
             return {
                 "success": False,
-                "message": f"{display_name} API测试异常: {str(e)}"
+                "message": f"{display_name} API测试异常: {str(e)}",
             }
 
-    def _test_dashscope_api(self, api_key: str, display_name: str, model_name: str = None) -> dict:
+    def _test_dashscope_api(
+        self, api_key: str, display_name: str, model_name: str = None
+    ) -> dict:
         """测试阿里云百炼API"""
         try:
             import requests
@@ -1138,7 +1440,7 @@ class LLMService:
 
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
+                "Authorization": f"Bearer {api_key}",
             }
 
             data = {
@@ -1147,7 +1449,7 @@ class LLMService:
                     {"role": "user", "content": "你好，请简单介绍一下你自己。"}
                 ],
                 "max_tokens": 50,
-                "temperature": 0.1
+                "temperature": 0.1,
             }
 
             response = requests.post(url, json=data, headers=headers, timeout=10)
@@ -1159,28 +1461,28 @@ class LLMService:
                     if content and len(content.strip()) > 0:
                         return {
                             "success": True,
-                            "message": f"{display_name} API连接测试成功"
+                            "message": f"{display_name} API连接测试成功",
                         }
                     else:
                         return {
                             "success": False,
-                            "message": f"{display_name} API响应为空"
+                            "message": f"{display_name} API响应为空",
                         }
                 else:
                     return {
                         "success": False,
-                        "message": f"{display_name} API响应格式异常"
+                        "message": f"{display_name} API响应格式异常",
                     }
             else:
                 return {
                     "success": False,
-                    "message": f"{display_name} API测试失败: HTTP {response.status_code}"
+                    "message": f"{display_name} API测试失败: HTTP {response.status_code}",
                 }
 
         except Exception as e:
             return {
                 "success": False,
-                "message": f"{display_name} API测试异常: {str(e)}"
+                "message": f"{display_name} API测试异常: {str(e)}",
             }
 
     def _test_openrouter_api(self, api_key: str, display_name: str) -> dict:
@@ -1194,7 +1496,7 @@ class LLMService:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}",
                 "HTTP-Referer": "https://tradingagents.cn",  # OpenRouter要求
-                "X-Title": "TradingAgents-CN"
+                "X-Title": "TradingAgents-CN",
             }
 
             data = {
@@ -1203,7 +1505,7 @@ class LLMService:
                     {"role": "user", "content": "你好，请简单介绍一下你自己。"}
                 ],
                 "max_tokens": 50,
-                "temperature": 0.1
+                "temperature": 0.1,
             }
 
             response = requests.post(url, json=data, headers=headers, timeout=15)
@@ -1215,28 +1517,28 @@ class LLMService:
                     if content and len(content.strip()) > 0:
                         return {
                             "success": True,
-                            "message": f"{display_name} API连接测试成功"
+                            "message": f"{display_name} API连接测试成功",
                         }
                     else:
                         return {
                             "success": False,
-                            "message": f"{display_name} API响应为空"
+                            "message": f"{display_name} API响应为空",
                         }
                 else:
                     return {
                         "success": False,
-                        "message": f"{display_name} API响应格式异常"
+                        "message": f"{display_name} API响应格式异常",
                     }
             else:
                 return {
                     "success": False,
-                    "message": f"{display_name} API测试失败: HTTP {response.status_code}"
+                    "message": f"{display_name} API测试失败: HTTP {response.status_code}",
                 }
 
         except Exception as e:
             return {
                 "success": False,
-                "message": f"{display_name} API测试异常: {str(e)}"
+                "message": f"{display_name} API测试异常: {str(e)}",
             }
 
     def _test_openai_api(self, api_key: str, display_name: str) -> dict:
@@ -1248,7 +1550,7 @@ class LLMService:
 
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
+                "Authorization": f"Bearer {api_key}",
             }
 
             data = {
@@ -1257,7 +1559,7 @@ class LLMService:
                     {"role": "user", "content": "你好，请简单介绍一下你自己。"}
                 ],
                 "max_tokens": 50,
-                "temperature": 0.1
+                "temperature": 0.1,
             }
 
             response = requests.post(url, json=data, headers=headers, timeout=10)
@@ -1269,28 +1571,28 @@ class LLMService:
                     if content and len(content.strip()) > 0:
                         return {
                             "success": True,
-                            "message": f"{display_name} API连接测试成功"
+                            "message": f"{display_name} API连接测试成功",
                         }
                     else:
                         return {
                             "success": False,
-                            "message": f"{display_name} API响应为空"
+                            "message": f"{display_name} API响应为空",
                         }
                 else:
                     return {
                         "success": False,
-                        "message": f"{display_name} API响应格式异常"
+                        "message": f"{display_name} API响应格式异常",
                     }
             else:
                 return {
                     "success": False,
-                    "message": f"{display_name} API测试失败: HTTP {response.status_code}"
+                    "message": f"{display_name} API测试失败: HTTP {response.status_code}",
                 }
 
         except Exception as e:
             return {
                 "success": False,
-                "message": f"{display_name} API测试异常: {str(e)}"
+                "message": f"{display_name} API测试异常: {str(e)}",
             }
 
     def _test_anthropic_api(self, api_key: str, display_name: str) -> dict:
@@ -1303,7 +1605,7 @@ class LLMService:
             headers = {
                 "Content-Type": "application/json",
                 "x-api-key": api_key,
-                "anthropic-version": "2023-06-01"
+                "anthropic-version": "2023-06-01",
             }
 
             data = {
@@ -1311,7 +1613,7 @@ class LLMService:
                 "max_tokens": 50,
                 "messages": [
                     {"role": "user", "content": "你好，请简单介绍一下你自己。"}
-                ]
+                ],
             }
 
             response = requests.post(url, json=data, headers=headers, timeout=10)
@@ -1323,28 +1625,28 @@ class LLMService:
                     if content and len(content.strip()) > 0:
                         return {
                             "success": True,
-                            "message": f"{display_name} API连接测试成功"
+                            "message": f"{display_name} API连接测试成功",
                         }
                     else:
                         return {
                             "success": False,
-                            "message": f"{display_name} API响应为空"
+                            "message": f"{display_name} API响应为空",
                         }
                 else:
                     return {
                         "success": False,
-                        "message": f"{display_name} API响应格式异常"
+                        "message": f"{display_name} API响应格式异常",
                     }
             else:
                 return {
                     "success": False,
-                    "message": f"{display_name} API测试失败: HTTP {response.status_code}"
+                    "message": f"{display_name} API测试失败: HTTP {response.status_code}",
                 }
 
         except Exception as e:
             return {
                 "success": False,
-                "message": f"{display_name} API测试异常: {str(e)}"
+                "message": f"{display_name} API测试异常: {str(e)}",
             }
 
     def _test_qianfan_api(self, api_key: str, display_name: str) -> dict:
@@ -1357,7 +1659,7 @@ class LLMService:
 
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
+                "Authorization": f"Bearer {api_key}",
             }
 
             data = {
@@ -1366,7 +1668,7 @@ class LLMService:
                     {"role": "user", "content": "你好，请简单介绍一下你自己。"}
                 ],
                 "max_tokens": 50,
-                "temperature": 0.1
+                "temperature": 0.1,
             }
 
             response = requests.post(url, json=data, headers=headers, timeout=15)
@@ -1378,50 +1680,58 @@ class LLMService:
                     if content and len(content.strip()) > 0:
                         return {
                             "success": True,
-                            "message": f"{display_name} API连接测试成功"
+                            "message": f"{display_name} API连接测试成功",
                         }
                     else:
                         return {
                             "success": False,
-                            "message": f"{display_name} API响应为空"
+                            "message": f"{display_name} API响应为空",
                         }
                 else:
                     return {
                         "success": False,
-                        "message": f"{display_name} API响应格式异常"
+                        "message": f"{display_name} API响应格式异常",
                     }
             elif response.status_code == 401:
                 return {
                     "success": False,
-                    "message": f"{display_name} API密钥无效或已过期"
+                    "message": f"{display_name} API密钥无效或已过期",
                 }
             elif response.status_code == 403:
                 return {
                     "success": False,
-                    "message": f"{display_name} API权限不足或配额已用完"
+                    "message": f"{display_name} API权限不足或配额已用完",
                 }
             else:
                 try:
                     error_detail = response.json()
-                    error_msg = error_detail.get("error", {}).get("message", f"HTTP {response.status_code}")
+                    error_msg = error_detail.get("error", {}).get(
+                        "message", f"HTTP {response.status_code}"
+                    )
                     return {
                         "success": False,
-                        "message": f"{display_name} API测试失败: {error_msg}"
+                        "message": f"{display_name} API测试失败: {error_msg}",
                     }
                 except Exception as e:
                     logger.debug(f"解析API测试错误响应失败: {e}")
                     return {
                         "success": False,
-                        "message": f"{display_name} API测试失败: HTTP {response.status_code}"
+                        "message": f"{display_name} API测试失败: HTTP {response.status_code}",
                     }
 
         except Exception as e:
             return {
                 "success": False,
-                "message": f"{display_name} API测试异常: {str(e)}"
+                "message": f"{display_name} API测试异常: {str(e)}",
             }
 
-    def _test_openai_compatible_api(self, api_key: str, display_name: str, base_url: str = None, provider_name: str = None) -> dict:
+    def _test_openai_compatible_api(
+        self,
+        api_key: str,
+        display_name: str,
+        base_url: str = None,
+        provider_name: str = None,
+    ) -> dict:
         """测试 OpenAI 兼容 API（用于聚合渠道和自定义厂家）"""
         try:
             import requests
@@ -1430,15 +1740,18 @@ class LLMService:
             if not base_url:
                 return {
                     "success": False,
-                    "message": f"{display_name} 未配置 API 基础地址 (default_base_url)"
+                    "message": f"{display_name} 未配置 API 基础地址 (default_base_url)",
                 }
+
+            # SSRF 防御：校验用户配置的 base_url
+            _validate_llm_base_url(base_url)
 
             # 🔧 智能版本号处理：只有在没有版本号的情况下才添加 /v1
             logger.info(f"   [测试API] 原始 base_url: {base_url}")
             base_url = base_url.rstrip("/")
             logger.info(f"   [测试API] 去除斜杠后: {base_url}")
 
-            if not re.search(r'/v\d+$', base_url):
+            if not re.search(r"/v\d+$", base_url):
                 # URL末尾没有版本号，添加 /v1（OpenAI标准）
                 base_url = base_url + "/v1"
                 logger.info(f"   [测试API] 添加 /v1 版本号: {base_url}")
@@ -1451,7 +1764,7 @@ class LLMService:
 
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
+                "Authorization": f"Bearer {api_key}",
             }
 
             # 🔥 根据不同厂家选择合适的测试模型
@@ -1469,10 +1782,13 @@ class LLMService:
             data = {
                 "model": test_model,
                 "messages": [
-                    {"role": "user", "content": "Hello, please respond with 'OK' if you can read this."}
+                    {
+                        "role": "user",
+                        "content": "Hello, please respond with 'OK' if you can read this.",
+                    }
                 ],
                 "max_tokens": 200,  # 增加到200，给推理模型（如o1/gpt-5）足够空间
-                "temperature": 0.1
+                "temperature": 0.1,
             }
 
             response = requests.post(url, json=data, headers=headers, timeout=15)
@@ -1484,39 +1800,41 @@ class LLMService:
                     if content and len(content.strip()) > 0:
                         return {
                             "success": True,
-                            "message": f"{display_name} API连接测试成功"
+                            "message": f"{display_name} API连接测试成功",
                         }
                     else:
                         return {
                             "success": False,
-                            "message": f"{display_name} API响应为空"
+                            "message": f"{display_name} API响应为空",
                         }
                 else:
                     return {
                         "success": False,
-                        "message": f"{display_name} API响应格式异常"
+                        "message": f"{display_name} API响应格式异常",
                     }
             elif response.status_code == 401:
                 return {
                     "success": False,
-                    "message": f"{display_name} API密钥无效或已过期"
+                    "message": f"{display_name} API密钥无效或已过期",
                 }
             elif response.status_code == 403:
                 return {
                     "success": False,
-                    "message": f"{display_name} API权限不足或配额已用完"
+                    "message": f"{display_name} API权限不足或配额已用完",
                 }
             else:
                 try:
                     error_detail = response.json()
-                    error_msg = error_detail.get("error", {}).get("message", f"HTTP {response.status_code}")
+                    error_msg = error_detail.get("error", {}).get(
+                        "message", f"HTTP {response.status_code}"
+                    )
                     logger.error(f"❌ [{display_name}] API测试失败")
                     logger.error(f"   请求URL: {url}")
                     logger.error(f"   状态码: {response.status_code}")
                     logger.error(f"   错误详情: {error_detail}")
                     return {
                         "success": False,
-                        "message": f"{display_name} API测试失败: {error_msg}"
+                        "message": f"{display_name} API测试失败: {error_msg}",
                     }
                 except Exception as e:
                     logger.debug(f"解析API测试错误详情失败: {e}")
@@ -1526,13 +1844,13 @@ class LLMService:
                     logger.error(f"   响应内容: {response.text[:500]}")
                     return {
                         "success": False,
-                        "message": f"{display_name} API测试失败: HTTP {response.status_code}"
+                        "message": f"{display_name} API测试失败: HTTP {response.status_code}",
                     }
 
         except Exception as e:
             return {
                 "success": False,
-                "message": f"{display_name} API测试异常: {str(e)}"
+                "message": f"{display_name} API测试异常: {str(e)}",
             }
 
     # ==================== 厂家模型获取 ====================
@@ -1548,19 +1866,20 @@ class LLMService:
             # 兼容处理：尝试 ObjectId 和字符串两种类型
             provider_data = None
             try:
-                provider_data = await providers_collection.find_one({"_id": ObjectId(provider_id)})
+                provider_data = await providers_collection.find_one(
+                    {"_id": ObjectId(provider_id)}
+                )
             except Exception as e:
                 logger.debug(f"ObjectId查询失败: {e}")
                 pass
 
             if not provider_data:
-                provider_data = await providers_collection.find_one({"_id": provider_id})
+                provider_data = await providers_collection.find_one(
+                    {"_id": provider_id}
+                )
 
             if not provider_data:
-                return {
-                    "success": False,
-                    "message": f"厂家不存在 (ID: {provider_id})"
-                }
+                return {"success": False, "message": f"厂家不存在 (ID: {provider_id})"}
 
             provider_name = provider_data.get("name")
             api_key = provider_data.get("api_key")
@@ -1568,12 +1887,14 @@ class LLMService:
             display_name = provider_data.get("display_name", provider_name)
 
             # 为了支持本地AI模型，直接使用数据库配置的API Key（可以为空）
-            logger.info(f"✅ 使用数据库配置的 {display_name} API密钥 (长度: {len(api_key) if api_key else 0})")
+            logger.info(
+                f"✅ 使用数据库配置的 {display_name} API密钥 (长度: {len(api_key) if api_key else 0})"
+            )
 
             if not base_url:
                 return {
                     "success": False,
-                    "message": f"{display_name} 未配置 API 基础地址 (default_base_url)"
+                    "message": f"{display_name} 未配置 API 基础地址 (default_base_url)",
                 }
 
             # 调用 OpenAI 兼容的 /v1/models 端点
@@ -1588,13 +1909,15 @@ class LLMService:
 
                     catalog_models = []
                     for m in result["models"]:
-                        catalog_models.append(ModelInfo(
-                            name=m.get("id") or m.get("name", ""),
-                            display_name=m.get("name") or m.get("id", ""),
-                            context_length=m.get("context_length"),
-                            input_price_per_1k=m.get("input_price_per_1k"),
-                            output_price_per_1k=m.get("output_price_per_1k"),
-                        ))
+                        catalog_models.append(
+                            ModelInfo(
+                                name=m.get("id") or m.get("name", ""),
+                                display_name=m.get("name") or m.get("id", ""),
+                                context_length=m.get("context_length"),
+                                input_price_per_1k=m.get("input_price_per_1k"),
+                                output_price_per_1k=m.get("output_price_per_1k"),
+                            )
+                        )
 
                     catalog = ModelCatalog(
                         provider=provider_name,
@@ -1609,7 +1932,9 @@ class LLMService:
                         catalog.model_dump(by_alias=True, exclude={"id"}),
                         upsert=True,
                     )
-                    logger.info(f"✅ 已更新 {display_name} 模型目录: {len(catalog_models)} 个模型")
+                    logger.info(
+                        f"✅ 已更新 {display_name} 模型目录: {len(catalog_models)} 个模型"
+                    )
                 except Exception as e:
                     logger.warning(f"更新模型目录失败: {e}")
 
@@ -1618,18 +1943,20 @@ class LLMService:
         except Exception as e:
             logger.error(f"获取模型列表失败: {e}")
             logger.error("获取模型列表失败", exc_info=True)
-            return {
-                "success": False,
-                "message": f"获取模型列表失败: {str(e)}"
-            }
+            return {"success": False, "message": f"获取模型列表失败: {str(e)}"}
 
-    def _fetch_models_from_api(self, api_key: str, base_url: str, display_name: str) -> dict:
+    def _fetch_models_from_api(
+        self, api_key: str, base_url: str, display_name: str
+    ) -> dict:
         """从 API 获取模型列表"""
         try:
             import requests
 
+            # SSRF 防御：校验用户配置的 base_url
+            _validate_llm_base_url(base_url)
+
             base_url = base_url.rstrip("/")
-            if not re.search(r'/v\d+$', base_url):
+            if not re.search(r"/v\d+$", base_url):
                 # URL末尾没有版本号，添加 /v1（OpenAI标准）
                 base_url = base_url + "/v1"
                 logger.info(f"   [获取模型列表] 添加 /v1 版本号: {base_url}")
@@ -1664,12 +1991,19 @@ class LLMService:
                     if all_models:
                         logger.info("🔍 第一个模型的完整结构:")
                         import json
-                        logger.info(json.dumps(all_models[0], indent=2, ensure_ascii=False))
+
+                        logger.info(
+                            json.dumps(all_models[0], indent=2, ensure_ascii=False)
+                        )
 
                     # 打印所有 Anthropic 模型（用于调试）
-                    anthropic_models = [m for m in all_models if "anthropic" in m.get("id", "").lower()]
+                    anthropic_models = [
+                        m for m in all_models if "anthropic" in m.get("id", "").lower()
+                    ]
                     if anthropic_models:
-                        logger.info(f"🔍 Anthropic 模型列表 ({len(anthropic_models)} 个):")
+                        logger.info(
+                            f"🔍 Anthropic 模型列表 ({len(anthropic_models)} 个):"
+                        )
                         for m in anthropic_models[:20]:  # 只打印前 20 个
                             logger.info(f"   - {m.get('id')}")
 
@@ -1683,38 +2017,37 @@ class LLMService:
                     return {
                         "success": True,
                         "models": formatted_models,
-                        "message": f"成功获取 {len(formatted_models)} 个常用模型（已过滤）"
+                        "message": f"成功获取 {len(formatted_models)} 个常用模型（已过滤）",
                     }
                 else:
                     logger.error("❌ 响应格式异常，期望 'data' 字段为列表")
                     return {
                         "success": False,
-                        "message": f"{display_name} API 响应格式异常（缺少 data 字段或格式不正确）"
+                        "message": f"{display_name} API 响应格式异常（缺少 data 字段或格式不正确）",
                     }
             elif response.status_code == 401:
                 return {
                     "success": False,
-                    "message": f"{display_name} API密钥无效或已过期"
+                    "message": f"{display_name} API密钥无效或已过期",
                 }
             elif response.status_code == 403:
-                return {
-                    "success": False,
-                    "message": f"{display_name} API权限不足"
-                }
+                return {"success": False, "message": f"{display_name} API权限不足"}
             else:
                 try:
                     error_detail = response.json()
-                    error_msg = error_detail.get("error", {}).get("message", f"HTTP {response.status_code}")
+                    error_msg = error_detail.get("error", {}).get(
+                        "message", f"HTTP {response.status_code}"
+                    )
                     logger.error(f"❌ API 错误: {error_msg}")
                     return {
                         "success": False,
-                        "message": f"{display_name} API请求失败: {error_msg}"
+                        "message": f"{display_name} API请求失败: {error_msg}",
                     }
                 except Exception as e:
                     logger.debug(f"解析API请求错误响应失败: {e}")
                     return {
                         "success": False,
-                        "message": f"{display_name} API请求失败: HTTP {response.status_code}, 响应: {response.text[:200]}"
+                        "message": f"{display_name} API请求失败: HTTP {response.status_code}, 响应: {response.text[:200]}",
                     }
 
         except Exception as e:
@@ -1722,7 +2055,7 @@ class LLMService:
             logger.error("API请求异常", exc_info=True)
             return {
                 "success": False,
-                "message": f"{display_name} API请求异常: {str(e)}"
+                "message": f"{display_name} API请求异常: {str(e)}",
             }
 
     def _format_models_with_pricing(self, models: list) -> list:
@@ -1800,7 +2133,9 @@ class LLMService:
 
             # 打印价格信息（用于调试）
             if input_price_per_1k or output_price_per_1k:
-                logger.info(f"💰 {model_id}: 输入=${input_price_per_1k:.6f}/1K, 输出=${output_price_per_1k:.6f}/1K")
+                logger.info(
+                    f"💰 {model_id}: 输入=${input_price_per_1k:.6f}/1K, 输出=${output_price_per_1k:.6f}/1K"
+                )
 
         return formatted
 

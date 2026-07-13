@@ -6,6 +6,7 @@ import time
 import os
 import logging
 from typing import List, Optional, Dict, Any
+from urllib.parse import quote_plus
 
 from app.core.database import get_mongo_db
 from app.core.env import get_env
@@ -279,10 +280,13 @@ class DatabaseService:
                     if not auth_source and db_config.connection_params:
                         auth_source = db_config.connection_params.get('authSource')
 
-                    # 构建连接字符串
+                    # 构建连接字符串（密码需 URL 编码，防止特殊字符导致 URI 解析错误）
                     if username and password:
-                        connection_string = f"mongodb://{username}:{password}@{host}:{port}"
+                        safe_user = quote_plus(username)
+                        safe_pass = quote_plus(password)
+                        connection_string = f"mongodb://{safe_user}:{safe_pass}@{host}:{port}"
                     else:
+                        safe_pass = None
                         connection_string = f"mongodb://{host}:{port}"
 
                     if database:
@@ -304,7 +308,12 @@ class DatabaseService:
                     if params_list:
                         connection_string += f"?{'&'.join(params_list)}"
 
-                    logger.info(f"🔗 连接字符串: {connection_string.replace(password or '', '***') if password else connection_string}")
+                    # 安全日志：脱敏密码段
+                    if safe_pass:
+                        safe_log_uri = connection_string.replace(safe_pass, "***", 1)
+                    else:
+                        safe_log_uri = connection_string
+                    logger.info(f"🔗 连接字符串: {safe_log_uri}")
 
                     # 创建客户端并测试连接
                     client = AsyncIOMotorClient(

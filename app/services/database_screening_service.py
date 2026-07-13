@@ -11,6 +11,7 @@
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.database import get_mongo_db
@@ -634,10 +635,11 @@ class DatabaseScreeningService:
                 else:
                     query[db_field] = {"$gte": value[0], "$lte": value[1]}
         elif operator == "contains":
+            safe_value = re.escape(str(value))
             if db_field in query:
-                query[db_field].update({"$regex": str(value), "$options": "i"})
+                query[db_field].update({"$regex": safe_value, "$options": "i"})
             else:
-                query[db_field] = {"$regex": str(value), "$options": "i"}
+                query[db_field] = {"$regex": safe_value, "$options": "i"}
         elif operator in self._OPERATORS:
             mongo_op = self._OPERATORS[operator]
             if db_field in query:

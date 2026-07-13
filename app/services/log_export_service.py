@@ -5,9 +5,11 @@
 
 import logging
 import zipfile
+import uuid
 from datetime import timedelta
 from app.utils.timezone import now_utc, format_iso
 from app.utils.time_utils import fromtimestamp_aware
+from app.core.env import get_env
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import re
@@ -279,8 +281,8 @@ class LogExportService:
                                 start_time=start_time,
                                 end_time=end_time
                             )
-                            # 将过滤后的内容写入临时文件
-                            temp_file = export_dir / f"temp_{file_path.name}"
+                            # 将过滤后的内容写入临时文件（加 uuid 后缀防并发冲突）
+                            temp_file = export_dir / f"temp_{uuid.uuid4().hex}_{file_path.name}"
                             with open(temp_file, 'w', encoding='utf-8') as f:
                                 f.write('\n'.join(filtered_data['lines']))
                             zipf.write(temp_file, file_path.name)
@@ -422,14 +424,13 @@ def _get_log_directory() -> str:
     2. 从settings配置读取
     3. 使用默认值 ./logs
     """
-    import os
     from pathlib import Path
 
     try:
         logger.info("🔍 [_get_log_directory] 开始获取日志目录")
 
         # 检查是否是Docker环境
-        docker_env = os.environ.get("DOCKER", "")
+        docker_env = get_env("DOCKER", "")
         dockerenv_exists = Path("/.dockerenv").exists()
         is_docker = docker_env.lower() in {"1", "true", "yes"} or dockerenv_exists
 
@@ -451,7 +452,7 @@ def _get_log_directory() -> str:
 
         if toml_loader:
             # 根据环境选择配置文件
-            profile = os.environ.get("LOGGING_PROFILE", "")
+            profile = get_env("LOGGING_PROFILE", "")
             logger.info(f"🔍 [_get_log_directory] LOGGING_PROFILE: {profile}")
 
             cfg_path = Path("config/logging_docker.toml") if profile.lower() == "docker" or is_docker else Path("config/logging.toml")
