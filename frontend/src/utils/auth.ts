@@ -10,22 +10,25 @@ import { ElMessage } from 'element-plus'
 /**
  * 检查是否是认证错误
  */
-export const isAuthError = (error: any): boolean => {
+export const isAuthError = (error: unknown): boolean => {
   if (!error) return false
 
+  // 安全地将 error 视为可能携带 HTTP 响应和业务码的对象
+  const err = error as Record<string, unknown> & { response?: { status?: number; data?: Record<string, unknown> } }
+
   // 检查 HTTP 状态码
-  if (error.response?.status === 401) {
+  if (err.response?.status === 401) {
     return true
   }
 
   // 检查业务错误码
-  const code = error.code || error.response?.data?.code
+  const code = (err.code as number | undefined) || err.response?.data?.code
   if (code === 401 || code === 40101 || code === 40102 || code === 40103) {
     return true
   }
 
   // 检查错误消息
-  const message = error.message || error.response?.data?.message || ''
+  const message = (err.message as string | undefined) || (err.response?.data?.message as string | undefined) || ''
   const authKeywords = [
     '认证失败',
     '登录已过期',
@@ -44,7 +47,7 @@ export const isAuthError = (error: any): boolean => {
  * 处理认证错误
  * 清除认证信息并跳转到登录页
  */
-export const handleAuthError = (error?: any, showMessage = true): void => {
+export const handleAuthError = (error?: unknown, showMessage = true): void => {
   console.log('🔒 处理认证错误:', error)
 
   const authStore = useAuthStore()
@@ -54,7 +57,8 @@ export const handleAuthError = (error?: any, showMessage = true): void => {
 
   // 显示错误消息
   if (showMessage) {
-    const message = error?.message || error?.response?.data?.message || '登录已过期，请重新登录'
+    const err = error as Record<string, unknown> & { message?: string; response?: { data?: { message?: string } } } | undefined
+    const message = err?.message || err?.response?.data?.message || '登录已过期，请重新登录'
     ElMessage.error(message)
   }
 
@@ -111,7 +115,7 @@ export const isTokenValid = (token: string | null): boolean => {
 /**
  * 从 token 中提取用户信息
  */
-export const parseToken = (token: string): any => {
+export const parseToken = (token: string): Record<string, unknown> | null => {
   try {
     const parts = token.split('.')
     if (parts.length !== 3) {
@@ -131,7 +135,7 @@ export const parseToken = (token: string): any => {
  */
 export const getTokenRemainingTime = (token: string): number => {
   const payload = parseToken(token)
-  if (!payload || !payload.exp) {
+  if (!payload || typeof payload.exp !== 'number') {
     return 0
   }
 

@@ -4,13 +4,23 @@
  * 用于处理前后端字段标准化过程中的兼容性问题
  */
 
+/** 股票代码字段兼容接口 */
+interface StockCodeFields {
+  symbol?: string
+  stock_code?: string
+  code?: string
+  full_symbol?: string
+  [key: string]: unknown
+}
+
 /**
  * 从对象中获取股票代码（兼容新旧字段）
  * @param obj 包含股票代码的对象
  * @returns 股票代码（6位）
  */
-export function getStockSymbol(obj: any): string {
-  return obj?.symbol || obj?.stock_code || obj?.code || ''
+export function getStockSymbol(obj: StockCodeFields | null | undefined): string {
+  const s = obj?.symbol ?? obj?.stock_code ?? obj?.code
+  return typeof s === 'string' ? s : ''
 }
 
 /**
@@ -18,8 +28,9 @@ export function getStockSymbol(obj: any): string {
  * @param obj 包含股票代码的对象
  * @returns 完整股票代码
  */
-export function getFullSymbol(obj: any): string {
-  return obj?.full_symbol || obj?.symbol || obj?.stock_code || obj?.code || ''
+export function getFullSymbol(obj: StockCodeFields | null | undefined): string {
+  const s = obj?.full_symbol ?? obj?.symbol ?? obj?.stock_code ?? obj?.code
+  return typeof s === 'string' ? s : ''
 }
 
 /**
@@ -146,7 +157,7 @@ export function buildFullSymbol(symbol: string, marketCode?: string): string {
  * @param obj 包含股票代码的对象
  * @returns 转换后的对象（包含新旧字段）
  */
-export function normalizeStockObject<T extends Record<string, any>>(obj: T): T {
+export function normalizeStockObject<T extends Record<string, unknown>>(obj: T): T {
   if (!obj) return obj
   
   const symbol = getStockSymbol(obj)
@@ -168,7 +179,7 @@ export function normalizeStockObject<T extends Record<string, any>>(obj: T): T {
  * @param arr 对象数组
  * @returns 转换后的数组
  */
-export function normalizeStockArray<T extends Record<string, any>>(arr: T[]): T[] {
+export function normalizeStockArray<T extends Record<string, unknown>>(arr: T[]): T[] {
   if (!Array.isArray(arr)) return arr
   
   return arr.map(item => normalizeStockObject(item))

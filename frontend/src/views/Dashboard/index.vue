@@ -409,11 +409,12 @@ const loadMarketNews = async () => {
 }
 
 const openNewsUrl = (url?: string) => {
-  if (url) {
-    window.open(url, '_blank')
-  } else {
+  if (!url) {
     ElMessage.info('该新闻暂无详情链接')
+    return
   }
+  if (!/^https?:\/\//i.test(url)) return
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 // ==================== 快捷入口 ====================

@@ -305,8 +305,8 @@ const openArticle = (articleId: string) => {
     'usage-guide-preview': 'https://mp.weixin.qq.com/s/ppsYiBncynxlsfKFG8uEbw'
   }
   const external = externalMap[articleId]
-  if (external) {
-    window.open(external, '_blank')
+  if (external && /^https?:\/\//i.test(external)) {
+    window.open(external, '_blank', 'noopener,noreferrer')
     return
   }
   router.push(`/learning/article/${articleId}`)

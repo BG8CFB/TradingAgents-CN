@@ -376,6 +376,7 @@ import { normalizeMarketForAnalysis, exchangeCodeToMarket, getMarketByStockCode 
 
 // 响应式数据
 const screeningLoading = ref(false)
+let screeningSeq = 0 // 竞态保护：用于丢弃旧请求的过期响应
 const hasSearched = ref(false)
 const screeningResults = ref<StockInfo[]>([])
 const selectedStocks = ref<StockInfo[]>([])
@@ -425,6 +426,7 @@ const paginatedResults = computed(() => {
 
 // 方法
 const performScreening = async () => {
+  const seq = ++screeningSeq // 每次调用递增序号
   screeningLoading.value = true
   hasSearched.value = true
 
@@ -504,6 +506,8 @@ const performScreening = async () => {
 
     // 调试日志：打印请求payload
     const res = await screeningApi.run(payload, { timeout: 120000 })
+    // 竞态保护：如果在本次请求期间用户又发起了新请求，丢弃本次过期响应
+    if (seq !== screeningSeq) return
     const data = (res as any)?.data || res // ApiClient封装会返回 {success,data} 格式
     const items = data?.items || []
 

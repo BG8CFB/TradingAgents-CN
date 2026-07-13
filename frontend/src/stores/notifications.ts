@@ -3,6 +3,43 @@ import { ref, computed } from 'vue'
 import { notificationsApi, type NotificationItem } from '@/api/notifications'
 import { useAuthStore } from '@/stores/auth'
 
+/** WebSocket 服务端推送消息的类型定义 */
+interface WSMessage {
+  type: string
+  data?: unknown
+}
+
+/** 从 unknown 安全提取通知消息 payload */
+function extractNotificationPayload(raw: unknown): {
+  id?: string
+  title: string
+  content?: string
+  type: NotificationItem['type']
+  link?: string
+  source?: string
+  created_at?: string
+  status?: 'unread' | 'read'
+} | null {
+  if (raw === null || typeof raw !== 'object') return null
+  const obj = raw as Record<string, unknown>
+  const title = typeof obj.title === 'string' ? obj.title : ''
+  const validTypes: NotificationItem['type'][] = ['analysis', 'alert', 'system']
+  const type = typeof obj.type === 'string' && validTypes.includes(obj.type as NotificationItem['type'])
+    ? obj.type as NotificationItem['type']
+    : null
+  if (!title || !type) return null
+  return {
+    id: typeof obj.id === 'string' ? obj.id : undefined,
+    title,
+    content: typeof obj.content === 'string' ? obj.content : undefined,
+    type,
+    link: typeof obj.link === 'string' ? obj.link : undefined,
+    source: typeof obj.source === 'string' ? obj.source : undefined,
+    created_at: typeof obj.created_at === 'string' ? obj.created_at : undefined,
+    status: obj.status === 'read' || obj.status === 'unread' ? obj.status : undefined,
+  }
+}
+
 export const useNotificationStore = defineStore('notifications', () => {
   const items = ref<NotificationItem[]>([])
   const unreadCount = ref(0)
@@ -77,7 +114,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     try {
       // 若已存在连接，先关闭
       if (ws.value) {
-        try { ws.value.close() } catch {}
+        try { ws.value.close() } catch { /* 忽略关闭错误 */ }
         ws.value = null
       }
       if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null }
@@ -135,8 +172,12 @@ export const useNotificationStore = defineStore('notifications', () => {
 
       socket.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data)
-          handleWebSocketMessage(message)
+          const raw: unknown = JSON.parse(event.data)
+          if (raw !== null && typeof raw === 'object' && 'type' in raw) {
+            handleWebSocketMessage(raw as WSMessage)
+          } else {
+            console.warn('[WS] 收到非标准消息格式:', raw)
+          }
         } catch (error) {
           console.error('[WS] 解析消息失败:', error)
         }
@@ -148,7 +189,7 @@ export const useNotificationStore = defineStore('notifications', () => {
   }
 
   // 处理 WebSocket 消息
-  function handleWebSocketMessage(message: any) {
+  function handleWebSocketMessage(message: WSMessage) {
     console.log('[WS] 收到消息:', message)
 
     switch (message.type) {
@@ -156,21 +197,23 @@ export const useNotificationStore = defineStore('notifications', () => {
         console.log('[WS] 连接确认:', message.data)
         break
 
-      case 'notification':
-        // 处理通知
-        if (message.data && message.data.title && message.data.type) {
+      case 'notification': {
+        // 处理通知：从 unknown payload 提取并通过类型守卫校验必填字段
+        const payload = extractNotificationPayload(message.data)
+        if (payload) {
           addNotification({
-            id: message.data.id,
-            title: message.data.title,
-            content: message.data.content,
-            type: message.data.type,
-            link: message.data.link,
-            source: message.data.source,
-            created_at: message.data.created_at,
-            status: message.data.status || 'unread'
+            id: payload.id,
+            title: payload.title,
+            content: payload.content,
+            type: payload.type,
+            link: payload.link,
+            source: payload.source,
+            created_at: payload.created_at,
+            status: payload.status ?? 'unread'
           })
         }
         break
+      }
 
       case 'heartbeat':
         // 心跳消息，无需处理
@@ -189,7 +232,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     }
 
     if (ws.value) {
-      try { ws.value.close() } catch {}
+      try { ws.value.close() } catch { /* 忽略关闭错误 */ }
       ws.value = null
     }
 

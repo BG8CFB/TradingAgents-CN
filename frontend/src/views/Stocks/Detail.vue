@@ -1209,7 +1209,9 @@ function renderSafeMarkdown(content: string): string {
     return renderMarkdown(content)
   } catch (e) {
     console.error('Markdown渲染失败:', e)
-    return `<pre>${content}</pre>`
+    // catch 路径 content 未经 DOMPurify 消毒，需手动转义 HTML 特殊字符防 XSS
+    const escaped = content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return `<pre>${escaped}</pre>`
   }
 }
 

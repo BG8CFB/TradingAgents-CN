@@ -49,7 +49,7 @@
             </div>
             <div class="cost-values">
               <div v-for="(cost, currency) in statistics.cost_by_currency" :key="currency" class="cost-item">
-                <span class="cost-amount">{{ cost.toFixed(4) }}</span>
+                <span class="cost-amount">{{ (Number(cost) || 0).toFixed(4) }}</span>
                 <span class="cost-currency">{{ getCurrencySymbol(currency) }}</span>
               </div>
               <div v-if="Object.keys(statistics.cost_by_currency || {}).length === 0" class="cost-item">
@@ -116,7 +116,7 @@
         <el-table-column prop="output_tokens" label="输出 Token" width="120" align="right" />
         <el-table-column prop="cost" label="成本" width="140" align="right">
           <template #default="{ row }">
-            {{ row.cost.toFixed(4) }} {{ getCurrencySymbol(row.currency || 'CNY') }}
+            {{ (Number(row.cost) || 0).toFixed(4) }} {{ getCurrencySymbol(row.currency || 'CNY') }}
           </template>
         </el-table-column>
         <el-table-column prop="analysis_type" label="分析类型" width="150" />

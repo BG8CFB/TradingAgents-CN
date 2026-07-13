@@ -288,7 +288,7 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .mcp-page {
   padding: 20px;
   max-width: 800px;

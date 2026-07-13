@@ -98,6 +98,7 @@ const initApp = async () => {
     console.log('🎨 主题已应用:', appStore.theme)
 
     // 设置网络状态监听
+    // main.ts 是 SPA 单例入口，应用生命周期内不卸载，监听器随进程退出回收，无需 removeEventListener
     const handleOnline = () => {
       console.log('🌐 网络已连接')
       appStore.setOnlineStatus(true)

@@ -98,7 +98,10 @@ function onMarkAllRead() { notifStore.markAllRead() }
 function typeLabel(t: string) { return t === 'analysis' ? '分析' : t === 'alert' ? '预警' : '系统' }
 function tagType(t: string) { return t === 'analysis' ? 'success' : t === 'alert' ? 'warning' : 'info' }
 function toLocal(iso: string) { try { return new Date(iso).toLocaleString() } catch { return iso } }
-function go(n: any) { if (n.link) window.open(n.link, '_blank') }
+function go(n: any) {
+  // 仅允许 http(s) 协议，防止 javascript:/data: 等协议经通知 link 注入
+  if (n.link && /^https?:\/\//i.test(n.link)) window.open(n.link, '_blank')
+}
 
 onMounted(() => {
   notifStore.refreshUnreadCount()
@@ -117,8 +120,9 @@ onMounted(() => {
   }, { immediate: true })
   watch(filter, () => { if (drawerVisible.value) notifStore.loadList(filter.value) })
 
-  // token 变化时重连
+  // token 变化时重连 — 先断开旧连接，避免多个 WebSocket 并存
   watch(() => authStore.token, () => {
+    notifStore.disconnect()
     notifStore.connect()
   })
 })

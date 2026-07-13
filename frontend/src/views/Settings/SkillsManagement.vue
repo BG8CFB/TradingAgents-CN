@@ -372,7 +372,7 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .skills-page {
   padding: 20px;
 }

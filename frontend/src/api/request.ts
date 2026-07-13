@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
+import type { AxiosInstance, AxiosRequestConfig, AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
@@ -137,7 +137,7 @@ const createAxiosInstance = (): AxiosInstance => {
       // skipCsrf=true 用于显式豁免（如 login 本身不需要 CSRF）
       const method = (config.method || 'get').toLowerCase()
       const UNSAFE_METHODS = ['post', 'put', 'patch', 'delete']
-      if (UNSAFE_METHODS.includes(method) && !(config as any).skipCsrf) {
+      if (UNSAFE_METHODS.includes(method) && !config.skipCsrf) {
         // 复用 csrf.ts 的 getCsrfToken()，避免重复维护 cookie 解析正则
         const csrfValue = getCsrfToken()
         if (csrfValue) {
@@ -415,19 +415,11 @@ const createAxiosInstance = (): AxiosInstance => {
   return instance
 }
 
-// 处理业务错误
+// 处理业务错误（401 系列由响应拦截器提前拦截，此函数仅处理其余业务码）
 const handleBusinessError = (data: ApiResponse) => {
   const { code, message } = data
-  const authStore = useAuthStore()
 
   switch (code) {
-    case 401:
-    case 40101:  // 未授权
-    case 40102:  // Token 无效
-    case 40103:  // Token 过期
-      console.log('🔒 业务错误：认证失败')
-      handle401Error(authStore, message || '登录已过期，请重新登录')
-      break
     case 40001:
       showErrorMessage('参数错误')
       break
@@ -457,7 +449,7 @@ const generateRequestId = (): string => {
 }
 
 // 判断是否应该重试
-const shouldRetry = async (config: RequestConfig | undefined, error: any): Promise<boolean> => {
+const shouldRetry = async (config: RequestConfig | undefined, error: AxiosError): Promise<boolean> => {
   if (!config) return false
 
   // 获取重试配置（默认重试 2 次）
@@ -478,13 +470,13 @@ const shouldRetry = async (config: RequestConfig | undefined, error: any): Promi
     error.code === 'ECONNABORTED' ||
     error.message === 'Network Error' ||
     error.message.includes('Failed to fetch') ||
-    (error.response && [502, 503, 504].includes(error.response.status))
+    (error.response !== undefined && [502, 503, 504].includes(error.response.status))
 
   return shouldRetryError
 }
 
 // 重试请求
-const retryRequest = async (instance: AxiosInstance, config: RequestConfig): Promise<any> => {
+const retryRequest = async (instance: AxiosInstance, config: RequestConfig): Promise<ApiResponse> => {
   const currentRetry = config.__retryCount || 0
   // 使用显式的默认值处理
   let retryDelay = 1000
@@ -511,7 +503,7 @@ export class ApiClient {
   // GET请求
   static async get<T = any>(
     url: string,
-    params?: any,
+    params?: Record<string, unknown>,
     config?: RequestConfig
   ): Promise<ApiResponse<T>> {
     // 响应拦截器已经返回 response.data，所以这里直接返回
@@ -521,7 +513,7 @@ export class ApiClient {
   // POST请求
   static async post<T = any>(
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig
   ): Promise<ApiResponse<T>> {
     // 响应拦截器已经返回 response.data，所以这里直接返回
@@ -531,7 +523,7 @@ export class ApiClient {
   // PUT请求
   static async put<T = any>(
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig
   ): Promise<ApiResponse<T>> {
     // 响应拦截器已经返回 response.data，所以这里直接返回
@@ -550,7 +542,7 @@ export class ApiClient {
   // PATCH请求
   static async patch<T = any>(
     url: string,
-    data?: any,
+    data?: unknown,
     config?: RequestConfig
   ): Promise<ApiResponse<T>> {
     // 响应拦截器已经返回 response.data，所以这里直接返回
@@ -589,7 +581,7 @@ export class ApiClient {
     config?: RequestConfig
   ): Promise<void> {
     // 对于 blob 响应，响应拦截器返回的就是 blob 数据
-    const blobData: any = await request.get(url, {
+    const blobData: Blob = await request.get(url, {
       responseType: 'blob',
       ...config
     })

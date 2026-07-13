@@ -19,7 +19,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { renderMarkdown } from '@/utils/markdown'
-const props = defineProps<{ modelValue: boolean; sections: Array<{ key?: string; title: string; content: any }> }>()
+const props = defineProps<{ modelValue: boolean; sections: Array<{ key?: string; title: string; content: string }> }>()
 const emit = defineEmits(['update:modelValue','close'])
 const visible = computed({ get: () => props.modelValue, set: (v: boolean) => emit('update:modelValue', v) })
 const active = ref('0')

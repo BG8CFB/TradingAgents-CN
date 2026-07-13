@@ -310,7 +310,7 @@ const testing = ref(false)
 const cleaning = ref(false)
 
 const exportFormat = ref('json')
-const exportCollection = ref('config_and_reports')  // 默认选择"配置和报告"
+const exportCollection = ref('config_only')  // 默认选择"仅配置（脱敏）"，避免首次导出即暴露完整用户凭证
 const importFile = ref<File | null>(null)
 const importOverwrite = ref(false)
 const uploadRef = ref()
@@ -348,7 +348,7 @@ const loadDatabaseStatus = async () => {
     loading.value = true
     const response = await databaseApi.getStatus()
     databaseStatus.value = (response as any)?.data || response as any
-    console.log('📊 数据库状态加载成功:', status)
+    console.log('📊 数据库状态加载成功:', databaseStatus.value)
   } catch (error) {
     console.error('❌ 加载数据库状态失败:', error)
     ElMessage.error('加载数据库状态失败')
@@ -380,13 +380,18 @@ const testConnections = async () => {
       ElMessage.warning('部分数据库连接测试失败')
     }
 
-    // 显示详细结果
+    // 显示详细结果 — ElMessage 不解析 \n，拆分为独立消息
     const mongoMsg = `MongoDB: ${results.mongodb.message} (${results.mongodb.response_time_ms}ms)`
     const redisMsg = `Redis: ${results.redis.message} (${results.redis.response_time_ms}ms)`
 
     ElMessage({
-      message: `${mongoMsg}\n${redisMsg}`,
-      type: results.overall ? 'success' : 'warning',
+      message: mongoMsg,
+      type: results.mongodb.success ? 'success' : 'warning',
+      duration: 5000
+    })
+    ElMessage({
+      message: redisMsg,
+      type: results.redis.success ? 'success' : 'warning',
       duration: 5000
     })
 

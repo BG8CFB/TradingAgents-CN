@@ -306,8 +306,9 @@ const currentDataSourceInfo = computed(() => {
 
 // 打开注册链接
 const openRegisterUrl = () => {
-  if (currentDataSourceInfo.value?.register_url) {
-    window.open(currentDataSourceInfo.value.register_url, '_blank')
+  const url = currentDataSourceInfo.value?.register_url
+  if (url && /^https?:\/\//i.test(url)) {
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 
@@ -374,7 +375,7 @@ const dataSourceTypes = [
   {
     label: 'BaoStock',
     value: 'baostock',
-    register_url: 'http://baostock.com/',
+    register_url: 'https://www.baostock.com/',
     register_guide: 'BaoStock 是开源免费的证券数据平台，无需注册即可使用。访问官网了解更多：'
   },
 

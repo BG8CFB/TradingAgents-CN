@@ -81,7 +81,7 @@ onUnmounted(() => {
 })
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .network-status {
   position: fixed;
   top: 20px;

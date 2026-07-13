@@ -5,6 +5,7 @@ import type {
   LoginResponse,
   RefreshTokenResponse,
   User,
+  UserUpdateRequest,
   ChangePasswordForm
 } from '@/types/auth'
 
@@ -48,7 +49,7 @@ export const authApi = {
   //   ApiClient.get<UserPermissions>('/api/auth/permissions'),
 
   // 更新用户信息
-  updateUserInfo: (data: Partial<User>) =>
+  updateUserInfo: (data: UserUpdateRequest) =>
     ApiClient.put<User>('/api/auth/me', data),
 
   // 修改密码

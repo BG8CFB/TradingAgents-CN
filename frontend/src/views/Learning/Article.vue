@@ -209,7 +209,11 @@ const downloadArticle = async () => {
     return
   }
   if (info.externalUrl) {
-    window.open(info.externalUrl, '_blank')
+    if (!/^https?:\/\//i.test(info.externalUrl)) {
+      ElMessage.warning('链接格式不合法')
+      return
+    }
+    window.open(info.externalUrl, '_blank', 'noopener,noreferrer')
     return
   }
   try {
@@ -313,7 +317,11 @@ async function loadArticle(id: string) {
     return
   }
   if (info.externalUrl) {
-    window.open(info.externalUrl, '_blank')
+    if (!/^https?:\/\//i.test(info.externalUrl)) {
+      ElMessage.warning('链接格式不合法')
+      return
+    }
+    window.open(info.externalUrl, '_blank', 'noopener,noreferrer')
     article.value = {
       id,
       title: info.title,
@@ -365,7 +373,6 @@ async function loadArticle(id: string) {
     await nextTick()
     buildTOCFromHTML(html)
     buildPrevNext(id)
-    setupInternalLinks()
   } catch (e) {
     console.error(e)
     ElMessage.error('加载文章失败：无法访问文档资源')
@@ -383,21 +390,15 @@ function buildTOCFromHTML(html: string) {
   }))
 }
 
-function setupInternalLinks() {
-  nextTick(() => {
-    const container = document.querySelector('.article-content')
-    if (!container) return
-    const links = container.querySelectorAll('a[data-internal="true"]')
-    for (const link of links) {
-      link.addEventListener('click', (e) => {
-        e.preventDefault()
-        const href = link.getAttribute('href')
-        if (href) {
-          router.push(href)
-        }
-      })
-    }
-  })
+function handleInternalLinkClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  const link = target.closest('a[data-internal="true"]')
+  if (!link) return
+  e.preventDefault()
+  const href = link.getAttribute('href')
+  if (href) {
+    router.push(href)
+  }
 }
 
 function buildPrevNext(id: string) {
@@ -407,16 +408,25 @@ function buildPrevNext(id: string) {
 }
 
 let scrollHandler: (() => void) | null = null
+let articleContainer: HTMLElement | null = null
 
 onMounted(() => {
   loadArticle(articleId.value)
   scrollHandler = updateActiveHeading
   window.addEventListener('scroll', scrollHandler, { passive: true })
+  articleContainer = document.querySelector('.article-content')
+  if (articleContainer) {
+    articleContainer.addEventListener('click', handleInternalLinkClick)
+  }
 })
 
 onUnmounted(() => {
   if (scrollHandler) {
     window.removeEventListener('scroll', scrollHandler)
+  }
+  if (articleContainer) {
+    articleContainer.removeEventListener('click', handleInternalLinkClick)
+    articleContainer = null
   }
 })
 

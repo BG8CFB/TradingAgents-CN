@@ -17,7 +17,7 @@
 import { computed } from 'vue'
 import { renderMarkdown } from '@/utils/markdown'
 
-const props = defineProps<{ modelValue: boolean; result: any }>()
+const props = defineProps<{ modelValue: boolean; result: { recommendation?: string; summary?: string } | null }>()
 const emit = defineEmits(['update:modelValue','close','view-report'])
 
 const visible = computed({

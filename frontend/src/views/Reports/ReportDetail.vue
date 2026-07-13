@@ -281,7 +281,7 @@
           >
             <div class="module-content">
               <div v-if="typeof report.reports?.[moduleName] === 'string'" class="markdown-content">
-                <div v-html="renderSafeMarkdown(report.reports[moduleName]!)"></div>
+                <div v-html="renderSafeMarkdown(report.reports?.[moduleName] ?? '')"></div>
               </div>
               <div v-else class="json-content">
                 <pre>{{ JSON.stringify(report.reports?.[moduleName], null, 2) }}</pre>
@@ -689,7 +689,9 @@ const renderSafeMarkdown = (content: string): string => {
   try {
     return renderMarkdown(content)
   } catch (e) {
-    return `<pre style="white-space: pre-wrap; font-family: inherit;">${content}</pre>`
+    // catch 路径 content 未经 DOMPurify 消毒，需手动转义 HTML 特殊字符防 XSS
+    const escaped = content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return `<pre style="white-space: pre-wrap; font-family: inherit;">${escaped}</pre>`
   }
 }
 
