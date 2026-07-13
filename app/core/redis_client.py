@@ -99,6 +99,46 @@ class RedisService:
         """
         result = await self.redis.eval(lua_script, 1, key, ttl)
         return int(result)
+
+    async def check_and_increment_quota(
+        self, key: str, max_quota: int, ttl: int = 86400
+    ) -> dict:
+        """原子性检查配额并递增计数器（Lua 脚本避免 TOCTOU 竞态）。
+
+        逻辑：
+          1. GET 当前计数（key 不存在时视为 0）
+          2. 若当前计数 >= max_quota，拒绝（不递增）
+          3. 若未超限，INCR 递增；仅首次（INCR 返回 1）时 EXPIRE 设 TTL
+
+        Args:
+            key: Redis 配额键（如 quota:{user_id}:{date}）。
+            max_quota: 每日配额上限。
+            ttl: 键 TTL（秒），默认 86400（1 天）。
+
+        Returns:
+            {"allowed": bool, "current": int, "max_quota": int}
+            - allowed=True 时 current 为递增后的新计数；
+            - allowed=False 时 current 为当前计数（未递增）。
+        """
+        lua_script = """
+        local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+        local max_quota = tonumber(ARGV[1])
+        local ttl = tonumber(ARGV[2])
+        if current >= max_quota then
+            return {0, current, max_quota}
+        end
+        local new_count = redis.call('INCR', KEYS[1])
+        if new_count == 1 then
+            redis.call('EXPIRE', KEYS[1], ttl)
+        end
+        return {1, new_count, max_quota}
+        """
+        result = await self.redis.eval(lua_script, 1, key, max_quota, ttl)
+        return {
+            "allowed": bool(result[0]),
+            "current": int(result[1]),
+            "max_quota": int(result[2]),
+        }
     
     async def add_to_queue(self, queue_key: str, item: dict):
         """添加项目到队列"""

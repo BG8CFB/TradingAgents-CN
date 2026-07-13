@@ -39,3 +39,21 @@ def get_env(key: str, default: Any = None) -> Any:
         pass
 
     return default
+
+
+def has_env_var(key: str) -> bool:
+    """检查环境变量是否被显式设置（仅检查 os.environ，不回退 settings）。
+
+    供需要区分"环境变量来源"和"数据库来源"的场景使用，
+    避免 services 层直接访问 os.environ。
+    """
+    return key in os.environ
+
+
+def get_raw_env(key: str, default: Any = None) -> Any:
+    """仅从 os.environ 读取（不回退 settings）。
+
+    供需要"纯环境变量覆盖"语义的场景使用，
+    避免 services 层直接访问 os.environ。
+    """
+    return os.environ.get(key, default)

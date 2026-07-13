@@ -3,10 +3,10 @@ import logging.config
 import sys
 from importlib.util import find_spec
 from pathlib import Path
-import os
 import platform
 
 from app.core.config import settings
+from app.core.env import get_env
 from app.utils.runtime_paths import get_logs_dir, resolve_path
 
 # Windows 上使用 concurrent-log-handler 避免文件占用问题；
@@ -29,8 +29,8 @@ def resolve_logging_cfg_path() -> Path:
     """根据环境选择日志配置文件路径（可能不存在）
     优先 docker 配置，其次默认配置。
     """
-    profile = os.environ.get("LOGGING_PROFILE", "").lower()
-    is_docker_env = os.environ.get("DOCKER", "").lower() in {"1", "true", "yes"} or Path("/.dockerenv").exists()
+    profile = str(get_env("LOGGING_PROFILE", "")).lower()
+    is_docker_env = str(get_env("DOCKER", "")).lower() in {"1", "true", "yes"} or Path("/.dockerenv").exists()
     cfg_candidate = "config/logging_docker.toml" if profile == "docker" or is_docker_env else "config/logging.toml"
     return Path(cfg_candidate)
 
@@ -394,7 +394,7 @@ def setup_logging(log_level: str = "INFO"):
             "uvicorn": {"level": "INFO", "handlers": ["console", "file", "error_file"], "propagate": False},
             "fastapi": {"level": "INFO", "handlers": ["console", "file", "error_file"], "propagate": False},
         },
-        "root": {"level": log_level, "handlers": ["console"]},
+        "root": {"level": log_level, "handlers": ["console", "file", "error_file"]},
     }
 
     logging.config.dictConfig(logging_config)

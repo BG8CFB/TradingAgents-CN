@@ -2,7 +2,7 @@
 分析报告管理API路由
 """
 import json
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -139,7 +139,7 @@ async def delete_report(
 @router.get("/{report_id}/download")
 async def download_report(
     report_id: str,
-    format: str = Query("markdown", description="下载格式: markdown, json, pdf, docx"),
+    format: Literal["markdown", "json", "pdf", "docx"] = Query("markdown", description="下载格式: markdown, json, pdf, docx"),
     user: dict = Depends(get_current_user)
 ):
     """下载报告

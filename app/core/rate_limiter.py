@@ -32,7 +32,11 @@ class RateLimiter:
         self.time_window = time_window
         self.name = name
         self.calls = deque()  # 存储调用时间戳
-        self.lock = asyncio.Lock()  # 确保协程安全
+        # 延迟创建：首次 acquire 时绑定事件循环。
+        # 线程安全说明（R11 核实结论）：acquire() 中 if self._lock is None 到
+        # self._lock = asyncio.Lock() 之间无 await，Python 单线程协程调度下
+        # 不含 await 的代码段是原子执行的，不存在 check-then-act 竞态。
+        self._lock: Optional[asyncio.Lock] = None
         
         # 统计信息
         self.total_calls = 0
@@ -49,9 +53,12 @@ class RateLimiter:
         采用"检查-释放锁-等待-重新获取锁"模式，避免锁内 sleep 导致并发退化为串行。
         统计字段（total_waits / total_wait_time）在锁内更新，避免并发 race。
         """
+        # 延迟创建 asyncio.Lock，首次调用时绑定到当前事件循环
+        if self._lock is None:
+            self._lock = asyncio.Lock()
         while True:
             wait_time = 0.0
-            async with self.lock:
+            async with self._lock:
                 now = time.time()
 
                 # 移除时间窗口外的旧调用记录
@@ -198,12 +205,23 @@ _rate_limiter_lock = threading.Lock()
 
 
 def get_tushare_rate_limiter(tier: str = "standard", safety_margin: float = 0.8) -> TushareRateLimiter:
-    """获取Tushare速率限制器（线程安全单例）"""
+    """获取Tushare速率限制器（线程安全单例）。
+
+    单例参数仅首次生效：后续调用传入不同的 ``tier`` / ``safety_margin``
+    时记录 warning，但仍返回首次创建的实例。如果不同模块确实需要不同
+    tier 的限流器，应使用独立变量名管理各自的实例。
+    """
     global _tushare_limiter
     if _tushare_limiter is None:
         with _rate_limiter_lock:
             if _tushare_limiter is None:
                 _tushare_limiter = TushareRateLimiter(tier=tier, safety_margin=safety_margin)
+    elif _tushare_limiter.tier != tier or _tushare_limiter.safety_margin != safety_margin:
+        logger.warning(
+            f"get_tushare_rate_limiter 参数与首次创建不一致"
+            f"(existing tier={_tushare_limiter.tier}, requested tier={tier}), "
+            f"返回已有实例。如需不同 tier 请使用独立变量管理。"
+        )
     return _tushare_limiter
 
 

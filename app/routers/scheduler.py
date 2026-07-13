@@ -57,7 +57,7 @@ async def list_jobs(
 async def update_job_metadata_route(
     job_id: str,
     request: JobMetadataUpdateRequest,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
     service: SchedulerService = Depends(get_scheduler_service)
 ):
     """
@@ -70,10 +70,6 @@ async def update_job_metadata_route(
     Returns:
         操作结果
     """
-    # 检查管理员权限
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="仅管理员可以更新任务元数据")
-
     try:
         success = await service.update_job_metadata(
             job_id,
@@ -119,22 +115,18 @@ async def get_job_detail(
 @router.post("/jobs/{job_id}/pause")
 async def pause_job(
     job_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
     service: SchedulerService = Depends(get_scheduler_service)
 ):
     """
     暂停任务
-    
+
     Args:
         job_id: 任务ID
-        
+
     Returns:
         操作结果
     """
-    # 检查管理员权限
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="仅管理员可以暂停任务")
-    
     try:
         success = await service.pause_job(job_id)
         if success:
@@ -150,22 +142,18 @@ async def pause_job(
 @router.post("/jobs/{job_id}/resume")
 async def resume_job(
     job_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
     service: SchedulerService = Depends(get_scheduler_service)
 ):
     """
     恢复任务
-    
+
     Args:
         job_id: 任务ID
-        
+
     Returns:
         操作结果
     """
-    # 检查管理员权限
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="仅管理员可以恢复任务")
-    
     try:
         success = await service.resume_job(job_id)
         if success:
@@ -181,7 +169,7 @@ async def resume_job(
 @router.post("/jobs/{job_id}/trigger")
 async def trigger_job(
     job_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
     service: SchedulerService = Depends(get_scheduler_service),
     force: bool = Query(False, description="是否强制执行（跳过交易时间检查等）")
 ):
@@ -195,10 +183,6 @@ async def trigger_job(
     Returns:
         操作结果
     """
-    # 检查管理员权限
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="仅管理员可以手动触发任务")
-
     try:
         # 为特定任务传递 force 参数
         kwargs = {}

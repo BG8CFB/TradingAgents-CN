@@ -19,12 +19,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.services.operation_log_service import log_operation
 from app.models.operation_log import ActionType
-from app.utils.secret_masking import mask_query_params
+from app.utils.secret_masking import mask_query_params, mask_uri_password
+from app.utils.request_utils import get_client_ip
 
 logger = logging.getLogger("webapi")
 
 # 全局开关：是否启用操作日志记录（可由系统设置动态控制）
 OPLOG_ENABLED: bool = True
+
+# 异常消息落库前的最大长度：防止超长异常（如完整 SQL dump）膨胀 operation_logs 集合
+_OPLOG_ERROR_MAX_LEN = 500
 
 
 @dataclass(frozen=True, eq=True)
@@ -42,23 +46,6 @@ class RequestSnapshot:
     path: str
     query_params: Optional[tuple] = None  # tuple of (key, value) pairs
 
-
-def _get_client_ip_from_request(request: Request) -> str:
-    """获取客户端真实 IP 地址（仅信任来自受信代理的代理头）"""
-    direct_ip = request.client.host if request.client else "unknown"
-
-    # 仅当直连 IP 来自受信代理时，才读取代理头
-    from app.core.config import settings
-    trusted = tuple(p.strip() for p in settings.TRUSTED_PROXIES.split(",") if p.strip())
-    if direct_ip in trusted:
-        forwarded_for = request.headers.get("x-forwarded-for")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-        real_ip = request.headers.get("x-real-ip")
-        if real_ip:
-            return real_ip
-
-    return direct_ip
 
 def set_operation_log_enabled(flag: bool) -> None:
     global OPLOG_ENABLED
@@ -107,7 +94,7 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
         # 获取请求信息
         method = request.method
         path = request.url.path
-        ip_address = self._get_client_ip(request)
+        ip_address = get_client_ip(request)
         user_agent = request.headers.get("user-agent", "")
 
         # 提前快照化 query_params：避免后台任务持 Request 引用
@@ -132,11 +119,17 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
             if user_info:
                 # 异常路径同步写入，避免遗漏关键错误日志
                 # query_params 同样需要脱敏：异常路径也可能携带 password/token 等
-                from app.utils.secret_masking import mask_query_params
                 masked_qp = (
                     dict(mask_query_params(list(snapshot.query_params)))
                     if snapshot.query_params else None
                 )
+                # error 字段脱敏：异常消息可能内嵌数据库连接串（mongodb://user:pass@host）
+                # 或 SQL 片段等敏感信息。用 mask_uri_password 清理 password 段，
+                # 再截断到 _OPLOG_ERROR_MAX_LEN 防止超长异常膨胀数据库。
+                raw_error = str(exc)
+                sanitized_error = mask_uri_password(raw_error)
+                if len(sanitized_error) > _OPLOG_ERROR_MAX_LEN:
+                    sanitized_error = sanitized_error[:_OPLOG_ERROR_MAX_LEN] + "..."
                 try:
                     await log_operation(
                         user_id=str(user_info.get("id", "")),
@@ -144,7 +137,7 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
                         action_type=ActionType.API_ACCESS,
                         action=f"{snapshot.method} {snapshot.path}",
                         details={
-                            "error": str(exc),
+                            "error": sanitized_error,
                             "query_params": masked_qp,
                         },
                         success=False,
@@ -216,10 +209,6 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
 
         return False
 
-    def _get_client_ip(self, request: Request) -> str:
-        """获取客户端IP地址"""
-        return _get_client_ip_from_request(request)
-
     async def _get_user_info(self, request: Request) -> Optional[Dict[str, Any]]:
         """获取用户信息：从 Authorization header 解析 JWT。
 
@@ -232,10 +221,12 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
         """从 Authorization header 解析 JWT Token 获取用户信息。"""
         try:
             auth_header = request.headers.get("authorization", "")
-            if not auth_header.startswith("Bearer "):
+            # RFC 6750 §2.1: Bearer scheme 不区分大小写
+            parts = auth_header.split(" ", 1)
+            if len(parts) != 2 or parts[0].lower() != "bearer":
                 return None
 
-            token = auth_header[7:]
+            token = parts[1].strip()
             if not token:
                 return None
 
@@ -247,14 +238,22 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
                 settings.JWT_SECRET,
                 algorithms=[settings.JWT_ALGORITHM],
                 options={"verify_exp": True},
+                leeway=5,
             )
+            # 设计限制：中间件层不做 Redis token 黑名单查询（避免每个写请求
+            # 增加 Redis RTT）。已登出但未到 exp 的 token 触发的操作日志会
+            # 归到此用户名下——路由层的 Depends(get_current_user) 会拦截
+            # 已撤销的 token，此中间件仅用于日志记录维度识别。
 
             # JWT sub 字段即用户名（create_access_token 时 sub=username）
             username = payload.get("sub", "")
+            # jti 是 JWT 的唯一标识（uuid4），用作 session_id 关联操作日志与会话
+            session_id = payload.get("jti")
             return {
                 "id": username,
                 "username": username or "unknown",
                 "role": "admin" if payload.get("is_admin") else "user",
+                "session_id": session_id,
             }
         except jwt.ExpiredSignatureError:
             return None
@@ -392,7 +391,7 @@ async def manual_log_operation(
 ):
     """手动记录操作日志"""
     try:
-        ip_address = _get_client_ip_from_request(request)
+        ip_address = get_client_ip(request)
         user_agent = request.headers.get("user-agent", "")
 
         await log_operation(

@@ -215,48 +215,50 @@ class TestGetClientIP:
 
     def test_returns_direct_ip(self):
         """无代理时应返回客户端 IP"""
-        from app.middleware.rate_limit import _get_client_ip
+        from app.utils.request_utils import get_client_ip
 
         request = _build_real_request(client_host="192.168.1.100")
-        result = _get_client_ip(request)
+        result = get_client_ip(request)
         assert result == "192.168.1.100"
 
     def test_trusted_proxy_reads_forwarded_for(self):
-        """可信代理应读取 X-Forwarded-For 头"""
-        from app.middleware.rate_limit import _get_client_ip
+        """可信代理应读取 X-Forwarded-For 头（从右向左遍历，跳过受信 IP）"""
+        from app.utils.request_utils import get_client_ip
 
         request = _build_real_request(
             client_host="127.0.0.1",
             headers={"x-forwarded-for": "10.0.0.1, 192.168.1.1"},
         )
-        result = _get_client_ip(request)
-        assert result == "10.0.0.1"
+        result = get_client_ip(request)
+        # 新逻辑：从右向左遍历，192.168.1.1 非受信 → 返回 192.168.1.1
+        # （旧实现取 split(",")[0] = 10.0.0.1，存在左端伪造风险）
+        assert result == "192.168.1.1"
 
     def test_trusted_proxy_reads_real_ip(self):
         """可信代理应读取 X-Real-IP 头"""
-        from app.middleware.rate_limit import _get_client_ip
+        from app.utils.request_utils import get_client_ip
 
         request = _build_real_request(
             client_host="::1",
             headers={"x-real-ip": "10.0.0.2"},
         )
-        result = _get_client_ip(request)
+        result = get_client_ip(request)
         assert result == "10.0.0.2"
 
     def test_untrusted_proxy_ignores_headers(self):
         """不可信代理应忽略转发头"""
-        from app.middleware.rate_limit import _get_client_ip
+        from app.utils.request_utils import get_client_ip
 
         request = _build_real_request(
             client_host="203.0.113.1",
             headers={"x-forwarded-for": "10.0.0.1"},
         )
-        result = _get_client_ip(request)
+        result = get_client_ip(request)
         assert result == "203.0.113.1"
 
     def test_no_client_returns_unknown(self):
         """无客户端信息应返回 unknown"""
-        from app.middleware.rate_limit import _get_client_ip
+        from app.utils.request_utils import get_client_ip
 
         # 构建没有 client 信息的 scope
         scope = {
@@ -271,7 +273,7 @@ class TestGetClientIP:
             # 不设置 "client"
         }
         request = Request(scope)
-        result = _get_client_ip(request)
+        result = get_client_ip(request)
         assert result == "unknown"
 
 
@@ -385,16 +387,15 @@ class TestOperationLogMiddleware:
         assert "登出" in desc
 
     def test_get_client_ip(self):
-        """_get_client_ip 非受信代理应忽略 X-Forwarded-For"""
-        from app.middleware.operation_log_middleware import OperationLogMiddleware
+        """get_client_ip 非受信代理应忽略 X-Forwarded-For"""
+        from app.utils.request_utils import get_client_ip
 
-        middleware = self._make_middleware()
         request = _build_real_request(
             client_host="192.168.1.1",
             headers={"x-forwarded-for": "10.0.0.1"},
         )
 
-        ip = middleware._get_client_ip(request)
+        ip = get_client_ip(request)
         # 192.168.1.1 不是受信代理（只有 127.0.0.1 和 ::1 受信），应使用直连 IP
         assert ip == "192.168.1.1"
 
@@ -436,59 +437,59 @@ class TestGetClientIPFromRequest:
 
     def test_with_forwarded_for_untrusted(self):
         """非受信代理应忽略 X-Forwarded-For"""
-        from app.middleware.operation_log_middleware import _get_client_ip_from_request
+        from app.utils.request_utils import get_client_ip
 
         request = _build_real_request(
             client_host="192.168.1.1",
             headers={"x-forwarded-for": "10.0.0.1"},
         )
-        result = _get_client_ip_from_request(request)
+        result = get_client_ip(request)
         assert result == "192.168.1.1"
 
     def test_with_forwarded_for_trusted(self):
         """受信代理应使用 X-Forwarded-For"""
-        from app.middleware.operation_log_middleware import _get_client_ip_from_request
+        from app.utils.request_utils import get_client_ip
 
         request = _build_real_request(
             client_host="127.0.0.1",
             headers={"x-forwarded-for": "10.0.0.1"},
         )
-        result = _get_client_ip_from_request(request)
+        result = get_client_ip(request)
         assert result == "10.0.0.1"
 
     def test_with_real_ip_trusted(self):
         """受信代理无 Forwarded-For 时应使用 X-Real-IP"""
-        from app.middleware.operation_log_middleware import _get_client_ip_from_request
+        from app.utils.request_utils import get_client_ip
 
         request = _build_real_request(
             client_host="127.0.0.1",
             headers={"x-real-ip": "10.0.0.2"},
         )
-        result = _get_client_ip_from_request(request)
+        result = get_client_ip(request)
         assert result == "10.0.0.2"
 
     def test_with_real_ip_untrusted(self):
         """非受信代理应忽略 X-Real-IP"""
-        from app.middleware.operation_log_middleware import _get_client_ip_from_request
+        from app.utils.request_utils import get_client_ip
 
         request = _build_real_request(
             client_host="192.168.1.1",
             headers={"x-real-ip": "10.0.0.2"},
         )
-        result = _get_client_ip_from_request(request)
+        result = get_client_ip(request)
         assert result == "192.168.1.1"
 
     def test_with_no_headers(self):
         """无头时应使用 client.host"""
-        from app.middleware.operation_log_middleware import _get_client_ip_from_request
+        from app.utils.request_utils import get_client_ip
 
         request = _build_real_request(client_host="192.168.1.1")
-        result = _get_client_ip_from_request(request)
+        result = get_client_ip(request)
         assert result == "192.168.1.1"
 
     def test_with_no_client(self):
         """无客户端信息应返回 unknown"""
-        from app.middleware.operation_log_middleware import _get_client_ip_from_request
+        from app.utils.request_utils import get_client_ip
 
         scope = {
             "type": "http",
@@ -501,5 +502,5 @@ class TestGetClientIPFromRequest:
             "scheme": "http",
         }
         request = Request(scope)
-        result = _get_client_ip_from_request(request)
+        result = get_client_ip(request)
         assert result == "unknown"

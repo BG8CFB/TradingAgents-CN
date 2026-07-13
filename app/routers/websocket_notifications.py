@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from typing import Dict, Set
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.auth_service import AuthService
 from app.services.user_service import user_service
@@ -27,6 +27,46 @@ async def _resolve_authenticated_user_id(token: str) -> str | None:
         return None
 
     return str(user.id)
+
+
+def _extract_token_from_websocket(websocket: WebSocket) -> str | None:
+    """从 WebSocket 握手请求中提取 JWT token。
+
+    优先从 ``Sec-WebSocket-Protocol`` 子协议传递 token（客户端使用
+    ``new WebSocket(url, ['bearer', token])``），避免 token 出现在 URL
+    query string 中泄漏到服务器日志/浏览器历史/Referer。
+
+    URL query ``?token=...`` 仅作为向后兼容回退。
+
+    Args:
+        websocket: 握手阶段的 WebSocket 连接。
+
+    Returns:
+        提取到的 token 字符串，或 ``None``。
+    """
+    # 1) 优先从 ASGI scope 的 subprotocols 提取
+    #    Starlette TestClient / 浏览器 WebSocket 都会将子协议存入 scope["subprotocols"]
+    #    测试 stub 可能没有 scope，用 getattr 安全访问
+    scope = getattr(websocket, "scope", None)
+    if scope and isinstance(scope, dict):
+        subprotocols = scope.get("subprotocols") or []
+        if subprotocols:
+            # 期望格式：['bearer', '<token>']
+            for i, part in enumerate(subprotocols):
+                if part.lower() == "bearer" and i + 1 < len(subprotocols):
+                    candidate = subprotocols[i + 1]
+                    if candidate:
+                        return candidate
+            # 无 bearer 前缀时，若仅传了一个值则直接取该值
+            if len(subprotocols) == 1 and subprotocols[0]:
+                return subprotocols[0]
+
+    # 2) 回退到 URL query string（向后兼容）
+    query_params = getattr(websocket, "query_params", None)
+    if query_params:
+        return query_params.get("token")
+    return None
+
 
 # 🔥 全局 WebSocket 连接管理器
 class ConnectionManager:
@@ -98,14 +138,25 @@ class ConnectionManager:
             all_connections = []
             for connections in self.active_connections.values():
                 all_connections.extend(connections)
-        
+
         message_json = json.dumps(message, ensure_ascii=False)
-        
+        dead_connections = []
+
         for connection in all_connections:
             try:
                 await connection.send_text(message_json)
             except Exception as e:
                 logger.warning(f"❌ [WS] 广播消息失败: {e}")
+                dead_connections.append(connection)
+
+        # 清理死连接（与 send_personal_message 保持一致）
+        if dead_connections:
+            async with self._lock:
+                for user_id, connections in list(self.active_connections.items()):
+                    for conn in dead_connections:
+                        connections.discard(conn)
+                    if not connections:
+                        del self.active_connections[user_id]
     
     def get_stats(self) -> dict:
         """获取连接统计"""
@@ -123,13 +174,16 @@ manager = ConnectionManager()
 @router.websocket("/notifications")
 async def websocket_notifications_endpoint(
     websocket: WebSocket,
-    token: str = Query(...)
 ):
     """
     WebSocket 通知端点
-    
-    客户端连接: ws://localhost:8000/api/ws/notifications?token=<jwt_token>
-    
+
+    客户端连接（推荐）：使用 Sec-WebSocket-Protocol 子协议传递 token::
+
+        new WebSocket(wsUrl, ['bearer', jwtToken])
+
+    向后兼容回退：``ws://localhost:8000/api/ws/notifications?token=<jwt_token>``
+
     消息格式:
     {
         "type": "notification",  // 消息类型: notification, heartbeat, connected
@@ -145,16 +199,19 @@ async def websocket_notifications_endpoint(
         }
     }
     """
+    # 提取 token：优先子协议头，回退 query string
+    token = _extract_token_from_websocket(websocket)
+
     # 验证 token
-    user_id = await _resolve_authenticated_user_id(token)
+    user_id = await _resolve_authenticated_user_id(token) if token else None
     if not user_id:
         # 必须先 accept 再 close，否则 Starlette 会回退为 HTTP 403，
         # 自定义关闭码无法到达浏览器（与 analysis.py WebSocket 处理一致）
         try:
             await websocket.accept()
             await websocket.close(code=4401, reason="authentication failed")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"WS 关闭/accept 失败: {e}")
         return
 
     # 连接 WebSocket

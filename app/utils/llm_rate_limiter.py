@@ -8,9 +8,16 @@ LLM 调用速率限制器
 2. 支持按提供商配置不同的限制
 3. 支持并发控制
 4. 提供调用统计和成本估算
+
+设计约束：
+    本限流器是**纯同步设计**（threading.Semaphore + time.sleep 轮询），
+    仅供同步上下文使用。async 调用方必须通过 ``loop.run_in_executor()``
+    在线程池中调用 ``rate_limited_call``，否则将阻塞事件循环。
+
+    已验证调用路径（app/engine/agents/executors/agent_executor.py:473-494）
+    已正确使用 ``run_in_executor`` 包装，因此当前无实际阻塞风险。
 """
 
-import asyncio
 import logging
 import threading
 import time
@@ -98,7 +105,6 @@ class LLMRateLimiter:
         self._initialized = True
         self._configs: Dict[str, RateLimitConfig] = DEFAULT_RATE_LIMITS.copy()
         self._stats: Dict[str, CallStats] = {}
-        self._semaphores: Dict[str, asyncio.Semaphore] = {}
         self._sync_semaphores: Dict[str, threading.Semaphore] = {}
         self._call_lock = threading.Lock()
         

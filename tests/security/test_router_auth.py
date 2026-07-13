@@ -213,6 +213,12 @@ class TestRouterAuthSignature:
             ("app.routers.us.data", "POST", "/quality/check"),
             ("app.routers.us.sync", "POST", "/refresh/AAPL"),
             ("app.routers.us.sync", "POST", "/sync/daily_quotes"),
+            # R11 M-03/04/05: system.py 配置写操作/测试端点必须是 require_admin
+            ("app.routers.config.system", "POST", "/reload"),
+            ("app.routers.config.system", "POST", "/migrate-legacy"),
+            ("app.routers.config.system", "POST", "/test"),
+            # R10 M2 恢复: PUT /settings 必须是 require_admin
+            ("app.routers.config.system", "PUT", "/settings"),
         ],
     )
     def test_write_endpoints_require_admin(self, module_path, method, subpath):

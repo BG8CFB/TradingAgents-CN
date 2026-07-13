@@ -140,7 +140,7 @@ async def export_logs_csv(
     start_date: str = Query(None, description="开始日期"),
     end_date: str = Query(None, description="结束日期"),
     action_type: str = Query(None, description="操作类型"),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """导出操作日志为CSV"""
     try:

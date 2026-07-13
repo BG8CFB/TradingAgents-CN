@@ -144,9 +144,9 @@ async def reload_skills(user: dict = Depends(require_admin)):
 @router.post("/install/git")
 async def install_from_git(
     payload: GitInstallRequest,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
 ):
-    """从 Git URL 安装 skill"""
+    """从 Git URL 安装 skill（仅管理员）"""
     username = user.get("username", "user") if isinstance(user, dict) else "user"
     result = await SkillService.install_from_git(
         payload.url, payload.trusted_hosts, username
@@ -159,9 +159,9 @@ async def install_from_git(
 @router.post("/install/registry")
 async def install_from_registry(
     payload: RegistryInstallRequest,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
 ):
-    """从中心化注册表安装（本期未实现）"""
+    """从中心化注册表安装（仅管理员，本期未实现）"""
     username = user.get("username", "user") if isinstance(user, dict) else "user"
     result = await SkillService.install_from_registry(
         payload.name, payload.version, username
@@ -175,9 +175,9 @@ async def install_from_registry(
 async def uninstall_skill_route(
     skill_name: str = FastAPIPath(..., description="skill 名"),
     force: bool = False,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
 ):
-    """卸载 skill（本地 skill 需 force=true）"""
+    """卸载 skill（仅管理员；本地 skill 需 force=true）"""
     username = user.get("username", "user") if isinstance(user, dict) else "user"
     result = await SkillService.uninstall(skill_name, force=force, username=username)
     if not result.get("success"):

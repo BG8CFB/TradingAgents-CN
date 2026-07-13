@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends
 import logging
 
 from app.routers.auth_db import get_current_user
+from app.core.response import safe_error_message
 
 router = APIRouter(prefix="/api/system", tags=["System"])
 logger = logging.getLogger("webapi")
 
 
-@router.get("/config/validate", tags=["system"], summary="验证配置完整性")
+@router.get("/config/validate", summary="验证配置完整性")
 async def validate_config(current_user: dict = Depends(get_current_user)):
     """
     验证系统配置的完整性和有效性。
@@ -160,5 +161,5 @@ async def validate_config(current_user: dict = Depends(get_current_user)):
         return {
             "success": False,
             "data": None,
-            "message": f"配置验证失败: {str(e)}"
+            "message": safe_error_message(e, "配置验证失败")
         }

@@ -103,7 +103,7 @@ def _sanitize_kv(d: Dict[str, Any]) -> Dict[str, Any]:
 # ===== 配置重载端点 =====
 
 @router.post("/reload", summary="重新加载配置")
-async def reload_config(current_user: dict = Depends(get_current_user)):
+async def reload_config(current_user: dict = Depends(require_admin)):
     """
     重新加载配置并桥接到环境变量
 
@@ -221,9 +221,9 @@ async def get_system_settings_meta(
 @router.put("/settings", response_model=dict)
 async def update_system_settings(
     settings: Dict[str, Any],
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
-    """更新系统设置"""
+    """更新系统设置（仅管理员）"""
     try:
         # 打印接收到的设置（用于调试）
         logger.info(f"接收到的系统设置更新请求，包含 {len(settings)} 项")
@@ -359,7 +359,7 @@ async def import_config(
 
 @router.post("/migrate-legacy", response_model=dict)
 async def migrate_legacy_config(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """迁移传统配置"""
     try:
@@ -398,7 +398,7 @@ async def migrate_legacy_config(
 @router.post("/test", response_model=ConfigTestResponse)
 async def test_config(
     request: ConfigTestRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """测试配置连接"""
     try:
@@ -432,7 +432,7 @@ async def test_config(
 @router.post("/database/{db_name}/test", response_model=ConfigTestResponse)
 async def test_saved_database_config(
     db_name: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """测试已保存的数据库配置（从数据库中获取完整配置包括密码）"""
     try:
@@ -501,7 +501,7 @@ async def get_database_configs(
 @router.post("/database", response_model=dict)
 async def add_database_config(
     request: DatabaseConfigRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """添加数据库配置"""
     try:
@@ -544,7 +544,7 @@ async def add_database_config(
 async def update_database_config(
     db_name: str,
     request: DatabaseConfigRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """更新数据库配置"""
     try:
@@ -593,7 +593,7 @@ async def update_database_config(
 @router.delete("/database/{db_name}", response_model=dict)
 async def delete_database_config(
     db_name: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)
 ):
     """删除数据库配置"""
     try:

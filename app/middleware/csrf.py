@@ -100,11 +100,13 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # WebSocket / SSE 升级请求跳过（由独立 token 校验）
-        if request.url.path.startswith("/ws") or request.url.path.startswith("/api/sse"):
+        # 使用 "/ws/" 和 "/api/sse/" 带斜杠前缀，避免误匹配 /ws-admin、/wsanything 等非 WebSocket 路径
+        if request.url.path.startswith("/ws/") or request.url.path.startswith("/api/sse/") or request.url.path.startswith("/api/ws/"):
             return await call_next(request)
 
         # 登录/注册端点豁免（这些是 CSRF token 的初始获取来源）
-        if request.url.path in EXEMPT_PATHS:
+        # 标准化路径：去除尾部斜杠，与 RateLimitMiddleware 保持一致
+        if request.url.path.rstrip("/") in EXEMPT_PATHS:
             return await call_next(request)
 
         # 双提交校验：cookie 与 header 必须一致
