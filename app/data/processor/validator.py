@@ -1,6 +1,7 @@
 """数据校验器 — 写入前的字段校验。"""
 
 import logging
+import math
 from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -66,14 +67,19 @@ class Validator:
             return issues
 
         # 价格正数检查
+        # H5 修复：增加 NaN 和 Infinity 检查。float('nan') < 0 为 False、
+        # float('inf') < 0 为 False，两者均可绕过原有的负数检查。
         for pf in _PRICE_FIELDS:
             val = rec.get(pf)
-            if val is not None and isinstance(val, (int, float)) and val < 0:
-                issues.append(f"价格不能为负: {pf}={val}")
+            if val is not None and isinstance(val, (int, float)):
+                if math.isnan(val) or math.isinf(val):
+                    issues.append(f"价格异常(非有限值): {pf}={val}")
+                elif val < 0:
+                    issues.append(f"价格不能为负: {pf}={val}")
 
-        # 涨跌幅范围
+        # 涨跌幅范围（仅对数值类型校验，脏数据如字符串跳过）
         pct = rec.get("pct_chg")
-        if pct is not None:
+        if pct is not None and isinstance(pct, (int, float)):
             lo, hi = _PCT_RANGE.get(market, (-100, 100))
             if pct < lo or pct > hi:
                 issues.append(f"涨跌幅超范围: pct_chg={pct} (范围 {lo}~{hi})")

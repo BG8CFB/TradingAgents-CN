@@ -47,12 +47,16 @@ class SchedulerMonitor:
                 "last_status": None,
             }
         )
+        self._dict_lock = threading.Lock()
         self._timeout_threshold_seconds = 3600  # 默认超时阈值 1 小时
         self._staleness_threshold_seconds = 86400 * 3  # 默认卡住阈值 3 天
         self._scheduler: Optional[AsyncIOScheduler] = None
         self._monitor_thread: Optional[threading.Thread] = None
         self._running = False
         self._monitor_interval = 60  # 检查间隔 60 秒
+        # S3 修复：check_stale_tasks 调用频率控制（每 60 次迭代约 1 小时）。
+        self._stale_check_interval = 60
+        self._loop_count = 0
         # 主事件循环引用：start() 时从 scheduler 所在 loop 获取，
         # 供监控线程通过 run_coroutine_threadsafe 安全调度协程到主 loop
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -84,35 +88,39 @@ class SchedulerMonitor:
     def on_task_start(self, market: str, domain: str) -> None:
         """记录任务开始。"""
         task_id = f"{market}:{domain}"
-        self._running_tasks[task_id] = {
-            "market": market,
-            "domain": domain,
-            "started_at": time.time(),
-            "started_at_iso": datetime.now(timezone.utc).isoformat(),
-        }
+        with self._dict_lock:
+            self._running_tasks[task_id] = {
+                "market": market,
+                "domain": domain,
+                "started_at": time.time(),
+                "started_at_iso": datetime.now(timezone.utc).isoformat(),
+            }
 
     def on_task_complete(
         self, market: str, domain: str, success: bool, latency_ms: int = 0
     ) -> None:
         """记录任务完成。"""
         task_id = f"{market}:{domain}"
-        self._running_tasks.pop(task_id, None)
+        with self._dict_lock:
+            self._running_tasks.pop(task_id, None)
 
-        stats = self._task_stats[task_id]
-        stats["total_runs"] += 1
-        stats["total_latency_ms"] += latency_ms
-        stats["last_run_at"] = datetime.now(timezone.utc).isoformat()
-        stats["last_status"] = "success" if success else "failure"
+            stats = self._task_stats[task_id]
+            stats["total_runs"] += 1
+            stats["total_latency_ms"] += latency_ms
+            stats["last_run_at"] = datetime.now(timezone.utc).isoformat()
+            stats["last_status"] = "success" if success else "failure"
 
-        if success:
-            stats["success_count"] += 1
-        else:
-            stats["failure_count"] += 1
+            if success:
+                stats["success_count"] += 1
+            else:
+                stats["failure_count"] += 1
 
     def get_task_stats(self, market: Optional[str] = None) -> List[Dict]:
         """获取任务执行统计。"""
         results = []
-        for task_id, stats in self._task_stats.items():
+        with self._dict_lock:
+            snapshot = list(self._task_stats.items())
+        for task_id, stats in snapshot:
             if market and not task_id.startswith(f"{market}:"):
                 continue
             total = stats["total_runs"]
@@ -137,7 +145,9 @@ class SchedulerMonitor:
         """获取当前运行中的任务。"""
         now = time.time()
         results = []
-        for task_id, info in self._running_tasks.items():
+        with self._dict_lock:
+            snapshot = list(self._running_tasks.items())
+        for task_id, info in snapshot:
             elapsed = int((now - info["started_at"]) * 1000)
             results.append(
                 {
@@ -151,72 +161,83 @@ class SchedulerMonitor:
             )
         return results
 
-    def check_stale_tasks(self) -> List[Dict]:
+    def check_stale_tasks(self) -> None:
         """检测卡住的任务（检查点长时间未更新）。
 
-        通过比较 last_run_at 与当前时间来判断。
-        监控线程中调用：通过 run_coroutine_threadsafe 调度到主事件循环，
-        避免用 asyncio.run 创建新循环与 Motor 主循环冲突。
+        fire-and-forget：提交到主事件循环后立即返回，不阻塞监控线程。
+        检测结果在协程内部直接 log warning。
         """
         from app.data.scheduler.checkpoint import CheckpointManager
 
         async def _check():
-            results = []
-            checkpoint = CheckpointManager()
-            for task_id, stats in self._task_stats.items():
-                parts = task_id.split(":")
-                if len(parts) != 2:
-                    continue
-                market, domain = parts
-                cp = await checkpoint.get_checkpoint(market, domain, "scheduled")
-                if cp:
-                    from datetime import datetime as _dt
-
-                    try:
-                        last_sync = _dt.fromisoformat(cp.get("last_sync_time", ""))
-                        age = (_dt.now(timezone.utc) - last_sync).total_seconds()
-                        if age > self._staleness_threshold_seconds:
-                            results.append(
-                                {
-                                    "task_id": task_id,
-                                    "market": market,
-                                    "domain": domain,
-                                    "last_sync_time": str(last_sync),
-                                    "staleness_hours": round(age / 3600, 1),
-                                }
-                            )
-                    except (ValueError, TypeError):
-                        pass
-            return results
-
-        # 优先用主 loop 调度协程；主 loop 不可用时降级到 asyncio.run
-        if self._main_loop and self._main_loop.is_running():
             try:
-                future = asyncio.run_coroutine_threadsafe(_check(), self._main_loop)
-                return future.result(timeout=15)
+                results = []
+                checkpoint = CheckpointManager()
+                with self._dict_lock:
+                    task_snapshot = list(self._task_stats.items())
+                for task_id, stats in task_snapshot:
+                    parts = task_id.split(":")
+                    if len(parts) != 2:
+                        continue
+                    market, domain = parts
+                    cp = await checkpoint.get_checkpoint_doc(market, domain, "scheduled")
+                    if cp:
+                        from datetime import datetime as _dt
+
+                        try:
+                            last_sync = _dt.fromisoformat(cp.get("last_sync_time", ""))
+                            if last_sync.tzinfo is None:
+                                last_sync = last_sync.replace(tzinfo=timezone.utc)
+                            age = (_dt.now(timezone.utc) - last_sync).total_seconds()
+                            if age > self._staleness_threshold_seconds:
+                                results.append(
+                                    {
+                                        "task_id": task_id,
+                                        "market": market,
+                                        "domain": domain,
+                                        "last_sync_time": str(last_sync),
+                                        "staleness_hours": round(age / 3600, 1),
+                                    }
+                                )
+                        except (ValueError, TypeError) as parse_err:
+                            logger.debug(
+                                "跳过检查点 %s:%s 的时间解析: %s",
+                                market, domain, parse_err,
+                            )
+                # 在协程内部直接输出检测结果
+                for t in results:
+                    logger.warning(
+                        "检测到卡住的任务: %s, 已停滞 %s 小时",
+                        t["task_id"], t["staleness_hours"],
+                    )
             except Exception as e:
                 logger.debug(f"卡住任务检测失败: {e}")
-                return []
 
-        try:
-            return asyncio.run(_check())
-        except Exception as e:
-            logger.debug(f"卡住任务检测失败: {e}")
-            return []
+        # fire-and-forget：提交到主循环后立即返回，不调 future.result()，
+        # 避免主循环繁忙时阻塞后台监控线程导致后续检测延迟。
+        from app.core.async_utils import run_async_fire_and_forget
+
+        run_async_fire_and_forget(_check())
 
     def _monitor_loop(self) -> None:
         """定期监控循环。"""
         while self._running:
             time.sleep(self._monitor_interval)
+            self._loop_count += 1
             try:
                 self._check_timeouts()
+                # S3 修复：定期检查卡住的任务（checkpoint 长时间未更新）。
+                if self._loop_count % self._stale_check_interval == 0:
+                    self.check_stale_tasks()
             except Exception as e:
                 logger.error(f"监控循环异常: {e}")
 
     def _check_timeouts(self) -> None:
         """检查超时任务。"""
         now = time.time()
-        for task_id, info in list(self._running_tasks.items()):
+        with self._dict_lock:
+            snapshot = list(self._running_tasks.items())
+        for task_id, info in snapshot:
             elapsed = now - info["started_at"]
             if elapsed > self._timeout_threshold_seconds:
                 logger.warning(f"任务超时: {task_id}, 已运行 {int(elapsed / 60)} 分钟")
@@ -226,27 +247,27 @@ class SchedulerMonitor:
     def _record_timeout_event(self, info: Dict, elapsed: float) -> None:
         """记录超时事件到 sync_events。
 
-        监控线程中调用：通过 run_coroutine_threadsafe 调度到主事件循环，
-        避免 asyncio.run 创建新循环与 Motor 主循环冲突。
+        监控线程中调用：fire-and-forget 提交到主事件循环，不阻塞监控线程。
         """
         from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
 
         async def _record():
-            repo = MetadataRepo()
-            await repo.insert_event(
-                {
-                    "event_type": "TASK_TIMEOUT",
-                    "market": info["market"],
-                    "domain": info["domain"],
-                    "elapsed_seconds": int(elapsed),
-                    "started_at": info["started_at_iso"],
-                }
-            )
+            try:
+                repo = MetadataRepo()
+                await repo.insert_event(
+                    {
+                        "event_type": "TASK_TIMEOUT",
+                        "market": info["market"],
+                        "domain": info["domain"],
+                        "elapsed_seconds": int(elapsed),
+                        "started_at": info["started_at_iso"],
+                    }
+                )
+            except Exception as e:
+                logger.debug(f"超时事件记录失败: {e}")
 
-        try:
-            if self._main_loop and self._main_loop.is_running():
-                asyncio.run_coroutine_threadsafe(_record(), self._main_loop)
-            else:
-                asyncio.run(_record())
-        except Exception as e:
-            logger.debug(f"超时事件记录失败: {e}")
+        # fire-and-forget：提交到主循环后立即返回，不调 future.result()，
+        # 避免多任务超时或主循环繁忙时阻塞后台监控线程。
+        from app.core.async_utils import run_async_fire_and_forget
+
+        run_async_fire_and_forget(_record())

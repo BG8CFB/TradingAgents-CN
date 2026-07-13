@@ -37,10 +37,6 @@ def get_stock_fundamentals_unified(
     """
     logger.info(f"📊 [统一基本面工具] 分析股票: {ticker}")
 
-    # 分级分析已废弃，统一使用标准深度
-    data_depth = "standard"
-    logger.info("🔧 [分析深度] 已取消分级，使用标准数据深度获取策略")
-
     logger.debug(
         f"🔍 [股票代码追踪] 统一基本面工具接收到的原始股票代码: '{ticker}' (类型: {type(ticker)})"
     )
@@ -57,7 +53,6 @@ def get_stock_fundamentals_unified(
         market_info = StockUtils.get_market_info(ticker)
         is_china = market_info["is_china"]
         is_hk = market_info["is_hk"]
-        market_info["is_us"]
 
         logger.debug(
             f"🔍 [股票代码追踪] StockUtils.get_market_info 返回的市场信息: {market_info}"
@@ -76,17 +71,6 @@ def get_stock_fundamentals_unified(
 
         if not curr_date:
             curr_date = get_current_date()
-
-        if data_depth == "basic":
-            logger.debug("📊 [基本面策略] 快速分析模式：获取基础财务指标")
-        elif data_depth == "standard":
-            logger.debug("📊 [基本面策略] 标准分析模式：获取标准财务分析")
-        elif data_depth == "full":
-            logger.debug("📊 [基本面策略] 深度分析模式：获取完整基本面分析")
-        elif data_depth == "comprehensive":
-            logger.debug("📊 [基本面策略] 全面分析模式：获取综合基本面分析")
-        else:
-            logger.debug("📊 [基本面策略] 默认模式：获取标准基本面分析")
 
         days_to_fetch = 10
         days_to_analyze = 2
@@ -107,7 +91,7 @@ def get_stock_fundamentals_unified(
 
         if is_china:
             logger.debug(
-                f"🇨🇳 [统一基本面工具] 处理A股数据，数据深度: {data_depth}..."
+                "🇨🇳 [统一基本面工具] 处理A股数据，数据深度: standard..."
             )
             logger.debug(
                 f"🔍 [股票代码追踪] 进入A股处理分支，ticker: '{ticker}'"
@@ -161,7 +145,7 @@ def get_stock_fundamentals_unified(
 
         elif is_hk:
             logger.debug(
-                f"🇭🇰 [统一基本面工具] 处理港股数据，数据深度: {data_depth}..."
+                "🇭🇰 [统一基本面工具] 处理港股数据，数据深度: standard..."
             )
 
             hk_data_success = False
@@ -263,7 +247,7 @@ def get_stock_fundamentals_unified(
 **股票类型**: {market_info['market_name']}
 **货币**: {market_info['currency_name']} ({market_info['currency_symbol']})
 **分析日期**: {curr_date}
-**数据深度级别**: {data_depth}
+**数据深度级别**: standard
 
 {chr(10).join(result_data)}
 
@@ -278,7 +262,7 @@ def get_stock_fundamentals_unified(
         logger.info(
             f"📊 [统一基本面工具] 股票类型: {market_info['market_name']}"
         )
-        logger.debug(f"📊 [统一基本面工具] 数据深度级别: {data_depth}")
+        logger.debug("📊 [统一基本面工具] 数据深度级别: standard")
         logger.debug(
             f"📊 [统一基本面工具] 获取的数据模块数量: {len(result_data)}"
         )
@@ -303,16 +287,7 @@ def get_stock_fundamentals_unified(
                     f"✅ [统一基本面工具] 数据模块 {i} 获取成功"
                 )
 
-        if data_depth in ["basic", "standard"]:
-            logger.info(
-                "📊 [统一基本面工具] 基础/标准级别策略: 仅获取核心价格数据和基础信息"
-            )
-        elif data_depth in ["full", "detailed", "comprehensive"]:
-            logger.debug(
-                "📊 [统一基本面工具] 完整/详细/全面级别策略: 获取价格数据 + 基本面数据"
-            )
-        else:
-            logger.info("📊 [统一基本面工具] 默认策略: 获取完整数据")
+        # data_depth 已统一为 "standard"，不再需要分级日志
 
         logger.debug(
             "📊 [统一基本面工具] ===== 数据获取摘要结束 ====="

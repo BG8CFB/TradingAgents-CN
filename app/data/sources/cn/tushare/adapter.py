@@ -207,7 +207,7 @@ class TushareCNAdapter(BaseAdapter):
                     market="CN",
                     data_source="tushare",
                     trade_date=trade_date,
-                    pe_ttm=_safe_float(get("pe")),
+                    pe_ttm=_safe_float(get("pe_ttm")),
                     pb=_safe_float(get("pb")),
                     ps_ttm=_safe_float(get("ps")),
                     turnover_rate=_safe_float(get("turnover_rate")),
@@ -415,7 +415,7 @@ class TushareCNAdapter(BaseAdapter):
                     data_source="tushare",
                     trade_date=td,
                     main_net_inflow=main_net_inflow,
-                    main_net_inflow_pct=_safe_float(get("net_mf_vol")),
+                    main_net_inflow_pct=None,  # Tushare moneyflow 仅提供净流入额/量(net_mf_amount/net_mf_vol)，无占比字段；原错误地用 net_mf_vol 绝对量冒充百分比（R14 DCS-02）
                     huge_net_inflow=huge_net_inflow,
                     large_net_inflow=large_net_inflow,
                     medium_net_inflow=medium_net_inflow,
@@ -499,6 +499,13 @@ class TushareCNAdapter(BaseAdapter):
             td = _parse_date(get("trade_date"))
             if not td:
                 continue
+            # 大宗交易 tushare vol 字段单位为"手"（1 手 = 100 股），
+            # 统一转换为"股"写入，与其他行情数据的 volume 单位一致
+            # M3 修复：vol 为 None 时不做转换，避免 None * 100 → TypeError
+            _vol = _safe_float(get("vol"))
+            volume = (
+                float(int(round(_vol * 100))) if _vol is not None else None
+            )
             results.append(
                 BlockTradeSchema(
                     symbol=symbol,
@@ -507,9 +514,7 @@ class TushareCNAdapter(BaseAdapter):
                     trade_date=td,
                     name=str(get("name", "")),
                     price=_safe_float(get("price")),
-                    # 大宗交易 tushare vol 字段单位为"手"（1 手 = 100 股），
-                    # 统一转换为"股"写入，与其他行情数据的 volume 单位一致
-                    volume=float(int(round(_safe_float(get("vol")) * 100))),
+                    volume=volume,
                     amount=_safe_float(get("amount")),
                     buyer=str(get("buyer", "")),
                     seller=str(get("seller", "")),

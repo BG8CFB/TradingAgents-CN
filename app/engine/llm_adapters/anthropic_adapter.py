@@ -69,5 +69,7 @@ class AnthropicAdapter(ChatAnthropic, BaseChatAdapter):
     ) -> ChatResult:
         start_time = time.time()
         result = super()._generate(messages, stop, run_manager, **kwargs)
+        # 将 messages 传入 kwargs 供 token 估算 fallback 使用
+        kwargs["_estimation_messages"] = messages
         self._track_token_usage(result, kwargs, start_time)
         return result

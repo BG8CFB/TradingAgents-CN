@@ -113,7 +113,7 @@ class TestSourceHealthMonitor:
             "total_latency_ms": 0, "call_count": 0,
             "last_success_at": None, "last_failure_at": None, "last_error": None,
         }
-        health = monitor._compute_health(stats)
+        health = monitor._compute_health(stats, [])
         assert health["success_rate"] == 0.0
         assert health["avg_latency_ms"] == 0.0
 

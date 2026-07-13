@@ -81,7 +81,7 @@ class AlphaVantageUSAdapter(BaseAdapter):
                 net_profit=_safe_float(get("netIncome")),
                 total_assets=_safe_float(get("totalAssets")),
                 total_equity=_safe_float(get("totalShareholderEquity")),
-                operating_cashflow=_safe_float(get("operatingIncome")),
+                operating_cashflow=_safe_float(get("operatingCashflow") or get("netCashProvidedByOperatingActivities")),
                 eps=_safe_float(get("eps")),
             ))
         return results

@@ -66,6 +66,10 @@ class YFinanceHKAdapter(BaseAdapter):
             pre_close = _safe_float(get("pre_close"))
             change = _safe_float(get("change"))
             pct_chg = _safe_float(get("pct_chg"))
+            if change is None and close is not None and pre_close is not None:
+                change = round(close - pre_close, 4)
+            if pct_chg is None and close is not None and pre_close is not None and pre_close != 0:
+                pct_chg = round((close - pre_close) / pre_close * 100, 4)
 
             results.append(DailyQuotesSchema(
                 symbol=str(get("symbol", "")).zfill(5),
@@ -112,19 +116,47 @@ class YFinanceHKAdapter(BaseAdapter):
         if df.empty:
             return []
         default_symbol = str(df.attrs.get("symbol", "")).zfill(5) if hasattr(df, "attrs") else ""
+        statement_type = (
+            df.attrs.get("statement_type", "income")
+            if hasattr(df, "attrs")
+            else "income"
+        )
         results = []
         for col in df.columns:
             try:
                 report_period = str(col)[:10]
                 row_data = df[col]
+
+                # 按报表类型映射核心字段，避免 balance/cashflow 误填 income 字段
+                revenue = None
+                net_profit = None
+                total_assets = None
+                total_equity = None
+                operating_cashflow = None
+                free_cashflow = None
+
+                if statement_type == "income":
+                    revenue = _safe_float(row_data.get("Total Revenue"))
+                    net_profit = _safe_float(row_data.get("Net Income"))
+                elif statement_type == "balance":
+                    total_assets = _safe_float(row_data.get("Total Assets"))
+                    total_equity = _safe_float(row_data.get("Total Equity Gross Minority Interest"))
+                elif statement_type == "cashflow":
+                    operating_cashflow = _safe_float(row_data.get("Operating Cash Flow"))
+                    free_cashflow = _safe_float(row_data.get("Free Cash Flow"))
+
                 results.append(FinancialDataSchema(
                     symbol=default_symbol,
                     market="HK",
                     data_source="yfinance_hk",
                     report_period=report_period,
-                    statement_type="income",
-                    revenue=_safe_float(row_data.get("Total Revenue")),
-                    net_profit=_safe_float(row_data.get("Net Income")),
+                    statement_type=statement_type,
+                    revenue=revenue,
+                    net_profit=net_profit,
+                    total_assets=total_assets,
+                    total_equity=total_equity,
+                    operating_cashflow=operating_cashflow,
+                    free_cashflow=free_cashflow,
                 ))
             except Exception as e:
                 logger.debug(f"解析港股财务数据行失败: {e}")

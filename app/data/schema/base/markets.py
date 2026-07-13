@@ -87,8 +87,9 @@ def get_full_symbol(symbol: str, market: str, exchange: str = "") -> str:
 def normalize_symbol(symbol: str, market: str) -> str:
     """标准化股票代码（去掉后缀，补零）。"""
     if market == "HK":
-        return str(symbol).replace(".HK", "").lstrip("0").zfill(5)
+        return str(symbol).upper().replace(".HK", "").lstrip("0").zfill(5)
     elif market == "CN":
-        return str(symbol).replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+        s = str(symbol).upper()
+        return s.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
     else:
         return str(symbol).upper()

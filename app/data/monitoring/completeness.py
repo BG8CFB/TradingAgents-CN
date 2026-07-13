@@ -42,7 +42,20 @@ class CompletenessChecker:
         active_stocks = await basic_cursor.to_list(length=None)
 
         # 批量查询当日有行情的股票，然后在内存中做差集
-        existing_symbols = await db[quotes_coll].distinct("symbol", {"trade_date": check_date})
+        # H3 修复：过滤 period 字段，排除周线/月线数据混入日线检查。
+        # PeriodAggregationJob 将 period="weekly"/"monthly" 文档 upsert 到
+        # 同一集合，不过滤会导致周线/月线 symbol 被误判为"已有日线数据"。
+        existing_symbols = await db[quotes_coll].distinct(
+            "symbol",
+            {
+                "trade_date": check_date,
+                "$or": [
+                    {"period": "daily"},
+                    {"period": None},
+                    {"period": {"$exists": False}},
+                ],
+            },
+        )
         active_symbols = {s["symbol"] for s in active_stocks}
         missing_quotes = [
             {"symbol": s, "missing_date": check_date}
@@ -87,8 +100,17 @@ class CompletenessChecker:
             return []
 
         # 获取已有数据日期
+        # H3 修复：过滤 period 字段，排除周线/月线 trade_date 混入检查。
         data_docs = await db[coll_name].find(
-            {"symbol": symbol, "trade_date": {"$gte": start_date, "$lte": end_date}},
+            {
+                "symbol": symbol,
+                "trade_date": {"$gte": start_date, "$lte": end_date},
+                "$or": [
+                    {"period": "daily"},
+                    {"period": None},
+                    {"period": {"$exists": False}},
+                ],
+            },
             {"trade_date": 1, "_id": 0}
         ).to_list(length=None)
         existing_dates = {d["trade_date"] for d in data_docs}

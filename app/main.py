@@ -255,6 +255,14 @@ async def _init_scheduler(logger):
     engine = SchedulerEngine(scheduler=apscheduler)
     engine.start()
 
+    # 启动调度任务监控（超时检测、卡住任务恢复、执行统计、手动触发并发保护）。
+    # H1 修复：此前 SchedulerMonitor.start() 从未被调用，导致 _get_monitor()
+    # 永远返回 None，手动触发并发保护、超时检测、统计全部失效。
+    from app.data.scheduler.monitors import SchedulerMonitor
+    monitor = SchedulerMonitor()
+    monitor.start(apscheduler)
+    logger.info("✅ 调度任务监控已启动（超时检测 + 统计 + 并发保护）")
+
     set_scheduler_instance(apscheduler)
     logger.info("调度器服务已初始化（统一调度引擎）")
     return apscheduler
@@ -443,7 +451,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"MCP 连接关闭失败: {e}")
 
-        # 3. 停止调度器
+        # 3. 停止调度监控（必须在调度器之前停止）
+        try:
+            from app.data.scheduler.monitors import SchedulerMonitor
+            monitor = SchedulerMonitor()
+            monitor.stop()
+            logger.info("🛑 调度任务监控已停止")
+        except Exception as e:
+            logger.warning(f"调度任务监控停止失败: {e}")
+
+        # 3.1 停止调度器
         if scheduler:
             try:
                 scheduler.shutdown(wait=True)

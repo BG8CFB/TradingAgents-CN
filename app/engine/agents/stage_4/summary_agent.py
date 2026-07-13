@@ -47,6 +47,26 @@ JSON 结构定义如下：
 """
 
 
+# 结构完整性兜底默认值
+_DEFAULT_STRUCTURED_DATA = {
+    "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A", "support_level": "N/A", "resistance_level": "N/A"},
+    "model_confidence": 0,
+    "risk_assessment": {"level": "Low", "score": 0.0, "description": "生成失败"},
+    "analysis_summary": "系统错误：无法生成分析摘要",
+    "investment_recommendation": "暂无建议",
+    "analysis_reference": [],
+    "final_signal": "Hold",
+}
+
+
+def _ensure_required_fields(data: dict) -> dict:
+    """补齐 LLM 返回 JSON 中缺失的必需字段，已有字段保留 LLM 值。"""
+    for key, default_val in _DEFAULT_STRUCTURED_DATA.items():
+        if key not in data:
+            data[key] = default_val
+    return data
+
+
 def _truncate(text: str, limit: int) -> str:
     """安全截断字符串到指定长度，None/非字符串返回空串。"""
     if not text or not isinstance(text, str):
@@ -144,7 +164,7 @@ def create_summary_agent(llm):
                 HumanMessage(content=user_prompt)
             ])
             
-            content = response.content.strip()
+            content = (response.content or "").strip()
             
             # 清理可能的 markdown 标记
             if content.startswith("```json"):
@@ -155,6 +175,20 @@ def create_summary_agent(llm):
             
             # 解析 JSON
             structured_data = json.loads(content)
+
+            # 结构完整性校验：LLM 可能返回合法 JSON 但缺少必需字段
+            required_keys = {
+                "key_indicators", "model_confidence", "risk_assessment",
+                "analysis_summary", "investment_recommendation", "final_signal",
+            }
+            missing = required_keys - set(structured_data.keys())
+            if missing:
+                logger.warning(
+                    f"⚠️ [Summary Agent] LLM 返回 JSON 缺少必需字段: {missing}，"
+                    "使用兜底值补齐"
+                )
+                structured_data = _ensure_required_fields(structured_data)
+
             logger.info(f"✅ [Summary Agent] 成功生成结构化数据: {list(structured_data.keys())}")
             
         except json.JSONDecodeError as e:
@@ -162,7 +196,7 @@ def create_summary_agent(llm):
             logger.error(f"   原始内容: {content}")
             # 回退默认值
             structured_data = {
-                "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A"},
+                "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A", "support_level": "N/A", "resistance_level": "N/A"},
                 "model_confidence": 50,
                 "risk_assessment": {"level": "Medium", "score": 5.0, "description": "解析失败，使用默认值"},
                 "analysis_summary": "JSON解析失败，无法生成分析摘要",
@@ -174,7 +208,7 @@ def create_summary_agent(llm):
             logger.error(f"❌ [Summary Agent] 生成失败: {e}", exc_info=True)
             # 即使失败也要返回空字典，防止图执行中断
             structured_data = {
-                "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A"},
+                "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A", "support_level": "N/A", "resistance_level": "N/A"},
                 "model_confidence": 0,
                 "risk_assessment": {"level": "Low", "score": 0.0, "description": "生成失败"},
                 "analysis_summary": "系统错误：无法生成分析摘要",

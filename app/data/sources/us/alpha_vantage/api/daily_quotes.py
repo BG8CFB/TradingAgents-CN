@@ -4,6 +4,7 @@ Alpha Vantage US 美股日线行情 API
 import asyncio
 import json
 import logging
+import urllib.error
 import urllib.request
 from typing import Optional
 
@@ -25,6 +26,12 @@ logger = logging.getLogger(__name__)
 _DOMAIN = "daily_quotes"
 
 _AV_BASE_URL = "https://www.alphavantage.co/query"
+
+
+def _redact_url(url: str) -> str:
+    """脱敏 URL 中的 apikey 参数，防止异常 traceback 泄漏 API Key。"""
+    import re
+    return re.sub(r"apikey=[^&]+", "apikey=REDACTED", url)
 
 
 async def fetch_daily_quotes(
@@ -87,12 +94,17 @@ async def fetch_daily_quotes(
 
         df = await asyncio.to_thread(_fetch)
     except (asyncio.TimeoutError, ConnectionError, TimeoutError, urllib.error.URLError) as exc:
-        raise map_network_exception(exc, "alpha_vantage", _DOMAIN)
+        # M2 修复：URLError 的字符串表示包含完整 URL（含 apikey），
+        # 脱敏后再传给 map_network_exception，防止 API Key 泄漏到日志。
+        safe_exc = Exception(_redact_url(str(exc))) if str(exc) else exc
+        raise map_network_exception(safe_exc, "alpha_vantage", _DOMAIN)
     except (json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
         from app.data.sources.base.exceptions import DataFormatError
         raise DataFormatError("alpha_vantage", _DOMAIN, f"symbol={symbol}: {exc}")
     except Exception as exc:
-        raise DataSourceUnavailableError("alpha_vantage", _DOMAIN, f"symbol={symbol}: {exc}")
+        raise DataSourceUnavailableError(
+            "alpha_vantage", _DOMAIN, f"symbol={symbol}: {_redact_url(str(exc))}"
+        )
 
     if is_empty_result(df):
         logger.warning(f"Alpha Vantage 返回空数据: {symbol}")

@@ -252,13 +252,25 @@ async def _fetch_news_fast(
     sources = [src] if src and src in NEWS_SOURCES else NEWS_SOURCES[:3]
     all_news: List[Dict[str, Any]] = []
 
+    # 预获取股票名称（async 安全），避免 _is_relevant 在事件循环线程中
+    # 触发 get_stock_name_sync → run_async 嵌套死锁（R13-DS-03）。
+    stock_name: Optional[str] = None
+    if symbol:
+        try:
+            from app.data.sources.cn.stock_name_utils import get_stock_name
+
+            clean = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "").zfill(6)
+            stock_name = await get_stock_name(clean)
+        except Exception as e:
+            logger.debug(f"预获取股票名称失败: {e}")
+
     for source in sources:
         try:
             df = await asyncio.to_thread(
                 conn.api.news, src=source, start_date=start_date, end_date=end_date
             )
             if df is not None and not df.empty:
-                items = _process_news(df, source, symbol, limit)
+                items = _process_news(df, source, symbol, limit, stock_name)
                 all_news.extend(items)
                 if len(all_news) >= limit:
                     break
@@ -371,7 +383,7 @@ def _deduplicate_and_sort(
 
 
 def _process_news(
-    df, source: str, symbol: str = None, limit: int = 10
+    df, source: str, symbol: str = None, limit: int = 10, stock_name: str = None
 ) -> List[Dict[str, Any]]:
     items = []
     for _, row in df.head(limit * 2).iterrows():
@@ -393,7 +405,7 @@ def _process_news(
             "data_source": "tushare",
             "original_source": source,
         }
-        if not symbol or _is_relevant(item, symbol):
+        if not symbol or _is_relevant(item, symbol, stock_name):
             items.append(item)
     return items
 
@@ -443,18 +455,12 @@ def _keywords(content: str, title: str) -> List[str]:
     return [k for k in pool if k in text][:5]
 
 
-def _is_relevant(item: Dict, symbol: str) -> bool:
+def _is_relevant(item: Dict, symbol: str, stock_name: str = None) -> bool:
     clean = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "").zfill(6)
     text = f"{item.get('content', '')} {item.get('title', '')}"
     if clean in text or symbol in text:
         return True
-    # 尝试用股票名称匹配
-    try:
-        from app.data.sources.cn.stock_name_utils import get_stock_name_sync
-        name = get_stock_name_sync(clean)
-        if name and name in text:
-            return True
-    except Exception as e:
-        logger.debug(f"检查股票名称匹配失败: {e}")
-        pass
+    # 使用调用方预获取的股票名称匹配（避免在事件循环线程中触发 run_async 死锁）
+    if stock_name and stock_name in text:
+        return True
     return False

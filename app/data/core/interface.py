@@ -296,7 +296,7 @@ class DataInterface:
         """对指定域执行完整质量检查。"""
         from app.data.storage.mongo.client import get_motor_db
         from app.data.storage.mongo.collections import get_collection_name
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         _REQUIRED_FIELDS: Dict[str, List[str]] = {
             "daily_quotes": ["symbol", "trade_date", "close"],
@@ -333,7 +333,9 @@ class DataInterface:
                 )
 
         if domain in _TIMESERIES_DOMAINS:
-            thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            thirty_days_ago = (
+                datetime.now(timezone.utc) - timedelta(days=30)
+            ).strftime("%Y-%m-%d")
             try:
                 pipeline = [
                     {"$match": {"trade_date": {"$gte": thirty_days_ago}}},

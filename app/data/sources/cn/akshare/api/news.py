@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from app.data.sources.base.exceptions import DataNotFoundError
 
-from app.data.sources.cn.stock_name_utils import get_stock_name_sync
+from app.data.sources.cn.stock_name_utils import get_stock_name, get_stock_name_sync
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,9 @@ def _get_stock_name_sync(symbol: str) -> Optional[str]:
 
 
 async def _get_stock_name(symbol: str) -> Optional[str]:
-    """异步获取股票名称"""
-    return await asyncio.to_thread(_get_stock_name_sync, symbol)
+    """异步获取股票名称 — 使用 async 版本，避免在事件循环线程中
+    通过 to_thread 调用 get_stock_name_sync 触发 run_async 嵌套死锁（R13-DS-03）。"""
+    return await get_stock_name(symbol)
 
 
 async def fetch_news(

@@ -84,8 +84,12 @@ class FinnhubUSAdapter(BaseAdapter):
         for _, row in df.iterrows():
             get = row.get
             title = get("headline", "")
-            ts = get("datetime", 0)
-            publish_time = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else ""
+            ts = _safe_float(get("datetime", 0))
+            publish_time = (
+                datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
+                if ts is not None
+                else ""
+            )
             content_hash = StockNewsSchema.compute_hash(title, publish_time) if title else None
             results.append(StockNewsSchema(
                 symbol=str(get("related", "")).upper(),

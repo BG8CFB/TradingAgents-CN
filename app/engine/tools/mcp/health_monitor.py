@@ -9,10 +9,7 @@ import logging
 from datetime import datetime
 from app.utils.time_utils import now_utc
 from enum import Enum
-from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .config_utils import MCPServerConfig
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +64,6 @@ class HealthMonitor:
         self._server_health: Dict[str, ServerHealthInfo] = {}
         self._check_tasks: Dict[str, asyncio.Task] = {}
         self._health_check_funcs: Dict[str, Callable[[], bool]] = {}
-        self._running = False
         self._on_status_change: Optional[Callable[[str, ServerStatus, ServerStatus], None]] = None
     
     def register_server(
@@ -300,105 +296,17 @@ class HealthMonitor:
 
         # 理论上不会到这里，但防御性返回
         return ServerStatus.UNKNOWN
-    
-    async def _monitor_server(
-        self,
-        server_name: str,
-        interval: int,
-        timeout: int,
-    ):
-        """
-        持续监控单个服务器
-        
-        Args:
-            server_name: 服务器名称
-            interval: 检查间隔（秒）
-            timeout: 超时时间（秒）
-        """
-        logger.info(
-            "[HealthMonitor] 开始监控服务器 %s (间隔: %ds, 超时: %ds)",
-            server_name, interval, timeout
-        )
-        
-        while self._running:
-            try:
-                await self.check_server_health(server_name, timeout=timeout)
-            except Exception as e:
-                logger.error("[HealthMonitor] 监控服务器 %s 时出错: %s", server_name, e)
-            
-            await asyncio.sleep(interval)
-    
-    async def start_monitoring(
-        self,
-        server_configs: Dict[str, "MCPServerConfig"],
-    ):
-        """
-        开始监控所有服务器
-        
-        Args:
-            server_configs: 服务器配置映射
-        """
-        self._running = True
-        
-        for name, config in server_configs.items():
-            if not config.enabled:
-                self._update_status(name, ServerStatus.STOPPED)
-                continue
-            
-            health_check = config.healthCheck
-            if health_check is None or not health_check.enabled:
-                self._update_status(name, ServerStatus.UNKNOWN)
-                continue
-            
-            if name not in self._health_check_funcs:
-                logger.warning("[HealthMonitor] 服务器 %s 没有注册健康检查函数", name)
-                continue
-            
-            # 创建监控任务
-            task = asyncio.create_task(
-                self._monitor_server(
-                    name,
-                    interval=health_check.interval,
-                    timeout=health_check.timeout,
-                )
-            )
-            self._check_tasks[name] = task
-        
-        logger.info("[HealthMonitor] 开始监控 %d 个服务器", len(self._check_tasks))
-    
-    async def stop_monitoring(self):
-        """停止所有监控任务"""
-        self._running = False
-        
-        for name, task in self._check_tasks.items():
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-        
-        self._check_tasks.clear()
-        logger.info("[HealthMonitor] 已停止所有监控任务")
-    
+
     def mark_server_stopped(self, server_name: str):
         """
         标记服务器为已停止
-        
+
         Args:
             server_name: 服务器名称
         """
         self._update_status(server_name, ServerStatus.STOPPED)
-        
+
         # 取消该服务器的监控任务
         if server_name in self._check_tasks:
             self._check_tasks[server_name].cancel()
             del self._check_tasks[server_name]
-    
-    def mark_server_unknown(self, server_name: str):
-        """
-        标记服务器状态为未知（健康检查禁用时使用）
-        
-        Args:
-            server_name: 服务器名称
-        """
-        self._update_status(server_name, ServerStatus.UNKNOWN)

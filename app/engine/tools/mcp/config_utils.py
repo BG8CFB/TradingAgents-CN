@@ -259,12 +259,16 @@ class MCPServerConfig(BaseModel):
     def _validate_args(cls, value: List[str]) -> List[str]:
         if not value:
             return []
+        # 危险旗标黑名单：可导致命令注入或代码执行
+        _DANGEROUS_PREFIXES = ("-c", "--eval", "--")
         result = []
         for item in value:
             if not isinstance(item, str):
                 raise ValueError("args 必须为字符串列表")
             if len(item) > 512:
                 raise ValueError("单个参数过长")
+            if any(item == p or item.startswith(p + " ") for p in _DANGEROUS_PREFIXES):
+                raise ValueError(f"args 含有危险旗标: {item}")
             result.append(item)
         return result
 

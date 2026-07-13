@@ -10,6 +10,7 @@ Skill Git URL 安装器
 - 不自动执行 skill 内的任何脚本（只做文件拉取与 manifest 校验）
 """
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -210,6 +211,21 @@ def _do_install(url: str, trusted_hosts: Optional[set] = None) -> dict:
     meta = parse_skill_metadata(str(skill_md))
     skill_name = meta.get("name") or cache_path.name
 
+    # R13-ET-02 修复：校验 skill_name 字符，防止路径遍历攻击。
+    # skill_name 来源于远程 Git 仓库的 SKILL.md（仅 .strip() 处理），
+    # 若含 ../ 等路径片段可写入项目任意目录。
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$", skill_name):
+        logger.error(
+            f"[SkillGitInstaller] skill_name 含非法字符，拒绝安装: {skill_name!r}"
+        )
+        shutil.rmtree(cache_path, ignore_errors=True)
+        return {
+            "success": False,
+            "skill_name": skill_name,
+            "installed_path": "",
+            "error": f"skill_name 含非法字符（仅允许字母、数字、下划线、连字符）: {skill_name}",
+        }
+
     # 验证目录名与 skill_name 一致（Agent Skills 规范要求）
     # 重命名缓存目录
     if cache_path.name != skill_name:
@@ -322,15 +338,30 @@ def uninstall_skill(skill_name: str, force: bool = False) -> dict:
         logger.warning(f"reload registry 失败: {e}")
 
     # 删除持久化状态
+    # H-3 修复：原实现（asyncio.get_event_loop().create_task）在 Python 3.12 中
+    # 有 DeprecationWarning 风险（无运行循环时 get_event_loop 行为将变更）。
+    # 改用显式事件循环检测 + ensure_future，确保同线程场景 state 被清理。
     try:
         from app.engine.tools.skill.state_store import SkillStateStore
         store = SkillStateStore()
-        # 异步删除，fire-and-forget
         import asyncio
         try:
-            asyncio.get_event_loop().create_task(store.delete_state(skill_name))
-        except Exception:
-            pass
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is None:
+            asyncio.run(store.delete_state(skill_name))
+        else:
+            # 在运行的事件循环中：使用 ensure_future 提交 fire-and-forget task
+            task = asyncio.ensure_future(store.delete_state(skill_name))
+            task.add_done_callback(
+                lambda t: (
+                    logger.error(f"删除 skill_state 异步失败: {t.exception()}")
+                    if not t.cancelled() and t.exception()
+                    else None
+                )
+            )
     except Exception as e:
         logger.warning(f"删除 skill_state 失败: {e}")
 

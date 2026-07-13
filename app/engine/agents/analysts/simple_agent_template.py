@@ -276,11 +276,11 @@ def create_simple_agent(
 
             company_name = ticker
             try:
-                from app.core.async_utils import run_async
                 if market_info["is_china"]:
                     from app.data.core.interface import DataInterface
                     di = DataInterface.get_instance()
-                    result = run_async(di.read("CN", "basic_info", symbol=ticker))
+                    # async 节点内直接 await，避免 run_async 导致 RuntimeError
+                    result = await di.read("CN", "basic_info", symbol=ticker)
                     data = result.get("data")
                     if data:
                         doc = data[0] if isinstance(data, list) and data else data
@@ -290,7 +290,7 @@ def create_simple_agent(
                     from app.data.core.interface import DataInterface
                     clean_ticker = ticker.replace(".HK", "").replace(".hk", "").zfill(5)
                     di = DataInterface.get_instance()
-                    result = run_async(di.read("HK", "basic_info", symbol=clean_ticker))
+                    result = await di.read("HK", "basic_info", symbol=clean_ticker)
                     data = result.get("data")
                     if data:
                         doc = data[0] if isinstance(data, list) and data else data
@@ -300,7 +300,7 @@ def create_simple_agent(
                     else:
                         company_name = f"港股{clean_ticker}"
                 elif market_info["is_us"]:
-                    company_name = _get_us_company_name(ticker)
+                    company_name = await asyncio.to_thread(_get_us_company_name, ticker)
             except Exception as e:
                 logger.warning(f"⚠️ [{name}] 获取公司名称失败: {e}")
 

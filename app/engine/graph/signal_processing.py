@@ -101,7 +101,6 @@ class SignalProcessor:
 
         market_info = StockUtils.get_market_info(stock_symbol)
         is_china = market_info['is_china']
-        market_info['is_hk']
         currency = market_info['currency_name']
         currency_symbol = market_info['currency_symbol']
 
@@ -211,11 +210,21 @@ class SignalProcessor:
                         target_price = None
                         logger.warning("🔍 [SignalProcessor] 价格转换失败，设置为None")
 
+                # 值域校验：LLM 可能返回百分比形式（如 95）或异常值（如 -0.5、1.5）
+                raw_confidence = float(decision_data.get('confidence', 0.7))
+                raw_risk_score = float(decision_data.get('risk_score', 0.5))
+                confidence = max(0.0, min(1.0, raw_confidence))
+                risk_score = max(0.0, min(1.0, raw_risk_score))
+                if confidence != raw_confidence:
+                    logger.warning(f"confidence 值 {raw_confidence} 超出 [0,1]，已裁剪至 {confidence}")
+                if risk_score != raw_risk_score:
+                    logger.warning(f"risk_score 值 {raw_risk_score} 超出 [0,1]，已裁剪至 {risk_score}")
+
                 result = {
                     'action': action,
                     'target_price': target_price,
-                    'confidence': float(decision_data.get('confidence', 0.7)),
-                    'risk_score': float(decision_data.get('risk_score', 0.5)),
+                    'confidence': confidence,
+                    'risk_score': risk_score,
                     'reasoning': decision_data.get('reasoning', '基于综合分析的投资建议')
                 }
                 logger.info(f"🔍 [SignalProcessor] 处理结果: {result}",
@@ -236,18 +245,12 @@ class SignalProcessor:
 
         优先级：卖出 > 买入 > 持有（保守策略，明确卖出信号优先处理）
         """
-        _VALID_ACTIONS = {'买入', '卖出', '持有'}
-
         action = '持有'
         if re.search(r'(?:建议|推荐|应该|应当)?\s*(?:卖出|SELL|出售|清仓|减仓)', text, re.IGNORECASE):
             action = '卖出'
         elif re.search(r'(?:建议|推荐|应该|应当)?\s*(?:买入|BUY|购买|加仓|建仓|增持)', text, re.IGNORECASE):
             action = '买入'
         elif re.search(r'(?:建议|推荐|应该|应当)?\s*(?:持有|HOLD|观望|维持)', text, re.IGNORECASE):
-            action = '持有'
-
-        # 校验 action 必须在已知集合中
-        if action not in _VALID_ACTIONS:
             action = '持有'
 
         target_price = None

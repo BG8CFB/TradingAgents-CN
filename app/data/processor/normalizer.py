@@ -1,6 +1,7 @@
 """标准化执行器 — 调用 Adapter 方法转换原始数据。"""
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,20 @@ DOMAIN_METHOD_MAP = {
     "block_trade": "adapt_block_trade",
 }
 
+# M1 修复：normalizer 返回空列表时的状态标记。
+NORMALIZE_UNSUPPORTED = "unsupported"
+NORMALIZE_EMPTY = "empty"
+NORMALIZE_ERROR = "error"
+NORMALIZE_OK = "ok"
+
+
+@dataclass
+class NormalizeResult:
+    """标准化结果，携带状态标记区分"不支持"与"数据质量差"。"""
+
+    records: List[Dict]
+    status: str
+
 
 class Normalizer:
     """标准化执行器。调用 Adapter 的 adapt 方法将原始数据转为标准文档。"""
@@ -38,20 +53,30 @@ class Normalizer:
         Returns:
             标准化后的文档列表
         """
+        return self.normalize_with_status(raw_data, domain, adapter).records
+
+    def normalize_with_status(
+        self, raw_data: Any, domain: str, adapter
+    ) -> NormalizeResult:
+        """标准化原始数据，返回带状态标记的结果。
+
+        M1 修复：fallback_router 需要区分"adapter 不支持该域"
+        （不应记为熔断失败）与"数据质量差"（应记为熔断失败）。
+        """
         method_name = DOMAIN_METHOD_MAP.get(domain)
         if not method_name:
             logger.warning(f"未知域: {domain}")
-            return []
+            return NormalizeResult([], NORMALIZE_UNSUPPORTED)
 
         method = getattr(adapter, method_name, None)
         if not method:
             logger.warning(f"Adapter {adapter.source_name} 无方法 {method_name}")
-            return []
+            return NormalizeResult([], NORMALIZE_UNSUPPORTED)
 
         try:
             schemas = method(raw_data)
             if not schemas:
-                return []
+                return NormalizeResult([], NORMALIZE_EMPTY)
             # 兼容两种返回类型：Schema 对象（有 to_db_doc）和纯 dict
             results = []
             for s in schemas:
@@ -64,10 +89,12 @@ class Normalizer:
                         f"标准化 {domain} 时跳过无效对象 (type={type(s).__name__})，"
                         f"期望 dict 或含 to_db_doc() 的 Schema 对象"
                     )
-            return results
+            if not results:
+                return NormalizeResult([], NORMALIZE_EMPTY)
+            return NormalizeResult(results, NORMALIZE_OK)
         except NotImplementedError:
             logger.debug(f"Adapter {adapter.source_name} 不支持 {domain}")
-            return []
+            return NormalizeResult([], NORMALIZE_UNSUPPORTED)
         except Exception as e:
             logger.warning(f"标准化 {domain} 失败 ({adapter.source_name}): {e}")
-            return []
+            return NormalizeResult([], NORMALIZE_ERROR)

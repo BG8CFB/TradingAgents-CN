@@ -314,8 +314,10 @@ class SkillRegistry:
             logger.warning(f"尝试启用不存在的技能: {name}")
             return False
 
-        self._disabled.discard(name)
-        self._content_cache.pop(name, None)
+        # M-4 修复：用 _state_lock 保护 _disabled 和 _content_cache 修改
+        with self._state_lock:
+            self._disabled.discard(name)
+            self._content_cache.pop(name, None)
         logger.info(f"技能已启用: {name}")
         return True
 
@@ -334,7 +336,9 @@ class SkillRegistry:
             logger.warning(f"尝试禁用不存在的技能: {name}")
             return False
 
-        self._disabled.add(name)
+        # M-4 修复：用 _state_lock 保护 _disabled 修改
+        with self._state_lock:
+            self._disabled.add(name)
         logger.info(f"技能已禁用: {name}")
         return True
 

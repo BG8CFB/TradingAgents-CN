@@ -66,8 +66,10 @@ def create_error_handler(
         error_msg = str(e)
         
         if log_errors:
+            # L-3 修复：完整 traceback 降级为 debug，error 仅记录摘要，
+            # 避免日志文件中泄漏内部路径和代码行号（CLAUDE.md §15.3）。
             logger.error(f"[ToolNode错误] {error_type}: {error_msg}")
-            logger.error(traceback.format_exc())
+            logger.debug(traceback.format_exc())
         
         # 根据错误类型生成不同的消息
         if isinstance(e, TimeoutError):

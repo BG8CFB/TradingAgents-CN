@@ -113,21 +113,39 @@ class SourceHealthMonitor:
     def get_health(self, market: str, source: str, domain: str) -> Optional[Dict]:
         """获取健康度数据。"""
         key = f"{market}:{source}:{domain}"
-        stats = self._stats.get(key)
-        if not stats:
-            return None
-        return self._compute_health(stats)
+        # M3 修复：在锁内获取 stats 和 events 的快照副本，
+        # 避免 _compute_health 遍历 events deque 时被 record_call 的
+        # popleft 并发修改导致竞态。
+        with self._stats_lock:
+            stats = self._stats.get(key)
+            if not stats:
+                return None
+            stats_copy = dict(stats)
+            events_copy = list(self._events.get(key, ()))
+        return self._compute_health(stats_copy, events_copy)
 
     def get_all_health(self, market: Optional[str] = None) -> List[Dict]:
         """获取所有健康度数据。"""
         results = []
-        for stats in self._stats.values():
-            if market and stats["market"] != market:
-                continue
-            results.append(self._compute_health(stats))
+        # M3 修复：在锁内统一获取所有 key 的快照，避免遍历 _stats 期间
+        # record_call 并发修改导致 RuntimeError（dictionary changed size）。
+        with self._stats_lock:
+            snapshots = []
+            for key, stats in self._stats.items():
+                if market and stats["market"] != market:
+                    continue
+                snapshots.append((dict(stats), list(self._events.get(key, ()))))
+        for stats_copy, events_copy in snapshots:
+            results.append(self._compute_health(stats_copy, events_copy))
         return results
 
-    def _compute_health(self, stats: Dict) -> Dict:
+    def _compute_health(self, stats: Dict, events: list) -> Dict:
+        """根据 stats 快照和 events 快照计算健康度。
+
+        Args:
+            stats: stats dict 的浅拷贝（调用方在 _stats_lock 内获取）。
+            events: events deque 的 list 快照（调用方在 _stats_lock 内获取）。
+        """
         total = stats["success_count"] + stats["failure_count"]
         success_rate = stats["success_count"] / total if total > 0 else 0.0
         avg_latency = (
@@ -137,8 +155,6 @@ class SourceHealthMonitor:
         )
 
         # 真实滑动窗口：扫描最近 _WINDOW_SECONDS 内的事件，计算窗口内成功率与平均延迟
-        key = f"{stats['market']}:{stats['source']}:{stats['domain']}"
-        events = self._events.get(key)
         window_success = 0
         window_total = 0
         window_latency_sum = 0
@@ -198,11 +214,21 @@ class SourceHealthMonitor:
             return
 
         async def _do_flush():
-            for stats in list(self._stats.values()):
-                health = self._compute_health(stats)
+            # M3 修复：在锁内获取所有 stats 和 events 的快照副本，
+            # 避免 _compute_health 遍历 events 时被 record_call 并发修改。
+            with self._stats_lock:
+                snapshots = [
+                    (dict(s), list(self._events.get(k, ())))
+                    for k, s in self._stats.items()
+                ]
+            for stats_copy, events_copy in snapshots:
+                health = self._compute_health(stats_copy, events_copy)
                 try:
                     await self._repo.upsert_health(
-                        stats["market"], stats["source"], stats["domain"], health
+                        stats_copy["market"],
+                        stats_copy["source"],
+                        stats_copy["domain"],
+                        health,
                     )
                 except Exception as e:
                     logger.debug(f"刷入健康度失败: {e}")

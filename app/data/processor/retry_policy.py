@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import random
 
 from app.data.sources.base.error_codes import DataErrorCode
 from app.data.sources.base.exceptions import DataSourceError
@@ -75,8 +76,15 @@ class RetryPolicy:
 
                 if attempt < self.max_retries:
                     backoff = get_backoff(e, attempt)
-                    logger.debug(f"重试 {attempt + 1}/{self.max_retries}, 等待 {backoff}s: {e}")
-                    await asyncio.sleep(backoff)
+                    # M3 修复：添加随机抖动（0 ~ base*0.5），避免高并发下
+                    # 多个任务等待相同秒数后集中重试产生惊群效应。
+                    jitter = random.uniform(0, backoff * 0.5)
+                    total_wait = backoff + jitter
+                    logger.debug(
+                        f"重试 {attempt + 1}/{self.max_retries}, "
+                        f"等待 {total_wait:.1f}s (base={backoff}s jitter={jitter:.1f}s): {e}"
+                    )
+                    await asyncio.sleep(total_wait)
                 else:
                     raise
 

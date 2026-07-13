@@ -16,7 +16,7 @@ from app.data.sources.base.mappers import (
 
 logger = logging.getLogger(__name__)
 
-_DOMAIN = "daily_quotes"
+_DOMAIN = "daily_indicators"
 
 
 def _format_compact(date_str: str) -> str:

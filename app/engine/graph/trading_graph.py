@@ -56,25 +56,28 @@ def _merge_state_update(target: Dict[str, Any], update: Dict[str, Any]) -> None:
 
     if "messages" in update and isinstance(update.get("messages"), list):
         existing_messages = target.get("messages") or []
-        existing_ids = set()
+        existing_id_to_idx: dict[str, int] = {}
         existing_content_sigs = set()
-        for msg in existing_messages:
+        for idx, msg in enumerate(existing_messages):
             msg_id = getattr(msg, 'id', None)
             if msg_id:
-                existing_ids.add(msg_id)
+                existing_id_to_idx[msg_id] = idx
             content_sig = (getattr(msg, 'type', ''), str(getattr(msg, 'content', ''))[:200])
             existing_content_sigs.add(content_sig)
 
-        new_messages = []
+        # 同 id 消息按 LangGraph add_messages reducer 语义替换（而非跳过），
+        # 保证 updates 模式下 final_state["messages"] 与图内部 state 一致
+        merged_messages = list(existing_messages)
         for msg in update["messages"]:
             msg_id = getattr(msg, 'id', None)
             content_sig = (getattr(msg, 'type', ''), str(getattr(msg, 'content', ''))[:200])
-            if msg_id and msg_id in existing_ids:
+            if msg_id and msg_id in existing_id_to_idx:
+                merged_messages[existing_id_to_idx[msg_id]] = msg
+            elif not msg_id and content_sig in existing_content_sigs:
                 continue
-            if not msg_id and content_sig in existing_content_sigs:
-                continue
-            new_messages.append(msg)
-        target["messages"] = existing_messages + new_messages
+            else:
+                merged_messages.append(msg)
+        target["messages"] = merged_messages
 
     if "error" in update and update["error"]:
         existing_errors = target.get("error") or []
@@ -276,7 +279,6 @@ class TradingAgentsGraph:
             self.risk_manager_memory,
             self.conditional_logic,
             self.config,
-            getattr(self, 'react_llm', None),
         )
 
         self.propagator = Propagator()
@@ -309,11 +311,10 @@ class TradingAgentsGraph:
 
         # 注册进度回调到全局管理器
         from app.engine.agents.analysts.dynamic_analyst import ProgressManager
+        effective_task_id = None
         if progress_callback:
             # 使用 task_id 隔离不同任务的回调，支持并发安全
             effective_task_id = task_id or id(progress_callback)
-            ProgressManager.set_callback(effective_task_id, progress_callback)
-            logger.debug(f"🔧 [进度管理器] 已注册进度回调, task_id={effective_task_id}")
 
         # 添加详细的接收日志
         logger.debug("🔍 [GRAPH DEBUG] ===== TradingAgentsGraph.propagate 接收参数 =====")
@@ -363,6 +364,11 @@ class TradingAgentsGraph:
         is_updates_mode = args.get("stream_mode") == "updates"
 
         try:
+            # 在 try 块内注册回调，确保 finally 能可靠清理
+            if effective_task_id is not None:
+                ProgressManager.set_callback(effective_task_id, progress_callback)
+                logger.debug(f"🔧 [进度管理器] 已注册进度回调, task_id={effective_task_id}")
+
             async def _stream_graph():
                 nonlocal trace, final_state, current_node_start, current_node_name
                 async for chunk in self.graph.astream(init_agent_state, **args):
@@ -410,8 +416,7 @@ class TradingAgentsGraph:
                 logger.info(f"已保存部分分析结果: {list(final_state.get('reports', {}).keys())}")
             raise
         finally:
-            if progress_callback:
-                effective_task_id = task_id or id(progress_callback)
+            if effective_task_id is not None:
                 ProgressManager.clear_callback(effective_task_id)
                 logger.debug(f"🔧 [进度管理器] 已清除进度回调, task_id={effective_task_id}")
 

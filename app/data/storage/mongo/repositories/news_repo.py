@@ -41,7 +41,9 @@ class NewsRepo:
     async def get_all(self, market: str, limit: int = 100) -> List[Dict]:
         db = get_motor_db()
         coll = db[get_collection_name("news", market)]
-        cursor = coll.find({"_id": 0}).sort("publish_time", -1)
+        # H6 修复：coll.find({"_id": 0}) 中 {"_id": 0} 是 filter 而非 projection。
+        # _id 是 ObjectId，永远不等于 0，查询实际上返回空结果。
+        cursor = coll.find({}, {"_id": 0}).sort("publish_time", -1)
         if limit:
             cursor = cursor.limit(limit)
         return await cursor.to_list(length=None)

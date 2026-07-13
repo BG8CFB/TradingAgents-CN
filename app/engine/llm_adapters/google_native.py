@@ -12,7 +12,7 @@ except ImportError:
     GoogleAPIError = Exception  # type: ignore[misc,assignment]
 
 from langchain_core.messages import BaseMessage
-from langchain_core.outputs import LLMResult
+from langchain_core.outputs import ChatResult
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.engine.llm_adapters.base import BaseChatAdapter
@@ -78,10 +78,12 @@ class GoogleNativeAdapter(ChatGoogleGenerativeAI, BaseChatAdapter):
             return m[7:]
         return m or "unknown"
 
-    def _generate(self, messages: List[BaseMessage], stop=None, **kwargs) -> LLMResult:
+    def _generate(self, messages: List[BaseMessage], stop=None, **kwargs) -> ChatResult:
         start_time = time.time()
         try:
             result = super()._generate(messages, stop, **kwargs)
+            # 将 messages 传入 kwargs 供 token 估算 fallback 使用
+            kwargs["_estimation_messages"] = messages
             self._track_token_usage(result, kwargs, start_time)
             return result
 

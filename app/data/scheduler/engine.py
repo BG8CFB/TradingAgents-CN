@@ -153,7 +153,19 @@ class SchedulerEngine:
 
         job_conf = self._job_configs.get((market, domain), {})
         for dep in job_conf.get("depends_on", []) or []:
-            await self._run_job_with_dependencies(market, dep, visited, force=force)
+            # H4 修复：依赖递归执行会绕过 APScheduler max_instances=1 保护。
+            # 如果依赖域已在运行中（定时触发或手动触发），跳过递归执行，
+            # 避免同一域并发同步导致限流配额双倍消耗。
+            monitor = self._get_monitor()
+            if monitor:
+                dep_task_id = f"{market}:{dep}"
+                running = monitor.get_running_tasks()
+                if any(r["task_id"] == dep_task_id for r in running):
+                    logger.info("依赖域 %s 已在执行中，跳过递归执行", dep_task_id)
+                    continue
+            # M13 修复：force 只应用于目标域，递归依赖用 force=False，
+            # 避免手动触发时依赖域跳过非交易日检查。
+            await self._run_job_with_dependencies(market, dep, visited, force=False)
 
         logger.info("执行调度: %s/%s", market, domain)
         job_entry = self._registry.get_job(domain, market)
@@ -175,22 +187,35 @@ class SchedulerEngine:
             job_instance.force_sync = force
             result = await job_instance.execute()
             logger.info("调度完成 %s/%s: %s", market, domain, result)
+        except Exception as e:
+            logger.error("调度执行失败 %s/%s: %s", market, domain, e)
+            # M14 修复：监控回调用独立 try-except 包裹，避免回调异常
+            # 掩盖任务的真实执行结果或导致成功任务被误标为失败。
             if monitor:
+                try:
+                    monitor.on_task_complete(
+                        market,
+                        domain,
+                        success=False,
+                        latency_ms=int((time.time() - start_ts) * 1000),
+                    )
+                except Exception as monitor_err:
+                    logger.warning("监控回调 on_task_complete(False) 异常: %s", monitor_err)
+            return
+
+        # 任务成功：在 try/except 外部调用监控回调
+        # M14 修复：此前回调在 try 块内调用，回调异常会跳到 except 块再次
+        # 以 success=False 调用，导致成功任务被误标为失败。
+        if monitor:
+            try:
                 monitor.on_task_complete(
                     market,
                     domain,
                     success=True,
                     latency_ms=int((time.time() - start_ts) * 1000),
                 )
-        except Exception as e:
-            logger.error("调度执行失败 %s/%s: %s", market, domain, e)
-            if monitor:
-                monitor.on_task_complete(
-                    market,
-                    domain,
-                    success=False,
-                    latency_ms=int((time.time() - start_ts) * 1000),
-                )
+            except Exception as monitor_err:
+                logger.warning("监控回调 on_task_complete(True) 异常: %s", monitor_err)
 
     @staticmethod
     def _get_monitor():
@@ -201,8 +226,9 @@ class SchedulerEngine:
             monitor = SchedulerMonitor()
             if getattr(monitor, "_running", False):
                 return monitor
-        except Exception:
-            pass
+        except Exception as e:
+            # L5 修复：记录异常线索，避免 import 错误或初始化异常被完全吞没。
+            logger.debug(f"获取 SchedulerMonitor 失败: {e}")
         return None
 
     async def trigger_job(self, market: str, domain: str) -> str:

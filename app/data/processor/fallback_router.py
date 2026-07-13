@@ -184,6 +184,9 @@ class FallbackRouter:
         default_exchange = {"CN": "SSE", "HK": "HKEX", "US": "NYSE"}.get(market, "SSE")
 
         for source_name in sources:
+            # M2 修复：每个源独立计时，避免 latency_ms 包含前序失败源的累计等待。
+            source_start = time.time()
+
             if self._circuit.is_open(source_name, domain):
                 logger.debug(f"熔断跳过: {source_name}/{domain}")
                 continue
@@ -196,8 +199,19 @@ class FallbackRouter:
                     await self._rate_limiter.release(source_name, domain)
                     continue
 
+            # M6 修复：acquire 成功后再检查一次熔断状态。
+            # acquire 和 provider 调用之间有 await 切换点，其他协程可能在此期间
+            # 触发熔断。虽然 Python 单线程 async 中该窗口很短，但若不检查会浪费
+            # rate_limiter 配额（已扣配额但请求必然被熔断拒绝）。
+            if self._circuit.is_open(source_name, domain):
+                await self._rate_limiter.release(source_name, domain)
+                continue
+
             provider, adapter = await self._get_provider_adapter(market, source_name)
             if not provider or not adapter:
+                # R13-DS-05 修复：provider/adapter 获取失败时清除探测许可标记，
+                # 防止 _probe_granted 永久残留导致熔断器被永久禁用。
+                self._circuit.clear_probe(source_name, domain)
                 continue
 
             retry_policy = RetryPolicy(max_retries=self._retry_max_retries)
@@ -215,6 +229,8 @@ class FallbackRouter:
                 # 批量模式不支持 → 静默跳过，不记录失败
                 if raw_data is self._BATCH_NOT_SUPPORTED:
                     logger.debug(f"源 {source_name}/{domain} 不支持批量模式，跳过")
+                    # R13-DS-05 修复：清除探测许可标记，防止 _probe_granted 残留。
+                    self._circuit.clear_probe(source_name, domain)
                     continue
 
                 if raw_data is None or (hasattr(raw_data, "empty") and raw_data.empty):
@@ -224,7 +240,7 @@ class FallbackRouter:
                         source_name,
                         domain,
                         success=False,
-                        latency_ms=int((time.time() - start) * 1000),
+                        latency_ms=int((time.time() - source_start) * 1000),
                         error="empty data",
                         circuit_state=self._circuit.get_state(
                             source_name, domain
@@ -233,16 +249,22 @@ class FallbackRouter:
                     fallback_chain.append(source_name)
                     continue
 
-                records = self._normalizer.normalize(raw_data, domain, adapter)
+                # M1 修复：区分"adapter 不支持该域"与"数据质量差"。
+                # 不支持的域不应触发熔断。
+                normalize_result = self._normalizer.normalize_with_status(
+                    raw_data, domain, adapter
+                )
+                records = normalize_result.records
                 if not records:
-                    self._circuit.record_failure(source_name, domain)
+                    if normalize_result.status == "error":
+                        self._circuit.record_failure(source_name, domain)
                     self._health_monitor.record_call(
                         market,
                         source_name,
                         domain,
-                        success=False,
-                        latency_ms=int((time.time() - start) * 1000),
-                        error="normalize empty",
+                        success=normalize_result.status != "error",
+                        latency_ms=int((time.time() - source_start) * 1000),
+                        error=f"normalize {normalize_result.status}",
                         circuit_state=self._circuit.get_state(
                             source_name, domain
                         ).value,
@@ -272,7 +294,7 @@ class FallbackRouter:
                     source_name,
                     domain,
                     success=True,
-                    latency_ms=result.latency_ms,
+                    latency_ms=int((time.time() - source_start) * 1000),
                     circuit_state="closed",
                 )
                 result.success = True
@@ -295,7 +317,7 @@ class FallbackRouter:
                     source_name,
                     domain,
                     success=False,
-                    latency_ms=int((time.time() - start) * 1000),
+                    latency_ms=int((time.time() - source_start) * 1000),
                     error=str(e),
                     circuit_state=self._circuit.get_state(source_name, domain).value,
                 )
@@ -305,6 +327,8 @@ class FallbackRouter:
                 # 源不支持该域（Provider 未覆写基类方法）：静默跳过，不记录失败
                 # 避免错误地影响断路器状态和重试逻辑
                 logger.debug(f"源 {source_name}/{domain} 不支持该域，跳过: {e}")
+                # R13-DS-05 修复：清除探测许可标记，防止 _probe_granted 残留。
+                self._circuit.clear_probe(source_name, domain)
             except Exception as e:
                 self._circuit.record_failure(source_name, domain)
                 self._health_monitor.record_call(
@@ -312,7 +336,7 @@ class FallbackRouter:
                     source_name,
                     domain,
                     success=False,
-                    latency_ms=int((time.time() - start) * 1000),
+                    latency_ms=int((time.time() - source_start) * 1000),
                     error=str(e),
                     circuit_state=self._circuit.get_state(source_name, domain).value,
                 )

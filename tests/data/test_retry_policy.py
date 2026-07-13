@@ -272,7 +272,8 @@ class TestRetryPolicyExecution:
             result = await policy.execute_with_retry(fail_once)
             assert result == "ok"
             assert len(sleep_calls) == 1
-            assert sleep_calls[0] == 5  # NETWORK_TIMEOUT 第一次退避
+            # M3 修复后退避包含随机抖动（0 ~ base*0.5），验证 base + jitter 范围
+            assert 5 <= sleep_calls[0] <= 7.5  # NETWORK_TIMEOUT base=5, jitter max=2.5
         finally:
             rp_module.asyncio.sleep = original_sleep
 

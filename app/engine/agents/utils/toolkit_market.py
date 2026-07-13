@@ -110,7 +110,6 @@ def get_stock_market_data_unified(
         market_info = StockUtils.get_market_info(ticker)
         is_china = market_info["is_china"]
         is_hk = market_info["is_hk"]
-        market_info["is_us"]
 
         logger.debug(f"📈 [统一市场工具] 股票类型: {market_info['market_name']}")
         logger.debug(
