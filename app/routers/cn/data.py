@@ -204,6 +204,20 @@ async def get_stock_data(
                     total = 1
                     items = [data] if data else []
 
+                # sw_daily 按指数代码存储；若按股票代码查为空，解析其所属行业指数再查
+                if d == "sw_daily" and total == 0 and symbol:
+                    try:
+                        from app.engine.tools.builtin.tools.sector import _resolve_sw_index_for_stock
+                        idx = await _resolve_sw_index_for_stock(symbol)
+                        if idx:
+                            re_read = await di.read(_MARKET, "sw_daily", symbol=idx,
+                                                    start_date=start_date, end_date=end_date)
+                            rdata = re_read.get("data") or []
+                            total = len(rdata)
+                            items = rdata[start:start + page_size]
+                    except Exception:
+                        pass
+
                 result[d] = {"total": total, "items": items}
             except Exception as exc:
                 result[d] = {"total": 0, "items": [], "error": str(exc)}

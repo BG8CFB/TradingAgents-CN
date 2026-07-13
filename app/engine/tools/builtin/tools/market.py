@@ -6,9 +6,10 @@
 import json
 import logging
 from typing import Optional
-from datetime import timedelta
+from datetime import timedelta, date, datetime
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
+from app.data.core.market import get_latest_trade_day, to_market_time
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
 from app.data.core.interface import DataInterface
@@ -33,6 +34,28 @@ def _normalize_symbol(symbol: str, market: str) -> str:
     elif market == "HK":
         return symbol.replace('.HK', '').replace('.hk', '').zfill(5)
     return symbol.upper()
+
+
+async def _read_recent_trading_day_records(domain: str, symbol: str, recent_days: int = 30):
+    """读取某域记录：优先取最近交易日精确查，否则回退到最近 N 天范围内的最新记录。
+
+    用于 price_limit / chip_distribution 等按交易日落库的域：若直接查“今天”
+    （周末/休市）会返回空导致“获取失败”。这里回退到最近一个交易日 / 最近 N 天。
+    """
+    di = DataInterface.get_instance()
+    try:
+        td = await get_latest_trade_day("CN")
+    except Exception:
+        td = None
+    if td:
+        td_s = td.strftime("%Y%m%d")
+        r = await di.read("CN", domain, symbol=symbol, start_date=td_s, end_date=td_s)
+        if r.get("data"):
+            return r
+    end = date.today()
+    start = end - timedelta(days=recent_days)
+    return await di.read("CN", domain, symbol=symbol,
+                         start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"))
 
 
 def _read_daily_quotes(market: str, symbol: str, start_date: str, end_date: str):
@@ -140,9 +163,15 @@ def get_stock_data_minutes(
     """
     try:
         if not end_datetime:
-            end_datetime = now_utc().strftime('%Y-%m-%d %H:%M:%S')
+            end_datetime = to_market_time(now_utc(), "CN").strftime('%Y-%m-%d %H:%M:%S')
         if not start_datetime:
-            start_datetime = (now_utc() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+            # 锚定到最近一个交易日往前 30 天（而非“现在往前 1 天”），
+            # 避免周末查询窗口落空，同时兼容分钟线同步滞后（可能停留在数日前）。
+            latest = run_async(get_latest_trade_day("CN")) or date.today()
+            start_date = latest - timedelta(days=30)
+            start_datetime = datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0).strftime(
+                '%Y-%m-%d %H:%M:%S'
+            )
 
         di = DataInterface.get_instance()
         clean_symbol = _normalize_symbol(stock_code, "CN")
@@ -152,6 +181,14 @@ def get_stock_data_minutes(
         intraday_data = result.get("data")
         if intraday_data:
             import pandas as pd
+            if isinstance(intraday_data, list) and intraday_data:
+                # 仅保留最新一个交易日，控制输出体积（窗口可能覆盖多日）
+                days = sorted(
+                    {str(r.get("datetime", "")).split(" ")[0] for r in intraday_data if r.get("datetime")}
+                )
+                if days:
+                    latest_day = days[-1]
+                    intraday_data = [r for r in intraday_data if str(r.get("datetime", "")).startswith(latest_day)]
             data = pd.DataFrame(intraday_data) if isinstance(intraday_data, list) else intraday_data
             return format_tool_result(success_result(format_result(data, f"{stock_code} {freq} Data")))
 
@@ -351,7 +388,7 @@ def get_stock_technical_indicators(
                          'rsi6', 'rsi12', 'rsi24', 'rsi14',
                          'macd_dif', 'macd_dea', 'macd',
                          'boll_mid', 'boll_upper', 'boll_lower',
-                         'kdj_k', 'kdj_d', 'kdj_j']
+                         'kdj_k', 'kdj_d', 'kdj_j', 'williams_r']
         available_cols = [c for c in indicator_cols if c in recent.columns]
         result_data = recent[available_cols]
 
@@ -402,18 +439,26 @@ def get_price_limit(
     stock_code: str,
     trade_date: Optional[str] = None,
 ) -> str:
-    """获取涨跌停价格数据。"""
+    """获取涨跌停价格数据。
+
+    未指定 trade_date 时优先取最近交易日；若仍为空，回退到最近 30 天范围内
+    的最新一条，避免在非交易日（周末/休市）直接查当日导致“获取失败”。
+    """
     try:
-        if not trade_date:
-            trade_date = get_current_date_compact()
         symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
                            .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
         di = DataInterface.get_instance()
-        result = run_async(di.read("CN", "price_limit", symbol=symbol,
-                                     start_date=trade_date, end_date=trade_date))
+        if trade_date:
+            td = str(trade_date).replace("-", "")
+            result = run_async(di.read("CN", "price_limit", symbol=symbol,
+                                       start_date=td, end_date=td))
+        else:
+            result = run_async(_read_recent_trading_day_records("price_limit", symbol))
         data = result.get("data")
         if data:
             import pandas as pd
+            if isinstance(data, list):
+                data = sorted(data, key=lambda x: str(x.get("trade_date", "")), reverse=True)[:1]
             df = pd.DataFrame(data) if isinstance(data, list) else data
             return format_tool_result(success_result(format_result(df, f"涨跌停价格: {stock_code}")))
         return format_tool_result(error_result(
@@ -458,18 +503,26 @@ def get_chip_distribution(
     stock_code: str,
     trade_date: Optional[str] = None,
 ) -> str:
-    """获取筹码分布数据。"""
+    """获取筹码分布数据。
+
+    未指定 trade_date 时优先取最近交易日；若仍为空，回退到最近 30 天范围内
+    的最新一条，避免在非交易日（周末/休市）直接查当日导致“无筹码数据”。
+    """
     try:
-        if not trade_date:
-            trade_date = get_current_date_compact()
         symbol = stock_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
                            .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
         di = DataInterface.get_instance()
-        result = run_async(di.read("CN", "chip_distribution", symbol=symbol,
-                                     start_date=trade_date, end_date=trade_date))
+        if trade_date:
+            td = str(trade_date).replace("-", "")
+            result = run_async(di.read("CN", "chip_distribution", symbol=symbol,
+                                       start_date=td, end_date=td))
+        else:
+            result = run_async(_read_recent_trading_day_records("chip_distribution", symbol))
         data = result.get("data")
         if data:
             import pandas as pd
+            if isinstance(data, list):
+                data = sorted(data, key=lambda x: str(x.get("trade_date", "")), reverse=True)[:1]
             df = pd.DataFrame(data) if isinstance(data, list) else data
             return format_tool_result(success_result(format_result(df, f"筹码分布: {stock_code}")))
         return format_tool_result(error_result(

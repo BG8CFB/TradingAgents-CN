@@ -1417,7 +1417,7 @@ class AnalysisService:
 
             # 执行分析
             state, decision = trading_graph.propagate(
-                request.stock_code,
+                request.get_symbol(),
                 analysis_date,
                 progress_callback=graph_progress_callback,
                 task_id=task_id,
@@ -1452,8 +1452,8 @@ class AnalysisService:
             # 构建结果 (简化版，完整版在 _save_analysis_result_web_style 中重构)
             # 这里直接返回字典
             result = {
-                "stock_code": request.stock_code,
-                "stock_symbol": request.stock_code,
+                "stock_code": request.get_symbol(),
+                "stock_symbol": request.get_symbol(),
                 "analysis_date": analysis_date,
                 "market_type": market_type,
                 "summary": summary_text,
@@ -1480,7 +1480,7 @@ class AnalysisService:
             return result
 
         except Exception as e:
-            logger.error(f"❌ 分析执行失败: {task_id} - {e}")
+            logger.error(f"❌ 分析执行失败: {task_id} - {e}", exc_info=True)
             raise
 
         finally:
@@ -1971,7 +1971,7 @@ class AnalysisService:
             # 2. 保存到数据库 (Web Style)
             await self._save_analysis_result_web_style(task_id, result)
         except Exception as e:
-            logger.error(f"❌ 保存结果失败: {e}")
+            logger.error(f"❌ 保存结果失败: {e}", exc_info=True)
 
     async def _save_modular_reports_to_data_dir(
         self, result: Dict[str, Any], stock_symbol: str

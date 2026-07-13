@@ -88,6 +88,7 @@ class SimpleAgentFactory:
             from langchain_core.tools import StructuredTool
 
             builtin_tools = []
+            callable_builtins = []
             cache_unavailable_ids = []
             for spec in config_specs:
                 try:
@@ -108,7 +109,25 @@ class SimpleAgentFactory:
                         logger.debug(f"设置工具元数据失败: {e}")
                         pass
 
-                    builtin_tools.append(langchain_tool)
+                    # callable=True 的内置工具（如 web_search）作为 LLM 可主动调用
+                    # 的工具，不预注入数据；其余内置工具仅预注入。
+                    if getattr(spec, "callable", False):
+                        # 必须用真实函数签名包装：lazy wrapper 是 (*args, **kwargs)，
+                        # StructuredTool 拿它无法绑定 LLM 传入的参数（会触发 INVALID_PARAM）。
+                        from app.engine.agents.analysts.simple_agent_template import _get_real_fn
+                        langchain_tool = StructuredTool.from_function(
+                            func=_get_real_fn(spec.fn),
+                            name=spec.tool_id,
+                            description=spec.description,
+                        )
+                        langchain_tool.metadata = {
+                            **(getattr(langchain_tool, "metadata", None) or {}),
+                            "tool_category": "builtin",
+                            "tool_id": spec.tool_id,
+                        }
+                        callable_builtins.append(langchain_tool)
+                    else:
+                        builtin_tools.append(langchain_tool)
                 except Exception as e:
                     logger.error(f"❌ 包装内置工具 {spec.tool_id} 失败: {e}")
 
@@ -160,11 +179,19 @@ class SimpleAgentFactory:
             # 断路器包装
             callable_tools = [DynamicAnalystFactory._wrap_tool_safe(t, toolkit) for t in callable_tools]
 
+            # 可调用内置工具（如 web_search）追加到可调用列表，供 LLM 主动调用
+            if callable_builtins:
+                logger.info(
+                    f"🔧 [工厂] {name}: {len(callable_builtins)} 个内置工具设为可调用: "
+                    f"{', '.join(t.name for t in callable_builtins)}"
+                )
+                callable_tools.extend(callable_builtins)
+
             if builtin_tools:
                 logger.info(
                     f"💉 [工厂] {name}: {len(builtin_tools)} 个内置工具将预注入"
                     f"{f' ({len(cache_unavailable_ids)} 个无缓存数据，仍尝试注入)' if cache_unavailable_ids else ''}, "
-                    f"{len(callable_tools)} 个外部工具可调用"
+                    f"{len(callable_tools)} 个工具可调用"
                 )
 
             from app.engine.agents.analysts.simple_agent_template import create_simple_agent

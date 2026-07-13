@@ -1,5 +1,5 @@
 """
-智能搜索工具 — 基于 Bing 的网页搜索
+智能搜索工具 — 基于 Bing 的网页搜索（默认经本地自托管 Firecrawl 抓取）
 
 统一两种搜索模式：
 1) 个股定向搜索：传入 stock_code（及可选 data_type），自动解析公司名并在权威财经站点
@@ -7,10 +7,13 @@
 2) 泛化网络搜索：仅传入 query，做自由关键词的互联网搜索，适合获取宏观市场、政策、
    行业动态等外围最新信息。
 
-无需 API Key，通过 Bing HTML 搜索获取结果。
+默认由本地自托管 Firecrawl（/v1/scrape）抓取 Bing 搜索结果页并复用 Bing HTML 解析器，
+无需任何外部搜索 API Key；Firecrawl 不可用时自动回退到直连 Bing。
+可通过环境变量 WEB_SEARCH_BACKEND（firecrawl/bing）与 FIRECRAWL_BASE_URL 控制。
 """
 import datetime
 import logging
+import os
 import re
 from typing import Optional
 from html import unescape
@@ -30,10 +33,130 @@ _HEADERS = {
 
 # ── 通用 Bing 搜索 ──
 
+# ── Firecrawl（本地自托管）接入 ──
+#
+# 自托管的 Firecrawl /v1/search 需要服务端配置搜索 provider key 才能出结果，
+# 为保持"免外部 key"，这里改用 /v1/scrape 抓取 Bing 搜索结果页，
+# 再复用下方已有的 _parse_bing_results 解析器 —— 返回结构与原直连 Bing 完全一致。
+#
+# 控制开关（环境变量）：
+#   WEB_SEARCH_BACKEND  firecrawl（默认，走本地 Firecrawl）| bing（强制直连 Bing 回退）
+#   FIRECRAWL_BASE_URL   Firecrawl API 地址，默认自动探测：
+#                        容器内通常 http://172.17.0.1:3002，宿主机直接运行 http://localhost:3002
+#   FIRECRAWL_API_KEY    若 Firecrawl 开启了鉴权则填入，否则留空
+
+_FIRECRAWL_URL_CACHE = None
+
+
+def _firecrawl_base_urls() -> list:
+    env = os.getenv("FIRECRAWL_BASE_URL")
+    if env:
+        return [env.rstrip("/")]
+    # 容器内走宿主网关，宿主机走 localhost；host.docker.internal 作为兼容兜底
+    return [
+        "http://172.17.0.1:3002",
+        "http://host.docker.internal:3002",
+        "http://localhost:3002",
+    ]
+
+
+def _firecrawl_reachable(base: str, timeout: float = 2.0) -> bool:
+    try:
+        r = requests.get(base + "/", timeout=timeout)
+        return r.status_code < 500
+    except Exception:
+        return False
+
+
+def _get_firecrawl_base() -> str:
+    global _FIRECRAWL_URL_CACHE
+    if _FIRECRAWL_URL_CACHE:
+        return _FIRECRAWL_URL_CACHE
+    for base in _firecrawl_base_urls():
+        if _firecrawl_reachable(base):
+            _FIRECRAWL_URL_CACHE = base
+            return base
+    # 都探测不到时返回第一个候选，后续请求会失败并由调用方回退到直连 Bing
+    return _firecrawl_base_urls()[0]
+
+
+def _search_firecrawl(query: str, max_results: int, time_filter: str = "") -> list:
+    """通过本地自托管 Firecrawl 抓取 Bing 搜索结果页（免外部搜索 key）。
+
+    抓取到的 HTML 复用 _parse_bing_results 解析，保证返回结构与直连 Bing 一致：
+    [{"title","url","snippet","publish_date","source_tier"}]。
+    time_filter 处理、无结果退避逻辑与直连 Bing 保持一致。
+    """
+    def _scrape(q: str) -> str:
+        search_url = (
+            "https://www.bing.com/search?q="
+            + requests.utils.quote(q)
+            + "&count="
+            + str(max_results * 2)
+        )
+        base = _get_firecrawl_base()
+        api_key = os.getenv("FIRECRAWL_API_KEY")
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        resp = requests.post(
+            base + "/v1/scrape",
+            json={"url": search_url, "formats": ["html"]},
+            headers=headers,
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not data.get("success"):
+            raise RuntimeError(f"Firecrawl 返回失败: {data}")
+        return data.get("data", {}).get("html") or ""
+
+    try:
+        html = _scrape((query + time_filter).strip())
+    except Exception as e:
+        logger.warning(f"Firecrawl 请求失败: {e}")
+        return []
+
+    results = _parse_bing_results(html, max_results)
+
+    # 退避：带时效过滤无结果时，去掉过滤再抓一次
+    if not results and time_filter:
+        logger.debug("Firecrawl 带 time_filter 无结果，退避到不带 time_filter 重试")
+        try:
+            html = _scrape(query.strip())
+            if html:
+                results = _parse_bing_results(html, max_results)
+        except Exception as e:
+            logger.warning(f"Firecrawl 退避请求失败: {e}")
+
+    return results
+
+
 def _search_bing(query: str, max_results: int, time_filter: str = "") -> list:
-    """通过 Bing 搜索获取结果。
+    """搜索分发器。
+
+    默认走本地 Firecrawl（_search_firecrawl）；若 Firecrawl 不可用或返回空，
+    自动回退到直连 Bing（_search_bing_impl），保证 web_search 行为不退化。
+    可用环境变量 WEB_SEARCH_BACKEND=bing 强制走直连 Bing。
+    """
+    backend = os.getenv("WEB_SEARCH_BACKEND", "firecrawl").lower()
+    if backend == "firecrawl":
+        try:
+            results = _search_firecrawl(query, max_results, time_filter)
+            if results:
+                return results
+            logger.warning("Firecrawl 未返回结果，回退到直连 Bing")
+        except Exception as e:
+            logger.warning(f"Firecrawl 搜索异常，回退到直连 Bing: {e}")
+    return _search_bing_impl(query, max_results, time_filter)
+
+
+def _search_bing_impl(query: str, max_results: int, time_filter: str = "") -> list:
+    """直连 Bing 搜索（Firecrawl 不可用时的回退实现）。
 
     time_filter: 追加到查询的时效限定后缀（如 " after:2026-07-01"）。
+    若带 time_filter 搜索无结果，自动退避到不带 time_filter 再搜一次，
+    避免 after: 过滤在某些个股/关键词上把结果过滤为空。
     """
     url = "https://www.bing.com/search"
     params = {"q": (query + time_filter).strip(), "count": str(max_results * 2)}
@@ -45,7 +168,21 @@ def _search_bing(query: str, max_results: int, time_filter: str = "") -> list:
         logger.debug(f"Bing 请求失败: {e}")
         return []
 
-    return _parse_bing_results(resp.text, max_results)
+    results = _parse_bing_results(resp.text, max_results)
+
+    # 退避：带时效过滤无结果时，去掉过滤再搜一次
+    if not results and time_filter:
+        logger.debug("Bing 带 time_filter 无结果，退避到不带 time_filter 重试")
+        params = {"q": query.strip(), "count": str(max_results * 2)}
+        try:
+            resp = requests.get(url, params=params, headers=_HEADERS, timeout=15)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.debug(f"Bing 退避请求失败: {e}")
+            return []
+        results = _parse_bing_results(resp.text, max_results)
+
+    return results
 
 
 def _parse_bing_results(html: str, max_results: int) -> list:
@@ -204,6 +341,57 @@ def _extract_date(item_html: str) -> Optional[str]:
     except Exception:
         return None
     return None
+
+
+# ── 个股结果清洗：剔除百科/字典噪声与跑题结果 ──
+#
+# 问题背景：Bing 对"公司名首字恰好是常用字典字"的股票（如 600378 昊华科技，
+# "昊" 是字典词）会把搜索误匹配到该字的百科/字典义，返回百度百科/汉典/知乎"取名"
+# 等无关结果；且个股定向搜索的退避查询若漏掉股票代码，更容易触发该问题。
+# 这里在个股搜索结果上做一道清洗：剔除百科/字典域名与字典特征标题，并强制要求
+# 结果标题或摘要中出现股票代码或公司名，否则视为跑题丢弃。
+
+# 百科/字典类干扰域名（个股搜索时应剔除）
+_ENCYCLOPEDIA_DOMAINS = {
+    "baike.baidu.com",
+    "baike.weixin.qq.com",
+    "zdic.net",
+    "hanyuguoxue.com",
+    "gushici.net",
+}
+
+# 字典/百科特征标题（命中即视为无关噪声）
+_DICT_TITLE_RE = re.compile(r"(汉语汉字|的意思|拼音|部首|笔顺|用于取名|怎么读|_\s*百科|-\s*汉典)")
+
+
+def _filter_stock_results(results: list, clean_code: str, name_part: str, data_type=None) -> list:
+    """个股搜索结果清洗：剔除百科/字典噪声与跑题结果。
+
+    - 剔除百科/字典域名结果（baike.baidu.com / 汉典 / 新华字典 等）。
+    - 剔除命中字典特征标题的结果（"（汉语汉字）"、"拼音"、"部首"、"取名" 等）。
+    - 强制要求标题或摘要中出现股票代码(clean_code)或公司名(name_part)，
+      否则视为跑题丢弃 —— 解决 Bing 把"昊华科技"误匹配为"昊"字典义的问题。
+    返回清洗后的列表（可能为空）。
+    """
+    cleaned = []
+    for r in results:
+        url = r.get("url", "")
+        try:
+            host = (urlparse(url).netloc or "").lower()
+        except Exception:
+            host = ""
+        if any(host == d or host.endswith("." + d) for d in _ENCYCLOPEDIA_DOMAINS):
+            continue
+        title = r.get("title", "") or ""
+        if _DICT_TITLE_RE.search(title):
+            continue
+        snippet = r.get("snippet", "") or ""
+        blob = title + " " + snippet
+        # 必须出现股票代码或公司名，否则视为无关
+        if clean_code not in blob and name_part and name_part not in blob:
+            continue
+        cleaned.append(r)
+    return cleaned
 
 
 # time_range 别名 → 天数
@@ -429,27 +617,26 @@ def _stock_specific_search(
         }
         policy_kw = policy_keywords.get(data_type, keywords)
         queries = [
-            f"{name_part} {policy_kw} site:eastmoney.com OR site:10jqka.com.cn",
-            f"{name_part} {policy_kw} site:finance.sina.com.cn OR site:xueqiu.com",
-            f"{name_part} {policy_kw} 最新",
+            f"{clean_code} {name_part} {policy_kw} site:eastmoney.com OR site:10jqka.com.cn",
+            f"{clean_code} {name_part} {policy_kw} site:finance.sina.com.cn OR site:xueqiu.com",
+            f"{clean_code} {name_part} {policy_kw} 最新",
         ]
     else:
+        # 个股定向：所有变体均保留股票代码，避免 Bing 将公司名首字误匹配为字典义
         queries = [
             f"{clean_code} {name_part} {keywords} site:eastmoney.com OR site:10jqka.com.cn",
-            f"{name_part} {keywords} site:finance.sina.com.cn OR site:xueqiu.com",
-            f"{name_part} {keywords} 最新",
+            f"{clean_code} {name_part} {keywords} site:finance.sina.com.cn OR site:xueqiu.com",
+            f"{clean_code} {name_part} {keywords} 最新",
         ]
 
-    # 时效限定：统一追加到每轮查询
+    # 时效限定：交给 _search_bing 统一追加，并在无结果时自动退避
     time_filter = _build_time_filter(time_range)
-    if time_filter:
-        queries = [q + time_filter for q in queries]
 
     # 搜索（逐轮尝试，直到有结果）
     try:
         results = []
         for q in queries:
-            results = _search_bing(q, max_results)
+            results = _search_bing(q, max_results, time_filter=time_filter)
             if results:
                 break
 
@@ -459,6 +646,17 @@ def _stock_specific_search(
                 f"未找到 {name_part}({clean_code}) 的{data_type}相关信息",
                 suggestion="尝试不同的 data_type 或确认股票代码正确"
             ))
+
+        # 清洗：剔除百科/字典噪声与跑题结果（行业类查询不以股票代码为约束，跳过）
+        is_industry = data_type in ("industry", "industry_chain", "upstream", "downstream")
+        if not is_industry:
+            results = _filter_stock_results(results, clean_code, name_part, data_type)
+            if not results:
+                return format_tool_result(error_result(
+                    ErrorCodes.DATA_FETCH_ERROR,
+                    f"未找到 {name_part}({clean_code}) 的{data_type}相关有效结果（已过滤百科/无关内容）",
+                    suggestion="尝试不同的 data_type 或确认股票代码正确"
+                ))
 
         lines = [f"## {name_part}({clean_code}) {data_type} 搜索结果\n"]
         for i, r in enumerate(results, 1):
@@ -658,3 +856,25 @@ def get_industry_average(
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR, str(e)
         ))
+
+
+if __name__ == "__main__":
+    # 回归自检：个股查询必须包含股票代码；过滤函数应剔除"昊"字典噪声、保留真实个股页
+    assert "600378" in (
+        f"600378 昊华科技 股吧 讨论 研报 site:eastmoney.com OR site:10jqka.com.cn"
+    ), "个股查询必须包含股票代码"
+    junk = [{
+        "title": "昊（汉语汉字）_百度百科",
+        "url": "https://baike.baidu.com/item/%E6%98%8A/4862561",
+        "snippet": "昊，汉语汉字",
+        "source_tier": "other",
+    }]
+    good = [{
+        "title": "昊华科技 (600378)_最新价格_行情_走势图—东方财富网",
+        "url": "https://quote.eastmoney.com/sh600378.html",
+        "snippet": "昊华科技 60.58 (-8.49%)",
+        "source_tier": "media",
+    }]
+    filtered = _filter_stock_results(junk + good, "600378", "昊华科技")
+    assert len(filtered) == 1 and "600378" in filtered[0]["url"], filtered
+    print("web_search self-test OK")

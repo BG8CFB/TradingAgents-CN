@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime
 from typing import Dict, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -40,6 +41,7 @@ class SchedulerEngine:
         self._dependency_graph = DependencyGraph()
         self._job_configs: Dict[tuple[str, str], Dict] = {}
         self._jobs_registered = False
+        self._trading_day_cache: Dict[str, bool] = {}
 
     @classmethod
     def get_instance(cls) -> Optional["SchedulerEngine"]:
@@ -152,6 +154,12 @@ class SchedulerEngine:
         visited.add(node_key)
 
         job_conf = self._job_configs.get((market, domain), {})
+
+        # 交易日门控：仅对"限定工作日"的定时任务，在非交易日跳过，避免假日空跑/浪费配额。
+        # 手动触发(force=True)、每日任务(cron day_of_week='*')、日历不可用时均 fail-open 照常执行。
+        if not force and await self._should_skip_non_trading_day(market, job_conf):
+            logger.info("跳过非交易日任务 %s/%s", market, domain)
+            return
         for dep in job_conf.get("depends_on", []) or []:
             await self._run_job_with_dependencies(market, dep, visited, force=force)
 
@@ -204,6 +212,64 @@ class SchedulerEngine:
         except Exception:
             pass
         return None
+
+    async def _should_skip_non_trading_day(self, market: str, job_conf: Dict) -> bool:
+        """判断任务是否应因"非交易日"跳过。
+
+        仅当 cron 的 day_of_week 被限定（非 '*'）时才门控；每日任务(* *) 不门控。
+        日历不可用时 fail-open（返回 False，不跳过）。
+        """
+        cron = job_conf.get("cron", "")
+        parts = cron.split()
+        if len(parts) < 5:
+            return False
+        dow = parts[4].strip()
+        if dow == "*" or dow == "":
+            return False
+        try:
+            import pytz
+
+            tz = pytz.timezone(job_conf.get("timezone", "Asia/Shanghai"))
+        except Exception:
+            try:
+                from zoneinfo import ZoneInfo
+
+                tz = ZoneInfo(job_conf.get("timezone", "Asia/Shanghai"))
+            except Exception:
+                tz = None
+        if tz is None:
+            return False
+        today = datetime.now(tz).date()
+        is_td = await self._is_trading_day(market, today)
+        return not is_td
+
+    async def _is_trading_day(self, market: str, check_date) -> bool:
+        """查 trade_calendar 判断是否为交易日。
+
+        - 有记录且 is_open 为真 → 交易日
+        - 无任何日历记录 → fail-open 返回 True（照常执行，避免日历未就绪导致静默丢失同步）
+        - 查询异常 → fail-open 返回 True
+        """
+        cache_key = f"{market}:{check_date.strftime('%Y%m%d')}"
+        if cache_key in self._trading_day_cache:
+            return self._trading_day_cache[cache_key]
+        result = True
+        try:
+            from app.data.core.interface import DataInterface
+
+            di = DataInterface.get_instance()
+            ds = check_date.strftime("%Y-%m-%d")
+            res = await di.read(market, "trade_calendar", start_date=ds, end_date=ds)
+            rows = res.get("data") or []
+            if not rows:
+                result = True
+            else:
+                result = any(r.get("is_open") in (1, True, "1") for r in rows)
+        except Exception as e:
+            logger.warning("交易日判断失败，fail-open 照常执行 %s/%s: %s", market, check_date, e)
+            result = True
+        self._trading_day_cache[cache_key] = result
+        return result
 
     async def trigger_job(self, market: str, domain: str) -> str:
         """手动触发任务。"""

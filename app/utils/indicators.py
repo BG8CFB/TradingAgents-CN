@@ -185,6 +185,19 @@ def kdj(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 9, m1: int =
     return pd.DataFrame({"kdj_k": k, "kdj_d": d, "kdj_j": j})
 
 
+def williams_r(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> pd.Series:
+    """计算威廉指标（Williams %R）。
+
+    W%R = -100 * (HH_n - Close) / (HH_n - LL_n)
+    其中 HH_n / LL_n 为 n 日内最高价 / 最低价。取值区间 [-100, 0]，
+    越接近 0 越超买，越接近 -100 越超卖。
+    """
+    highest_high = high.rolling(window=int(n), min_periods=int(n)).max()
+    lowest_low = low.rolling(window=int(n), min_periods=int(n)).min()
+    wr = -100 * (highest_high - close) / (highest_high - lowest_low)
+    return wr.replace([np.inf, -np.inf], np.nan)
+
+
 def compute_indicator(df: pd.DataFrame, spec: IndicatorSpec) -> pd.DataFrame:
     name = spec.name.lower()
     params = spec.params or {}
@@ -303,6 +316,7 @@ def add_all_indicators(df: pd.DataFrame, close_col: str = 'close',
         - rsi14: RSI指标（14日，简单移动平均，仅当 rsi_style='china' 时）
         - macd_dif, macd_dea, macd: MACD指标
         - boll_mid, boll_upper, boll_lower: 布林带
+        - williams_r: 威廉指标（Williams %R，14 日）
 
     示例：
         >>> df = pd.DataFrame({'close': [100, 101, 102, 103, 104]})
@@ -355,6 +369,10 @@ def add_all_indicators(df: pd.DataFrame, close_col: str = 'close',
         df['kdj_k'] = kdj_df['kdj_k']
         df['kdj_d'] = kdj_df['kdj_d']
         df['kdj_j'] = kdj_df['kdj_j']
+
+    # 计算威廉指标 Williams %R（14 日）
+    if high_col in df.columns and low_col in df.columns:
+        df['williams_r'] = williams_r(df[high_col], df[low_col], df[close_col], n=14)
 
     return df
 

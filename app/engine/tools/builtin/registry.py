@@ -24,6 +24,9 @@ class BuiltinToolSpec:
     description: str
     non_standard: bool = False
     availability_check: Optional[str] = None
+    # callable=True 的内置工具不预注入、而是作为 LLM 可主动调用的工具
+    # （如 web_search，需按需实时检索；其余数据工具仍仅预注入）
+    callable: bool = False
 
 
 def _resolve_market_type(ctx: dict) -> str:
@@ -361,6 +364,7 @@ def _build_registry() -> List[BuiltinToolSpec]:
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.web_search", "web_search"),
             inject_args={"stock_code": "ticker"},
+            callable=True,
             description="统一智能搜索：传 stock_code+data_type 做个股定向权威站点搜索(news/financial/margin/chip/policy/industry...)，仅传 query 做自由网络搜索(宏观/政策/行业动态等外围最新信息)。支持 time_range=day/week/month/quarter/year 或 after:YYYY-MM-DD 限定时效；结果附 publish_date(发布时间)与 source_tier(来源分级 official/media/forum)，便于引用与可信度判断。",
         ),
         BuiltinToolSpec(
