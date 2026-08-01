@@ -9,6 +9,7 @@ from app.utils.time_utils import now_utc
 from app.engine.tools.common.tool_result import success_result, no_data_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
 from app.core.async_utils import run_async
+from app.data.sources.cn.tushare.api.news import _fetch_targeted_news
 logger = logging.getLogger(__name__)
 
 
@@ -270,6 +271,26 @@ def get_announcements(
         if data:
             df = pd.DataFrame(data) if isinstance(data, list) else data
             return format_tool_result(success_result(format_result(df, f"公告: {stock_code}")))
+
+        # 兜底：DB 无同步公告时，改走东方财富公告实时接口拉取。
+        # 说明：tushare 的 anns/major_anns 接口当前 token 返回"接口不存在"，故不复用 tushare；
+        # 而 _fetch_targeted_news（东方财富公告 API）已验证可用于按代码取公告。
+        try:
+            targeted = run_async(_fetch_targeted_news(clean_code, 10))
+            if targeted:
+                fallback_df = pd.DataFrame([{
+                    "title": n.get("title", ""),
+                    "publish_time": n.get("publish_time", ""),
+                    "source": n.get("source", ""),
+                    "url": n.get("url", ""),
+                } for n in targeted])
+                logger.info(f"[公告兜底] 东方财富实时公告: {len(targeted)} 条 ({stock_code})")
+                return format_tool_result(success_result(
+                    format_result(fallback_df, f"公告(实时兜底): {stock_code}")
+                ))
+        except Exception as fe:
+            logger.warning(f"[公告兜底] 东方财富实时公告获取失败: {fe}")
+
         return format_tool_result(error_result(
             ErrorCodes.DATA_FETCH_ERROR, f"{stock_code} 无公告数据",
             suggestion="请先同步公告数据"

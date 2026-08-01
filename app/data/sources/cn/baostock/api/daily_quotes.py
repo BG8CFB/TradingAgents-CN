@@ -61,16 +61,14 @@ async def fetch_daily_quotes(
     - 其他 → DataSourceUnavailableError
     """
     bs_code = _to_baostock_code(code)
-    start = start_date.replace("-", "")
-    end = end_date.replace("-", "")
     hint = f"code={code}"
 
     def _fetch():
         rs = bs.query_history_k_data_plus(
             bs_code,
             "date,code,open,high,low,close,preclose,volume,amount,turn,pctChg",
-            start_date=start,
-            end_date=end,
+            start_date=start_date,
+            end_date=end_date,
             frequency="d",
             adjustflag="2",
         )
@@ -120,15 +118,13 @@ async def fetch_adj_factors(
     异常分类同 fetch_daily_quotes。
     """
     bs_code = _to_baostock_code(code)
-    start = start_date.replace("-", "")
-    end = end_date.replace("-", "")
     hint = f"code={code}"
 
     def _fetch():
         rs = bs.query_adjust_factor(
             code=bs_code,
-            start_date=start,
-            end_date=end,
+            start_date=start_date,
+            end_date=end_date,
         )
         _check_rs_error(rs, "baostock", _DOMAIN_ADJ, hint)
         rows = []

@@ -168,9 +168,11 @@ async def fetch_financial_data(
                 IndexError,
                 AttributeError,
                 ValueError,
+                TypeError,
                 pandas.errors.EmptyDataError,
             ) as e:
-                # 单个子表数据格式异常（AKShare 返回结构变化或缺字段）：跳过该表，不影响其他表
+                # 单个子表数据格式异常（AKShare 返回结构变化、缺字段，或返回 None 被下标访问
+                # 触发 'NoneType' object is not subscriptable）：跳过该表，不影响其他表
                 logger.debug(f"AKShare获取财务数据 {name} 格式异常: {e}")
                 continue
             # 其他异常（网络/超时/未知）不在此处吞掉，让其上抛到外层异常分类器处理
@@ -178,8 +180,8 @@ async def fetch_financial_data(
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
         # 网络异常：可重试
         raise map_network_exception(exc, "akshare", _DOMAIN)
-    except (KeyError, IndexError, AttributeError, ValueError) as exc:
-        # 数据格式异常：AKShare 返回结构不符合预期，不可重试
+    except (KeyError, IndexError, AttributeError, ValueError, TypeError) as exc:
+        # 数据格式异常：AKShare 返回结构不符合预期（含返回 None 被下标访问），不可重试
         raise DataFormatError("akshare", _DOMAIN, f"code={code}: {exc}")
     except Exception as exc:
         # 其他未知异常

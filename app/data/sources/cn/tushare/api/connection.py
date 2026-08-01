@@ -11,6 +11,11 @@ from app.core.config import settings
 try:
     import tushare as ts
     TUSHARE_AVAILABLE = True
+    # 自建 Tushare 代理域名覆盖：SDK 默认写死 api.waditu.com，而自建 Caddy 仅接受
+    # Host: api.quicksync.cn，否则返回空响应导致误报"Token 未配置或全部失效"。
+    # 运行时覆盖，确保镜像重建（重装 tushare）后依然生效。
+    import tushare.pro.client as _tushare_client
+    _tushare_client.DataApi._DataApi__http_url = "http://api.quicksync.cn/dataapi"
 except ImportError:
     TUSHARE_AVAILABLE = False
     ts = None

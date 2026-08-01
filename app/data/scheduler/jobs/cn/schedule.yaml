@@ -32,10 +32,11 @@ adj_factors:
   depends_on:
   - daily_quotes
 financial_data:
+  enabled: false
   cron: 0 20 * * *
   timezone: Asia/Shanghai
   mode: incremental
-  description: 每日 20:00 增量同步财务数据
+  description: 每日 20:00 增量同步财务数据（已禁用：批量全量同步会触发 tushare 限流/akshare 崩溃并打爆共享熔断，导致手动同步被误拦截）
 market_quotes:
   cron: 5 15 * * 1-5
   timezone: Asia/Shanghai

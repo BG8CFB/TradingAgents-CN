@@ -174,13 +174,16 @@ class FavoritesService:
                     try:
                         latest = await dq_coll.find_one(
                             {"symbol": code, "period": "daily"},
-                            {"symbol": 1, "close": 1, "pct_chg": 1, "trade_date": 1},
+                            {"symbol": 1, "close": 1, "pct_chg": 1, "pre_close": 1, "trade_date": 1},
                             sort=[("trade_date", -1)],
                         )
                         if latest:
                             pct_map[code] = latest
                     except Exception:
                         pass
+
+                # 今日日期（用于判断日线记录是否为当日，以选择昨收参考来源）
+                today_str = datetime.now().strftime("%Y-%m-%d")
 
                 for it in items:
                     code = it.get("stock_code")
@@ -194,12 +197,20 @@ class FavoritesService:
 
                     # 涨跌幅：优先从 market_quotes 计算今日涨跌幅
                     # (当前价 - 昨收价) / 昨收价 * 100
-                    if mq and mq.get("last_price") is not None and mq.get("pre_close") is not None:
+                    if mq and mq.get("last_price") is not None:
                         last_price = mq["last_price"]
-                        pre_close = mq["pre_close"]
+                        pre_close = mq.get("pre_close")
+                        # market_quotes 缺 pre_close（如 tushare rt_min 实时路径不返回昨收）时，
+                        # 用日线数据补全昨收：优先取“今日”日线的 pre_close；
+                        # 否则用最近一条日线的收盘价（≈今日昨收）作为参考价。
+                        if (pre_close is None or pre_close == 0) and dq is not None:
+                            if dq.get("trade_date") == today_str and dq.get("pre_close"):
+                                pre_close = dq.get("pre_close")
+                            else:
+                                pre_close = dq.get("close")
                         if pre_close and pre_close != 0:
                             it["change_percent"] = round((last_price - pre_close) / pre_close * 100, 2)
-                    # 兜底：从 daily_quotes 获取昨日涨跌幅
+                    # 兜底：无实时价时，从 daily_quotes 获取最近日线涨跌幅
                     elif dq and dq.get("pct_chg") is not None:
                         it["change_percent"] = dq["pct_chg"]
 

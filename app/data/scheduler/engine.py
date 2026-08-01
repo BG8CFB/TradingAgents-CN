@@ -97,6 +97,11 @@ class SchedulerEngine:
             if not isinstance(job_conf, dict):
                 continue
 
+            # enabled: false 时跳过该任务（不在调度器中注册），保留 cron 配置以便后续恢复
+            if job_conf.get("enabled", True) is False:
+                logger.info("调度任务已禁用，跳过注册: %s/%s", market, domain)
+                continue
+
             cron_expr = job_conf.get("cron")
             if not cron_expr:
                 continue

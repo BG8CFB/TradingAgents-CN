@@ -392,8 +392,11 @@ def get_stock_technical_indicators(
         available_cols = [c for c in indicator_cols if c in recent.columns]
         result_data = recent[available_cols]
 
+        # 关键指标（含 KDJ / 威廉指标）必须完整展示给分析师，
+        # 否则会被 format_result 默认的 max_cols=15 截断（见 format.py）。
+        # 这里显式按实际列数输出，避免 KDJ/威廉指标被隐藏。
         return format_tool_result(success_result(
-            format_result(result_data, f"{stock_code} 技术指标")
+            format_result(result_data, f"{stock_code} 技术指标", max_cols=len(result_data.columns))
         ))
 
     except Exception as e:
