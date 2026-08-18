@@ -17,6 +17,7 @@ ensure_skill_dependencies 是 async——因为 SkillStateStore 的写入是 asy
 """
 import asyncio
 import logging
+import re
 import subprocess
 import sys
 import tempfile
@@ -110,13 +111,41 @@ def _write_requirements(
     格式：
         mplfinance>=0.12.10b0
         ta-lib==0.4.28 --hash=sha256:abc...
+
+    R13-ET-03 修复：对 package 和 version 做严格字符校验，
+    防止通过换行符 + --index-url 注入改变 pip 安装源。
     """
+    # package: 只允许字母、数字、下划线、连字符、点（PEP 508 名称规范）
+    _PACKAGE_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$")
+    # version: PEP 440 版本约束字符，禁止换行、空格、-- 选项
+    _VERSION_RE = re.compile(r"^[a-zA-Z0-9_.<>=!~;,+^*-]*$")
+
     lines = []
     for dep in deps:
+        package = dep.package
+        version = dep.version
+
+        if not _PACKAGE_RE.match(package):
+            logger.error(
+                f"[SkillInstaller] 包名含非法字符，拒绝安装: {package!r}"
+            )
+            raise ValueError(
+                f"包名含非法字符（仅允许字母、数字、下划线、连字符、点）: {package}"
+            )
+
+        if version and not _VERSION_RE.match(version):
+            logger.error(
+                f"[SkillInstaller] 版本约束含非法字符，拒绝安装: "
+                f"{package}{version!r}"
+            )
+            raise ValueError(
+                f"版本约束含非法字符（禁止换行、空格、-- 选项）: {package}{version}"
+            )
+
         if dep.hash:
-            lines.append(f"{dep.package}{dep.version} --hash={dep.hash}")
+            lines.append(f"{package}{version} --hash={dep.hash}")
         else:
-            lines.append(f"{dep.package}{dep.version}")
+            lines.append(f"{package}{version}")
     requirements_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -274,21 +303,25 @@ async def install_skill_dependencies(
         f"{[d.package for d in deps_to_install]}"
     )
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".txt", delete=False, encoding="utf-8"
-    ) as tmp:
-        requirements_path = Path(tmp.name)
-    _write_requirements(deps_to_install, requirements_path)
-
+    # H-2 修复：将临时文件创建与 _write_requirements 均纳入 try/finally，
+    # 确保 _write_requirements 抛出 ValueError 时临时文件也能被清理
+    requirements_path: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as tmp:
+            requirements_path = Path(tmp.name)
+        _write_requirements(deps_to_install, requirements_path)
+
         pip_args = _build_pip_args(deps_to_install, requirements_path)
         timeout = _get_install_timeout()
         result = _run_pip_install(pip_args, timeout)
     finally:
-        try:
-            requirements_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        if requirements_path is not None:
+            try:
+                requirements_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     # 6. 后置检查与审计
     post_check = check_skill_dependencies_raw(name)
@@ -346,16 +379,20 @@ def install_skill_dependencies_sync(
     installed_by: str = "system",
 ) -> Dict:
     """install_skill_dependencies 的同步包装（供 SkillRegistry 同步回调使用）"""
+    # Python 3.12: asyncio.get_event_loop() 在无运行循环时已弃用，
+    # 改用 asyncio.get_running_loop()（仅在运行循环内成功）。
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # 已在事件循环中（如 FastAPI 请求处理），创建 task 并等待
-            future = asyncio.run_coroutine_threadsafe(
-                install_skill_dependencies(name, installed_by), loop
-            )
-            return future.result(timeout=_get_install_timeout() + 30)
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        pass
+        loop = None
+
+    if loop is not None:
+        # 已在事件循环中（如 FastAPI 请求处理），创建 task 并等待
+        future = asyncio.run_coroutine_threadsafe(
+            install_skill_dependencies(name, installed_by), loop
+        )
+        return future.result(timeout=_get_install_timeout() + 30)
+
     # 无事件循环，直接运行
     return asyncio.run(install_skill_dependencies(name, installed_by))
 

@@ -641,9 +641,13 @@ async def submit_batch_analysis(
         async def run_concurrent_analysis():
             """并发执行所有分析任务"""
             # 延迟导入，避免循环引用
-            from app.services.analysis_service import get_analysis_service
-            simple_service = get_analysis_service()
-            
+            try:
+                from app.services.analysis_service import get_analysis_service
+                simple_service = get_analysis_service()
+            except Exception as svc_err:
+                logger.error(f"❌ [批量分析] 获取分析服务失败，{len(task_ids)} 个任务无法执行: {svc_err}", exc_info=True)
+                return
+
             tasks = []
             for i, symbol in enumerate(stock_symbols):
                 task_id = task_ids[i]
@@ -667,14 +671,29 @@ async def submit_batch_analysis(
                 tasks.append(task)
                 logger.info(f"✅ [批量分析] 已创建并发任务: {task_id} - {symbol}")
 
-            # 等待所有任务完成（不阻塞响应）
-            await asyncio.gather(*tasks, return_exceptions=True)
+            # 等待所有任务完成；return_exceptions=True 防止单个任务异常取消其他任务
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            # 检查 gather 返回值中是否有未被内部 try/except 捕获的异常（如 CancelledError）
+            for idx, result in enumerate(results):
+                if isinstance(result, Exception):
+                    tid = task_ids[idx] if idx < len(task_ids) else f"index_{idx}"
+                    logger.error(f"❌ [批量分析] Task 级异常: tid={tid}, error={result}", exc_info=result)
             logger.info(f"🎉 [批量分析] 所有任务执行完成: batch_id={batch_id}")
 
         # 在后台启动并发任务（不等待完成），保存引用防止 GC 回收
         bg_task = asyncio.create_task(run_concurrent_analysis())
         _background_tasks.add(bg_task)
-        bg_task.add_done_callback(lambda t: _background_tasks.discard(t))
+
+        def _on_batch_done(task: asyncio.Task) -> None:
+            _background_tasks.discard(task)
+            if task.cancelled():
+                logger.warning(f"⚠️ [批量分析] 后台任务被取消: batch_id={batch_id}")
+                return
+            exc = task.exception()
+            if exc is not None:
+                logger.error(f"❌ [批量分析] 后台任务异常退出: batch_id={batch_id}, error={exc}", exc_info=exc)
+
+        bg_task.add_done_callback(_on_batch_done)
         logger.info(f"🚀 [批量分析] 已启动 {len(task_ids)} 个并发任务")
 
         return {
@@ -763,7 +782,13 @@ async def get_user_analysis_history(
 # WebSocket 端点
 @router.websocket("/ws/task/{task_id}")
 async def websocket_task_progress(websocket: WebSocket, task_id: str):
-    """WebSocket 端点：实时获取任务进度（需通过 query parameter 传递 token 认证）。
+    """WebSocket 端点：实时获取任务进度。
+
+    鉴权方式（推荐）：使用 ``Sec-WebSocket-Protocol`` 子协议传递 token::
+
+        new WebSocket(wsUrl, ['bearer', jwtToken])
+
+    向后兼容回退：``?token=<jwt>`` query string。
 
     鉴权错误码约定（与 RFC 6455 1000-2999 正常关闭区段错开，使用 4xxx 应用层错误）：
     - 4404 task authentication required：未提供 token
@@ -773,9 +798,10 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
     """
     import json
     from app.services.auth_service import AuthService
+    from app.routers.websocket_notifications import _extract_token_from_websocket
 
-    # 通过 query parameter 获取 token 进行认证
-    token = websocket.query_params.get("token")
+    # 提取 token：优先子协议头，回退 query string（与 websocket_notifications 一致）
+    token = _extract_token_from_websocket(websocket)
     if not token:
         logger.warning(f"🔌 [WS] 连接拒绝：缺少 token, task_id={task_id}")
         await websocket.close(code=4404, reason="task authentication required")
@@ -800,9 +826,15 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
         user_id = str(ws_user.id)
         is_admin = getattr(ws_user, "is_admin", False)
     except Exception as e:
-        logger.debug(f"WebSocket 用户查询失败，使用 token subject: {e}")
-        user_id = token_data.sub
-        is_admin = False
+        # fail-closed：用户查询异常时不能降级为 token subject（username 字符串），
+        # 否则 user_id 类型不匹配（username vs ObjectId）且跳过 admin 判定，导致 fail-open。
+        logger.warning(f"🔌 [WS] 用户查询异常，拒绝连接: {e}, task_id={task_id}")
+        try:
+            await websocket.accept()
+            await websocket.close(code=1011, reason="鉴权服务异常")
+        except Exception:
+            pass
+        return
 
     logger.info(f"🔌 [WS] 认证成功: user={user_id}, admin={is_admin}, task_id={task_id}")
 

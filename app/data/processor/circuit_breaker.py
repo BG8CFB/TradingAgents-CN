@@ -97,6 +97,12 @@ class CircuitBreaker:
         self._lock = threading.Lock()
         # 记录探测开始时间戳；超时未回调则视为卡死，允许新探测
         self._half_open_probing: Dict[Tuple[str, str], float] = {}
+        # H2 修复：标记当前调用链已获得探测许可。
+        # fallback_router 单次迭代中对同一 (source, domain) 调用 is_open()
+        # 最多三次（line 194/215/222）。第一次放行探测后，后续同调用链的
+        # is_open 也应放行，而非因 _half_open_probing 已设置而拒绝。
+        # probe_granted 不被 is_open 消费，由 record_success/record_failure 清除。
+        self._probe_granted: Dict[Tuple[str, str], bool] = {}
         # 按 source 定制的冷却阶梯；None 表示未启用定制，使用全局默认
         if source_cooldown_config is None:
             try:
@@ -125,12 +131,23 @@ class CircuitBreaker:
         return self._states[key]
 
     def is_open(self, source: str, domain: str) -> bool:
-        """判断熔断器是否打开（请求应被拒绝）。"""
+        """判断熔断器是否打开（请求应被拒绝）。
+
+        H2 修复：fallback_router 单次迭代中对同一 (source, domain) 调用
+        is_open() 最多三次。此前第一次放行探测后设置 _half_open_probing，
+        第二次调用看到探测已开始且未超时则返回 True（拒绝），探测被阻断。
+        现引入 _probe_granted 标记：同一调用链中获得探测许可后，后续调用
+        一律放行（不消费标记），由 record_success/record_failure 清除。
+        """
         with self._lock:
             state = self._get_state(source, domain)
             key = (source, domain)
 
             if state["state"] == CircuitState.CLOSED:
+                return False
+
+            # H2 修复：同一调用链已获得探测许可 → 直接放行
+            if self._probe_granted.get(key):
                 return False
 
             if state["state"] == CircuitState.OPEN:
@@ -146,6 +163,7 @@ class CircuitBreaker:
                     ):
                         return True  # 已有探测请求在执行且未超时，拒绝新请求
                     self._half_open_probing[key] = time.time()
+                    self._probe_granted[key] = True
                     return False
                 return True
 
@@ -157,6 +175,7 @@ class CircuitBreaker:
                 ):
                     return True  # 已有探测请求在执行且未超时，拒绝新请求
                 self._half_open_probing[key] = time.time()
+                self._probe_granted[key] = True
                 return False  # 允许这个探测请求（无探测或已超时）
 
     def get_state(self, source: str, domain: str) -> CircuitState:
@@ -171,6 +190,7 @@ class CircuitBreaker:
             state["last_success"] = time.time()
             state["trip_count"] = max(0, state["trip_count"] - 1)
             self._half_open_probing.pop((source, domain), None)
+            self._probe_granted.pop((source, domain), None)
 
     def record_failure(
         self, source: str, domain: str, error_code: Optional[DataErrorCode] = None
@@ -187,6 +207,7 @@ class CircuitBreaker:
             if state["state"] == CircuitState.HALF_OPEN:
                 self._trip(source, domain, error_code)
                 self._half_open_probing.pop((source, domain), None)
+                self._probe_granted.pop((source, domain), None)
                 return
 
             if len(state["failures"]) >= FAILURE_THRESHOLD:
@@ -213,6 +234,18 @@ class CircuitBreaker:
         logger.warning(
             f"熔断器打开: {source}/{domain}, 冷却 {state['cooldown']}s (错误: {error_code})"
         )
+
+    def clear_probe(self, source: str, domain: str) -> None:
+        """清除探测许可标记（不改变熔断状态）。
+
+        当 fallback_router 获得探测许可后走了不调用 record_success/
+        record_failure 的提前退出路径（如 provider 获取失败、批量模式不支持），
+        需调用本方法清除 ``_probe_granted`` 标记，否则该标记永久残留，
+        此后 ``is_open()`` 对该 (source, domain) 永远返回 False，
+        熔断器被永久禁用。
+        """
+        with self._lock:
+            self._probe_granted.pop((source, domain), None)
 
     def get_trip_count(self, source: str, domain: str) -> int:
         """获取熔断器跳闸次数。"""

@@ -1,7 +1,7 @@
 import chromadb
 from chromadb.config import Settings
 import threading
-from typing import Dict
+from typing import Any, Dict
 
 from app.core.env import get_env
 # 导入统一日志系统
@@ -14,7 +14,7 @@ class ChromaDBManager:
 
     _instance = None
     _lock = threading.Lock()
-    _collections: Dict[str, any] = {}
+    _collections: Dict[str, Any] = {}
     _client = None
 
     def __new__(cls):

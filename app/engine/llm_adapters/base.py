@@ -87,7 +87,8 @@ class BaseChatAdapter:
 
             # 最后估算
             if input_tokens == 0 and output_tokens == 0:
-                input_tokens = self._estimate_input_tokens(kwargs)
+                messages = kwargs.pop("_estimation_messages", None)
+                input_tokens = self._estimate_input_tokens(messages)
                 output_tokens = self._estimate_output_tokens(result)
 
             if input_tokens > 0 or output_tokens > 0:
@@ -121,9 +122,12 @@ class BaseChatAdapter:
             logger.warning("Token 跟踪失败: %s", e, exc_info=True)
 
     @staticmethod
-    def _estimate_input_tokens(kwargs: dict) -> int:
-        """估算输入 token 数（2 字符/token）"""
-        messages = kwargs.get("messages")
+    def _estimate_input_tokens(messages) -> int:
+        """估算输入 token 数（2 字符/token）
+
+        Args:
+            messages: BaseMessage 列表或 None
+        """
         if not messages:
             return 0
         total_chars = sum(len(str(getattr(m, "content", ""))) for m in messages)
@@ -131,14 +135,23 @@ class BaseChatAdapter:
 
     @staticmethod
     def _estimate_output_tokens(result) -> int:
-        """估算输出 token 数（2 字符/token）"""
+        """估算输出 token 数（2 字符/token）
+
+        同时适配 ChatResult（generations 为一维 List[ChatGeneration]）
+        和 LLMResult（generations 为二维 List[List[Generation]]）。
+        """
         total_chars = 0
-        for gen_list in getattr(result, "generations", []):
-            if isinstance(gen_list, list):
-                for g in gen_list:
-                    msg = getattr(g, "message", None)
-                    if msg:
-                        total_chars += len(str(getattr(msg, "content", "")))
+        for gen_item in getattr(result, "generations", []):
+            if isinstance(gen_item, list):
+                # LLMResult 路径：二维列表 List[List[Generation]]
+                for g in gen_item:
+                    msg = getattr(g, "message", None) or g
+                    total_chars += len(str(getattr(msg, "content", "")))
+            else:
+                # ChatResult 路径：一维列表 List[ChatGeneration]
+                msg = getattr(gen_item, "message", None)
+                if msg:
+                    total_chars += len(str(getattr(msg, "content", "")))
         return max(1, total_chars // 2)
 
     @property

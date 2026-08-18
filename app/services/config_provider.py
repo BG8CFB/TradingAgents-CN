@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
-import os
 
+from app.core.env import has_env_var, get_raw_env
 from app.services.config_service import config_service
 from app.utils.time_utils import now_utc
 
@@ -98,8 +98,8 @@ class ConfigProvider:
             ]
             found = None
             for ek in candidates:
-                if ek in os.environ:
-                    found = os.environ.get(ek)
+                if has_env_var(ek):
+                    found = get_raw_env(ek)
                     break
             if found is not None:
                 merged[k] = found
@@ -141,8 +141,8 @@ class ConfigProvider:
                 str(key).replace(".", "_").replace(" ", "_").upper(),
             ]
             for ek in candidates:
-                if ek in os.environ:
-                    return os.environ.get(ek)
+                if has_env_var(ek):
+                    return get_raw_env(ek)
             return None
 
         sens_patterns = ("key", "secret", "password", "token", "client_secret")

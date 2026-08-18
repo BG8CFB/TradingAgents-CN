@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
 import type { Router } from 'vue-router'
+import type { AxiosError } from 'axios'
 import { authApi } from '@/api/auth'
-import type { User, LoginForm, RegisterForm } from '@/types/auth'
+import type { User, LoginForm, RegisterForm, UserUpdateRequest } from '@/types/auth'
 
 export interface AuthState {
   // 认证状态
@@ -198,7 +199,7 @@ export const useAuthStore = defineStore('auth', {
       if (user) {
         this.user = user
         // 同步从 user.roles 推断 roles，保证 setAuthInfo 调用方未显式给 roles 时也有合理初值
-        const userRoles = (user as any)?.roles
+        const userRoles = user?.roles
         if (Array.isArray(userRoles) && userRoles.length > 0) {
           this.roles = userRoles
         } else if (user.is_admin) {
@@ -310,8 +311,8 @@ export const useAuthStore = defineStore('auth', {
           this.setAuthInfo(access_token, refresh_token, user)
 
           // 后端响应已包含 roles 字段，优先采用；为兼容旧后端，缺失时退回 admin 兜底
-          const userRoles = (user as any)?.roles
-            || ((user as any)?.is_admin ? ['admin'] : ['user'])
+          const userRoles = user?.roles
+            || (user?.is_admin ? ['admin'] : ['user'])
           this.roles = Array.isArray(userRoles) ? userRoles : ['user']
           // 同步持久化 roles，刷新后路由守卫立即可用，避免 fetchUserInfo 窗口期误判
           localStorage.setItem('auth-roles', JSON.stringify(this.roles))
@@ -335,7 +336,7 @@ export const useAuthStore = defineStore('auth', {
           // 不在这里显示错误消息，由调用方显示
           return false
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('登录失败:', error)
         // 不在这里显示错误消息，由调用方显示
         return false
@@ -356,9 +357,10 @@ export const useAuthStore = defineStore('auth', {
           ElMessage.error(response.message || '注册失败')
           return false
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('注册失败:', error)
-        ElMessage.error(error.message || '注册失败，请重试')
+        const msg = error instanceof Error ? error.message : '注册失败，请重试'
+        ElMessage.error(msg)
         return false
       }
     },
@@ -403,7 +405,6 @@ export const useAuthStore = defineStore('auth', {
         if (import.meta.env.DEV) {
           console.log('📝 Refresh token信息:', {
             length: this.refreshToken.length,
-            prefix: this.refreshToken.substring(0, 10),
             isValid: this.refreshToken.split('.').length === 3
           })
         }
@@ -426,11 +427,12 @@ export const useAuthStore = defineStore('auth', {
           console.error('❌ Token刷新失败:', response.message)
           throw new Error(response.message || 'Token刷新失败')
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('❌ Token刷新异常:', error)
 
         // 如果是网络错误或服务器错误，不要立即清除认证信息
-        if (error.code === 'NETWORK_ERROR' || error.response?.status >= 500) {
+        const axiosErr = error as AxiosError
+        if (axiosErr.code === 'NETWORK_ERROR' || (axiosErr.response?.status ?? 0) >= 500) {
           console.warn('⚠️ 网络或服务器错误，保留认证信息')
           return false
         }
@@ -454,7 +456,7 @@ export const useAuthStore = defineStore('auth', {
           this.user = response.data
           this.isAuthenticated = true
           // 后端 /me 已返回 roles；缺失时基于 is_admin 兜底，保证路由守卫不误判
-          const userRoles = (response.data as any)?.roles
+          const userRoles = response.data?.roles
             || (response.data?.is_admin ? ['admin'] : ['user'])
           this.roles = Array.isArray(userRoles) ? userRoles : ['user']
           // 持久化最新 roles，避免本地缓存与后端权限变更不一致
@@ -490,12 +492,12 @@ export const useAuthStore = defineStore('auth', {
     },
     
     // 更新用户信息
-    async updateUserInfo(userInfo: Partial<User>) {
+    async updateUserInfo(userInfo: UserUpdateRequest) {
       try {
         const response = await authApi.updateUserInfo(userInfo)
 
         if (response.success) {
-          this.user = { ...this.user!, ...response.data }
+          this.user = this.user ? { ...this.user, ...response.data } : response.data
 
           // 同步用户偏好设置到 appStore
           this.syncUserPreferencesToAppStore()
@@ -506,21 +508,24 @@ export const useAuthStore = defineStore('auth', {
           ElMessage.error(response.message || '更新失败')
           return false
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('更新用户信息失败:', error)
-        ElMessage.error(error.message || '更新失败，请重试')
+        const msg = error instanceof Error ? error.message : '更新失败，请重试'
+        ElMessage.error(msg)
         return false
       }
     },
     
     // 同步用户偏好设置到 appStore
     syncUserPreferencesToAppStore() {
-      if (!this.user?.preferences) return
+      // 缓存引用：import() 是异步的，回调执行时 this.user 可能已被 clearAuthInfo() 置空
+      const currentUser = this.user
+      if (!currentUser?.preferences) return
+      const prefs = currentUser.preferences
 
       // 动态导入 appStore 避免循环依赖
       import('./app').then(({ useAppStore }) => {
         const appStore = useAppStore()
-        const prefs = this.user!.preferences
 
         // 同步主题设置
         if (prefs.ui_theme) {
@@ -540,7 +545,7 @@ export const useAuthStore = defineStore('auth', {
         // 同步分析偏好
         if (prefs.default_market || prefs.default_debate_rounds !== undefined || prefs.auto_refresh !== undefined || prefs.refresh_interval) {
           appStore.updatePreferences({
-            defaultMarket: prefs.default_market as any,
+            defaultMarket: prefs.default_market as 'A股' | '美股' | '港股',
             defaultDebateRounds: prefs.default_debate_rounds,
             autoRefresh: prefs.auto_refresh,
             refreshInterval: prefs.refresh_interval
@@ -567,9 +572,10 @@ export const useAuthStore = defineStore('auth', {
           ElMessage.error(response.message || '密码修改失败')
           return false
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('修改密码失败:', error)
-        ElMessage.error(error.message || '修改密码失败，请重试')
+        const msg = error instanceof Error ? error.message : '修改密码失败，请重试'
+        ElMessage.error(msg)
         return false
       }
     },
@@ -602,11 +608,13 @@ export const useAuthStore = defineStore('auth', {
             console.log('🔄 Token无效，尝试刷新...')
             await this.refreshAccessToken()
           }
-        } catch (error) {
+        } catch (error: unknown) {
           console.error('❌ 检查认证状态失败:', error)
           // 网络超时不代表 token 失效，本地已通过 isValidToken() 验证过格式和过期时间
           // 此时不应修改 isAuthenticated，避免路由守卫误判导致导航被拦截
-          if ((error as any).code === 'ECONNABORTED' || (error as any).message?.includes('timeout')) {
+          const axiosErr = error as AxiosError
+          const errMsg = error instanceof Error ? error.message : ''
+          if (axiosErr.code === 'ECONNABORTED' || errMsg.includes('timeout')) {
             console.warn('⚠️ 网络超时，保持当前认证状态（本地 token 仍然有效）')
             // 不要修改 isAuthenticated，保持与本地 token 一致
           } else {

@@ -122,12 +122,13 @@ async def get_cn_sync_status(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     domain: Optional[str] = None,
+    trigger: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
     """获取同步任务状态"""
     try:
         di = DataInterface.get_instance()
-        status = await di.get_sync_status(_MARKET, domain)
+        status = await di.get_sync_status(_MARKET, domain, trigger=trigger)
 
         items = status if isinstance(status, list) else [status] if status else []
         total = len(items)

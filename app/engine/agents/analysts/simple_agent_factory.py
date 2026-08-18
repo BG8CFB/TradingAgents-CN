@@ -126,8 +126,7 @@ class SimpleAgentFactory:
             )
 
             registry = ToolRegistry.get_instance()
-            if not registry._initialized:
-                registry.initialize()
+            registry.ensure_initialized()
 
             # 只保留非内置工具（MCP + Skill 脚本入口）
             # 双重检查：metadata 标记 + tool_id 名称白名单，防止 metadata 设置失败时内置工具泄露到 bind_tools

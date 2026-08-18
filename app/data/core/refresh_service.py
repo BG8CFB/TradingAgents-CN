@@ -121,14 +121,19 @@ class DataRefreshService:
 
     async def _get_incremental_date_range(
         self, market: str, symbol: str, domain: str,
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, Optional[str]]:
         """查询 MongoDB 最新记录，计算增量拉取的日期范围。
 
         Returns:
-            (start_date, end_date) — start_date 为最新记录日期往前 7 天（重叠容错），
-            end_date 为今天。若无历史数据则回退到默认 lookback。
+            (start_date, end_date, latest_db_date) —
+            start_date 为最新记录日期往前 7 天（重叠容错）；
+            end_date 为最近交易日（非交易日回退，避免周末空请求）；
+            latest_db_date 为库中已有最新日期（"%Y-%m-%d" 或 None），
+            调用方可据此判断数据是否已是最新。
+            若无历史数据则 start 回退到默认 lookback。
         """
         date_field, default_lookback = _INCREMENTAL_DOMAINS[domain]
+        latest_db_date: Optional[str] = None
 
         try:
             from app.data.storage.mongo.client import get_motor_db
@@ -144,11 +149,11 @@ class DataRefreshService:
 
             if doc and doc.get(date_field):
                 latest = doc[date_field]
-                # 解析日期字符串，往前推 7 天作为重叠窗口
                 if len(str(latest)) >= 10:
                     latest_date = datetime.strptime(str(latest)[:10], "%Y-%m-%d")
                 else:
                     latest_date = datetime.strptime(str(latest), "%Y%m%d")
+                latest_db_date = latest_date.strftime("%Y-%m-%d")
                 start = (latest_date - timedelta(days=7)).strftime("%Y-%m-%d")
             else:
                 start = (datetime.now(timezone.utc) - timedelta(days=default_lookback)).strftime("%Y-%m-%d")
@@ -156,8 +161,20 @@ class DataRefreshService:
             logger.debug(f"查询最新日期失败，使用默认范围: {e}")
             start = (datetime.now(timezone.utc) - timedelta(days=default_lookback)).strftime("%Y-%m-%d")
 
-        end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        return start, end
+        # end_date 回退到最近交易日，避免周末/节假日请求空数据
+        from app.data.core.market import get_latest_trade_day
+
+        try:
+            ltd = await get_latest_trade_day(market)
+            if ltd is not None:
+                end = ltd.strftime("%Y-%m-%d")
+            else:
+                end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        except Exception as e:
+            logger.debug(f"查询最近交易日失败，降级为今天: {e}")
+            end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        return start, end, latest_db_date
 
     async def _refresh_domain(
         self, market: str, symbol: str, domain: str, force: bool, timeout: int
@@ -194,8 +211,12 @@ class DataRefreshService:
 
             # 增量域：只拉取最新记录之后的数据
             fetch_kwargs = {}
+            end_date: Optional[str] = None
+            latest_db_date: Optional[str] = None
             if domain in _INCREMENTAL_DOMAINS:
-                start_date, end_date = await self._get_incremental_date_range(market, symbol, domain)
+                start_date, end_date, latest_db_date = await self._get_incremental_date_range(
+                    market, symbol, domain
+                )
                 fetch_kwargs["start_date"] = start_date
                 fetch_kwargs["end_date"] = end_date
 
@@ -204,10 +225,24 @@ class DataRefreshService:
                 timeout=timeout,
             )
 
-            if not fetch_result.success or not fetch_result.records:
+            # 区分"源失败"与"源正常但无新数据"：
+            # 若库中已有最新日期 >= 请求 end_date（最近交易日），说明数据已是最新，
+            # 即使源返回空也属正常（无新增交易日），标 fresh 而非 failed。
+            if not fetch_result.success:
+                if latest_db_date and end_date and latest_db_date >= end_date:
+                    dr.status = "fresh"
+                    dr.source = fetch_result.source
+                    dr.latency_ms = int((time.time() - start) * 1000)
+                    return dr
                 dr.status = "failed"
                 dr.error = fetch_result.error or "所有数据源失败"
                 dr.fallback_from = fetch_result.fallback_from
+                dr.latency_ms = int((time.time() - start) * 1000)
+                return dr
+
+            if not fetch_result.records:
+                dr.status = "fresh"
+                dr.source = fetch_result.source
                 dr.latency_ms = int((time.time() - start) * 1000)
                 return dr
 
@@ -218,6 +253,26 @@ class DataRefreshService:
             dr.fallback_from = fetch_result.fallback_from
             dr.record_count = count
             dr.latency_ms = int((time.time() - start) * 1000)
+
+            # 写 checkpoint，让 Dashboard 状态可见（手动单股刷新）。
+            # 失败不阻断刷新主流程。
+            try:
+                from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
+
+                await MetadataRepo().update_checkpoint(
+                    market=market,
+                    domain=domain,
+                    source=fetch_result.source or "",
+                    last_sync_date=end_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    record_count=count,
+                    status="success",
+                    duration_ms=dr.latency_ms,
+                    scope="single",
+                    trigger="manual",
+                    symbol=symbol,
+                )
+            except Exception as cp_err:
+                logger.debug(f"写 checkpoint 失败（不影响刷新结果）: {cp_err}")
 
             _cooldown_cache.set(cooldown_key, True, ttl=300)
             return dr

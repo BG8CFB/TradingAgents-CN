@@ -1099,11 +1099,8 @@ const allEnabledModels = computed(() => {
 const loadProviders = async () => {
   providersLoading.value = true
   try {
-    console.log('🔄 开始加载厂家列表...')
     const providerListResp = await configApi.getLLMProviders()
-    console.log('📊 厂家列表响应:', providerListResp)
     providers.value = Array.isArray(providerListResp) ? providerListResp : providerListResp.data
-    console.log('✅ 厂家列表加载成功，数量:', providers.value.length)
   } catch (error) {
     console.error('❌ 加载厂家列表失败:', error)
     ElMessage.error('加载厂家列表失败')
@@ -1115,15 +1112,11 @@ const loadProviders = async () => {
 const loadLLMConfigs = async () => {
   llmLoading.value = true
   try {
-    console.log('🔄 开始加载大模型配置...')
     const configsResp = await configApi.getLLMConfigs()
-    console.log('📊 大模型配置响应:', configsResp)
     llmConfigs.value = Array.isArray(configsResp) ? configsResp : configsResp.data
-    console.log('✅ 大模型配置加载成功，数量:', llmConfigs.value.length)
 
     // 获取默认LLM
     const systemConfig = await configApi.getSystemConfig()
-    console.log('📊 系统配置响应:', systemConfig)
     const sysData = systemConfig.data || systemConfig
     defaultLLM.value = sysData.default_llm || ''
 
@@ -1335,12 +1328,6 @@ const loadSystemSettings = async () => {
 
       ...settings
     }
-
-    console.log('✅ 系统设置加载成功:', {
-      default_provider: systemSettings.value.default_provider,
-      analyst_model: systemSettings.value.analyst_model,
-      debate_model: systemSettings.value.debate_model
-    })
 
     // 规整元数据为map
     const metaList = meta?.items || []
@@ -1603,18 +1590,10 @@ const handleLLMConfigSuccess = () => {
 // 测试LLM配置
 const testLLMConfig = async (config: LLMConfig) => {
   try {
-    console.log('🧪 测试LLM配置:', config)
-    console.log('📋 厂家:', config.provider)
-    console.log('📋 模型名称:', config.model_name)
-    console.log('📋 显示名称:', config.model_display_name)
-    console.log('📋 API基础URL:', config.api_base)
-
     const result = await configApi.testConfig({
       config_type: 'llm',
       config_data: config
     })
-
-    console.log('✅ 测试结果:', result)
 
     if (result.success) {
       ElMessage.success(`测试成功: ${result.message}`)
@@ -1775,10 +1754,12 @@ const editDatabaseConfig = (config: DatabaseConfig) => {
 
 const saveDatabaseConfig = async () => {
   try {
-    await configApi.updateDatabaseConfig(
-      currentDatabaseConfig.value.name!,
-      currentDatabaseConfig.value
-    )
+    const name = currentDatabaseConfig.value.name
+    if (!name) {
+      ElMessage.warning('配置名称不能为空')
+      return
+    }
+    await configApi.updateDatabaseConfig(name, currentDatabaseConfig.value)
     ElMessage.success('数据库配置更新成功')
     databaseDialogVisible.value = false
     await loadDatabaseConfigs()
@@ -1789,12 +1770,6 @@ const saveDatabaseConfig = async () => {
 
 const testDatabase = async (config: DatabaseConfig) => {
   try {
-    console.log('🧪 测试数据库配置:', config)
-    console.log('📋 配置名称:', config.name)
-    console.log('📋 配置类型:', config.type)
-    console.log('📋 主机地址:', config.host)
-    console.log('📋 端口:', config.port)
-
     const result = await configApi.testDatabaseConfig(config.name)
 
     if (result.success) {

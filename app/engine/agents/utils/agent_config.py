@@ -10,7 +10,6 @@ import tempfile
 import yaml
 from typing import Optional
 
-from app.core.async_utils import run_async
 from app.core.env import get_env
 from app.utils.logging_init import get_logger
 from app.utils.stock_utils import StockUtils
@@ -18,14 +17,17 @@ from app.utils.stock_utils import StockUtils
 logger = get_logger("agents.config")
 
 
-def resolve_company_name(ticker: str, market_info: dict) -> str:
-    """统一解析公司名称，避免各阶段智能体复制脆弱逻辑。"""
+async def resolve_company_name(ticker: str, market_info: dict) -> str:
+    """统一解析公司名称，避免各阶段智能体复制脆弱逻辑。
+
+    async 函数：调用方（Stage 2/3 async 节点）应使用 ``await resolve_company_name(...)``。
+    """
     try:
         if market_info["is_china"]:
             try:
                 from app.data.core.interface import DataInterface
                 _di = DataInterface.get_instance()
-                _r = run_async(_di.read("CN", "basic_info", symbol=ticker))
+                _r = await _di.read("CN", "basic_info", symbol=ticker)
                 data = _r.get("data")
                 if data and isinstance(data, dict) and data.get("name"):
                     return data["name"]
@@ -41,9 +43,7 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
                 from app.data.core.interface import DataInterface
                 clean_ticker = ticker.replace(".HK", "").replace(".hk", "").zfill(5)
                 di = DataInterface.get_instance()
-                result = run_async(
-                    di.read("HK", "basic_info", symbol=clean_ticker)
-                )
+                result = await di.read("HK", "basic_info", symbol=clean_ticker)
                 data = result.get("data")
                 if data:
                     name = data.get("name_zh") or data.get("name_en") if isinstance(data, dict) else None
@@ -62,7 +62,7 @@ def resolve_company_name(ticker: str, market_info: dict) -> str:
             try:
                 from app.data.core.interface import DataInterface
                 di = DataInterface.get_instance()
-                result = run_async(di.read("US", "basic_info", symbol=ticker.upper()))
+                result = await di.read("US", "basic_info", symbol=ticker.upper())
                 data = result.get("data")
                 if data:
                     doc = data[0] if isinstance(data, list) and data else data

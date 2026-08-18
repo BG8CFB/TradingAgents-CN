@@ -69,7 +69,13 @@ async def fetch_daily_quotes(
 
         def _fetch():
             ticker = yf.Ticker(hk_symbol)
-            return ticker.history(start=start_date, end=end_str)
+            df = ticker.history(start=start_date, end=end_str)
+            # yfinance history() 不返回 pre_close/change/pct_chg，
+            # 从 Close 列 shift(1) 计算前一交易日收盘价注入，
+            # adapter 层据此回填 change/pct_chg（与 CN adapter 逻辑一致）。
+            if df is not None and not df.empty and "Close" in df.columns:
+                df["pre_close"] = df["Close"].shift(1)
+            return df
 
         df = await asyncio.to_thread(_fetch)
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:

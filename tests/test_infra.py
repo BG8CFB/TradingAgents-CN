@@ -104,13 +104,18 @@ class SimulatedMongoCollection:
         oid = self._insert(doc)
         return type("Result", (), {"inserted_id": oid})()
 
-    async def find_one(self, filter_dict=None, projection=None):
-        if not filter_dict:
-            return next(iter(self._data.values()), None)
-        for doc in self._data.values():
-            if _match_filter(doc, filter_dict):
-                return doc
-        return None
+    async def find_one(self, filter_dict=None, projection=None, sort=None):
+        candidates = list(self._data.values())
+        if filter_dict:
+            candidates = [d for d in candidates if _match_filter(d, filter_dict)]
+        if sort:
+            # sort: [("field", 1/-1), ...]，逐字段从后往前稳定排序
+            for field, direction in reversed(sort):
+                candidates.sort(
+                    key=lambda d: (d.get(field) is None, d.get(field)),
+                    reverse=(direction == -1),
+                )
+        return candidates[0] if candidates else None
 
     async def update_one(self, filter_dict, update_dict, **kwargs):
         upsert = kwargs.get("upsert", False)

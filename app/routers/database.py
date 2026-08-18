@@ -8,7 +8,7 @@ import re
 from typing import Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.routers.auth_db import get_current_user, require_admin
 from app.services.database_service import DatabaseService
@@ -27,6 +27,23 @@ class BackupRequest(BaseModel):
     """备份请求"""
     name: str
     collections: List[str] = []  # 空列表表示备份所有集合
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """校验备份名称，防止路径遍历。
+
+        服务层也会做防御性校验，这里是第一道防线。
+        """
+        if not v:
+            raise ValueError("备份名称不能为空")
+        if ".." in v or "/" in v or "\\" in v or os.sep in v:
+            raise ValueError("备份名称不能包含路径分隔符或路径遍历字符")
+        if not re.match(r"^[a-zA-Z0-9_一-鿿\-]{1,120}$", v):
+            raise ValueError(
+                "备份名称只能包含字母、数字、下划线、中划线和中文，长度 1-120"
+            )
+        return v
 
 class ImportRequest(BaseModel):
     """导入请求"""

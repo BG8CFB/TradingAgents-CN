@@ -20,8 +20,16 @@ class ConditionalLogic:
 
     def __init__(self, max_debate_rounds=1, max_risk_discuss_rounds=1):
         """Initialize with configuration parameters."""
-        self.max_debate_rounds = min(max_debate_rounds, MAX_ROUNDS)
-        self.max_risk_discuss_rounds = min(max_risk_discuss_rounds, MAX_ROUNDS)
+        if max_debate_rounds < 0:
+            logger.warning(
+                f"⚠️ [ConditionalLogic] max_debate_rounds={max_debate_rounds} 为负数，已裁减至 0"
+            )
+        if max_risk_discuss_rounds < 0:
+            logger.warning(
+                f"⚠️ [ConditionalLogic] max_risk_discuss_rounds={max_risk_discuss_rounds} 为负数，已裁减至 0"
+            )
+        self.max_debate_rounds = max(0, min(max_debate_rounds, MAX_ROUNDS))
+        self.max_risk_discuss_rounds = max(0, min(max_risk_discuss_rounds, MAX_ROUNDS))
         if max_debate_rounds > MAX_ROUNDS:
             logger.warning(
                 f"⚠️ [ConditionalLogic] max_debate_rounds={max_debate_rounds} 超过安全上限 "
@@ -41,6 +49,7 @@ class ConditionalLogic:
         current_count = debate_state.get("count", 0)
         max_count = 2 * (self.max_debate_rounds + 1)
         latest_speaker = debate_state.get("latest_speaker", "")
+        latest_speaker = latest_speaker or ""
 
         # 🔍 详细日志
         logger.info(f"🔍 [投资辩论控制] 当前发言次数: {current_count}, 最大次数: {max_count} (配置轮次: {self.max_debate_rounds})")

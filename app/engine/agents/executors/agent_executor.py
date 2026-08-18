@@ -371,7 +371,7 @@ class AgentExecutor:
                 tool = self._tool_map.get(tool_name)
                 if tool:
                     try:
-                        raw_result = tool.invoke(tool_args)
+                        raw_result = await asyncio.to_thread(tool.invoke, tool_args)
                         processed = self.result_processor.process_success(
                             raw_result, tool_name
                         )

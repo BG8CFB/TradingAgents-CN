@@ -49,19 +49,19 @@
       </el-form>
     </el-card>
 
-    <!-- 统计卡片 -->
+    <!-- 统计卡片（均基于当前页数据，与分页一致） -->
     <el-row :gutter="16" style="margin-top: 12px">
       <el-col :span="6">
-        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.total }}</div><div class="label">总任务</div></div></el-card>
+        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.pageTotal }}</div><div class="label">当前页</div></div></el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.completed }}</div><div class="label">已完成</div></div></el-card>
+        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.completed }}</div><div class="label">已完成(页)</div></div></el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.failed }}</div><div class="label">失败</div></div></el-card>
+        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.failed }}</div><div class="label">失败(页)</div></div></el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.uniqueStocks }}</div><div class="label">股票数</div></div></el-card>
+        <el-card shadow="never"><div class="stat"><div class="value">{{ stats.uniqueStocks }}</div><div class="label">股票数(页)</div></div></el-card>
       </el-col>
     </el-row>
 
@@ -133,7 +133,7 @@
       v-model="resultVisible"
       :result="currentResult"
       @close="resultVisible=false"
-      @view-report="openReport(currentRow)"
+      @view-report="currentRow && openReport(currentRow)"
     />
 
 
@@ -148,7 +148,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { List, Refresh, Download } from '@element-plus/icons-vue'
-import { analysisApi } from '@/api/analysis'
+import { analysisApi, type AnalysisTask } from '@/api/analysis'
 import { marked } from 'marked'
 import TaskResultDialog from '@/components/Global/TaskResultDialog.vue'
 import TaskReportDialog from '@/components/Global/TaskReportDialog.vue'
@@ -169,21 +169,24 @@ const keyword = ref('')
 const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
-const list = ref<any[]>([])
-const selectedRows = ref<any[]>([])
+const list = ref<AnalysisTask[]>([])
+const selectedRows = ref<AnalysisTask[]>([])
 // 筛选与统计
 const filters = ref<{ dateRange: string[]; market: string; status: string; stock: string }>({
   dateRange: [], market: '', status: '', stock: ''
 })
-const stats = ref({ total: 0, completed: 0, failed: 0, uniqueStocks: 0 })
+const stats = ref({ pageTotal: 0, completed: 0, failed: 0, uniqueStocks: 0 })
 
 
 // WebSocket 连接管理
 let wsConnections: Map<string, WebSocket> = new Map()
-let timer: any = null
+let timer: ReturnType<typeof setInterval> | null = null
 
 const setupPolling = () => {
-  clearInterval(timer)
+  if (timer !== null) {
+    clearInterval(timer)
+    timer = null
+  }
   // 定期刷新列表（每 5 秒）
   if (activeTab.value === 'running') {
     timer = setInterval(() => loadList(), 5000)
@@ -257,6 +260,29 @@ const disconnectAllWebSockets = () => {
   wsConnections.clear()
 }
 
+// 清理不再需要活跃监控的 WebSocket 连接（任务已结束或已从列表消失）
+const cleanupStaleConnections = (activeTaskIds: Set<string>) => {
+  // 避免在迭代中删除，先收集待关闭的 taskId
+  const staleIds: string[] = []
+  wsConnections.forEach((_ws, taskId) => {
+    if (!activeTaskIds.has(taskId)) {
+      staleIds.push(taskId)
+    }
+  })
+  staleIds.forEach((taskId) => {
+    const ws = wsConnections.get(taskId)
+    if (ws) {
+      try {
+        ws.close()
+      } catch (e) {
+        console.error(`关闭陈旧 WebSocket 失败: taskId=${taskId}`, e)
+      }
+    }
+    // 从 Map 移除（若 onclose 已先触发 delete，这里是无害的幂等操作）
+    wsConnections.delete(taskId)
+  })
+}
+
 const statusParam = computed(() => {
   if (activeTab.value === 'all') return undefined
   if (activeTab.value === 'running') return 'processing'
@@ -266,7 +292,7 @@ const statusParam = computed(() => {
 const loadList = async () => {
   loading.value = true
   try {
-    const params: any = {
+    const params: Record<string, string | number | undefined> = {
       page: currentPage.value,
       page_size: pageSize.value,
       status: filters.value.status || statusParam.value,
@@ -279,26 +305,32 @@ const loadList = async () => {
     }
 
     const res = await analysisApi.getHistory(params)
-    const body = (res as any)?.data?.data || (res as any)?.data || {}
-    const tasks = body.tasks || body.analyses || []
+    const body = res?.data ?? { tasks: [], total: 0 }
+    const tasks: AnalysisTask[] = body.tasks || []
     total.value = body.total ?? tasks.length
 
     list.value = tasks
 
+    // 收集当前页中仍需活跃监控的任务 ID，清理已结束或已从列表消失的连接
+    const activeTaskIds = new Set(
+      tasks
+        .filter((task) => task.status === 'processing' || task.status === 'running' || task.status === 'pending')
+        .map((task) => task.task_id)
+    )
+    cleanupStaleConnections(activeTaskIds)
+
     // 为运行中的任务连接 WebSocket
-    tasks.forEach((task: any) => {
-      if (task.status === 'processing' || task.status === 'running' || task.status === 'pending') {
-        connectTaskWebSocket(task.task_id)
-      }
+    activeTaskIds.forEach((taskId) => {
+      connectTaskWebSocket(taskId)
     })
 
-    // 统计：total 使用后端返回的全局总数
-    const completed = tasks.filter((x:any) => x.status === 'completed').length
-    const failed = tasks.filter((x:any) => x.status === 'failed').length
-    const uniqueStocks = new Set(tasks.map((x:any) => x.stock_code || x.stock_symbol)).size
-    stats.value = { total: total.value, completed, failed, uniqueStocks }
-  } catch (e:any) {
-    ElMessage.error(e?.message || '加载失败')
+    // 统计：全部基于当前页数据，与分页 total（全局总数）分离，避免口径混用
+    const completed = tasks.filter((x: AnalysisTask) => x.status === 'completed').length
+    const failed = tasks.filter((x: AnalysisTask) => x.status === 'failed').length
+    const uniqueStocks = new Set(tasks.map((x: AnalysisTask) => x.stock_code || x.stock_symbol)).size
+    stats.value = { pageTotal: tasks.length, completed, failed, uniqueStocks }
+  } catch (e: unknown) {
+    ElMessage.error((e as Error)?.message || '加载失败')
   } finally {
     loading.value = false
   }
@@ -310,7 +342,7 @@ const resetFilters = () => { filters.value = { dateRange: [], market: '', status
 
 // 报告弹窗状态
 const reportVisible = ref(false)
-const reportSections = ref<Array<{ key?: string; title: string; content: any }>>([])
+const reportSections = ref<Array<{ key?: string; title: string; content: string }>>([])
 
 const filteredList = computed(() => {
   let arr = list.value
@@ -332,37 +364,37 @@ const onTabChange = () => {
   })
 }
 const refreshList = () => loadList()
-const onSelectionChange = (rows:any[]) => { selectedRows.value = rows }
+const onSelectionChange = (rows: AnalysisTask[]) => { selectedRows.value = rows }
 
 // 结果与报告
 const resultVisible = ref(false)
-const currentResult = ref<any>(null)
-const currentRow = ref<any>(null)
+const currentResult = ref<Record<string, unknown> | null>(null)
+const currentRow = ref<AnalysisTask | null>(null)
 
-const openResult = async (row:any) => {
+const openResult = async (row: AnalysisTask) => {
   currentRow.value = row
   try {
     const res = await analysisApi.getTaskResult(row.task_id)
-    const body = (res as any)?.data?.data || {}
+    const body = res?.data ?? {}
     currentResult.value = body
     resultVisible.value = true
-  } catch (e:any) {
+  } catch {
     ElMessage.error('获取结果失败')
   }
 }
 
-const openReport = (row:any): void => {
-  const id = row?.task_id || row?.analysis_id || row?.id
+const openReport = (row: AnalysisTask): void => {
+  const id = row?.task_id
   if (!id) { ElMessage.warning('未找到报告ID'); return }
   router.push({ name: 'ReportDetail', params: { id } })
 }
 
-const retryTask = (_row:any) => { ElMessage.info('重试功能待实现') }
+const retryTask = (_row: AnalysisTask) => { ElMessage.info('重试功能待实现') }
 
 // 显示错误详情
-const showErrorDetail = async (row: any) => {
+const showErrorDetail = async (row: AnalysisTask) => {
   try {
-    const taskId = row.task_id || row.analysis_id || row.id
+    const taskId = row.task_id
     if (!taskId) {
       ElMessage.error('任务ID不存在')
       return
@@ -370,9 +402,9 @@ const showErrorDetail = async (row: any) => {
 
     // 获取任务详情
     const res = await analysisApi.getTaskStatus(taskId)
-    const task = (res as any)?.data?.data || row
+    const task = res?.data ?? row
 
-    const errorMessage = task.error_message || task.message || '未知错误'
+    const errorMessage = task.error_message || '未知错误'
 
     // 使用 ElMessageBox 显示错误详情
     await ElMessageBox.alert(
@@ -385,19 +417,25 @@ const showErrorDetail = async (row: any) => {
         customStyle: {
           width: '600px'
         },
-        // 使用 HTML 格式化显示，保留换行
-        message: errorMessage.replace(/\n/g, '<br>')
+        // 使用 HTML 格式化显示：先转义 HTML 特殊字符防 XSS，再替换换行
+        message: errorMessage
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;')
+          .replace(/\n/g, '<br>')
       }
     )
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (e !== 'cancel' && e !== 'close') {
-      ElMessage.error(e?.message || '获取错误详情失败')
+      ElMessage.error((e as Error)?.message || '获取错误详情失败')
     }
   }
 }
 
 // 标记任务为失败
-const markAsFailed = async (row: any) => {
+const markAsFailed = async (row: AnalysisTask) => {
   try {
     await ElMessageBox.confirm(
       `确定要将任务 "${row.stock_name || row.stock_code}" 标记为失败吗？`,
@@ -409,7 +447,7 @@ const markAsFailed = async (row: any) => {
       }
     )
 
-    const taskId = row.task_id || row.analysis_id || row.id
+    const taskId = row.task_id
     if (!taskId) {
       ElMessage.error('任务ID不存在')
       return
@@ -419,9 +457,9 @@ const markAsFailed = async (row: any) => {
     await analysisApi.markTaskAsFailed(taskId)
     ElMessage.success('任务已标记为失败')
     await loadList()
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (e !== 'cancel') {
-      ElMessage.error(e?.message || '标记失败')
+      ElMessage.error((e as Error)?.message || '标记失败')
     }
   } finally {
     loading.value = false
@@ -429,7 +467,7 @@ const markAsFailed = async (row: any) => {
 }
 
 // 删除任务
-const deleteTask = async (row: any) => {
+const deleteTask = async (row: AnalysisTask) => {
   try {
     await ElMessageBox.confirm(
       `确定要删除任务 "${row.stock_name || row.stock_code}" 吗？此操作不可恢复！`,
@@ -441,7 +479,7 @@ const deleteTask = async (row: any) => {
       }
     )
 
-    const taskId = row.task_id || row.analysis_id || row.id
+    const taskId = row.task_id
     if (!taskId) {
       ElMessage.error('任务ID不存在')
       return
@@ -451,9 +489,9 @@ const deleteTask = async (row: any) => {
     await analysisApi.deleteTask(taskId)
     ElMessage.success('任务已删除')
     await loadList()
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (e !== 'cancel') {
-      ElMessage.error(e?.message || '删除失败')
+      ElMessage.error((e as Error)?.message || '删除失败')
     }
   } finally {
     loading.value = false
@@ -481,27 +519,30 @@ const exportSelected = () => {
 
 onMounted(() => {
   // 根据路由 query 初始化标签页
-  const tab = String((route.query as any)?.tab || '').toLowerCase()
-  const validTabs = ['running', 'completed', 'failed', 'all']
-  if (validTabs.includes(tab)) {
-    activeTab.value = tab as any
+  const tab = String(route.query?.tab ?? '').toLowerCase()
+  const validTabs = ['running', 'completed', 'failed', 'all'] as const
+  if ((validTabs as readonly string[]).includes(tab)) {
+    activeTab.value = tab as typeof activeTab.value
   }
   loadList(); setupPolling()
 })
 
 // 监听路由 query 的 tab 变化，动态切换标签页
-watch(() => (route.query as any)?.tab, (newVal) => {
-  const tab = String(newVal || '').toLowerCase()
-  const validTabs = ['running', 'completed', 'failed', 'all']
-  if (validTabs.includes(tab)) {
-    activeTab.value = tab as any
+watch(() => route.query?.tab, (newVal) => {
+  const tab = String(newVal ?? '').toLowerCase()
+  const validTabs = ['running', 'completed', 'failed', 'all'] as const
+  if ((validTabs as readonly string[]).includes(tab)) {
+    activeTab.value = tab as typeof activeTab.value
     currentPage.value = 1
     loadList()
     setupPolling()
   }
 })
 onUnmounted(() => {
-  clearInterval(timer)
+  if (timer !== null) {
+    clearInterval(timer)
+    timer = null
+  }
   disconnectAllWebSockets()
 })
 
@@ -513,7 +554,12 @@ const getStatusType = (status:string): 'success' | 'info' | 'warning' | 'danger'
 }
 import { formatDateTime } from '@/utils/datetime'
 
-const getStatusText = (status:string) => ({ pending:'等待中', processing:'处理中', completed:'已完成', failed:'失败', cancelled:'已取消' } as any)[status] || status
+const getStatusText = (status: string): string => {
+  const map: Record<string, string> = {
+    pending: '等待中', processing: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消'
+  }
+  return map[status] || status
+}
 const formatTime = (t:string) => t ? formatDateTime(t) : '-'
 </script>
 

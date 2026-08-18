@@ -134,6 +134,12 @@ def _resolve_skill_path(skills_dir: str, skill_name: str) -> Optional[str]:
     Returns:
         SKILL.md 文件的绝对路径，未找到时返回 None
     """
+    # skill_name 安全校验：只允许字母数字开头，含字母数字下划线短横线
+    # 拒绝路径分隔符、点号（防目录穿越）
+    if not skill_name or not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$", skill_name):
+        logger.warning(f"skill_name 格式非法，拒绝: {skill_name!r}")
+        return None
+
     base = Path(skills_dir)
 
     # 优先：子目录模式 {skills_dir}/{skill_name}/SKILL.md

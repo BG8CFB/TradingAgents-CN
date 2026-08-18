@@ -22,6 +22,9 @@ export interface User {
   total_analyses: number
   successful_analyses: number
   failed_analyses: number
+
+  /** 后端可能额外返回的角色列表（非标准字段，用于路由守卫提前判断权限） */
+  roles?: string[]
 }
 
 // 用户偏好设置
@@ -139,6 +142,12 @@ export interface UserActivity {
   ip_address?: string
   user_agent?: string
   created_at: string
+}
+
+/** 更新用户信息的请求体（preferences 为部分更新） */
+export interface UserUpdateRequest {
+  email?: string
+  preferences?: Partial<UserPreferences>
 }
 
 // 用户配置更新

@@ -51,6 +51,17 @@ class RateLimiter:
         self._memory_counters: Dict[str, Deque[float]] = {}
 
     def configure(self, source: str, rate_per_minute: int = 60, **kwargs) -> None:
+        # M5 修复：rate_per_day 配置被静默忽略。当前 RateLimiter 只支持
+        # rate_per_minute，不处理日级限流。如果配置中包含 rate_per_day，
+        # 明确告警让运维知晓日限流未生效。
+        if "rate_per_day" in kwargs:
+            logger.warning(
+                "源 %s 配置了 rate_per_day=%s，但当前 RateLimiter 仅支持 "
+                "rate_per_minute，日级限流未生效。请确保 rate_per_minute "
+                "设置足够保守以间接覆盖日限。",
+                source,
+                kwargs["rate_per_day"],
+            )
         self._limits[source] = {
             "rate_per_minute": rate_per_minute,
             "last_request_time": 0,

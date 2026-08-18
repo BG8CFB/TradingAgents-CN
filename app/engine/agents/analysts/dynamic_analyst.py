@@ -370,7 +370,6 @@ class DynamicAnalystFactory:
 
         # 回退：字符串推断
         search_key = slug.lower()
-        name.lower() if name else ""
 
         if "news" in search_key or "新闻" in name:
             return "news"
@@ -656,7 +655,7 @@ class DynamicAnalystFactory:
                         except Exception as e:
                             result_container['error'] = e
 
-                    t = threading.Thread(target=run_in_thread)
+                    t = threading.Thread(target=run_in_thread, daemon=True)
                     t.start()
                     t.join(timeout=120)
                     if t.is_alive():

@@ -28,6 +28,7 @@ export interface AppState {
   preferences: {
     defaultMarket: 'A股' | '美股' | '港股'
     defaultDebateRounds: number  // 辩论默认轮数（1-4，默认2）
+    defaultAnalysts?: string[]  // 默认分析师列表
     autoRefresh: boolean
     refreshInterval: number
     showWelcome: boolean
@@ -101,7 +102,7 @@ export const useAppStore = defineStore('app', {
     },
     
     // 应用信息
-    appInfo(): Record<string, any> {
+    appInfo(): Record<string, string> {
       return {
         version: this.version,
         buildTime: this.buildTime,
@@ -163,6 +164,8 @@ export const useAppStore = defineStore('app', {
     // 切换侧边栏
     toggleSidebar() {
       this.sidebarCollapsed = !this.sidebarCollapsed
+      // 同步到 localStorage（与 setSidebarCollapsed 保持一致）
+      localStorage.setItem('sidebar-collapsed', String(this.sidebarCollapsed))
     },
     
     // 设置侧边栏状态

@@ -286,6 +286,14 @@ class TaskLevelMCPManager:
             self._circuit_breakers[tool_key] = CircuitBreaker(self._circuit_config)
         return self._circuit_breakers[tool_key]
 
+    def _try_get_tool_state(self, tool_key: str) -> ToolState | None:
+        """只读获取工具状态，不创建新条目（M-1 修复）。"""
+        return self._tool_states.get(tool_key)
+
+    def _try_get_circuit_breaker(self, tool_key: str) -> CircuitBreaker | None:
+        """只读获取断路器，不创建新条目（M-1 修复）。"""
+        return self._circuit_breakers.get(tool_key)
+
     def _get_server_semaphore(self, server_name: str) -> asyncio.Semaphore:
         """获取或创建服务器信号量"""
         if server_name not in self._server_semaphores:
@@ -300,8 +308,11 @@ class TaskLevelMCPManager:
         if tool_key in self._failed_tools:
             return False
 
-        # 只读检查：不调用 acquire，避免状态副作用
-        circuit_breaker = self._get_circuit_breaker(tool_key)
+        # 只读检查：使用 _try_get_circuit_breaker 避免创建新断路器条目。
+        # 若断路器不存在（工具从未失败过），视为 CLOSED（可用）。
+        circuit_breaker = self._try_get_circuit_breaker(tool_key)
+        if circuit_breaker is None:
+            return True
         return circuit_breaker.state != CircuitState.OPEN
 
     async def execute_tool(
@@ -394,10 +405,12 @@ class TaskLevelMCPManager:
         if server_name:
             semaphore = self._get_server_semaphore(server_name)
 
+        acquired = False
         try:
             # 应用并发限制
             if semaphore:
                 await semaphore.acquire()
+                acquired = True
 
             tool_state.total_calls += 1
 
@@ -439,15 +452,29 @@ class TaskLevelMCPManager:
             }
 
         finally:
-            # 释放并发锁
-            if semaphore:
+            # 释放并发锁（仅当成功 acquire 后才 release，避免 CancelledError 中断 acquire 导致下溢）
+            if semaphore and acquired:
                 semaphore.release()
 
     def get_tool_statistics(self, tool_name: str, server_name: Optional[str] = None) -> Dict[str, Any]:
-        """获取工具统计信息"""
+        """获取工具统计信息（只读，不创建新状态条目，M-1 修复）。"""
         tool_key = self._get_tool_key(tool_name, server_name)
-        tool_state = self._get_tool_state(tool_key)
-        circuit_breaker = self._get_circuit_breaker(tool_key)
+        # M-1 修复：使用 _try_get_* 只读方法
+        tool_state = self._try_get_tool_state(tool_key)
+        circuit_breaker = self._try_get_circuit_breaker(tool_key)
+
+        if tool_state is None:
+            return {
+                "tool_name": tool_name,
+                "server_name": server_name,
+                "total_calls": 0,
+                "total_failures": 0,
+                "failure_count": 0,
+                "circuit_state": CircuitState.CLOSED.value,
+                "is_disabled": tool_key in self._failed_tools,
+                "last_success_time": None,
+                "last_failure_time": None,
+            }
 
         return {
             "tool_name": tool_name,
@@ -455,7 +482,7 @@ class TaskLevelMCPManager:
             "total_calls": tool_state.total_calls,
             "total_failures": tool_state.total_failures,
             "failure_count": tool_state.failure_count,
-            "circuit_state": circuit_breaker.get_state().value,
+            "circuit_state": circuit_breaker.get_state().value if circuit_breaker else CircuitState.CLOSED.value,
             "is_disabled": tool_key in self._failed_tools,
             "last_success_time": tool_state.last_success_time,
             "last_failure_time": tool_state.last_failure_time,

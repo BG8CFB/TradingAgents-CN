@@ -19,9 +19,6 @@ from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, 
 
 logger = get_logger("agents")
 
-# Ollama reasoning 回填调用计数器（防止同一会话多次调用）
-_ollama_fetch_count: dict[int, int] = {}
-
 
 # ── DeepSeek Thinking Mode 兼容 ────────────────────────────────────
 #
@@ -141,6 +138,8 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
         # 再次确保私有属性存在
         object.__setattr__(self, "_provider_name", provider)
         object.__setattr__(self, "_model_name_alias", model)
+        # Ollama reasoning 回填调用计数器（实例级，防止同一实例多次调用）
+        object.__setattr__(self, "_reasoning_fetched", False)
 
         logger.info(f"[{provider}] 适配器初始化完成 model={model} url={resolved_url}")
 
@@ -269,6 +268,8 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
         # LangChain 解析时丢弃了该字段，导致 content 为空。
         self._fix_empty_content(result, messages)
 
+        # 将 messages 传入 kwargs 供 token 估算 fallback 使用
+        kwargs["_estimation_messages"] = messages
         self._track_token_usage(result, kwargs, start_time)
         return result
 
@@ -360,9 +361,8 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
                     )
                 elif provider == "ollama":
                     # Ollama think 模式需要额外 API 调用获取 reasoning
-                    adapter_id = id(self)
-                    if _ollama_fetch_count.get(adapter_id, 0) < 1:
-                        _ollama_fetch_count[adapter_id] = _ollama_fetch_count.get(adapter_id, 0) + 1
+                    if not getattr(self, "_reasoning_fetched", False):
+                        object.__setattr__(self, "_reasoning_fetched", True)
                         reasoning = self._fetch_reasoning(messages)
                         if reasoning:
                             msg.content = reasoning
@@ -398,6 +398,7 @@ class OpenAICompatibleAdapter(ChatOpenAI, BaseChatAdapter):
             client = OpenAI(
                 api_key=api_key,
                 base_url=self.openai_api_base or None,
+                timeout=60,
             )
 
             openai_messages = []

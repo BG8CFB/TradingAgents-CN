@@ -169,7 +169,6 @@ class MCPToolLoaderFactory:
         将所有参数定义（名称、类型、是否必需、描述、默认值、枚举）整合到工具描述中，
         确保 LLM 能够获得完整的工具信息。
         """
-        getattr(tool, 'name', 'unknown')
         original_desc = getattr(tool, 'description', '')
         args_schema = getattr(tool, 'args_schema', None)
 
@@ -232,9 +231,16 @@ class MCPToolLoaderFactory:
             logger.debug(f"设置工具描述失败: {e}")
             pass
 
+        return tool
+
     def _unwrap_runnable_binding(self, tool: Any) -> Any:
         """
         将 RunnableBinding 解包为原始工具，确保具备 __name__/name 属性。
+
+        返回解包后的工具对象（BaseTool/StructuredTool 实例）；若 base 不是已知
+        工具类型，回退返回原 tool。**永不返回 None**，保证调用方
+        ``_attach_server_metadata`` 能继续附加元数据（历史缺陷：本函数 RunnableBinding
+        分支末尾缺 return 导致返回 None，工具被静默丢弃）。
         """
         if not LANGCHAIN_RUNNABLE_AVAILABLE or RunnableBinding is None:
             return tool
@@ -252,6 +258,9 @@ class MCPToolLoaderFactory:
         except Exception as e:
             logger.debug(f"设置工具 __name__ 失败: {e}")
             pass
+
+        # 默认回退原 tool，避免下方 isinstance 不匹配时 tool_obj 未定义引发 NameError
+        tool_obj: Any = tool
         try:
             tool_classes = tuple(
                 cls for cls in (BaseTool, StructuredTool) if cls is not None  # type: ignore[arg-type]
@@ -274,6 +283,8 @@ class MCPToolLoaderFactory:
                 setattr(tool_obj, "metadata", metadata)
         except Exception as e:
             logger.debug(f"设置工具 metadata 失败: {e}")
+
+        return tool_obj
 
     def _attach_server_metadata(self, tool: Any, server_name: str) -> Any:
         """为工具附加服务器元数据。"""
@@ -449,7 +460,7 @@ class MCPToolLoaderFactory:
                 server_params[name] = {
                     "command": resolved_cmd,
                     "args": config.args or [],
-                    "env": safe_env if safe_env else None,
+                    "env": safe_env,
                     "transport": "stdio",
                 }
             elif config.is_http():
@@ -493,7 +504,7 @@ class MCPToolLoaderFactory:
             server_param = {
                 "command": resolved_cmd,
                 "args": config.args or [],
-                "env": safe_env if safe_env else None,
+                "env": safe_env,
                 "transport": "stdio",
             }
         elif config.is_http():
@@ -597,6 +608,15 @@ class MCPToolLoaderFactory:
                     logger.warning(f"[MCP] 关闭服务器 {name} 时捕获 TaskGroup 错误 (已忽略): {e}")
                 else:
                     logger.warning(f"[MCP] 关闭服务器 {name} 连接失败: {e}")
+            except BaseException as e:
+                # M-6 修复：捕获 BaseExceptionGroup（继承 BaseException），
+                # aclose() 内部 TaskGroup 在子任务收到 CancelledError 时会包装为此类型。
+                # 遵循项目规范 §7.3：re-raise KeyboardInterrupt/SystemExit。
+                if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                    raise
+                logger.warning(
+                    f"[MCP] 关闭服务器 {name} 时捕获 {type(e).__name__} (已忽略): {e}"
+                )
             finally:
                 if name in self._mcp_clients:
                     del self._mcp_clients[name]
@@ -1101,9 +1121,16 @@ class MCPToolLoaderFactory:
             self._server_configs[server_name].enabled = enabled
 
             if enabled:
+                # H-1 修复：与 initialize_connections 保持一致，检查 _mcp_clients
+                # 中是否有对应 client 实例，避免 lambda: True 误报健康
+                def _make_toggle_check(sn: str):
+                    def _check() -> bool:
+                        return sn in self._mcp_clients
+                    return _check
+
                 self._health_monitor.register_server(
                     server_name,
-                    lambda: True,
+                    _make_toggle_check(server_name),
                     initial_status=ServerStatus.UNKNOWN
                 )
             else:

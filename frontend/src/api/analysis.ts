@@ -107,6 +107,25 @@ export interface AnalysisResult {
   updated_at: string
 }
 
+/** 任务列表中的单个任务项（精简，仅前端消费字段） */
+export interface AnalysisTask {
+  task_id: string
+  status: string
+  symbol?: string
+  stock_symbol?: string
+  stock_code?: string
+  stock_name?: string
+  market_type?: string
+  progress?: number
+  current_step?: string
+  message?: string
+  error_message?: string
+  created_at?: string
+  updated_at?: string
+  parameters?: Record<string, unknown>
+  result_data?: unknown
+}
+
 export interface AnalysisHistory {
   total: number
   page: number
@@ -151,7 +170,7 @@ export const analysisApi = {
     start_date?: string
     end_date?: string
     status?: string
-  }): Promise<ApiResponse<{ items: AnalysisResult[]; total: number }>> {
+  }): Promise<ApiResponse<{ tasks: AnalysisTask[]; total: number; page: number; page_size: number }>> {
     return request.get('/api/analysis/user/history', { params })
   },
 
@@ -187,7 +206,7 @@ export const analysisApi = {
   },
 
   // 获取任务结果（新版 simple service）
-  getTaskResult(taskId: string): Promise<any>{
+  getTaskResult(taskId: string): Promise<ApiResponse<Record<string, unknown>>>{
     return request.get(`/api/analysis/tasks/${taskId}/result`)
   },
 

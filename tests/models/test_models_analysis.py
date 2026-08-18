@@ -353,12 +353,14 @@ class TestSingleAnalysisRequest:
     """单股分析请求测试"""
 
     def test_empty_request(self):
-        """空请求（全部可选）"""
-        req = SingleAnalysisRequest()
-        assert req.symbol is None
-        assert req.stock_code is None
-        assert req.parameters is None
-        assert req.get_symbol() == ""
+        """空请求（symbol 和 stock_code 均为空）应拒绝"""
+        with pytest.raises(ValidationError):
+            SingleAnalysisRequest()
+
+    def test_empty_strings_rejected(self):
+        """空白字符串也应拒绝"""
+        with pytest.raises(ValidationError):
+            SingleAnalysisRequest(symbol="   ", stock_code="")
 
     def test_with_symbol(self):
         """带 symbol 的请求"""

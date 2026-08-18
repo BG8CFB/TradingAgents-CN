@@ -610,7 +610,11 @@ async function handleSync() {
 
       if (data.historical_sync) {
         if (data.historical_sync.success) {
-          message += `✅ 历史数据: ${data.historical_sync.records || 0} 条记录\n`
+          if (data.historical_sync.status === 'fresh') {
+            message += `✅ 历史数据: 已是最新\n`
+          } else {
+            message += `✅ 历史数据: ${data.historical_sync.records || 0} 条记录\n`
+          }
         } else {
           message += `❌ 历史数据同步失败: ${data.historical_sync.error || '未知错误'}\n`
         }
@@ -1205,7 +1209,9 @@ function renderSafeMarkdown(content: string): string {
     return renderMarkdown(content)
   } catch (e) {
     console.error('Markdown渲染失败:', e)
-    return `<pre>${content}</pre>`
+    // catch 路径 content 未经 DOMPurify 消毒，需手动转义 HTML 特殊字符防 XSS
+    const escaped = content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return `<pre>${escaped}</pre>`
   }
 }
 

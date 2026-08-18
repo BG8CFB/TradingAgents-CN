@@ -185,33 +185,26 @@ class BaseDomainSync(ABC):
     async def _write_checkpoint(
         self, source: str, status: str, record_count: int, duration_ms: int,
     ) -> None:
-        """写入同步检查点"""
+        """写入同步检查点。
+
+        通过 MetadataRepo 统一入口写入，确保 market 字段存在（历史 bug：
+        旧实现直接 update_one 未写 market，被 get_all_checkpoints 的
+        ``{market: "CN"}`` 过滤漏掉，导致 Dashboard 从不更新）。
+        """
         try:
-            from app.core.database import get_mongo_db
-            db = get_mongo_db()
-        except Exception as e:
-            logger.debug(f"获取数据库连接失败，跳过写入检查点: {e}")
-            return
+            from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
 
-        collection_name = get_collection_name("sync_checkpoints", "CN")
-        collection = db[collection_name]
-
-        now_iso = now_utc().isoformat()
-        checkpoint = {
-            "domain": self.domain,
-            "source": source,
-            "last_sync_date": now_iso[:10],
-            "last_sync_time": now_iso,
-            "status": status,
-            "record_count": record_count,
-            "duration_ms": duration_ms,
-        }
-
-        try:
-            await collection.update_one(
-                {"domain": self.domain, "source": source},
-                {"$set": checkpoint},
-                upsert=True,
+            now_iso = now_utc().isoformat()
+            await MetadataRepo().update_checkpoint(
+                market="CN",
+                domain=self.domain,
+                source=source,
+                last_sync_date=now_iso[:10],
+                record_count=record_count,
+                status=status,
+                duration_ms=duration_ms,
+                scope="market",
+                trigger="scheduled",
             )
         except Exception as e:
             logger.debug("写入检查点失败: %s", e)

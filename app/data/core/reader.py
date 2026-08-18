@@ -2,6 +2,7 @@
 
 import logging
 import math
+import os
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -39,6 +40,10 @@ class Reader:
         self._repo_cache: Dict[str, Any] = {}
         self._refresh_queue = None
         self._repo_lock = threading.Lock()
+        # M8 修复：缓存 freshness_rules.yaml，避免每次 check_freshness 都同步加载。
+        self._freshness_rules_cache: Optional[Dict] = None
+        self._freshness_rules_mtime: float = 0.0
+        self._freshness_rules_lock = threading.Lock()
 
     def _get_repo(self, domain: str):
         """按域获取对应仓储。"""
@@ -236,13 +241,38 @@ class Reader:
 
         return _strip_nan(data), freshness
 
+    def _load_freshness_rules(self) -> Dict:
+        """加载 freshness_rules.yaml，带 mtime 缓存。
+
+        M8 修复：此前每次 check_freshness 都同步加载磁盘文件，在事件循环中
+        产生阻塞。改为首次加载后缓存，通过 mtime 检查自动失效。
+        """
+        from app.data.config import load_yaml
+
+        yaml_path = os.path.join(
+            os.path.dirname(__file__), "..", "config", "freshness_rules.yaml"
+        )
+        try:
+            mtime = os.path.getmtime(yaml_path)
+        except OSError:
+            mtime = 0
+
+        with self._freshness_rules_lock:
+            if (
+                self._freshness_rules_cache is not None
+                and mtime == self._freshness_rules_mtime
+            ):
+                return self._freshness_rules_cache
+            rules = load_yaml("freshness_rules.yaml")
+            self._freshness_rules_cache = rules
+            self._freshness_rules_mtime = mtime
+            return rules
+
     async def check_freshness(
         self, market: str, symbol: str, domain: str, data: Any = None
     ) -> str:
         """检查数据新鲜度。"""
-        from app.data.config import load_yaml
-
-        rules = load_yaml("freshness_rules.yaml")
+        rules = self._load_freshness_rules()
         market_rules = rules.get(market, {})
         domain_rule = market_rules.get(domain)
 
@@ -269,10 +299,20 @@ class Reader:
             return FreshnessState.UNKNOWN
 
         try:
-            # Python 3.10 及更早版本的 datetime.fromisoformat 不支持 "Z" 后缀，
-            # 需要先归一化；3.11+ 原生支持，这里统一兼容两种形式。
-            iso_str = updated_at.replace("Z", "+00:00") if updated_at.endswith("Z") else updated_at
-            updated = datetime.fromisoformat(iso_str)
+            # 如果 updated_at 是 datetime 对象（第三方写入或迁移残留），
+            # 直接使用；否则要求为 str 再做字符串操作，避免 .endswith 抛
+            # AttributeError 且不被 except (ValueError, TypeError) 捕获。
+            if isinstance(updated_at, datetime):
+                updated = updated_at
+            elif isinstance(updated_at, str):
+                # Python 3.10 及更早版本的 datetime.fromisoformat 不支持 "Z" 后缀，
+                # 需要先归一化；3.11+ 原生支持，这里统一兼容两种形式。
+                iso_str = updated_at.replace("Z", "+00:00") if updated_at.endswith("Z") else updated_at
+                updated = datetime.fromisoformat(iso_str)
+            else:
+                # int / float / None 等无法解析的类型
+                return FreshnessState.UNKNOWN
+
             if updated.tzinfo is None:
                 updated = updated.replace(tzinfo=timezone.utc)
             now = datetime.now(timezone.utc)
@@ -298,7 +338,7 @@ class Reader:
                 age_minutes = (now - updated).total_seconds() / 60
                 return FreshnessState.FRESH if age_minutes < threshold_minutes else FreshnessState.STALE
 
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, AttributeError):
             return FreshnessState.UNKNOWN
 
         return FreshnessState.UNKNOWN

@@ -133,6 +133,10 @@ class BaseMarketDomainSync(ABC):
                     success=True, source=source_name, record_count=len(ops),
                     duration_ms=elapsed,
                 )
+                await self._write_checkpoint(
+                    success=True, source=source_name, record_count=len(ops),
+                    duration_ms=elapsed,
+                )
 
                 return {
                     "domain": self.domain, "success": True, "source": source_name,
@@ -148,6 +152,10 @@ class BaseMarketDomainSync(ABC):
         await self._write_sync_event(
             success=False, source="", record_count=0,
             duration_ms=elapsed, error="所有数据源失败",
+        )
+        await self._write_checkpoint(
+            success=False, source="", record_count=0,
+            duration_ms=elapsed,
         )
         return {
             "domain": self.domain, "success": False,
@@ -178,3 +186,28 @@ class BaseMarketDomainSync(ABC):
             await collection.insert_one(event)
         except Exception as e:
             logger.debug(f"写入 sync_event 失败: {e}")
+
+    async def _write_checkpoint(
+        self, *, success: bool, source: str, record_count: int,
+        duration_ms: int,
+    ) -> None:
+        """写入 sync_checkpoints 集合（失败不阻断主流程）。
+
+        成功和失败均写 checkpoint，让 Dashboard 能反映最新同步状态。
+        """
+        try:
+            from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
+
+            await MetadataRepo().update_checkpoint(
+                market=self.market,
+                domain=self.domain,
+                source=source,
+                last_sync_date=now_utc().date().isoformat(),
+                record_count=record_count,
+                status="success" if success else "failed",
+                duration_ms=duration_ms,
+                scope="market",
+                trigger="scheduled",
+            )
+        except Exception as e:
+            logger.debug(f"写入 checkpoint 失败: {e}")

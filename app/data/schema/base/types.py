@@ -43,6 +43,8 @@ def _safe_str(value) -> Optional[str]:
     if isinstance(value, float) and np.isnan(value):
         return None
     s = str(value).strip()
+    if s.lower() in ("nan", "null", "none", "--", "-"):
+        return None
     return s if s else None
 
 

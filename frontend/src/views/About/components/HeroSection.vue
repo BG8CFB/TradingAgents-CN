@@ -57,7 +57,7 @@ import dayjs from 'dayjs'
 const formattedBuildTime = computed(() => dayjs(BUILD_TIME).format('YYYY-MM-DD'))
 
 const openDocs = () => {
-  window.open('https://mp.weixin.qq.com/s/ppsYiBncynxlsfKFG8uEbw', '_blank')
+  window.open('https://mp.weixin.qq.com/s/ppsYiBncynxlsfKFG8uEbw', '_blank', 'noopener,noreferrer')
 }
 </script>
 

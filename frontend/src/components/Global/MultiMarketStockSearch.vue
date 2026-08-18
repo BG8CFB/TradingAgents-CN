@@ -72,6 +72,7 @@ const searchResults = ref<StockInfo[]>([])
 const loading = ref(false)
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+let searchRequestId = 0 // 竞态保护：用于丢弃旧搜索的过期响应
 
 const getPlaceholder = () => {
   const placeholders: Record<string, string> = {
@@ -131,16 +132,22 @@ const performSearch = async () => {
     return
   }
 
+  const currentRequestId = ++searchRequestId
   loading.value = true
   try {
     const response = await stocksApi.searchStocks(selectedMarket.value, searchQuery.value.trim(), 20)
+    // 竞态保护：如果在本次搜索期间用户又发起了新搜索，丢弃本次过期响应
+    if (currentRequestId !== searchRequestId) return
     searchResults.value = response.data?.stocks || []
   } catch (error: any) {
+    if (currentRequestId !== searchRequestId) return
     console.error('搜索失败:', error)
     ElMessage.error(error.message || '搜索失败')
     searchResults.value = []
   } finally {
-    loading.value = false
+    if (currentRequestId === searchRequestId) {
+      loading.value = false
+    }
   }
 }
 

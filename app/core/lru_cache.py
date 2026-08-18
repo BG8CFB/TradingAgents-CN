@@ -79,6 +79,8 @@ class BoundedLRUCache:
                 self._data.pop(key, None)
                 self._expired += 1
                 self._misses += 1
+                # 触发过期回调，与 LRU 淘汰/显式 invalidate 保持一致
+                self._fire_evict_callback(key, value)
                 return None
             # 命中：刷新使用顺序
             self._data.move_to_end(key)
@@ -91,8 +93,11 @@ class BoundedLRUCache:
         Args:
             key: 缓存键
             value: 缓存值
-            ttl: 可选，覆盖实例级 TTL（秒）
+            ttl: 可选，覆盖实例级 TTL（秒）；None 表示使用实例级 TTL，
+                 正数表示自定义过期时间。与 ``__init__`` 一致，不接受 <= 0。
         """
+        if ttl is not None and ttl <= 0:
+            raise ValueError(f"ttl 必须 > 0 或 None, got {ttl}")
         effective_ttl = ttl if ttl is not None else self._ttl
         expires_at = (
             time.monotonic() + effective_ttl if effective_ttl else None
@@ -171,7 +176,7 @@ class BoundedLRUCache:
                 return False
             return True
 
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> Dict[str, Any]:
         """返回统计信息。"""
         with self._lock:
             total = self._hits + self._misses

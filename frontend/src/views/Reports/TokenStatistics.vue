@@ -156,7 +156,7 @@
               </div>
               <div class="usage-bar">
                 <el-progress
-                  :percentage="(model.requests / modelRanking[0].requests) * 100"
+                  :percentage="modelRanking[0]?.requests ? (model.requests / modelRanking[0].requests) * 100 : 0"
                   :show-text="false"
                   :stroke-width="6"
                 />
@@ -293,6 +293,18 @@ const tokenTrendChart = ref()
 const costDistributionChart = ref()
 const providerChart = ref()
 let chartInstances: echarts.ECharts[] = []
+
+/**
+ * 在指定 DOM 上创建 ECharts 实例，自动 dispose 旧实例以避免内存泄漏。
+ * 返回的实例会被统一追踪，在 onBeforeUnmount 中批量 dispose。
+ */
+const createChart = (dom: HTMLElement): echarts.ECharts => {
+  const existing = echarts.getInstanceByDom(dom)
+  if (existing) existing.dispose()
+  const chart = echarts.init(dom)
+  chartInstances.push(chart)
+  return chart
+}
 
 // 数据
 const overview = reactive({
@@ -452,8 +464,7 @@ const loadDailyCostChart = async (days: number) => {
     const costs = items.map((d: any) => d.total_cost ?? d.cost ?? 0)
     const tokens = items.map((d: any) => d.total_tokens ?? d.tokens ?? 0)
 
-    const chart = echarts.init(tokenTrendChart.value)
-    chartInstances.push(chart)
+    const chart = createChart(tokenTrendChart.value)
     chart.setOption({
       tooltip: { trigger: 'axis' },
       legend: { data: ['成本 (¥)', 'Token 数'] },
@@ -470,8 +481,7 @@ const loadDailyCostChart = async (days: number) => {
   } catch {
     // 接口失败时渲染空图表
     if (tokenTrendChart.value) {
-      const chart = echarts.init(tokenTrendChart.value)
-      chartInstances.push(chart)
+      const chart = createChart(tokenTrendChart.value)
       chart.setOption({
         title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 14 } },
         xAxis: { show: false },
@@ -495,8 +505,7 @@ const loadCostByProviderChart = async (days: number) => {
       name: getProviderName(d.provider ?? d.name ?? '')
     }))
 
-    const chart = echarts.init(costDistributionChart.value)
-    chartInstances.push(chart)
+    const chart = createChart(costDistributionChart.value)
     chart.setOption({
       tooltip: { trigger: 'item', formatter: '{b}: ¥{c} ({d}%)' },
       series: [{
@@ -508,8 +517,7 @@ const loadCostByProviderChart = async (days: number) => {
     })
   } catch {
     if (costDistributionChart.value) {
-      const chart = echarts.init(costDistributionChart.value)
-      chartInstances.push(chart)
+      const chart = createChart(costDistributionChart.value)
       chart.setOption({
         title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 14 } },
         series: []
@@ -529,8 +537,7 @@ const loadProviderBarChart = async (days: number) => {
     const names = items.map((d: any) => getProviderName(d.provider ?? d.name ?? ''))
     const values = items.map((d: any) => d.total_requests ?? d.count ?? 0)
 
-    const chart = echarts.init(providerChart.value)
-    chartInstances.push(chart)
+    const chart = createChart(providerChart.value)
     chart.setOption({
       tooltip: { trigger: 'axis' },
       xAxis: { type: 'category', data: names },
@@ -539,8 +546,7 @@ const loadProviderBarChart = async (days: number) => {
     })
   } catch {
     if (providerChart.value) {
-      const chart = echarts.init(providerChart.value)
-      chartInstances.push(chart)
+      const chart = createChart(providerChart.value)
       chart.setOption({
         title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 14 } },
         xAxis: { show: false },

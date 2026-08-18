@@ -30,16 +30,18 @@ class YFinanceUSAdapter(BaseAdapter):
     def adapt_basic_info(self, raw: Any) -> List[StockBasicInfoSchema]:
         if isinstance(raw, dict):
             symbol = str(raw.get("symbol", raw.get("ticker", ""))).upper()
-            return [StockBasicInfoSchema(
-                symbol=symbol,
-                market="US",
-                data_source="yfinance",
-                name=raw.get("longName") or raw.get("shortName", ""),
-                full_symbol=symbol,
-                exchange=raw.get("exchange", ""),
-                industry=raw.get("industry", ""),
-                currency=raw.get("currency", "USD"),
-            )]
+            return [
+                StockBasicInfoSchema(
+                    symbol=symbol,
+                    market="US",
+                    data_source="yfinance",
+                    name=raw.get("longName") or raw.get("shortName", ""),
+                    full_symbol=symbol,
+                    exchange=raw.get("exchange", ""),
+                    industry=raw.get("industry", ""),
+                    currency=raw.get("currency", "USD"),
+                )
+            ]
         return []
 
     def adapt_daily_quotes(self, raw: Any) -> List[DailyQuotesSchema]:
@@ -50,7 +52,11 @@ class YFinanceUSAdapter(BaseAdapter):
         for idx, row in df.iterrows():
             get = row.get
             symbol = str(get("symbol", "")).upper()
-            trade_date = str(idx)[:10] if hasattr(idx, "strftime") else _parse_date(get("trade_date", ""))
+            trade_date = (
+                str(idx)[:10]
+                if hasattr(idx, "strftime")
+                else _parse_date(get("trade_date", ""))
+            )
             if not trade_date:
                 continue
 
@@ -58,22 +64,33 @@ class YFinanceUSAdapter(BaseAdapter):
             pre_close = _safe_float(get("pre_close"))
             change = _safe_float(get("change"))
             pct_chg = _safe_float(get("pct_chg"))
+            if change is None and close is not None and pre_close is not None:
+                change = round(close - pre_close, 4)
+            if (
+                pct_chg is None
+                and close is not None
+                and pre_close is not None
+                and pre_close != 0
+            ):
+                pct_chg = round((close - pre_close) / pre_close * 100, 4)
 
-            results.append(DailyQuotesSchema(
-                symbol=symbol,
-                market="US",
-                data_source="yfinance",
-                trade_date=trade_date,
-                period="daily",
-                open=_safe_float(get("Open")),
-                high=_safe_float(get("High")),
-                low=_safe_float(get("Low")),
-                close=close,
-                pre_close=pre_close,
-                change=change,
-                pct_chg=pct_chg,
-                volume=_safe_float(get("Volume")),
-            ))
+            results.append(
+                DailyQuotesSchema(
+                    symbol=symbol,
+                    market="US",
+                    data_source="yfinance",
+                    trade_date=trade_date,
+                    period="daily",
+                    open=_safe_float(get("Open")),
+                    high=_safe_float(get("High")),
+                    low=_safe_float(get("Low")),
+                    close=close,
+                    pre_close=pre_close,
+                    change=change,
+                    pct_chg=pct_chg,
+                    volume=_safe_float(get("Volume")),
+                )
+            )
         return results
 
     def adapt_corporate_actions(self, raw: Any) -> List[CorporateActionsSchema]:
@@ -85,16 +102,18 @@ class YFinanceUSAdapter(BaseAdapter):
             get = row.get
             ex_date = _parse_date(str(get("date", ""))[:10])
             action_type = get("action_type", "unknown")
-            results.append(CorporateActionsSchema(
-                symbol=str(get("symbol", "")).upper(),
-                market="US",
-                data_source="yfinance",
-                ex_date=ex_date,
-                action_type=action_type,
-                amount=_safe_float(get("amount")),
-                currency="USD",
-                ratio_from=_safe_float(get("ratio")),
-            ))
+            results.append(
+                CorporateActionsSchema(
+                    symbol=str(get("symbol", "")).upper(),
+                    market="US",
+                    data_source="yfinance",
+                    ex_date=ex_date,
+                    action_type=action_type,
+                    amount=_safe_float(get("amount")),
+                    currency="USD",
+                    ratio_from=_safe_float(get("ratio")),
+                )
+            )
         return results
 
     def adapt_financial_data(self, raw: Any) -> List[FinancialDataSchema]:
@@ -102,22 +121,28 @@ class YFinanceUSAdapter(BaseAdapter):
         if df.empty:
             return []
         # yfinance financials: 行是指标名，列是日期
-        default_symbol = str(df.attrs.get("symbol", "")).upper() if hasattr(df, "attrs") else ""
+        default_symbol = (
+            str(df.attrs.get("symbol", "")).upper() if hasattr(df, "attrs") else ""
+        )
         results = []
         for col in df.columns:
             try:
                 report_period = str(col)[:10]
                 col_data = df[col]
-                results.append(FinancialDataSchema(
-                    symbol=default_symbol,
-                    market="US",
-                    data_source="yfinance",
-                    report_period=report_period,
-                    statement_type="income",
-                    revenue=_safe_float(col_data.get("Total Revenue")),
-                    net_profit=_safe_float(col_data.get("Net Income")),
-                    operating_cashflow=_safe_float(col_data.get("Operating Cash Flow")),
-                ))
+                results.append(
+                    FinancialDataSchema(
+                        symbol=default_symbol,
+                        market="US",
+                        data_source="yfinance",
+                        report_period=report_period,
+                        statement_type="income",
+                        revenue=_safe_float(col_data.get("Total Revenue")),
+                        net_profit=_safe_float(col_data.get("Net Income")),
+                        operating_cashflow=_safe_float(
+                            col_data.get("Operating Cash Flow")
+                        ),
+                    )
+                )
             except Exception as e:
                 logger.debug(f"解析财务数据行失败: {e}")
                 continue
@@ -130,13 +155,15 @@ class YFinanceUSAdapter(BaseAdapter):
         results = []
         for _, row in df.iterrows():
             get = row.get
-            results.append(MarketQuotesSchema(
-                symbol=str(get("symbol", "")).upper(),
-                market="US",
-                data_source="yfinance",
-                last_price=_safe_float(get("price")),
-                last_volume=_safe_float(get("volume")),
-            ))
+            results.append(
+                MarketQuotesSchema(
+                    symbol=str(get("symbol", "")).upper(),
+                    market="US",
+                    data_source="yfinance",
+                    last_price=_safe_float(get("price")),
+                    last_volume=_safe_float(get("volume")),
+                )
+            )
         return results
 
     def adapt_daily_indicators(self, raw: Any) -> List[DailyIndicatorsSchema]:
@@ -150,20 +177,51 @@ class YFinanceUSAdapter(BaseAdapter):
             trade_date = _parse_date(get("trade_date", ""))
             if not trade_date:
                 continue
-            results.append(DailyIndicatorsSchema(
-                symbol=symbol,
-                market="US",
-                data_source="yfinance",
-                trade_date=trade_date,
-                pe_ttm=_safe_float(get("pe_ttm") or get("trailingPE")),
-                pb=_safe_float(get("pb") or get("priceToBook")),
-                ps_ttm=_safe_float(get("ps_ttm") or get("priceToSalesTrailing12Months")),
-                dividend_yield=_safe_float(get("dividend_yield") or get("dividendYield")),
-                market_cap=_safe_float(get("market_cap") or get("marketCap")),
-                float_market_cap=_safe_float(get("float_market_cap") or get("floatShares")),
-                shares_outstanding=_safe_float(get("shares_outstanding") or get("sharesOutstanding")),
-                float_shares=_safe_float(get("float_shares") or get("floatShares")),
-            ))
+
+            # yfinance dividendYield 返回小数（0.035 = 3.5%），schema 约定百分数值（3.5），
+            # 需 ×100 转换；用 < 1 安全检查避免数据源已返回百分数值时二次放大。
+            # 与 CN/HK 的 pct_chg/turnover_rate 等百分号字段保持一致。
+            raw_div_yield = _safe_float(get("dividend_yield") or get("dividendYield"))
+            if raw_div_yield is not None and raw_div_yield < 1:
+                raw_div_yield = round(raw_div_yield * 100, 4)
+
+            results.append(
+                DailyIndicatorsSchema(
+                    symbol=symbol,
+                    market="US",
+                    data_source="yfinance",
+                    trade_date=trade_date,
+                    pe_ttm=_safe_float(get("pe_ttm") or get("trailingPE")),
+                    pb=_safe_float(get("pb") or get("priceToBook")),
+                    ps_ttm=_safe_float(
+                        get("ps_ttm") or get("priceToSalesTrailing12Months")
+                    ),
+                    dividend_yield=raw_div_yield,
+                    market_cap=_safe_float(get("market_cap") or get("marketCap")),
+                    # float_market_cap 是流通市值（美元），yfinance 无直接字段，
+                    # 用 floatShares（流通股本）× currentPrice（现价）计算。
+                    float_market_cap=_safe_float(get("float_market_cap"))
+                    or (
+                        (
+                            _safe_float(get("floatShares"))
+                            or _safe_float(get("float_shares"))
+                        )
+                        and _safe_float(get("currentPrice"))
+                        and round(
+                            (
+                                _safe_float(get("floatShares"))
+                                or _safe_float(get("float_shares"))
+                            )
+                            * _safe_float(get("currentPrice")),
+                            2,
+                        )
+                    ),
+                    shares_outstanding=_safe_float(
+                        get("shares_outstanding") or get("sharesOutstanding")
+                    ),
+                    float_shares=_safe_float(get("float_shares") or get("floatShares")),
+                )
+            )
         return results
 
     def adapt_news(self, raw: Any) -> List[StockNewsSchema]:
@@ -177,17 +235,23 @@ class YFinanceUSAdapter(BaseAdapter):
             publish_time = (
                 get("publish_time", "") or get("发布时间", "") or get("datetime", "")
             )
-            content_hash = StockNewsSchema.compute_hash(title, str(publish_time)) if title else None
+            content_hash = (
+                StockNewsSchema.compute_hash(title, str(publish_time))
+                if title
+                else None
+            )
             raw_symbol = str(get("symbol", ""))
-            results.append(StockNewsSchema(
-                symbol=raw_symbol.upper() if raw_symbol else "",
-                market="US",
-                data_source="yfinance",
-                title=title,
-                content=get("content") or get("摘要", "") or get("summary"),
-                content_hash=content_hash,
-                source=get("source") or get("来源", "") or get("publisher", ""),
-                publish_time=publish_time,
-                url=get("url") or get("链接", "") or get("link"),
-            ))
+            results.append(
+                StockNewsSchema(
+                    symbol=raw_symbol.upper() if raw_symbol else "",
+                    market="US",
+                    data_source="yfinance",
+                    title=title,
+                    content=get("content") or get("摘要", "") or get("summary"),
+                    content_hash=content_hash,
+                    source=get("source") or get("来源", "") or get("publisher", ""),
+                    publish_time=publish_time,
+                    url=get("url") or get("链接", "") or get("link"),
+                )
+            )
         return results

@@ -1,14 +1,17 @@
 """
 Backup, import, and export routines extracted from DatabaseService.
 """
+
 from __future__ import annotations
 
 import json
 import os
+import re
 import gzip
 import asyncio
 import subprocess
 import shutil
+import tempfile
 from typing import Any, Dict, List, Optional
 import logging
 
@@ -21,13 +24,95 @@ from app.utils.timezone import now_utc, format_date_compact
 
 logger = logging.getLogger(__name__)
 
+# 备份名称安全字符：字母、数字、下划线、中划线、中文
+_BACKUP_NAME_RE = re.compile(r"^[a-zA-Z0-9_一-鿿\-]{1,120}$")
+
+
+def _build_mongodump_args_and_env(
+    backup_path: str, collection_name: Optional[str]
+) -> tuple[List[str], Dict[str, str]]:
+    """构建 mongodump 命令参数，不含任何凭据（凭据通过 --config 临时 YAML 文件传递）。
+
+    将 MongoDB 凭据从 ``--uri`` 命令行参数迁移到 mongodump 的 ``--config`` YAML 配置文件，
+    避免 ``ps aux`` 等进程列表暴露完整 URI（含用户名密码）。
+
+    YAML 配置文件在调用方创建、使用后立即删除（见 ``_run_mongodump``）。
+
+    Args:
+        backup_path: mongodump --out 输出目录
+        collection_name: 可选的集合名
+
+    Returns:
+        (cmd_args, env_overlay) — env_overlay 始终为空 dict（保留接口兼容）
+    """
+    cmd = [
+        "mongodump",
+        "--host",
+        settings.MONGODB_HOST,
+        "--port",
+        str(settings.MONGODB_PORT),
+        "--db",
+        settings.MONGODB_DATABASE,
+        "--out",
+        backup_path,
+        "--gzip",
+    ]
+    if settings.MONGODB_USERNAME:
+        cmd.extend(["--username", settings.MONGODB_USERNAME])
+    auth_source = getattr(settings, "MONGODB_AUTH_SOURCE", "admin")
+    if auth_source:
+        cmd.extend(["--authenticationDatabase", auth_source])
+
+    if collection_name:
+        cmd.extend(["--collection", collection_name])
+
+    return cmd, {}
+
 
 def _check_mongodump_available() -> bool:
     """检查 mongodump 命令是否可用"""
     return shutil.which("mongodump") is not None
 
 
-async def create_backup_native(name: str, backup_dir: str, collections: Optional[List[str]] = None, user_id: str | None = None) -> Dict[str, Any]:
+def _validate_backup_name(name: str) -> str:
+    """校验备份名称，防止路径遍历。
+
+    允许：字母、数字、下划线、中划线、中文（1-120 字符）。
+    禁止：路径分隔符（/ \\）、点号点（..）、空字符等。
+
+    Args:
+        name: 用户传入的备份名称。
+
+    Returns:
+        校验通过后的安全名称（basename 后的安全值）。
+
+    Raises:
+        ValueError: 名称包含非法字符。
+    """
+    if not name:
+        raise ValueError("备份名称不能为空")
+
+    # 先取 basename 防御性剥离路径分隔符
+    safe_name = os.path.basename(name)
+
+    if safe_name != name:
+        raise ValueError(f"备份名称不能包含路径分隔符: {name!r}")
+
+    if ".." in name:
+        raise ValueError("备份名称不能包含路径遍历字符 '..'")
+
+    if not _BACKUP_NAME_RE.match(name):
+        raise ValueError("备份名称只能包含字母、数字、下划线、中划线和中文，长度 1-120")
+
+    return safe_name
+
+
+async def create_backup_native(
+    name: str,
+    backup_dir: str,
+    collections: Optional[List[str]] = None,
+    user_id: str | None = None,
+) -> Dict[str, Any]:
     """
     使用 MongoDB 原生 mongodump 命令创建备份（推荐，速度快）
 
@@ -42,43 +127,68 @@ async def create_backup_native(name: str, backup_dir: str, collections: Optional
     - mongodump 命令在 PATH 中可用
     """
     if not _check_mongodump_available():
-        raise RuntimeError("mongodump 命令不可用，请安装 MongoDB Database Tools 或使用 create_backup() 方法")
+        raise RuntimeError(
+            "mongodump 命令不可用，请安装 MongoDB Database Tools 或使用 create_backup() 方法"
+        )
+
+    name = _validate_backup_name(name)
 
     db = get_mongo_db()
 
     backup_id = str(ObjectId())
-    timestamp = format_date_compact(now_utc()) + "_" + now_utc().strftime('%H%M%S')
+    timestamp = format_date_compact(now_utc()) + "_" + now_utc().strftime("%H%M%S")
     backup_dirname = f"backup_{name}_{timestamp}"
     backup_path = os.path.join(backup_dir, backup_dirname)
 
     os.makedirs(backup_dir, exist_ok=True)
 
-    # 构建 mongodump 命令
-    cmd = [
-        "mongodump",
-        "--uri", settings.MONGO_URI,
-        "--out", backup_path,
-        "--gzip"  # 启用压缩
-    ]
-
-    # 如果指定了集合，只备份这些集合
-    if collections:
-        for collection_name in collections:
-            cmd.extend(["--collection", collection_name])
+    # mongodump 的 --collection 是覆盖语义（一次仅支持单集合）。
+    # 多集合时需逐个执行，否则 --collection 循环追加后只备份最后一个（R14 SVC-01）。
+    collections_to_dump = list(collections) if collections else [None]
 
     logger.info(f"🔄 开始执行 mongodump 备份: {name}")
 
     # 🔥 使用 asyncio.to_thread 在线程池中执行阻塞的 subprocess 调用
     def _run_mongodump():
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=3600  # 1小时超时
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"mongodump 执行失败: {result.stderr}")
-        return result
+        last_result = None
+
+        for collection_name in collections_to_dump:
+            cmd, _ = _build_mongodump_args_and_env(backup_path, collection_name)
+
+            # 将密码写入临时 YAML 配置文件，通过 --config 传递
+            # mongodump 100.x+ 支持 --config，凭据不出现在 ps ARGV 列
+            config_path: Optional[str] = None
+            try:
+                if settings.MONGODB_PASSWORD:
+                    import yaml as _yaml
+
+                    config_path = tempfile.mktemp(
+                        suffix=".yaml", prefix="mongodump_cfg_"
+                    )
+                    config_content = {"password": settings.MONGODB_PASSWORD}
+                    with open(config_path, "w", encoding="utf-8") as f:
+                        _yaml.dump(config_content, f, default_flow_style=False)
+                    os.chmod(config_path, 0o600)
+                    cmd = ["mongodump", "--config", config_path] + cmd[1:]
+
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=3600,  # 1小时超时
+                )
+            finally:
+                # 用完即删，避免凭据残留
+                if config_path and os.path.exists(config_path):
+                    try:
+                        os.unlink(config_path)
+                    except OSError:
+                        logger.warning(f"无法删除临时配置文件: {config_path}")
+            if result.returncode != 0:
+                coll_desc = f"（集合 {collection_name}）" if collection_name else ""
+                raise RuntimeError(f"mongodump 执行失败{coll_desc}: {result.stderr}")
+            last_result = result
+        return last_result
 
     try:
         await asyncio.to_thread(_run_mongodump)
@@ -134,21 +244,32 @@ async def create_backup_native(name: str, backup_dir: str, collections: Optional
     }
 
 
-async def create_backup(name: str, backup_dir: str, collections: Optional[List[str]] = None, user_id: str | None = None) -> Dict[str, Any]:
+async def create_backup(
+    name: str,
+    backup_dir: str,
+    collections: Optional[List[str]] = None,
+    user_id: str | None = None,
+) -> Dict[str, Any]:
     """
     创建数据库备份（Python 实现，兼容性好但速度较慢）
 
     对于大数据量（>100MB），建议使用 create_backup_native() 方法
     """
+    name = _validate_backup_name(name)
+
     db = get_mongo_db()
 
     backup_id = str(ObjectId())
-    timestamp = format_date_compact(now_utc()) + "_" + now_utc().strftime('%H%M%S')
+    timestamp = format_date_compact(now_utc()) + "_" + now_utc().strftime("%H%M%S")
     backup_filename = f"backup_{name}_{timestamp}.json.gz"
     backup_path = os.path.join(backup_dir, backup_filename)
 
     if not collections:
-        collections = await db.list_collection_names()
+        # 过滤 system. 前缀集合（含 system_secrets 等敏感集合），
+        # 与 create_backup_native() 行 150 / export_data() 行 508 对齐，避免密钥泄漏到备份文件
+        collections = [
+            c for c in await db.list_collection_names() if not c.startswith("system.")
+        ]
 
     backup_data: Dict[str, Any] = {
         "backup_id": backup_id,
@@ -204,15 +325,17 @@ async def list_backups() -> List[Dict[str, Any]]:
     db = get_mongo_db()
     backups: List[Dict[str, Any]] = []
     async for backup in db.database_backups.find().sort("created_at", -1):
-        backups.append({
-            "id": str(backup["_id"]),
-            "name": backup["name"],
-            "filename": backup["filename"],
-            "size": backup["size"],
-            "collections": backup["collections"],
-            "created_at": backup["created_at"].isoformat(),
-            "created_by": backup.get("created_by"),
-        })
+        backups.append(
+            {
+                "id": str(backup["_id"]),
+                "name": backup["name"],
+                "filename": backup["filename"],
+                "size": backup["size"],
+                "collections": backup["collections"],
+                "created_at": backup["created_at"].isoformat(),
+                "created_by": backup.get("created_by"),
+            }
+        )
     return backups
 
 
@@ -245,9 +368,15 @@ def _convert_date_fields(doc: dict) -> dict:
     from dateutil import parser
 
     date_fields = [
-        "created_at", "updated_at", "completed_at",
-        "started_at", "finished_at", "deleted_at",
-        "last_login", "last_modified", "timestamp"
+        "created_at",
+        "updated_at",
+        "completed_at",
+        "started_at",
+        "finished_at",
+        "deleted_at",
+        "last_login",
+        "last_modified",
+        "timestamp",
     ]
 
     for field in date_fields:
@@ -262,7 +391,14 @@ def _convert_date_fields(doc: dict) -> dict:
     return doc
 
 
-async def import_data(content: bytes, collection: str, *, format: str = "json", overwrite: bool = False, filename: str | None = None) -> Dict[str, Any]:
+async def import_data(
+    content: bytes,
+    collection: str,
+    *,
+    format: str = "json",
+    overwrite: bool = False,
+    filename: str | None = None,
+) -> Dict[str, Any]:
     """
     导入数据到数据库
 
@@ -288,7 +424,9 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
     if isinstance(data, dict) and "export_info" in data and "data" in data:
         logger.info("📦 检测到新版多集合导出文件（包含 export_info）")
         export_info = data.get("export_info", {})
-        logger.info(f"📋 导出信息: 创建时间={export_info.get('created_at')}, 集合数={len(export_info.get('collections', []))}")
+        logger.info(
+            f"📋 导出信息: 创建时间={export_info.get('created_at')}, 集合数={len(export_info.get('collections', []))}"
+        )
 
         # 提取实际数据
         data = data["data"]
@@ -301,11 +439,15 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
 
         # 检查每个键值对的类型
         for k, v in list(data.items())[:5]:  # 只检查前5个
-            logger.info(f"🔍 [导入检测] 键 '{k}': 值类型={type(v)}, 是否为列表={isinstance(v, list)}")
+            logger.info(
+                f"🔍 [导入检测] 键 '{k}': 值类型={type(v)}, 是否为列表={isinstance(v, list)}"
+            )
             if isinstance(v, list):
                 logger.info(f"🔍 [导入检测] 键 '{k}': 列表长度={len(v)}")
 
-    if isinstance(data, dict) and all(isinstance(k, str) and isinstance(v, list) for k, v in data.items()):
+    if isinstance(data, dict) and all(
+        isinstance(k, str) and isinstance(v, list) for k, v in data.items()
+    ):
         # 多集合模式
         logger.info(f"📦 确认为多集合导入模式，包含 {len(data)} 个集合")
 
@@ -313,6 +455,13 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
         imported_collections = []
 
         for coll_name, documents in data.items():
+            # 防御性校验：拒绝非法集合名（路由层已校验单集合参数，此处覆盖多集合文件内容）
+            if not re.match(
+                r"^[a-zA-Z_][a-zA-Z0-9_]*$", coll_name
+            ) or coll_name.startswith("system."):
+                logger.warning(f"⚠️ 跳过非法集合名: {coll_name}")
+                continue
+
             if not documents:  # 跳过空集合
                 logger.info(f"⏭️ 跳过空集合: {coll_name}")
                 continue
@@ -321,7 +470,9 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
 
             if overwrite:
                 deleted_count = await collection_obj.delete_many({})
-                logger.info(f"🗑️ 清空集合 {coll_name}：删除 {deleted_count.deleted_count} 条文档")
+                logger.info(
+                    f"🗑️ 清空集合 {coll_name}：删除 {deleted_count.deleted_count} 条文档"
+                )
 
             # 处理 _id 字段和日期字段
             for doc in documents:
@@ -373,7 +524,9 @@ async def import_data(content: bytes, collection: str, *, format: str = "json", 
 
         if overwrite:
             deleted_count = await collection_obj.delete_many({})
-            logger.info(f"🗑️ 清空集合 {collection}：删除 {deleted_count.deleted_count} 条文档")
+            logger.info(
+                f"🗑️ 清空集合 {collection}：删除 {deleted_count.deleted_count} 条文档"
+            )
 
         for doc in data:
             # 转换 _id
@@ -413,15 +566,21 @@ def _sanitize_document(doc: Any) -> Any:
     排除字段：max_tokens, timeout, retry_times 等配置字段（不是敏感信息）
     """
     SENSITIVE_KEYWORDS = [
-        "api_key", "api_secret", "secret", "token", "password",
-        "client_secret", "webhook_secret", "private_key"
+        "api_key",
+        "api_secret",
+        "secret",
+        "token",
+        "password",
+        "client_secret",
+        "webhook_secret",
+        "private_key",
     ]
 
     # 排除的字段（虽然包含敏感关键词，但不是敏感信息）
     EXCLUDED_FIELDS = [
-        "max_tokens",      # LLM 配置：最大 token 数
-        "timeout",         # 超时时间
-        "retry_times",     # 重试次数
+        "max_tokens",  # LLM 配置：最大 token 数
+        "timeout",  # 超时时间
+        "retry_times",  # 重试次数
         "context_length",  # 上下文长度
     ]
 
@@ -449,87 +608,202 @@ def _sanitize_document(doc: Any) -> Any:
         return doc
 
 
-async def export_data(collections: Optional[List[str]] = None, *, export_dir: str, format: str = "json", sanitize: bool = False) -> str:
+async def export_data(
+    collections: Optional[List[str]] = None,
+    *,
+    export_dir: str,
+    format: str = "json",
+    sanitize: bool = False,
+) -> str:
+    """导出数据库数据到文件。
+
+    JSON 格式使用流式写入（逐集合逐文档序列化），避免全量数据驻留内存。
+    CSV/XLSX 格式逐集合处理（pandas 仍需单集合驻留，但不再同时持有所有集合）。
+    """
     import pandas as pd
 
-    # 🔥 使用异步数据库连接
     db = get_mongo_db()
-    timestamp = format_date_compact(now_utc()) + "_" + now_utc().strftime('%H%M%S')
+    timestamp = format_date_compact(now_utc()) + "_" + now_utc().strftime("%H%M%S")
 
     if not collections:
-        # 🔥 异步调用 list_collection_names()
         collections = await db.list_collection_names()
         collections = [c for c in collections if not c.startswith("system.")]
 
     os.makedirs(export_dir, exist_ok=True)
 
-    all_data: Dict[str, List[dict]] = {}
-    for collection_name in collections:
-        collection = db[collection_name]
-        docs: List[dict] = []
-
-        # users 集合在脱敏模式下只导出空数组（保留结构，不导出实际用户数据）
-        if sanitize and collection_name == "users":
-            all_data[collection_name] = []
-            continue
-
-        # 🔥 异步迭代查询结果
-        async for doc in collection.find():
-            docs.append(serialize_document(doc))
-        all_data[collection_name] = docs
-
-    # 如果启用脱敏，递归清空所有敏感字段
-    if sanitize:
-        all_data = _sanitize_document(all_data)
-
     if format.lower() == "json":
-        filename = f"export_{timestamp}.json"
+        filename = f"export_{timestamp}.json.gz"
         file_path = os.path.join(export_dir, filename)
-        export_data_dict = {
-            "export_info": {
-                "created_at": now_utc().isoformat(),
-                "collections": collections,
-                "format": format,
-            },
-            "data": all_data,
-        }
 
-        # 🔥 使用 asyncio.to_thread 将阻塞的文件 I/O 操作放到线程池执行
-        def _write_json():
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(export_data_dict, f, ensure_ascii=False, indent=2)
+        # 流式 JSON 写入：逐集合迭代 cursor，逐文档序列化到 gzip 文件。
+        # 生产者-消费者模式：async 端迭代 cursor 入队，线程端消费写文件。
+        doc_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
+        _SENTINEL = object()
 
-        await asyncio.to_thread(_write_json)
+        async def _produce():
+            """异步生产者：逐集合迭代 cursor，批量入队。"""
+            try:
+                for collection_name in collections:
+                    if sanitize and collection_name == "users":
+                        await doc_queue.put((collection_name, []))
+                        continue
+
+                    collection = db[collection_name]
+                    batch: List[dict] = []
+                    async for doc in collection.find():
+                        serialized = serialize_document(doc)
+                        if sanitize:
+                            serialized = _sanitize_document(serialized)
+                        batch.append(serialized)
+                        if len(batch) >= 200:
+                            await doc_queue.put((collection_name, batch))
+                            batch = []
+                    if batch:
+                        await doc_queue.put((collection_name, batch))
+            finally:
+                await doc_queue.put(_SENTINEL)
+
+        def _consume(loop: asyncio.AbstractEventLoop) -> int:
+            """同步消费者：从队列读取数据，流式写入 gzip JSON 文件。"""
+            with gzip.open(file_path, "wt", encoding="utf-8") as f:
+                # 写入 JSON 头部
+                f.write("{")
+                f.write('"export_info": {')
+                f.write(f'"created_at": "{now_utc().isoformat()}", ')
+                f.write(
+                    f'"collections": {json.dumps(collections, ensure_ascii=False)}, '
+                )
+                f.write('"format": "json"')
+                f.write("}, ")
+                f.write('"data": {')
+
+                first_collection = True
+                current_collection: Optional[str] = None
+                collection_first_doc = True
+
+                while True:
+                    fut = asyncio.run_coroutine_threadsafe(doc_queue.get(), loop)
+                    item = fut.result(timeout=3600)
+
+                    if item is _SENTINEL:
+                        if current_collection is not None:
+                            f.write("]")
+                        break
+
+                    coll_name, docs = item
+
+                    if coll_name != current_collection:
+                        if current_collection is not None:
+                            f.write("]")
+                        if not first_collection:
+                            f.write(", ")
+                        f.write(f'"{coll_name}": [')
+                        current_collection = coll_name
+                        first_collection = False
+                        collection_first_doc = True
+
+                    for doc in docs:
+                        if not collection_first_doc:
+                            f.write(", ")
+                        f.write(json.dumps(doc, ensure_ascii=False))
+                        collection_first_doc = False
+
+                f.write("}}")
+
+            return os.path.getsize(file_path)
+
+        loop = asyncio.get_running_loop()
+        producer_task = asyncio.create_task(_produce())
+        await asyncio.to_thread(_consume, loop)
+        await producer_task
+
         return file_path
 
+    # ── CSV 格式：逐文档流式写入，分批 flush ──
     if format.lower() == "csv":
         filename = f"export_{timestamp}.csv"
         file_path = os.path.join(export_dir, filename)
-        rows: List[dict] = []
-        for collection_name, documents in all_data.items():
-            for doc in documents:
-                row = {**doc}
-                row["_collection"] = collection_name
-                rows.append(row)
 
-        # 🔥 使用 asyncio.to_thread 将阻塞的文件 I/O 操作放到线程池执行
-        def _write_csv():
-            if rows:
-                pd.DataFrame(rows).to_csv(file_path, index=False, encoding="utf-8-sig")
-            else:
-                pd.DataFrame().to_csv(file_path, index=False, encoding="utf-8-sig")
+        async def _produce_csv(row_queue: asyncio.Queue):
+            try:
+                for collection_name in collections:
+                    if sanitize and collection_name == "users":
+                        continue
+                    collection = db[collection_name]
+                    async for doc in collection.find():
+                        serialized = serialize_document(doc)
+                        if sanitize:
+                            serialized = _sanitize_document(serialized)
+                        row = {**serialized, "_collection": collection_name}
+                        await row_queue.put(row)
+            finally:
+                await row_queue.put(_SENTINEL)
 
-        await asyncio.to_thread(_write_csv)
+        row_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+
+        def _consume_csv(loop: asyncio.AbstractEventLoop) -> int:
+            rows_buffer: List[dict] = []
+            first_write = True
+
+            def _flush():
+                nonlocal first_write
+                if not rows_buffer:
+                    return
+                df = pd.DataFrame(rows_buffer)
+                df.to_csv(
+                    file_path,
+                    index=False,
+                    encoding="utf-8-sig",
+                    mode="w" if first_write else "a",
+                    header=first_write,
+                )
+                rows_buffer.clear()
+                first_write = False
+
+            while True:
+                fut = asyncio.run_coroutine_threadsafe(row_queue.get(), loop)
+                item = fut.result(timeout=3600)
+
+                if item is _SENTINEL:
+                    _flush()
+                    break
+
+                rows_buffer.append(item)
+                if len(rows_buffer) >= 1000:
+                    _flush()
+
+            return os.path.getsize(file_path) if os.path.exists(file_path) else 0
+
+        loop = asyncio.get_running_loop()
+        producer_task = asyncio.create_task(_produce_csv(row_queue))
+        await asyncio.to_thread(_consume_csv, loop)
+        await producer_task
         return file_path
 
+    # ── XLSX 格式：逐集合写入 sheet ──
     if format.lower() in ["xlsx", "excel"]:
         filename = f"export_{timestamp}.xlsx"
         file_path = os.path.join(export_dir, filename)
 
-        # 🔥 使用 asyncio.to_thread 将阻塞的文件 I/O 操作放到线程池执行
+        collection_data: Dict[str, List[dict]] = {}
+
+        for collection_name in collections:
+            if sanitize and collection_name == "users":
+                collection_data[collection_name] = []
+                continue
+
+            collection = db[collection_name]
+            docs: List[dict] = []
+            async for doc in collection.find():
+                serialized = serialize_document(doc)
+                if sanitize:
+                    serialized = _sanitize_document(serialized)
+                docs.append(serialized)
+            collection_data[collection_name] = docs
+
         def _write_excel():
             with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
-                for collection_name, documents in all_data.items():
+                for collection_name, documents in collection_data.items():
                     df = pd.DataFrame(documents) if documents else pd.DataFrame()
                     sheet = collection_name[:31]
                     df.to_excel(writer, sheet_name=sheet, index=False)
@@ -538,4 +812,3 @@ async def export_data(collections: Optional[List[str]] = None, *, export_dir: st
         return file_path
 
     raise RuntimeError(f"不支持的导出格式: {format}")
-

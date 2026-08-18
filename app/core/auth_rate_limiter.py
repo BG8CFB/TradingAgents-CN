@@ -55,14 +55,16 @@ class _InMemoryStore:
         cutoff = now - window
         bucket.failures = [ts for ts in bucket.failures if ts > cutoff]
 
+    def _is_bucket_empty(self, bucket: _Bucket, now: float) -> bool:
+        """检查桶是否可以回收：无失败记录且未处于锁定状态。"""
+        return not bucket.failures and bucket.locked_until <= now
+
     def count_failure(self, key: str, window: int) -> int:
         now = time.time()
         with self._lock:
             bucket = self._buckets[key]
             self._purge(bucket, now, window)
             bucket.failures.append(now)
-            if bucket.locked_until < now:
-                bucket.locked_until = 0.0
             return len(bucket.failures)
 
     def set_lock(self, key: str, lock_seconds: int) -> None:
@@ -75,7 +77,46 @@ class _InMemoryStore:
             bucket = self._buckets.get(key)
             if bucket is None:
                 return False
-            return bucket.locked_until > time.time()
+            now = time.time()
+            if bucket.locked_until > now:
+                return True
+            # 锁定已过期：清理锁定标记
+            bucket.locked_until = 0.0
+            # 如果失败记录也为空，回收该桶避免字典无限增长
+            if not bucket.failures:
+                self._buckets.pop(key, None)
+            return False
+
+    def check_locked_with_remaining(self, key: str) -> Tuple[bool, int]:
+        """原子地检查锁定状态并返回剩余锁定秒数。
+
+        合并 is_locked + get_remaining_lock 为单次调用，
+        避免两次调用之间的 TOCTOU 窗口（锁在两次调用之间过期时，
+        旧实现返回 (True, 0) 自相矛盾）。
+        """
+        with self._lock:
+            bucket = self._buckets.get(key)
+            if bucket is None:
+                return False, 0
+            now = time.time()
+            if bucket.locked_until > now:
+                return True, int(bucket.locked_until - now)
+            # 锁定已过期：清理锁定标记
+            bucket.locked_until = 0.0
+            if not bucket.failures:
+                self._buckets.pop(key, None)
+            return False, 0
+
+    def get_remaining_lock(self, key: str) -> int:
+        """返回剩余锁定秒数（向下取整），未锁定返回 0。"""
+        with self._lock:
+            bucket = self._buckets.get(key)
+            if bucket is None:
+                return 0
+            now = time.time()
+            if bucket.locked_until > now:
+                return int(bucket.locked_until - now)
+            return 0
 
     def reset(self, key: str) -> None:
         with self._lock:
@@ -153,18 +194,30 @@ class AuthRateLimiter:
                 pipe.ttl(self._lock_key(user_key))
                 pipe.ttl(self._lock_key(ip_key))
                 user_ttl, ip_ttl = await pipe.execute()
-                if user_ttl and user_ttl > 0:
+                # TTL 语义：-2=键不存在，-1=键存在但无过期（永久），>0=剩余秒数
+                # 防御性处理：ttl=-1（永久键，异常场景如 PERSIST 后 TTL 丢失）
+                # 应视为已锁定，使用默认锁定时长作为保守估计
+                if user_ttl is not None and user_ttl > 0:
                     return True, "用户名已被临时锁定", int(user_ttl)
-                if ip_ttl and ip_ttl > 0:
+                if user_ttl == -1:
+                    return True, "用户名已被临时锁定", self.user_lock_seconds
+                if ip_ttl is not None and ip_ttl > 0:
                     return True, "IP 已被临时锁定", int(ip_ttl)
+                if ip_ttl == -1:
+                    return True, "IP 已被临时锁定", self.ip_lock_seconds
                 return False, "", 0
             except Exception as e:
                 logger.warning(f"Redis 检查锁定状态失败，降级内存: {e}")
 
-        if self._fallback.is_locked(self._lock_key(user_key)):
-            return True, "用户名已被临时锁定", 0
-        if self._fallback.is_locked(self._lock_key(ip_key)):
-            return True, "IP 已被临时锁定", 0
+        # 使用原子方法检查锁定状态和剩余时间，避免 TOCTOU 窗口
+        # （旧实现先 is_locked 再 get_remaining_lock，锁可能在两次调用之间过期，
+        # 返回 (True, 0) 自相矛盾）
+        locked, remaining = self._fallback.check_locked_with_remaining(self._lock_key(user_key))
+        if locked:
+            return True, "用户名已被临时锁定", remaining
+        locked, remaining = self._fallback.check_locked_with_remaining(self._lock_key(ip_key))
+        if locked:
+            return True, "IP 已被临时锁定", remaining
         return False, "", 0
 
     async def record_failure(self, ip: str, username: str) -> Tuple[bool, str, int]:
@@ -214,9 +267,14 @@ class AuthRateLimiter:
 
                 return False, "", 0
             except Exception as e:
-                logger.warning(f"Redis 记录失败计数异常，降级内存: {e}")
+                logger.warning(f"Redis 记录失败计数异常: {e}")
+                # 不在此处降级到内存路径，避免 pipeline 部分成功后内存路径
+                # 再次 count_failure 导致同一次失败被双重计数。
+                # 如果 Redis 真的不可用，下次调用时 _redis() 返回 None，
+                # 自然走内存降级路径。
+                return False, "", 0
 
-        # 内存降级路径
+        # 内存降级路径（仅当 Redis 客户端不可用时执行）
         user_count = self._fallback.count_failure(user_key, self.user_window_seconds)
         ip_count = self._fallback.count_failure(ip_key, self.ip_window_seconds)
 
@@ -252,17 +310,21 @@ class AuthRateLimiter:
 
 
 _limiter: Optional[AuthRateLimiter] = None
+_limiter_lock = Lock()
 
 
 def get_auth_rate_limiter() -> AuthRateLimiter:
-    """获取全局登录限流器（延迟初始化）"""
+    """获取全局登录限流器（延迟初始化，线程安全）"""
     global _limiter
     if _limiter is None:
-        _limiter = AuthRateLimiter()
+        with _limiter_lock:
+            if _limiter is None:
+                _limiter = AuthRateLimiter()
     return _limiter
 
 
 def reset_auth_rate_limiter_for_tests() -> None:
     """测试专用：重置全局单例。"""
     global _limiter
-    _limiter = None
+    with _limiter_lock:
+        _limiter = None

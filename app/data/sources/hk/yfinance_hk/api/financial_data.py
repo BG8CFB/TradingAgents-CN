@@ -92,5 +92,6 @@ async def fetch_financial_data(
             raise DataFormatError("yfinance_hk", _DOMAIN, f"{symbol}: {exc}")
 
     df.attrs["symbol"] = str(symbol).replace(".HK", "").lstrip("0").zfill(5)
+    df.attrs["statement_type"] = statement_type
     logger.info(f"yfinance_hk 获取财务数据: {symbol} {len(df.columns)} 期")
     return df

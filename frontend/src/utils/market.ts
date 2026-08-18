@@ -1,5 +1,5 @@
 // 市场参数规范化：将各类板块/交易所/缩写统一为分析模块支持的 A股/美股/港股
-export const normalizeMarketForAnalysis = (market: any): string => {
+export const normalizeMarketForAnalysis = (market: unknown): string => {
   const raw = String(market ?? '').trim()
   const upper = raw.toUpperCase()
   const cn = raw

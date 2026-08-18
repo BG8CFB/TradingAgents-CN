@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, time as dtime, timedelta
 from typing import Dict, Optional, Tuple
@@ -708,7 +709,7 @@ class QuotesIngestionService:
             # 首次运行：检测 Tushare 权限
             if settings.QUOTES_AUTO_DETECT_TUSHARE_PERMISSION and not self._tushare_permission_checked:
                 logger.info("🔍 首次运行，检测 Tushare rt_k 接口权限...")
-                has_premium = self._check_tushare_permission()
+                has_premium = await asyncio.to_thread(self._check_tushare_permission)
 
                 if has_premium:
                     logger.info(

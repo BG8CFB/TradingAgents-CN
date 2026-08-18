@@ -71,6 +71,32 @@ def run_async(coro: Awaitable[T]) -> T:
     return asyncio.run(coro)
 
 
+def run_async_fire_and_forget(coro: Awaitable[T]) -> None:
+    """
+    Fire-and-forget：将协程调度到主事件循环，不等待结果。
+
+    供后台线程使用，避免 run_async 的 future.result(timeout=60) 阻塞
+    后台监控线程（多任务超时或主循环繁忙时会导致后续检测延迟）。
+
+    协程内部的异常应自行 try/except 处理；未捕获的异常会被事件循环
+    默认处理器记录为 "Task exception was never retrieved" 警告。
+    """
+    main_loop = _main_loop
+    if main_loop is not None and main_loop.is_running():
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # 在 worker thread 中——提交到主循环即忘
+            asyncio.run_coroutine_threadsafe(coro, main_loop)
+            return
+
+    # 没有主循环（纯脚本、测试）——用新循环执行后关闭
+    try:
+        asyncio.run(coro)
+    except Exception as e:
+        logger.debug(f"run_async_fire_and_forget 执行失败: {e}")
+
+
 # ── LLM 同步→异步桥接 ────────────────────────────────────────────
 
 

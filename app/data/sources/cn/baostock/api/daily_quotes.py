@@ -1,6 +1,7 @@
 """
 BaoStock 日线行情 API
 """
+
 import asyncio
 import logging
 from typing import Optional
@@ -23,8 +24,15 @@ _DOMAIN_ADJ = "adj_factors"
 
 
 def _to_baostock_code(symbol: str) -> str:
-    """将纯数字代码转为 baostock 格式: sh.600000 / sz.000001"""
+    """将纯数字代码转为 baostock 格式: sh.600000 / sz.000001
+
+    BaoStock 不支持北交所（4xx/8xx 开头），抛 DataNotFoundError。
+    domain 参数由调用方上下文决定。
+    """
     code = str(symbol).zfill(6)
+    if code.startswith(("4", "8")):
+        logger.warning(f"北交所股票 {code} 不被 BaoStock 支持")
+        raise DataNotFoundError("baostock", "", f"北交所股票 {code} 不被 BaoStock 支持")
     if code.startswith(("6", "9")):
         return f"sh.{code}"
     return f"sz.{code}"

@@ -33,9 +33,12 @@ class PeriodAggregator:
 
         # 按 symbol 分桶，每个 symbol 的组按 period_key 升序排序，
         # 用于正确推导 pre_close（上一期收盘）。
+        # R13-DS-06 修复：symbol 可能含下划线（如 BRK_A、SH_600000），
+        # partition("_") 会错误截断。改用 rsplit 从右侧分离 period_key，
+        # 因为 key_func 返回的 period_key（YYYY-MM-DD 或 YYYY-MM）不含下划线。
         by_symbol: Dict[str, List[str]] = {}
         for key in groups:
-            sym, _, _ = key.partition("_")
+            sym = key.rsplit("_", 1)[0]
             by_symbol.setdefault(sym, []).append(key)
         for sym in by_symbol:
             by_symbol[sym].sort()
@@ -51,7 +54,9 @@ class PeriodAggregator:
 
                 aggregated = dict(group[-1])  # 复制最后一天的数据
                 aggregated["open"] = group[0].get("open")
-                valid_highs = [r.get("high") for r in group if r.get("high") is not None]
+                valid_highs = [
+                    r.get("high") for r in group if r.get("high") is not None
+                ]
                 aggregated["high"] = max(valid_highs) if valid_highs else None
                 valid_lows = [r.get("low") for r in group if r.get("low") is not None]
                 aggregated["low"] = min(valid_lows) if valid_lows else None
@@ -70,7 +75,9 @@ class PeriodAggregator:
                 pre_close = aggregated.get("pre_close")
                 if close and pre_close and pre_close != 0:
                     aggregated["change"] = round(close - pre_close, 2)
-                    aggregated["pct_chg"] = round((close - pre_close) / pre_close * 100, 4)
+                    aggregated["pct_chg"] = round(
+                        (close - pre_close) / pre_close * 100, 4
+                    )
 
                 result.append(aggregated)
                 prev_close = close

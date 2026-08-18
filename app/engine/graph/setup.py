@@ -38,7 +38,6 @@ class GraphSetup:
         risk_manager_memory,
         conditional_logic: ConditionalLogic,
         config: Dict[str, Any] = None,
-        react_llm = None,
     ):
         """Initialize with required components."""
         self.analyst_llm = analyst_llm
@@ -51,7 +50,6 @@ class GraphSetup:
         self.risk_manager_memory = risk_manager_memory
         self.conditional_logic = conditional_logic
         self.config = config or {}
-        self.react_llm = react_llm
 
     def _format_analyst_name(self, internal_key: str) -> str:
         """Format analyst name from internal key (e.g., 'financial_news' -> 'Financial_News').

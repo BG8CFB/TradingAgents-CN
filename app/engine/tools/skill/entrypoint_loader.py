@@ -13,6 +13,7 @@ Skill 脚本入口加载器
 """
 import importlib
 import logging
+import os
 import sys
 from typing import Dict, List
 
@@ -25,6 +26,41 @@ from app.engine.tools.skill.availability import check_skill_dependencies
 from app.engine.tools.skill.registry import SkillRegistry
 
 logger = logging.getLogger(__name__)
+
+# 标准库/危险模块黑名单：skill 入口不得导入这些模块
+# 仅禁可直接执行系统命令/进程/FFI 的模块；asyncio 不在列（合法异步 skill 需用，
+# 且其 subprocess 子能力由 subprocess 黑名单 + skill_dir 路径校验间接约束）
+_FORBIDDEN_MODULES = frozenset({
+    "os", "sys", "subprocess", "shutil", "builtins",
+    "importlib", "ctypes", "multiprocessing",
+})
+
+
+def _validate_module_path(module: str, skill_dir: str) -> None:
+    """
+    校验待导入的 module 安全：
+    1. 不在标准库/危险模块黑名单内（顶层名称）
+    2. import_module 解析后的文件路径必须在 skill_dir 内部（防 .. 穿越）
+    """
+    top_level = module.split(".")[0]
+    if top_level in _FORBIDDEN_MODULES:
+        raise ValueError(f"禁止导入模块: {module}（顶层 {top_level} 在黑名单中）")
+
+    # 解析实际文件路径
+    try:
+        spec = importlib.util.find_spec(module)
+    except (ModuleNotFoundError, ValueError, ImportError):
+        # 模块尚未可解析（可能在 skill_dir 加入 sys.path 后才能找到）
+        # 这种情况下路径校验延迟到真正 import 时，但黑名单已拦截
+        return
+
+    if spec is not None and spec.origin:
+        real_origin = os.path.realpath(spec.origin)
+        real_skill_dir = os.path.realpath(skill_dir)
+        if not real_origin.startswith(real_skill_dir + os.sep):
+            raise ValueError(
+                f"模块 {module} 文件路径 {real_origin} 不在 skill 目录 {real_skill_dir} 内"
+            )
 
 
 def _ensure_skill_on_path(skill_dir: str) -> None:
@@ -47,6 +83,7 @@ def _make_lazy_entry(skill_dir: str, module: str, function: str):
         nonlocal _real_fn
         if _real_fn is None:
             _ensure_skill_on_path(skill_dir)
+            _validate_module_path(module, skill_dir)
             mod = importlib.import_module(module)
             _real_fn = getattr(mod, function)
         return _real_fn(*args, **kwargs)

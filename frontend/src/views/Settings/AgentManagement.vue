@@ -513,7 +513,7 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .agent-page {
   padding: 20px;
   max-width: 1200px;

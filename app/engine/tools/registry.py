@@ -94,6 +94,16 @@ class ToolRegistry:
             f"总计={total}"
         )
 
+    @property
+    def is_initialized(self) -> bool:
+        """是否已完成初始化"""
+        return self._initialized
+
+    def ensure_initialized(self, toolkit_config: Optional[Dict] = None) -> None:
+        """如果尚未初始化，则执行初始化（幂等）。"""
+        if not self._initialized:
+            self.initialize(toolkit_config)
+
     def _init_skill_registry(self):
         """初始化 SkillRegistry 单例并注入依赖检查/安装回调"""
         try:
@@ -418,7 +428,7 @@ def get_all_tools(
     registry = ToolRegistry.get_instance()
 
     # 首次调用时自动初始化
-    if not registry._initialized:
+    if not registry.is_initialized:
         # 将 toolkit 转为字典格式
         toolkit_config = {}
         if toolkit:

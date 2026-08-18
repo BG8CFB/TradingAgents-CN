@@ -49,8 +49,10 @@ def aggregate_period(
     df = df.sort_values("trade_date")
 
     if period == "weekly":
-        iso = df["trade_date"].dt.isocalendar()
-        df["period_key"] = iso["year"].astype(str) + "-W" + iso["week"].astype(str).str.zfill(2)
+        # L3 修复：使用自然周（以本周一日期为 key），与 period_aggregator.py 保持一致。
+        # ISO 周历会把 2024-12-30 归入 2025-W01，导致跨年周被拆开。
+        monday = df["trade_date"] - pd.to_timedelta(df["trade_date"].dt.weekday, unit="D")
+        df["period_key"] = monday.dt.strftime("%Y-%m-%d")
     elif period == "monthly":
         df["period_key"] = df["trade_date"].dt.to_period("M").astype(str)
     else:

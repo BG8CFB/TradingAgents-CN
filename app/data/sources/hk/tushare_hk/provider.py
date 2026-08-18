@@ -226,5 +226,5 @@ class TushareHKProvider(BaseProvider):
     @staticmethod
     def _to_hk_ts_code(symbol: str) -> str:
         """标准 5 位代码 → Tushare HK ts_code (5位.HK)。"""
-        code = str(symbol).replace(".HK", "").lstrip("0").zfill(5)
+        code = str(symbol).replace(".HK", "").zfill(5)
         return f"{code}.HK"

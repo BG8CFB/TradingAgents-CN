@@ -29,6 +29,10 @@ def format_result(data: Any, title: str, max_rows: int = 2000) -> str:
                     + truncated_content
                     + [f"\n... (剩余 {len(content) - max_rows} 行已隐藏)"]
                 )
+        # L-4 修复：非表格字符串独立上限，避免过长消耗 LLM 上下文窗口
+        max_chars = 8000
+        if len(data) > max_chars:
+            return data[:max_chars] + f"\n\n... (字符串过长，已截断至 {max_chars} 字符)"
         return data
 
     # Assuming data is a list of dicts or a pandas DataFrame (converted to list of dicts)

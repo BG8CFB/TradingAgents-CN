@@ -21,35 +21,35 @@ class TestResolveCompanyName:
     我们验证各分支的 fallback 结果格式。
     """
 
-    def test_china_stock_returns_string(self):
+    async def test_china_stock_returns_string(self):
         """A 股应返回包含股票代码的字符串"""
-        result = resolve_company_name("000001", {"is_china": True, "is_hk": False, "is_us": False})
+        result = await resolve_company_name("000001", {"is_china": True, "is_hk": False, "is_us": False})
         assert isinstance(result, str)
         assert len(result) > 0
 
-    def test_hk_stock_returns_string(self):
+    async def test_hk_stock_returns_string(self):
         """港股应返回包含股票代码的字符串"""
-        result = resolve_company_name("00700.HK", {"is_china": False, "is_hk": True, "is_us": False})
+        result = await resolve_company_name("00700.HK", {"is_china": False, "is_hk": True, "is_us": False})
         assert isinstance(result, str)
         assert len(result) > 0
 
-    def test_us_stock_known_ticker(self):
+    async def test_us_stock_known_ticker(self):
         """已知的 US 股票代码应返回中文名称（从内置映射）"""
-        result = resolve_company_name("AAPL", {"is_china": False, "is_hk": False, "is_us": True})
+        result = await resolve_company_name("AAPL", {"is_china": False, "is_hk": False, "is_us": True})
         # AAPL 在 _KNOWN_US_STOCK_NAMES 中映射为 "苹果公司"
         # 如果 yfinance 不可用，会回退到内置映射
         assert isinstance(result, str)
         assert len(result) > 0
 
-    def test_us_stock_unknown_ticker(self):
+    async def test_us_stock_unknown_ticker(self):
         """未知的 US 股票代码应返回包含"美股"的字符串"""
-        result = resolve_company_name("UNKNOWN_TICKER_XYZ", {"is_china": False, "is_hk": False, "is_us": True})
+        result = await resolve_company_name("UNKNOWN_TICKER_XYZ", {"is_china": False, "is_hk": False, "is_us": True})
         assert isinstance(result, str)
         assert "美股" in result
 
-    def test_fallback_on_exception(self):
+    async def test_fallback_on_exception(self):
         """无效输入应返回字符串而不崩溃"""
-        result = resolve_company_name("000001", {"is_china": True, "is_hk": False, "is_us": False})
+        result = await resolve_company_name("000001", {"is_china": True, "is_hk": False, "is_us": False})
         assert isinstance(result, str)
 
 

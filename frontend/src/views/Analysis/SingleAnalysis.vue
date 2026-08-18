@@ -790,6 +790,7 @@ const progressInfo = ref({
 })
 const pollingTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 let initialQueryTimer: ReturnType<typeof setTimeout> | null = null
+let pollingSeq = 0  // 轮询请求序号，用于丢弃过期响应（防止竞态覆盖）
 
 // 动态分析师列表
 const analysts = ref<Analyst[]>([])
@@ -1097,6 +1098,9 @@ onMounted(async () => {
   if (!hasNewStock) {
     await restoreTaskFromCache()
   }
+
+  // 监听页面可见性变化（在 onMounted 注册，与 onUnmounted 的移除配对，避免 HMR 叠加）
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 // 切换分析师
@@ -1228,6 +1232,7 @@ const startPollingTaskStatus = () => {
     return
   }
 
+  pollingSeq = 0  // 重置序号，开始新一轮轮询
   pollingTimer.value = setInterval(async () => {
     try {
       if (!currentTaskId.value) {
@@ -1237,8 +1242,12 @@ const startPollingTaskStatus = () => {
         return
       }
 
+      const seq = ++pollingSeq  // 为本次请求分配序号
       const response = await analysisApi.getTaskStatus(currentTaskId.value)
       const status = response.data // 响应拦截器已返回 response.data
+
+      // 序号保护：丢弃过期响应，防止旧响应覆盖新响应（竞态）
+      if (seq !== pollingSeq) return
 
       if (status.status === 'completed') {
         // 分析完成，调用专门的结果API获取完整数据
@@ -1293,9 +1302,16 @@ const startPollingTaskStatus = () => {
         clearTaskCache()
 
         // 显示友好的错误提示（使用 dangerouslyUseHTMLString 支持换行）
+        // 先转义 HTML 特殊字符防 XSS，再替换换行
         ElMessage({
           type: 'error',
-          message: errorMessage.replace(/\n/g, '<br>'),
+          message: errorMessage
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/\n/g, '<br>'),
           dangerouslyUseHTMLString: true,
           duration: 10000, // 显示10秒，让用户有时间阅读
           showClose: true
@@ -1712,9 +1728,6 @@ const handleVisibilityChange = () => {
     }
   }
 }
-
-// 监听页面可见性变化
-document.addEventListener('visibilitychange', handleVisibilityChange)
 
 // 获取进度条状态
 const getProgressStatus = () => {

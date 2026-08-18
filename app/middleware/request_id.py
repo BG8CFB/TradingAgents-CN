@@ -12,6 +12,7 @@ import logging
 from typing import Callable
 
 from app.core.logging_context import trace_id_var
+from app.utils.secret_masking import mask_uri_password
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +62,56 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             # 计算处理时间
             process_time = time.time() - start_time
 
-            # 记录请求异常信息
+            # 记录请求异常信息（脱敏：异常消息可能含 MongoDB URI 密码、SQL 片段等）
+            sanitized_exc = mask_uri_password(str(exc))
             logger.error(
-                f"{request.method} {request.url.path} - ERROR - {process_time:.3f}s - {str(exc)}"
+                f"{request.method} {request.url.path} - ERROR - {process_time:.3f}s - {sanitized_exc}"
             )
-            raise
+
+            from fastapi.responses import JSONResponse
+            from fastapi import HTTPException
+
+            # HTTPException 透传其原始 status_code 和 detail，保留业务错误语义。
+            # 正常情况下 ExceptionMiddleware 已在 call_next 内部将 HTTPException
+            # 转为 Response 对象，但中间件链排序异常或 CSRF 等中间件直接 raise
+            # 时，HTTPException 可能以异常形式冒泡到这里。
+            if isinstance(exc, HTTPException):
+                return JSONResponse(
+                    status_code=exc.status_code,
+                    content={
+                        "error": {
+                            "code": exc.status_code,
+                            "message": str(exc.detail),
+                            "trace_id": trace_id,
+                        }
+                    },
+                    headers={
+                        "X-Trace-ID": trace_id,
+                        "X-Request-ID": trace_id,
+                        "X-Process-Time": f"{process_time:.3f}",
+                    },
+                )
+
+            # 非 HTTP 异常路径下也返回带 trace_id 的 JSON 响应，
+            # 让客户端能从响应头关联到本次请求的 trace_id。
+            # BaseHTTPMiddleware 中如果 raise，异常会传播到 Starlette 的
+            # ServerErrorMiddleware，它返回的 500 响应不包含我们的自定义头。
+            # 因此直接返回带 trace_id 的错误响应。
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "服务器内部错误",
+                        "trace_id": trace_id,
+                    }
+                },
+                headers={
+                    "X-Trace-ID": trace_id,
+                    "X-Request-ID": trace_id,
+                    "X-Process-Time": f"{process_time:.3f}",
+                },
+            )
 
         finally:
             # 清理 contextvar，避免泄露到后续请求
@@ -73,4 +119,3 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
                 trace_id_var.reset(token)
             except Exception as e:
                 logger.debug(f"清理 trace_id 失败: {e}")
-                pass

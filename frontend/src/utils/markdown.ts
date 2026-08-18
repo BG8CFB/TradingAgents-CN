@@ -22,9 +22,16 @@ const PURIFY_CONFIG = {
     'a', 'strong', 'em', 'del', 'code', 'pre',
     'img', 'div', 'span', 'sub', 'sup',
   ],
-  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target'],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
   ALLOW_DATA_ATTR: false,
 }
+
+// 自动为 target="_blank" 链接注入 rel="noopener noreferrer"，防止 Tabnabbing 攻击
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'A' && node.getAttribute('target') === '_blank') {
+    node.setAttribute('rel', 'noopener noreferrer')
+  }
+})
 
 export function renderMarkdown(content: string): string {
   if (!content) return ''

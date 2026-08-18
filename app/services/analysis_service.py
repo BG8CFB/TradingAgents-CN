@@ -1672,25 +1672,28 @@ class AnalysisService:
             )
             db_tasks = await cursor.to_list(length=limit)
 
+            # 批量获取内存中的实时状态（一次加锁，替代逐条查询）
+            task_ids = [t.get("task_id") for t in db_tasks if t.get("task_id")]
+            memory_map = self.memory_manager.batch_get_task_dicts(task_ids)
+
             results = []
             for task in db_tasks:
                 if "_id" in task:
                     task["_id"] = str(task["_id"])
 
                 task_id = task.get("task_id")
-                if task_id:
-                    memory_task = await self.memory_manager.get_task_dict(task_id)
-                    if memory_task:
-                        task["status"] = memory_task.get("status", task.get("status"))
-                        task["progress"] = memory_task.get(
-                            "progress", task.get("progress")
-                        )
-                        task["message"] = memory_task.get(
-                            "message", task.get("message")
-                        )
-                        task["current_step"] = memory_task.get(
-                            "current_step", task.get("current_step")
-                        )
+                if task_id and task_id in memory_map:
+                    memory_task = memory_map[task_id]
+                    task["status"] = memory_task.get("status", task.get("status"))
+                    task["progress"] = memory_task.get(
+                        "progress", task.get("progress")
+                    )
+                    task["message"] = memory_task.get(
+                        "message", task.get("message")
+                    )
+                    task["current_step"] = memory_task.get(
+                        "current_step", task.get("current_step")
+                    )
 
                 results.append(task)
 

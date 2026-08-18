@@ -180,8 +180,8 @@ async def login(payload: LoginRequest, request: Request):
     start_time = time.time()
 
     # 获取客户端信息（考虑反向代理）
-    from app.middleware.operation_log_middleware import _get_client_ip_from_request
-    ip_address = _get_client_ip_from_request(request)
+    from app.utils.request_utils import get_client_ip
+    ip_address = get_client_ip(request)
     user_agent = request.headers.get("user-agent", "")
 
     logger.info(f"🔐 登录请求 - 用户名: {mask_username(payload.username)}, IP: {ip_address}")
@@ -428,8 +428,8 @@ async def logout(request: Request, user: dict = Depends(get_current_user)):
     start_time = time.time()
 
     # 获取客户端信息（考虑反向代理）
-    from app.middleware.operation_log_middleware import _get_client_ip_from_request
-    ip_address = _get_client_ip_from_request(request)
+    from app.utils.request_utils import get_client_ip
+    ip_address = get_client_ip(request)
     user_agent = request.headers.get("user-agent", "")
 
     try:
@@ -621,14 +621,10 @@ async def change_password(
 async def reset_password(
     payload: ResetPasswordRequest,
     request: Request,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_admin)
 ):
     """重置密码（管理员操作）"""
     try:
-        # 检查权限
-        if not user.get("is_admin", False):
-            raise HTTPException(status_code=403, detail="权限不足")
-
         # 密码强度验证
         validate_password_strength(payload.new_password)
 
@@ -665,8 +661,8 @@ async def register(payload: RegisterRequest, request: Request):
 
     start_time = time.time()
     # 获取客户端信息（考虑反向代理）
-    from app.middleware.operation_log_middleware import _get_client_ip_from_request
-    ip_address = _get_client_ip_from_request(request)
+    from app.utils.request_utils import get_client_ip
+    ip_address = get_client_ip(request)
 
     logger.info(f"📝 注册请求 - 用户名: {payload.username}, IP: {ip_address}")
 
@@ -741,14 +737,10 @@ async def register(payload: RegisterRequest, request: Request):
 async def create_user(
     payload: CreateUserRequest,
     request: Request,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_admin)
 ):
     """创建用户（管理员操作）"""
     try:
-        # 检查权限
-        if not user.get("is_admin", False):
-            raise HTTPException(status_code=403, detail="权限不足")
-
         # 密码强度验证
         validate_password_strength(payload.password)
 
@@ -790,14 +782,10 @@ async def create_user(
 async def list_users(
     skip: int = 0,
     limit: int = 100,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_admin)
 ):
     """获取用户列表（管理员操作）"""
     try:
-        # 检查权限
-        if not user.get("is_admin", False):
-            raise HTTPException(status_code=403, detail="权限不足")
-
         users = await user_service.list_users(skip=skip, limit=limit)
 
         return {

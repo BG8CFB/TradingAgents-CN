@@ -3,6 +3,7 @@
 """
 
 import time
+import asyncio
 import logging
 from typing import List, Dict, Any
 
@@ -43,7 +44,7 @@ class DataSourceService:
             groupings_data = await groupings_collection.find({}).to_list(length=None)
             return [DataSourceGrouping(**data) for data in groupings_data]
         except Exception as e:
-            print(f"❌ 获取数据源分组关系失败: {e}")
+            logger.error(f"❌ 获取数据源分组关系失败: {e}")
             return []
 
     async def add_datasource_to_category(self, grouping: DataSourceGrouping) -> bool:
@@ -63,7 +64,7 @@ class DataSourceService:
             await groupings_collection.insert_one(grouping.model_dump())
             return True
         except Exception as e:
-            print(f"❌ 添加数据源到分类失败: {e}")
+            logger.error(f"❌ 添加数据源到分类失败: {e}")
             return False
 
     async def remove_datasource_from_category(self, data_source_name: str, category_id: str) -> bool:
@@ -78,7 +79,7 @@ class DataSourceService:
             })
             return result.deleted_count > 0
         except Exception as e:
-            print(f"❌ 从分类中移除数据源失败: {e}")
+            logger.error(f"❌ 从分类中移除数据源失败: {e}")
             return False
 
     async def update_datasource_grouping(self, data_source_name: str, category_id: str, updates: Dict[str, Any]) -> bool:
@@ -193,7 +194,7 @@ class DataSourceService:
                     if ds_name in priority_map:
                         ds_config["priority"] = priority_map[ds_name]
                         updated = True
-                        print(f"📊 [优先级同步] 更新数据源 {ds_name} 的优先级为 {priority_map[ds_name]}")
+                        logger.info(f"📊 [优先级同步] 更新数据源 {ds_name} 的优先级为 {priority_map[ds_name]}")
 
                 # 如果有更新，保存回数据库
                 if updated:
@@ -207,11 +208,11 @@ class DataSourceService:
                             }
                         }
                     )
-                    print(f"✅ [优先级同步] 已同步更新 system_configs 集合，新版本: {config_data.get('version', 0) + 1}")
+                    logger.info(f"✅ [优先级同步] 已同步更新 system_configs 集合，新版本: {config_data.get('version', 0) + 1}")
                 else:
-                    print("⚠️ [优先级同步] 没有找到需要更新的数据源配置")
+                    logger.warning("⚠️ [优先级同步] 没有找到需要更新的数据源配置")
             else:
-                print("⚠️ [优先级同步] 未找到激活的系统配置")
+                logger.warning("⚠️ [优先级同步] 未找到激活的系统配置")
 
             return True
         except Exception as e:
@@ -353,10 +354,14 @@ class DataSourceService:
                 try:
                     logger.info(f"🔌 [TEST] Calling Tushare API with token (length: {len(api_key)})")
                     import tushare as ts
-                    ts.set_token(api_key)
-                    pro = ts.pro_api()
-                    # 获取交易日历（轻量级测试）
-                    df = pro.trade_cal(exchange='SSE', start_date='20240101', end_date='20240101')
+
+                    def _test_tushare():
+                        ts.set_token(api_key)
+                        pro = ts.pro_api()
+                        # 获取交易日历（轻量级测试）
+                        return pro.trade_cal(exchange='SSE', start_date='20240101', end_date='20240101')
+
+                    df = await asyncio.to_thread(_test_tushare)
 
                     if df is not None and len(df) > 0:
                         response_time = time.time() - start_time
@@ -410,8 +415,12 @@ class DataSourceService:
                 # AKShare 不需要 API Key，直接测试
                 try:
                     import akshare as ak
-                    # 使用更轻量级的接口测试 - 获取交易日历
-                    df = ak.tool_trade_date_hist_sina()
+
+                    def _test_akshare():
+                        # 使用更轻量级的接口测试 - 获取交易日历
+                        return ak.tool_trade_date_hist_sina()
+
+                    df = await asyncio.to_thread(_test_akshare)
 
                     if df is not None and len(df) > 0:
                         response_time = time.time() - start_time
@@ -450,47 +459,56 @@ class DataSourceService:
                 # BaoStock 不需要 API Key，直接测试登录
                 try:
                     import baostock as bs
-                    # 测试登录
-                    lg = bs.login()
 
-                    if lg.error_code == '0':
-                        # 登录成功，测试获取数据
-                        try:
-                            # 获取交易日历（轻量级测试）
-                            rs = bs.query_trade_dates(start_date="2024-01-01", end_date="2024-01-01")
+                    def _test_baostock():
+                        """同步执行 BaoStock 登录 → 查询 → 注销全流程"""
+                        lg = bs.login()
+                        if lg.error_code == '0':
+                            try:
+                                rs = bs.query_trade_dates(start_date="2024-01-01", end_date="2024-01-01")
+                                if rs.error_code == '0':
+                                    bs.logout()
+                                    return {"ok": True}
+                                else:
+                                    bs.logout()
+                                    return {"ok": False, "stage": "query", "msg": rs.error_msg}
+                            except Exception as e:
+                                bs.logout()
+                                return {"ok": False, "stage": "query_exception", "msg": str(e)}
+                        else:
+                            return {"ok": False, "stage": "login", "msg": lg.error_msg}
 
-                            if rs.error_code == '0':
-                                response_time = time.time() - start_time
-                                bs.logout()
-                                return {
-                                    "success": True,
-                                    "message": "成功连接到 BaoStock 数据源",
-                                    "response_time": response_time,
-                                    "details": {
-                                        "type": ds_type,
-                                        "test_result": "登录成功，获取交易日历成功"
-                                    }
-                                }
-                            else:
-                                bs.logout()
-                                return {
-                                    "success": False,
-                                    "message": f"BaoStock 数据获取失败: {rs.error_msg}",
-                                    "response_time": time.time() - start_time,
-                                    "details": None
-                                }
-                        except Exception as e:
-                            bs.logout()
-                            return {
-                                "success": False,
-                                "message": f"BaoStock 数据获取异常: {str(e)}",
-                                "response_time": time.time() - start_time,
-                                "details": None
+                    result_bs = await asyncio.to_thread(_test_baostock)
+
+                    if result_bs["ok"]:
+                        response_time = time.time() - start_time
+                        return {
+                            "success": True,
+                            "message": "成功连接到 BaoStock 数据源",
+                            "response_time": response_time,
+                            "details": {
+                                "type": ds_type,
+                                "test_result": "登录成功，获取交易日历成功"
                             }
+                        }
+                    elif result_bs["stage"] == "login":
+                        return {
+                            "success": False,
+                            "message": f"BaoStock 登录失败: {result_bs['msg']}",
+                            "response_time": time.time() - start_time,
+                            "details": None
+                        }
+                    elif result_bs["stage"] == "query":
+                        return {
+                            "success": False,
+                            "message": f"BaoStock 数据获取失败: {result_bs['msg']}",
+                            "response_time": time.time() - start_time,
+                            "details": None
+                        }
                     else:
                         return {
                             "success": False,
-                            "message": f"BaoStock 登录失败: {lg.error_msg}",
+                            "message": f"BaoStock 数据获取异常: {result_bs['msg']}",
                             "response_time": time.time() - start_time,
                             "details": None
                         }
@@ -517,7 +535,9 @@ class DataSourceService:
                 try:
                     url = f"{ds_config.endpoint}/v8/finance/chart/AAPL"
                     params = {"interval": "1d", "range": "1d"}
-                    response = requests.get(url, params=params, timeout=10)
+                    response = await asyncio.to_thread(
+                        lambda: requests.get(url, params=params, timeout=10)
+                    )
 
                     if response.status_code == 200:
                         data = response.json()
@@ -648,7 +668,9 @@ class DataSourceService:
 
                 try:
                     logger.info(f"🔌 [TEST] Calling Alpha Vantage API with key (length: {len(api_key)})")
-                    response = requests.get(url, params=params, timeout=10)
+                    response = await asyncio.to_thread(
+                        lambda: requests.get(url, params=params, timeout=10)
+                    )
 
                     if response.status_code == 200:
                         data = response.json()
@@ -743,7 +765,9 @@ class DataSourceService:
                                 # 默认使用 header 认证
                                 headers["Authorization"] = f"Bearer {api_key}"
 
-                        response = requests.get(ds_config.endpoint, params=params, headers=headers, timeout=10)
+                        response = await asyncio.to_thread(
+                            lambda: requests.get(ds_config.endpoint, params=params, headers=headers, timeout=10)
+                        )
                         response_time = time.time() - start_time
 
                         if response.status_code < 500:

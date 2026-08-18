@@ -63,9 +63,8 @@ class AlertService:
     async def _push_sse(self, alert_data: dict):
         """通过 SSE 推送告警到前端。"""
         try:
-            from app.data.storage.redis.pubsub import RefreshQueue
-            RefreshQueue()
-            # 将告警数据序列化为 JSON 字符串推送到专用告警通道
+            # L1 修复：移除无意义的 RefreshQueue() 实例化（死代码）。
+            # 后续已直接用 redis.rpush 推送，RefreshQueue 是遗留导入。
             import json
             message = json.dumps({
                 "type": "alert",

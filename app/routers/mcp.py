@@ -234,4 +234,4 @@ async def list_all_mcp_tools(user: dict = Depends(get_current_user)) -> Dict[str
         }
     except Exception as exc:
         logger.error(f"获取 MCP 工具列表失败: {exc}")
-        return {"success": False, "message": str(exc), "data": []}
+        return {"success": False, "message": safe_error_message(exc, "获取 MCP 工具列表失败"), "data": []}

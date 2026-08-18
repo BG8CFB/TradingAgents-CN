@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.database import get_mongo_db
+from app.core.env import get_env
 
 logger = logging.getLogger("app.secret_service")
 
@@ -27,7 +28,7 @@ logger = logging.getLogger("app.secret_service")
 _COLLECTION = "system_secrets"
 
 # 文件兜底路径：runtime/.secrets.json（权限建议 600）
-_RUNTIME_BASE_DIR = os.getenv("RUNTIME_BASE_DIR", "runtime")
+_RUNTIME_BASE_DIR = get_env("RUNTIME_BASE_DIR", "runtime")
 _FALLBACK_FILE = Path(_RUNTIME_BASE_DIR) / ".secrets.json"
 
 # 需要自动管理的密钥及其默认长度

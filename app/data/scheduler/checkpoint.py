@@ -19,6 +19,13 @@ class CheckpointManager:
         cp = await self._repo.get_checkpoint(market, domain, source)
         return cp.get("last_sync_date") if cp else None
 
+    async def get_checkpoint_doc(self, market: str, domain: str, source: str) -> Optional[dict]:
+        """获取完整检查点文档（含 last_sync_time/last_sync_date/status 等）。
+
+        供需要时间戳等字段的调用方使用（如 SchedulerMonitor.check_stale_tasks）。
+        """
+        return await self._repo.get_checkpoint(market, domain, source)
+
     async def update_checkpoint(
         self, market: str, domain: str, source: str, date: str, count: int
     ) -> None:

@@ -196,8 +196,9 @@ const currentPresetInfo = computed(() => {
 })
 
 const openRegisterUrl = () => {
-  if (currentPresetInfo.value?.register_url) {
-    window.open(currentPresetInfo.value.register_url, '_blank')
+  const url = currentPresetInfo.value?.register_url
+  if (url && /^https?:\/\//i.test(url)) {
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 
@@ -425,8 +426,13 @@ const handleSubmit = async () => {
     let providerId: string | undefined
 
     if (isEdit.value) {
-      await configApi.updateLLMProvider(formData.value.id!, payload)
-      providerId = formData.value.id!
+      const providerIdValue = formData.value.id
+      if (!providerIdValue) {
+        ElMessage.error('缺少厂家 ID，无法更新')
+        return
+      }
+      await configApi.updateLLMProvider(providerIdValue, payload)
+      providerId = providerIdValue
     } else {
       const result = await configApi.addLLMProvider(payload) as any
       providerId = result?.data?.id || result?.id
@@ -443,7 +449,9 @@ const handleSubmit = async () => {
     } else if (isEdit.value) {
       // 编辑时也尝试刷新模型列表（用户可能更新了 API Key）
       try {
-        await configApi.fetchProviderModels(formData.value.id!)
+        if (formData.value.id) {
+          await configApi.fetchProviderModels(formData.value.id)
+        }
       } catch {
         // 静默失败，不影响用户操作
       }

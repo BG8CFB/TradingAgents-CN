@@ -262,7 +262,7 @@
 
       <template #footer>
         <el-button @click="detailDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="showJobHistory(currentJob!)">查看执行历史</el-button>
+        <el-button type="primary" @click="currentJob && showJobHistory(currentJob)">查看执行历史</el-button>
       </template>
     </el-dialog>
 
@@ -885,11 +885,12 @@ const startAutoRefresh = () => {
   // 每5秒刷新一次
   autoRefreshTimer = window.setInterval(() => {
     // 根据当前标签页刷新对应的数据
+    // 守卫：若上一次请求尚未完成（超过 5s），跳过本次触发，避免请求叠加
     if (historyDialogVisible.value) {
       if (activeHistoryTab.value === 'execution') {
-        loadExecutions()
+        if (!executionLoading.value) loadExecutions()
       } else {
-        loadHistory()
+        if (!historyLoading.value) loadHistory()
       }
     }
   }, 5000)
@@ -992,17 +993,6 @@ const formatTrigger = (trigger: string) => {
     return trigger.replace(/interval\[|\]/g, '')
   }
   return trigger
-}
-
-// @ts-expect-error
-const _formatAction = (action: string) => {
-  const actionMap: Record<string, string> = {
-    pause: '暂停',
-    resume: '恢复',
-    trigger: '手动触发',
-    execute: '执行'
-  }
-  return actionMap[action] || action
 }
 
 const handleSearch = () => {

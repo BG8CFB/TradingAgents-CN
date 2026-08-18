@@ -383,6 +383,12 @@ class AKShareCNAdapter(BaseAdapter):
             get = row.get
             symbol = str(get("证券代码", "") or get("代码", "") or get("symbol", "")).zfill(6)
             td = _parse_date(get("成交日期", "") or get("trade_date", ""))
+            # AKShare stock_dzjy_mrmx 接口（东方财富大宗交易每日明细）返回的
+            # 成交量单位为"万股"，成交额单位为"万元"；
+            # schema 约定 volume 单位为"股"、amount 单位为"元"，
+            # 需 ×10000 统一。
+            _vol = _safe_float(get("成交量", "") or get("volume"))
+            _amount = _safe_float(get("成交额", "") or get("amount"))
             results.append(BlockTradeSchema(
                 symbol=symbol,
                 market="CN",
@@ -390,8 +396,8 @@ class AKShareCNAdapter(BaseAdapter):
                 trade_date=td,
                 name=str(get("证券名称", "") or get("名称", "") or get("name", "")),
                 price=_safe_float(get("成交价", "") or get("price")),
-                volume=_safe_float(get("成交量", "") or get("volume")),
-                amount=_safe_float(get("成交额", "") or get("amount")),
+                volume=_vol * 10000 if _vol is not None else None,
+                amount=_amount * 10000 if _amount is not None else None,
                 buyer=str(get("买方营业部", "") or get("buyer", "")),
                 seller=str(get("卖方营业部", "") or get("seller", "")),
             ))

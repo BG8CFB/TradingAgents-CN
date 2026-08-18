@@ -155,10 +155,14 @@ class DataInterface:
         return task_id
 
     async def get_sync_status(
-        self, market: str, domain: Optional[str] = None
+        self, market: str, domain: Optional[str] = None,
+        trigger: Optional[str] = None,
     ) -> List[Dict]:
-        """查询同步检查点列表。"""
-        return await self._metadata_repo.get_all_checkpoints(market, domain)
+        """查询同步检查点列表。
+
+        trigger: 仅返回该触发类型的检查点（manual/scheduled），None=不过滤。
+        """
+        return await self._metadata_repo.get_all_checkpoints(market, domain, trigger)
 
     async def get_sync_events(
         self, market: str, domain: Optional[str] = None, limit: int = 50
@@ -292,7 +296,7 @@ class DataInterface:
         """对指定域执行完整质量检查。"""
         from app.data.storage.mongo.client import get_motor_db
         from app.data.storage.mongo.collections import get_collection_name
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         _REQUIRED_FIELDS: Dict[str, List[str]] = {
             "daily_quotes": ["symbol", "trade_date", "close"],
@@ -329,7 +333,9 @@ class DataInterface:
                 )
 
         if domain in _TIMESERIES_DOMAINS:
-            thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            thirty_days_ago = (
+                datetime.now(timezone.utc) - timedelta(days=30)
+            ).strftime("%Y-%m-%d")
             try:
                 pipeline = [
                     {"$match": {"trade_date": {"$gte": thirty_days_ago}}},

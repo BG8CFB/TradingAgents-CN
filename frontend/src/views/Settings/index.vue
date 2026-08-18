@@ -244,7 +244,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
@@ -280,15 +280,27 @@ const generalSettings = ref({
   timezone: 'Asia/Shanghai'
 })
 
-const appearanceSettings = ref({
-  theme: authStore.user?.preferences?.ui_theme || 'light',
+type AppTheme = 'light' | 'dark' | 'auto'
+type MarketType = 'A股' | '美股' | '港股'
+
+const appearanceSettings = ref<{
+  theme: AppTheme
+  sidebarWidth: number
+}>({
+  theme: (authStore.user?.preferences?.ui_theme as AppTheme) || 'light',
   sidebarWidth: authStore.user?.preferences?.sidebar_width || 240
 })
 
-const analysisSettings = ref({
-  defaultMarket: authStore.user?.preferences?.default_market || 'A股',
+const analysisSettings = ref<{
+  defaultMarket: MarketType
+  defaultDebateRounds: number
+  defaultAnalysts: string[]
+  autoRefresh: boolean
+  refreshInterval: number
+}>({
+  defaultMarket: (authStore.user?.preferences?.default_market as MarketType) || 'A股',
   defaultDebateRounds: authStore.user?.preferences?.default_debate_rounds ?? 2,
-  defaultAnalysts: authStore.user?.preferences?.default_analysts || [],
+  defaultAnalysts: (authStore.user?.preferences?.default_analysts as string[]) || [],
   autoRefresh: authStore.user?.preferences?.auto_refresh ?? true,
   refreshInterval: authStore.user?.preferences?.refresh_interval || 30
 })
@@ -355,7 +367,7 @@ watch(() => authStore.user, (newUser) => {
 }, { deep: true })
 
 const handleThemeChange = (theme: string | number | boolean | undefined) => {
-  appStore.setTheme(theme as any)
+  appStore.setTheme(theme as AppTheme)
 }
 
 const saveGeneralSettings = async () => {
@@ -364,7 +376,7 @@ const saveGeneralSettings = async () => {
       email: generalSettings.value.email,
       preferences: {
         language: generalSettings.value.language
-      } as any
+      }
     })
     if (success) {
       ElMessage.success('通用设置已保存')
@@ -378,13 +390,13 @@ const saveGeneralSettings = async () => {
 const saveAppearanceSettings = async () => {
   try {
     appStore.setSidebarWidth(appearanceSettings.value.sidebarWidth)
-    appStore.setTheme(appearanceSettings.value.theme as any)
+    appStore.setTheme(appearanceSettings.value.theme)
 
     const success = await authStore.updateUserInfo({
       preferences: {
         ui_theme: appearanceSettings.value.theme,
         sidebar_width: appearanceSettings.value.sidebarWidth
-      } as any
+      }
     })
     if (success) {
       ElMessage.success('外观设置已保存')
@@ -400,12 +412,12 @@ const saveAnalysisSettings = async () => {
     const normalizedAnalysts = normalizeAnalystIds(analysisSettings.value.defaultAnalysts)
 
     appStore.updatePreferences({
-      defaultMarket: analysisSettings.value.defaultMarket as any,
+      defaultMarket: analysisSettings.value.defaultMarket,
       defaultDebateRounds: analysisSettings.value.defaultDebateRounds,
       autoRefresh: analysisSettings.value.autoRefresh,
       refreshInterval: analysisSettings.value.refreshInterval,
       defaultAnalysts: normalizedAnalysts
-    } as any)
+    })
 
     const success = await authStore.updateUserInfo({
       preferences: {
@@ -414,7 +426,7 @@ const saveAnalysisSettings = async () => {
         default_analysts: normalizedAnalysts,
         auto_refresh: analysisSettings.value.autoRefresh,
         refresh_interval: analysisSettings.value.refreshInterval
-      } as any
+      }
     })
     if (success) {
       ElMessage.success('分析偏好已保存')
@@ -433,7 +445,7 @@ const saveNotificationSettings = async () => {
         analysis_complete_notification: notificationSettings.value.analysisComplete,
         system_maintenance_notification: notificationSettings.value.systemMaintenance,
         notifications_enabled: notificationSettings.value.desktop || notificationSettings.value.analysisComplete || notificationSettings.value.systemMaintenance
-      } as any
+      }
     })
     if (success) {
       ElMessage.success('通知设置已保存')
@@ -446,6 +458,8 @@ const saveNotificationSettings = async () => {
 
 const changePasswordDialogVisible = ref(false)
 const changePasswordLoading = ref(false)
+// 改密后延迟登出的 timer（组件卸载时需清理，避免异步触发已卸载组件的 logout）
+let logoutTimer: ReturnType<typeof setTimeout> | null = null
 const changePasswordFormRef = ref()
 const changePasswordForm = ref({
   oldPassword: '',
@@ -496,7 +510,8 @@ const handleChangePassword = async () => {
             newPassword: '',
             confirmPassword: ''
           }
-          setTimeout(() => {
+          logoutTimer = setTimeout(() => {
+            logoutTimer = null
             authStore.logout()
           }, 1500)
         }
@@ -519,6 +534,14 @@ onMounted(async () => {
   analysisSettings.value.defaultDebateRounds = appStore.preferences.defaultDebateRounds ?? 2
   analysisSettings.value.autoRefresh = appStore.preferences.autoRefresh
   analysisSettings.value.refreshInterval = appStore.preferences.refreshInterval
+})
+
+// 清理改密后延迟登出的 timer，防止组件卸载后异步触发 logout
+onBeforeUnmount(() => {
+  if (logoutTimer !== null) {
+    clearTimeout(logoutTimer)
+    logoutTimer = null
+  }
 })
 </script>
 

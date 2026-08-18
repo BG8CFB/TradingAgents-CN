@@ -3,6 +3,7 @@
 """统一股票数据服务 — 通过 DataInterface 访问，供路由层调用。"""
 
 import logging
+import re
 from typing import Dict, List, Optional
 
 from app.data.core.interface import DataInterface
@@ -43,12 +44,13 @@ class UnifiedStockService:
         db = get_motor_db()
         coll = db[get_collection_name("basic_info", market)]
 
+        safe_query = re.escape(query)
         filter_query = {
             "$or": [
-                {"symbol": {"$regex": query, "$options": "i"}},
-                {"name": {"$regex": query, "$options": "i"}},
-                {"name_en": {"$regex": query, "$options": "i"}},
-                {"full_symbol": {"$regex": query, "$options": "i"}},
+                {"symbol": {"$regex": safe_query, "$options": "i"}},
+                {"name": {"$regex": safe_query, "$options": "i"}},
+                {"name_en": {"$regex": safe_query, "$options": "i"}},
+                {"full_symbol": {"$regex": safe_query, "$options": "i"}},
             ]
         }
         cursor = coll.find(filter_query, {"_id": 0}).limit(limit)
