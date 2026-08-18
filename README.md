@@ -301,6 +301,16 @@ TradingAgents-CN/
 - **贡献类型**: Bug 修复、新功能开发、文档改进、多语言翻译
 - **问题反馈**: [GitHub Issues](https://github.com/BG8CFB/TradingAgents-CN/issues)
 
+### 数据层路线（数据相关 PR 必读）
+
+数据层的核心路线是：**任何数据源 → 整理成标准格式入库 → 全项目只消费标准数据库**。接入新数据源只需编写它的 Provider / Adapter，消费方零改动。提交数据相关 PR 时请注意：
+
+- 消费层（agent 工具、路由、服务）只通过 `DataInterface` 读库，禁止直连数据源 API 兜底
+- 标准 schema 使用中立字段（`symbol` / `trade_date`），不携带单一数据源的方言（如 `ts_code`）
+- 数据源上游地址等环境差异必须做成配置开关且默认关闭
+
+详见 [全市场股票数据架构设计文档](docs/全市场股票数据架构设计文档.md)。
+
 ---
 
 ## 许可证

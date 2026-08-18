@@ -207,6 +207,16 @@ Unified multi-market platform with automatic fallback, circuit breaking, and sch
 - **`monitoring/`** — Source health, completeness, reconciliation, alerts
 - **`config/`** — YAML defaults for markets, capabilities, priorities, freshness
 
+**Development Roadmap (Data Layer)** — 源标准化入库、统一消费：
+
+任何数据源接入时只需编写它自己的 Provider/Adapter，把数据规范化成数据库的标准 schema 入库；项目所有消费方（agent 工具、路由、服务）只通过 `DataInterface` 读取标准库，不感知具体数据源的存在。接入新源是纯增量工作（只加 adapter），消费方零改动；多源回退、熔断、限流全部收敛在 `app/data/` 内部。
+
+具体约束：
+- 消费层禁止"查库不到就直连数据源 API 兜底"。正确路径是 `di.read()` → 触发 `di.refresh()` 补数 → 再读，降级逻辑留在数据层内部
+- 标准 schema 必须使用中立字段（`symbol` / `trade_date` 等），不得携带任何单一数据源的方言（如 tushare 的 `ts_code` 作为必填校验字段）
+- 同一 domain 不同源入库的数据形状与主键语义必须一致（主键在 domain 级显式声明，不靠采样记录猜测）
+- 数据源连接层（如 Tushare 上游地址覆写）必须由环境变量/settings 开关控制且默认关闭，不得无条件生效
+
 **Architectural Rules**:
 - Consumers MUST use `DataInterface.get_instance()` — no direct `app.data.sources` or `app.data.storage` imports from outside `app/data/`
 - Routers MUST NOT call MongoDB directly — use `DataInterface` or service layer
