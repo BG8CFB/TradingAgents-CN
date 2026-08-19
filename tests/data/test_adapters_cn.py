@@ -107,6 +107,30 @@ class TestAKShareCNAdapter:
         assert results[0].volume == 100000
         assert results[0].amount == 1050000
 
+    def test_adapt_daily_quotes_symbol_injected(self):
+        """东财接口 df 无代码列，API 层注入 symbol 后 adapter 必须正确落 symbol。
+
+        回归：600519 分析失败 — symbol 缺失时被写成 "000000"，
+        导致入库后按真实代码回读为空，任务判定"无法获取历史数据"。
+        """
+        df = pd.DataFrame([{
+            "symbol": "600519", "日期": "2024-01-15",
+            "开盘": 1700.0, "收盘": 1710.0, "最高": 1720.0, "最低": 1690.0,
+            "成交量": 30000, "成交额": 51000000,
+        }])
+        results = self.adapter.adapt_daily_quotes(df)
+        assert len(results) == 1
+        assert results[0].symbol == "600519"
+
+    def test_adapt_daily_quotes_missing_symbol_skipped(self):
+        """df 既无 symbol 也无 code 列时，不得静默产出 symbol='000000' 的脏记录。"""
+        df = pd.DataFrame([{
+            "日期": "2024-01-15",
+            "开盘": 1700.0, "收盘": 1710.0, "最高": 1720.0, "最低": 1690.0,
+            "成交量": 30000, "成交额": 51000000,
+        }])
+        assert self.adapter.adapt_daily_quotes(df) == []
+
 
 class TestBaoStockCNAdapter:
     def setup_method(self):

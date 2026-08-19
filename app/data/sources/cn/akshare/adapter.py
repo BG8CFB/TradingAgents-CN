@@ -88,7 +88,13 @@ class AKShareCNAdapter(BaseAdapter):
         results = []
         for _, row in df.iterrows():
             get = row.get
-            symbol = str(get("symbol", "") or get("code", "")).zfill(6)
+            raw_symbol = str(get("symbol", "") or get("code", "")).strip()
+            if not raw_symbol:
+                # 东财/新浪行情接口的 df 不含代码列；缺失时不得静默写成
+                # "".zfill(6)="000000" 入库（会污染主键、导致回读为空）
+                logger.warning("AKShare daily_quotes 行缺少 symbol/code 列，跳过该行")
+                continue
+            symbol = raw_symbol.zfill(6)
             trade_date = _parse_date(get("trade_date") or get("日期") or get("date"))
             if not trade_date:
                 continue

@@ -92,5 +92,10 @@ async def fetch_daily_quotes(
         logger.warning(f"AKShare 行情返回空: code={code}")
         raise DataNotFoundError("akshare", _DOMAIN, f"code={code} 无行情数据")
 
+    # 东财/新浪接口返回的 df 不含代码列，adapter 会把 symbol 解析成
+    # "".zfill(6)="000000" 入库；与 daily_indicators 一致，这里注入 symbol 列
+    df = df.copy()
+    df["symbol"] = code
+
     logger.info(f"AKShare 行情: {code} {len(df)} 条")
     return df
