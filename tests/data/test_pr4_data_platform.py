@@ -565,11 +565,14 @@ class TestBaoStockSessionRefCount:
             logout_count["value"] += 1
             return type("R", (), {"error_code": "0", "error_msg": ""})()
 
-        # 重置 refcount
+        # 重置 refcount（三个标志必须全部重置，否则残留的
+        # _session_login_in_progress=True 会让本测试被判定为等待方而超时）
         original_refcount = conn_mod._session_refcount
         original_logged_in = conn_mod._session_logged_in
+        original_in_progress = conn_mod._session_login_in_progress
         conn_mod._session_refcount = 0
         conn_mod._session_logged_in = False
+        conn_mod._session_login_in_progress = False
 
         try:
             conn_mod.bs.login = counting_login
@@ -596,6 +599,7 @@ class TestBaoStockSessionRefCount:
             conn_mod.bs.logout = original_logout
             conn_mod._session_refcount = original_refcount
             conn_mod._session_logged_in = original_logged_in
+            conn_mod._session_login_in_progress = original_in_progress
 
     def test_nested_contexts_increment_decrement_refcount(self):
         """refcount 应正确增减。"""
@@ -615,8 +619,10 @@ class TestBaoStockSessionRefCount:
 
         original_refcount = conn_mod._session_refcount
         original_logged_in = conn_mod._session_logged_in
+        original_in_progress = conn_mod._session_login_in_progress
         conn_mod._session_refcount = 0
         conn_mod._session_logged_in = False
+        conn_mod._session_login_in_progress = False
 
         try:
             conn_mod.bs.login = noop_login
@@ -635,6 +641,7 @@ class TestBaoStockSessionRefCount:
             conn_mod.bs.logout = original_logout
             conn_mod._session_refcount = original_refcount
             conn_mod._session_logged_in = original_logged_in
+            conn_mod._session_login_in_progress = original_in_progress
 
 
 # ---------------------------------------------------------------------------
