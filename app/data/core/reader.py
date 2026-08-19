@@ -3,9 +3,10 @@
 import logging
 import math
 import os
+import re
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.data.schema.base.enums import FreshnessState
 
@@ -240,6 +241,156 @@ class Reader:
             await self.notify_refresh_async(market, symbol, domain)
 
         return _strip_nan(data), freshness
+
+    # ── Phase 4 新读接口：最新一条 / 批量 / 搜索 ──
+
+    # 各域"最新记录"排序键（与 key_spec 唯一键语义对应：键不含 data_source，
+    # 排序也不感知数据源；未列出的域默认按 updated_at 降序兜底）。
+    _LATEST_SORT_FIELDS: Dict[str, str] = {
+        "trade_calendar": "cal_date",
+        "daily_quotes": "trade_date",
+        "daily_indicators": "trade_date",
+        "adj_factors": "trade_date",
+        "corporate_actions": "trade_date",
+        "intraday_quotes": "trade_date",
+        "money_flow": "trade_date",
+        "margin_trading": "trade_date",
+        "dragon_tiger": "trade_date",
+        "block_trade": "trade_date",
+        "southbound_holding": "trade_date",
+        "pre_post_market": "trade_date",
+        "financial_data": "report_period",
+        "news": "updated_at",
+        "basic_info": "updated_at",
+        "market_quotes": "updated_at",
+        "connect_status": "updated_at",
+    }
+
+    # read_latest_batch 单次 symbols 上限（防止超大 $in 拖垮查询计划）
+    MAX_BATCH_SYMBOLS = 500
+
+    @classmethod
+    def _latest_sort_field(cls, domain: str) -> str:
+        """按域推导"最新一条"的排序键，未知名默认 updated_at。"""
+        return cls._LATEST_SORT_FIELDS.get(domain, "updated_at")
+
+    @staticmethod
+    def _normalize_projection(projection: Optional[Dict]) -> Dict:
+        """投影归一化：默认排除 _id（与既有消费方行为一致）。"""
+        if projection is None:
+            return {"_id": 0}
+        proj = dict(projection)
+        if "_id" not in proj:
+            proj["_id"] = 0
+        return proj
+
+    def _get_coll(self, market: str, domain: str):
+        """获取指定域集合（数据层内部直连，消费方不得绕过 Reader 使用）。"""
+        from app.data.storage.mongo.client import get_motor_db
+        from app.data.storage.mongo.collections import get_collection_name
+
+        db = get_motor_db()
+        return db[get_collection_name(domain, market)]
+
+    async def read_latest(
+        self, market: str, domain: str, symbol: str,
+        projection: Optional[Dict] = None,
+    ) -> Optional[Dict]:
+        """读取指定股票在某域的最新一条记录。
+
+        排序键按域推导（trade_date/report_period/updated_at 等），
+        追加 updated_at 作为次级排序键以稳定同键记录的顺序。
+        """
+        sort_field = self._latest_sort_field(domain)
+        sort_spec = [(sort_field, -1), ("updated_at", -1)]
+        coll = self._get_coll(market, domain)
+        doc = await coll.find_one(
+            {"symbol": symbol},
+            self._normalize_projection(projection),
+            sort=sort_spec,
+        )
+        return _strip_nan(doc) if doc else None
+
+    async def read_latest_batch(
+        self, market: str, domain: str, symbols: List[str],
+        projection: Optional[Dict] = None,
+    ) -> Dict[str, Dict]:
+        """批量读取多只股票各自的最新一条记录，返回 {symbol: doc}。
+
+        aggregate: $match $in → $sort 排序键 desc → $group symbol 取 $first。
+        symbols 超过 MAX_BATCH_SYMBOLS(500) 时抛 ValueError（调用方应分批）。
+        """
+        symbols = list(symbols or [])
+        if len(symbols) > self.MAX_BATCH_SYMBOLS:
+            raise ValueError(
+                f"symbols 数量 {len(symbols)} 超过上限 {self.MAX_BATCH_SYMBOLS}，请分批调用"
+            )
+        if not symbols:
+            return {}
+
+        sort_field = self._latest_sort_field(domain)
+        pipeline: List[Dict] = [
+            {"$match": {"symbol": {"$in": symbols}}},
+            {"$sort": {sort_field: -1, "updated_at": -1}},
+            {"$group": {"_id": "$symbol", "doc": {"$first": "$$ROOT"}}},
+            {"$replaceRoot": {"newRoot": "$doc"}},
+        ]
+        proj = self._normalize_projection(projection)
+        if proj != {"_id": 0}:
+            pipeline.append({"$project": proj})
+
+        coll = self._get_coll(market, domain)
+        result: Dict[str, Dict] = {}
+        async for doc in coll.aggregate(pipeline):
+            s = doc.get("symbol")
+            if s:
+                result[s] = _strip_nan(doc)
+        return result
+
+    async def read_batch(
+        self, market: str, domain: str, symbols: List[str],
+        projection: Optional[Dict] = None,
+        sort: Optional[List[Tuple[str, int]]] = None,
+        limit: int = 0,
+    ) -> List[Dict]:
+        """批量读取多只股票的记录（不折叠为每股一条）。"""
+        symbols = list(symbols or [])
+        if not symbols:
+            return []
+
+        coll = self._get_coll(market, domain)
+        cursor = coll.find(
+            {"symbol": {"$in": symbols}},
+            self._normalize_projection(projection),
+        )
+        if sort:
+            cursor = cursor.sort(sort)
+        if limit and limit > 0:
+            cursor = cursor.limit(limit)
+        docs = await cursor.to_list(length=None)
+        return _strip_nan(docs)
+
+    async def search_basic_info(
+        self, market: str, query: str,
+        fields: Optional[List[str]] = None,
+        limit: int = 20,
+    ) -> List[Dict]:
+        """在 basic_info 中模糊搜索股票。
+
+        symbol 字段按前缀匹配（^query），其余字段（name/name_en 等）按包含匹配；
+        query 经 re.escape 转义，避免正则注入。
+        """
+        fields = fields or ["symbol", "name"]
+        safe = re.escape(query)
+        conditions = []
+        for f in fields:
+            pattern = f"^{safe}" if f == "symbol" else f".*{safe}.*"
+            conditions.append({f: {"$regex": pattern, "$options": "i"}})
+
+        coll = self._get_coll(market, "basic_info")
+        cursor = coll.find({"$or": conditions}, {"_id": 0}).limit(limit)
+        docs = await cursor.to_list(length=limit)
+        return _strip_nan(docs)
 
     def _load_freshness_rules(self) -> Dict:
         """加载 freshness_rules.yaml，带 mtime 缓存。

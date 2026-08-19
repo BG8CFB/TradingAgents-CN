@@ -1,4 +1,8 @@
-"""熔断器 — 按 source × domain 粒度隔离故障。
+"""熔断器 — 按 source × market × domain 粒度隔离故障。
+
+键维度说明：market 缺省为 ""（历史两段键），跨市场同名源（如 akshare
+曾同时服务 CN/HK）互不传染；显式传入 market 的调用方（fallback_router）
+获得三段键隔离。
 
 冷却阶梯支持按数据源配置（从 source_limits.yaml 读取）：
 - 每个源可独立设置 ``circuit_initial_cooldown`` 与 ``circuit_max_cooldown``
@@ -93,16 +97,16 @@ class CircuitBreaker:
     """
 
     def __init__(self, source_cooldown_config: Optional[Dict[str, List[int]]] = None):
-        self._states: Dict[Tuple[str, str], dict] = {}
+        self._states: Dict[Tuple[str, str, str], dict] = {}
         self._lock = threading.Lock()
         # 记录探测开始时间戳；超时未回调则视为卡死，允许新探测
-        self._half_open_probing: Dict[Tuple[str, str], float] = {}
+        self._half_open_probing: Dict[Tuple[str, str, str], float] = {}
         # H2 修复：标记当前调用链已获得探测许可。
         # fallback_router 单次迭代中对同一 (source, domain) 调用 is_open()
         # 最多三次（line 194/215/222）。第一次放行探测后，后续同调用链的
         # is_open 也应放行，而非因 _half_open_probing 已设置而拒绝。
         # probe_granted 不被 is_open 消费，由 record_success/record_failure 清除。
-        self._probe_granted: Dict[Tuple[str, str], bool] = {}
+        self._probe_granted: Dict[Tuple[str, str, str], bool] = {}
         # 按 source 定制的冷却阶梯；None 表示未启用定制，使用全局默认
         if source_cooldown_config is None:
             try:
@@ -116,8 +120,8 @@ class CircuitBreaker:
         """返回该 source 应使用的冷却阶梯。"""
         return self._source_steps.get(source) or COOLDOWN_STEPS
 
-    def _get_state(self, source: str, domain: str) -> dict:
-        key = (source, domain)
+    def _get_state(self, source: str, domain: str = "", market: str = "") -> dict:
+        key = (source, domain, market)
         if key not in self._states:
             steps = self._get_steps(source)
             self._states[key] = {
@@ -130,7 +134,7 @@ class CircuitBreaker:
             }
         return self._states[key]
 
-    def is_open(self, source: str, domain: str) -> bool:
+    def is_open(self, source: str, domain: str = "", market: str = "") -> bool:
         """判断熔断器是否打开（请求应被拒绝）。
 
         H2 修复：fallback_router 单次迭代中对同一 (source, domain) 调用
@@ -140,8 +144,8 @@ class CircuitBreaker:
         一律放行（不消费标记），由 record_success/record_failure 清除。
         """
         with self._lock:
-            state = self._get_state(source, domain)
-            key = (source, domain)
+            state = self._get_state(source, domain, market)
+            key = (source, domain, market)
 
             if state["state"] == CircuitState.CLOSED:
                 return False
@@ -157,10 +161,7 @@ class CircuitBreaker:
                     logger.info(f"熔断器半开: {source}/{domain}")
                     # 允许第一个探测请求通过，其余继续拒绝
                     probe_started = self._half_open_probing.get(key)
-                    if (
-                        probe_started is not None
-                        and (time.time() - probe_started) < _HALF_OPEN_PROBE_TIMEOUT
-                    ):
+                    if probe_started is not None and (time.time() - probe_started) < _HALF_OPEN_PROBE_TIMEOUT:
                         return True  # 已有探测请求在执行且未超时，拒绝新请求
                     self._half_open_probing[key] = time.time()
                     self._probe_granted[key] = True
@@ -169,55 +170,53 @@ class CircuitBreaker:
 
             if state["state"] == CircuitState.HALF_OPEN:
                 probe_started = self._half_open_probing.get(key)
-                if (
-                    probe_started is not None
-                    and (time.time() - probe_started) < _HALF_OPEN_PROBE_TIMEOUT
-                ):
+                if probe_started is not None and (time.time() - probe_started) < _HALF_OPEN_PROBE_TIMEOUT:
                     return True  # 已有探测请求在执行且未超时，拒绝新请求
                 self._half_open_probing[key] = time.time()
                 self._probe_granted[key] = True
                 return False  # 允许这个探测请求（无探测或已超时）
 
-    def get_state(self, source: str, domain: str) -> CircuitState:
+    def get_state(self, source: str, domain: str = "", market: str = "") -> CircuitState:
         with self._lock:
-            return self._get_state(source, domain)["state"]
+            return self._get_state(source, domain, market)["state"]
 
-    def record_success(self, source: str, domain: str) -> None:
+    def record_success(self, source: str, domain: str = "", market: str = "") -> None:
         with self._lock:
-            state = self._get_state(source, domain)
+            state = self._get_state(source, domain, market)
             state["state"] = CircuitState.CLOSED
             state["failures"] = []
             state["last_success"] = time.time()
             state["trip_count"] = max(0, state["trip_count"] - 1)
-            self._half_open_probing.pop((source, domain), None)
-            self._probe_granted.pop((source, domain), None)
+            self._half_open_probing.pop((source, domain, market), None)
+            self._probe_granted.pop((source, domain, market), None)
 
     def record_failure(
-        self, source: str, domain: str, error_code: Optional[DataErrorCode] = None
+        self, source: str, domain: str = "", error_code: Optional[DataErrorCode] = None, market: str = ""
     ) -> None:
+        """记录一次失败。
+
+        参数顺序保持旧位置语义 ``(source, domain, error_code)``；
+        market 为新增关键字参数（缺省 "" 表示历史两段键）。
+        """
         with self._lock:
-            state = self._get_state(source, domain)
+            state = self._get_state(source, domain, market)
             now = time.time()
 
-            state["failures"] = [
-                t for t in state["failures"] if now - t < WINDOW_SECONDS
-            ]
+            state["failures"] = [t for t in state["failures"] if now - t < WINDOW_SECONDS]
             state["failures"].append(now)
 
             if state["state"] == CircuitState.HALF_OPEN:
-                self._trip(source, domain, error_code)
-                self._half_open_probing.pop((source, domain), None)
-                self._probe_granted.pop((source, domain), None)
+                self._trip(source, domain, market, error_code)
+                self._half_open_probing.pop((source, domain, market), None)
+                self._probe_granted.pop((source, domain, market), None)
                 return
 
             if len(state["failures"]) >= FAILURE_THRESHOLD:
-                self._trip(source, domain, error_code)
+                self._trip(source, domain, market, error_code)
 
-    def _trip(
-        self, source: str, domain: str, error_code: Optional[DataErrorCode] = None
-    ) -> None:
+    def _trip(self, source: str, domain: str, market: str, error_code: Optional[DataErrorCode] = None) -> None:
         """触发熔断。注意：必须在 self._lock 内调用（由 record_failure 持有锁）。"""
-        state = self._get_state(source, domain)
+        state = self._get_state(source, domain, market)
         steps = self._get_steps(source)
         state["state"] = CircuitState.OPEN
         state["opened_at"] = time.time()
@@ -231,11 +230,9 @@ class CircuitBreaker:
         cap = min(source_cap, _ABSOLUTE_MAX_COOLDOWN)
         state["cooldown"] = min(int(base_cooldown * multiplier), cap)
 
-        logger.warning(
-            f"熔断器打开: {source}/{domain}, 冷却 {state['cooldown']}s (错误: {error_code})"
-        )
+        logger.warning(f"熔断器打开: {source}/{market}/{domain}, 冷却 {state['cooldown']}s (错误: {error_code})")
 
-    def clear_probe(self, source: str, domain: str) -> None:
+    def clear_probe(self, source: str, domain: str = "", market: str = "") -> None:
         """清除探测许可标记（不改变熔断状态）。
 
         当 fallback_router 获得探测许可后走了不调用 record_success/
@@ -245,21 +242,21 @@ class CircuitBreaker:
         熔断器被永久禁用。
         """
         with self._lock:
-            self._probe_granted.pop((source, domain), None)
+            self._probe_granted.pop((source, domain, market), None)
 
-    def get_trip_count(self, source: str, domain: str) -> int:
+    def get_trip_count(self, source: str, domain: str = "", market: str = "") -> int:
         """获取熔断器跳闸次数。"""
         with self._lock:
-            return self._get_state(source, domain).get("trip_count", 0)
+            return self._get_state(source, domain, market).get("trip_count", 0)
 
-    def reset(self, source: str, domain: str) -> None:
+    def reset(self, source: str, domain: str = "", market: str = "") -> None:
         """手动重置熔断器到 Closed 状态。"""
         with self._lock:
-            state = self._get_state(source, domain)
+            state = self._get_state(source, domain, market)
             steps = self._get_steps(source)
             state["state"] = CircuitState.CLOSED
             state["failures"] = []
             state["trip_count"] = 0
             state["opened_at"] = 0
             state["cooldown"] = steps[0]
-            logger.info(f"熔断器已重置: {source}/{domain}")
+            logger.info(f"熔断器已重置: {source}/{market}/{domain}")

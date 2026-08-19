@@ -56,10 +56,17 @@ def get_backoff(error: Exception, attempt: int) -> float:
 
 
 class RetryPolicy:
-    """重试策略执行器。"""
+    """重试策略执行器。
 
-    def __init__(self, max_retries: int = MAX_RETRIES):
+    Args:
+        max_retries: 最大重试次数（source_limits.yaml 的 retry.max_retries 可按源覆盖）。
+        backoff_base: 退避时间倍率（retry.backoff_base），用于按源拉长/缩短
+            默认退避序列而不必改错误码表；1.0 表示不变。
+    """
+
+    def __init__(self, max_retries: int = MAX_RETRIES, backoff_base: float = 1.0):
         self.max_retries = max_retries
+        self.backoff_base = max(0.0, float(backoff_base))
 
     async def execute_with_retry(self, func, *args, **kwargs):
         """执行函数，失败时按策略重试。"""
@@ -75,7 +82,7 @@ class RetryPolicy:
                     raise
 
                 if attempt < self.max_retries:
-                    backoff = get_backoff(e, attempt)
+                    backoff = get_backoff(e, attempt) * self.backoff_base
                     # M3 修复：添加随机抖动（0 ~ base*0.5），避免高并发下
                     # 多个任务等待相同秒数后集中重试产生惊群效应。
                     jitter = random.uniform(0, backoff * 0.5)

@@ -7,8 +7,8 @@
     "currency": "CNY"
   },
   {
-    "provider": "deepseek",
-    "model_name": "deepseek-v4-flash",
+    "provider": "openai",
+    "model_name": "Qwen3.8-27B",
     "input_price_per_1k": 0.0,
     "output_price_per_1k": 0.0,
     "currency": "CNY"

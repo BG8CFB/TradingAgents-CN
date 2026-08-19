@@ -24,6 +24,35 @@ def _clear_memory_counters():
 
 
 # ============================================================
+# 真实 MongoDB（docker 容器）— 索引/upsert 语义验证用
+# ============================================================
+
+@pytest.fixture
+async def real_mongo_db():
+    """连接真实 MongoDB（docker 容器），完成后关闭。
+
+    用于验证索引唯一约束、upsert 覆盖行为等模拟库无法验证的语义。
+    """
+    import app.core.database as db_module
+    from app.data.storage.mongo.client import reset_client
+
+    # 前序测试可能将 SimulatedMongoDB 泄漏进 _motor_db 缓存；
+    # 先重置，保证本 fixture 期间 get_motor_db() 绑定真实库与当前事件循环
+    reset_client()
+    await db_module.db_manager.init_mongodb()
+    db_module.mongo_client = db_module.db_manager.mongo_client
+    db_module.mongo_db = db_module.db_manager.mongo_db
+    yield db_module.get_mongo_db()
+    await db_module.db_manager.close_connections()
+    db_module.mongo_client = None
+    db_module.mongo_db = None
+    # Motor 客户端绑定到当前测试的事件循环；pytest-asyncio 每个测试新开循环，
+    # 不重置会导致后续测试复用已关闭循环上的客户端（"Event loop is closed"）
+    from app.data.storage.mongo.client import reset_client
+    reset_client()
+
+
+# ============================================================
 # SimulatedMongoDB 注入 — 直接替换 _motor_db 全局变量
 # ============================================================
 

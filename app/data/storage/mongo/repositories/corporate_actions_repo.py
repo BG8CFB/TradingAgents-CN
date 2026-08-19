@@ -7,6 +7,7 @@ from pymongo import UpdateOne
 from app.data.storage.mongo.client import get_motor_db
 from app.data.storage.mongo.collections import get_collection_name
 from app.data.storage.mongo.bulk_utils import batched_bulk_write
+from app.data.storage.mongo.repositories.key_spec import build_filter
 
 
 class CorporateActionsRepo:
@@ -18,13 +19,12 @@ class CorporateActionsRepo:
         coll = db[get_collection_name("corporate_actions", market)]
         ops = []
         for rec in records:
-            sym = rec.get("symbol")
-            ex = rec.get("ex_date")
-            at = rec.get("action_type")
-            if not sym or not ex or not at:
-                continue
+            try:
+                filter_doc = build_filter("corporate_actions", rec)
+            except KeyError:
+                continue  # 缺少唯一键字段的记录跳过
             ops.append(UpdateOne(
-                {"symbol": sym, "ex_date": ex, "action_type": at, "data_source": rec.get("data_source")},
+                filter_doc,
                 {"$set": rec},
                 upsert=True,
             ))

@@ -7,6 +7,7 @@ from pymongo import UpdateOne
 from app.data.storage.mongo.client import get_motor_db
 from app.data.storage.mongo.collections import get_collection_name
 from app.data.storage.mongo.bulk_utils import batched_bulk_write
+from app.data.storage.mongo.repositories.key_spec import build_filter
 
 
 class BlockTradeRepo:
@@ -19,24 +20,12 @@ class BlockTradeRepo:
         coll = db[get_collection_name("block_trade", market)]
         ops = []
         for rec in records:
-            sym = rec.get("symbol")
-            td = rec.get("trade_date")
-            if not sym or not td:
-                continue
-            # filter 字段与 init_collections.py 的唯一索引保持一致：
-            # symbol + trade_date + buyer + seller + data_source
-            # （不用浮点 price/volume 做唯一键，避免精度风险；
-            #  data_source 区分不同源对同一笔交易的重复采集）
-            buyer = rec.get("buyer") or ""
-            seller = rec.get("seller") or ""
+            try:
+                filter_doc = build_filter("block_trade", rec)
+            except KeyError:
+                continue  # 缺少唯一键字段的记录跳过
             ops.append(UpdateOne(
-                {
-                    "symbol": sym,
-                    "trade_date": td,
-                    "buyer": buyer,
-                    "seller": seller,
-                    "data_source": rec.get("data_source"),
-                },
+                filter_doc,
                 {"$set": rec},
                 upsert=True,
             ))

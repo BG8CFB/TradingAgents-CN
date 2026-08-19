@@ -88,6 +88,76 @@ class DataInterface:
             "domain": domain,
         }
 
+    async def read_latest(
+        self,
+        market: str,
+        domain: str,
+        symbol: str,
+        projection: Optional[Dict] = None,
+    ) -> Optional[Dict]:
+        """读取指定股票在某域的最新一条记录（排序键按域自动推导）。"""
+        return await self.reader.read_latest(market, domain, symbol, projection)
+
+    async def read_latest_batch(
+        self,
+        market: str,
+        domain: str,
+        symbols: List[str],
+        projection: Optional[Dict] = None,
+    ) -> Dict[str, Dict]:
+        """批量读取多只股票各自的最新一条记录，返回 {symbol: doc}。"""
+        return await self.reader.read_latest_batch(
+            market, domain, symbols, projection
+        )
+
+    async def read_batch(
+        self,
+        market: str,
+        domain: str,
+        symbols: List[str],
+        projection: Optional[Dict] = None,
+        sort: Optional[List] = None,
+        limit: int = 0,
+    ) -> List[Dict]:
+        """批量读取多只股票的记录（不折叠）。"""
+        return await self.reader.read_batch(
+            market, domain, symbols, projection, sort, limit
+        )
+
+    async def search_basic_info(
+        self,
+        market: str,
+        query: str,
+        fields: Optional[List[str]] = None,
+        limit: int = 20,
+    ) -> List[Dict]:
+        """在 basic_info 中模糊搜索股票（symbol 前缀 / 名称包含）。"""
+        return await self.reader.search_basic_info(market, query, fields, limit)
+
+    # ── 筛选查询 ──
+
+    async def screen(
+        self,
+        market: str,
+        stage: str,
+        filters: Optional[Dict] = None,
+        projection: Optional[Dict] = None,
+        sort: Optional[List] = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> Dict:
+        """单阶段筛选查询（委托 ScreeningQueryService，返回 {"items", "total"}）。"""
+        from app.data.query.screening_query import ScreeningQueryService
+
+        return await ScreeningQueryService().screen(
+            market, stage,
+            filters=filters,
+            projection=projection,
+            sort=sort,
+            skip=skip,
+            limit=limit,
+        )
+
     # ── 数据刷新 ──
 
     async def refresh(

@@ -257,58 +257,9 @@ async def create_stock_screening_view(db):
     造成的瞬态查询失败。
     """
     pipeline = [
-        # 第一步：添加数据源优先级（有 PE 数据的优先级更高）
-        {
-            "$addFields": {
-                "has_pe": {
-                    "$and": [
-                        {"$ne": ["$pe", None]},
-                        {"$ne": ["$pe", 0]}
-                    ]
-                },
-                "has_industry": {
-                    "$and": [
-                        {"$ne": ["$industry", None]},
-                        {"$ne": ["$industry", ""]}
-                    ]
-                },
-                "source_priority": {
-                    "$cond": {
-                        "if": {"$eq": ["$data_source", "tushare"]},
-                        "then": 1,
-                        "else": {
-                            "$cond": {
-                                "if": {"$eq": ["$data_source", "akshare"]},
-                                "then": 2,
-                                "else": 3
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        # 第二步：按优先级排序（优先有 PE 数据的，然后按数据源优先级）
-        {
-            "$sort": {
-                "has_pe": -1,
-                "has_industry": -1,
-                "source_priority": 1
-            }
-        },
-        # 第三步：按 symbol 分组，保留优先级最高的数据
-        {
-            "$group": {
-                "_id": "$symbol",
-                "doc": {"$first": "$$ROOT"}
-            }
-        },
-        # 第四步：展开文档
-        {
-            "$replaceRoot": {
-                "newRoot": "$doc"
-            }
-        },
-        # 第五步：重新组织字段结构
+        # 主键语义为单版本覆盖（见 index_definitions.py）：
+        # basic_info 每 symbol 只有一份当前生效文档，无需多源去重，
+        # 视图只做字段投影。
         {
             "$project": {
                 # 基础信息字段
@@ -368,54 +319,60 @@ async def create_stock_screening_view(db):
 
 
 async def create_database_indexes(db):
-    """创建数据库索引"""
+    """创建数据库索引。
+
+    业务集合索引统一从 app/data/storage/mongo/index_definitions.py（唯一事实源）加载，
+    循环三市场（CN/HK/US）创建，不再内联各市场专属定义。
+    """
     try:
-        # stock_basic_info 的索引
+        from app.data.storage.mongo.collections import get_all_collections
+        from app.data.storage.mongo.index_definitions import (
+            INDEX_DEFINITIONS,
+            default_index_name,
+            get_legacy_index_names,
+        )
+
+        legacy_index_names = get_legacy_index_names()
+
+        for market in ("CN", "HK", "US"):
+            try:
+                collection_map = get_all_collections(market)
+            except Exception as e:
+                logger.warning(f"获取 {market} 市场集合映射失败: {e}")
+                continue
+
+            for data_type, collection_name in collection_map.items():
+                collection = db[collection_name]
+
+                # 清理旧版索引：废弃字段名（code/source）与含 data_source 的旧唯一键
+                legacy_names = ["code_1_source_1", "code_1"]
+                legacy_names.extend(legacy_index_names.get(data_type, []))
+                for idx_name in legacy_names:
+                    try:
+                        await collection.drop_index(idx_name)
+                        logger.info(f"已删除旧索引 {collection_name}.{idx_name}")
+                    except Exception:
+                        pass  # 索引不存在时跳过
+
+                for fields, unique in INDEX_DEFINITIONS.get(data_type, []):
+                    try:
+                        await collection.create_index(fields, unique=unique)
+                    except Exception as e:
+                        logger.warning(
+                            f"索引 {collection_name}.{default_index_name(fields)} "
+                            f"创建失败（可能存在重复数据，请运行去重迁移脚本）: {e}"
+                        )
+            logger.info(f"✅ {market} 市场业务集合索引创建完成")
+
+        # 筛选辅助索引（basic_info 投影字段排序用，非唯一键）
         try:
             basic_info = db["stock_basic_info"]
-            # 清理旧版索引（字段名 code/source 已废弃，统一使用 symbol/data_source）
-            for idx_name in ["code_1_source_1", "code_1"]:
-                try:
-                    await basic_info.drop_index(idx_name)
-                    logger.info(f"已删除旧索引 {idx_name}")
-                except Exception as e:
-                    logger.debug(f"删除旧索引 {idx_name} 失败: {e}")
-            await basic_info.create_index([("symbol", 1), ("data_source", 1)], unique=True)
             await basic_info.create_index([("industry", 1)])
             await basic_info.create_index([("total_mv", -1)])
             await basic_info.create_index([("pe", 1)])
             await basic_info.create_index([("pb", 1)])
-            logger.info("stock_basic_info 索引创建完成")
         except Exception as e:
-            logger.warning(f"创建 stock_basic_info 索引失败: {e}")
-
-        # market_quotes 的索引
-        try:
-            market_quotes = db["market_quotes"]
-            # 清理旧版索引（字段名 code 已废弃，统一使用 symbol）
-            try:
-                await market_quotes.drop_index("code_1")
-                logger.info("已删除旧索引 code_1")
-            except Exception as e:
-                logger.debug(f"删除旧索引 code_1 失败: {e}")
-            # 跳过已存在的索引（避免名称冲突报错）
-            existing_indexes = await market_quotes.index_information()
-            if "symbol_1" not in existing_indexes and "symbol_unique" not in existing_indexes:
-                await market_quotes.create_index([("symbol", 1)], unique=True, name="symbol_unique")
-            for key_list, name in [
-                ([("last_price", -1)], "last_price_idx"),
-                ([("updated_at", -1)], "updated_at_idx"),
-            ]:
-                key_sig = tuple((k, d) for k, d in key_list)
-                already_exists = any(
-                    tuple((k, d) for k, d in info.get("key", [])) == key_sig
-                    for info in existing_indexes.values()
-                )
-                if not already_exists:
-                    await market_quotes.create_index(key_list, name=name)
-            logger.info("market_quotes 索引创建完成")
-        except Exception as e:
-            logger.warning(f"创建 market_quotes 索引失败: {e}")
+            logger.warning(f"创建 stock_basic_info 辅助索引失败: {e}")
 
         # === 用户集合索引 ===
         try:

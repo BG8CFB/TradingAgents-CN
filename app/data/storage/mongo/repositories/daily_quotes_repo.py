@@ -7,6 +7,7 @@ from pymongo import UpdateOne
 from app.data.storage.mongo.client import get_motor_db
 from app.data.storage.mongo.collections import get_collection_name
 from app.data.storage.mongo.bulk_utils import batched_bulk_write
+from app.data.storage.mongo.repositories.key_spec import build_filter
 
 
 class DailyQuotesRepo:
@@ -19,13 +20,12 @@ class DailyQuotesRepo:
         coll = db[get_collection_name("daily_quotes", market)]
         ops = []
         for rec in records:
-            sym = rec.get("symbol")
-            td = rec.get("trade_date")
-            period = rec.get("period", "daily")
-            if not sym or not td:
-                continue
+            try:
+                filter_doc = build_filter("daily_quotes", rec)
+            except KeyError:
+                continue  # 缺少唯一键字段的记录跳过
             ops.append(UpdateOne(
-                {"symbol": sym, "trade_date": td, "period": period, "data_source": rec.get("data_source")},
+                filter_doc,
                 {"$set": rec},
                 upsert=True,
             ))

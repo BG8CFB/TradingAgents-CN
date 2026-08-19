@@ -96,6 +96,8 @@ class FallbackRouter:
         self._validator = Validator()
         self._health_monitor = SourceHealthMonitor()
         self._retry_max_retries = retry_max_retries
+        # 源级重试配置（source_limits.yaml 的 retry: 块）；优先于全局默认
+        self._retry_config: Dict[str, dict] = self._load_retry_config()
 
     @classmethod
     def get_instance(cls) -> "FallbackRouter":
@@ -123,31 +125,62 @@ class FallbackRouter:
 
     @staticmethod
     def _create_default_rate_limiter() -> RateLimiter:
-        """从 source_limits.yaml 加载限流配置。"""
+        """从 source_limits.yaml 加载限流配置。
+
+        YAML 加载失败时 fail-safe 回退到 source_metadata（与 YAML 同源解析，
+        含各字段默认值），不再维护与 YAML 漂移的硬编码兜底。
+        """
+        limiter = RateLimiter()
+
+        try:
+            from app.data.core.registry.source_metadata import SOURCE_METADATA
+
+            for source, meta in SOURCE_METADATA.items():
+                limiter.configure(
+                    source,
+                    rate_per_minute=meta.rate_per_minute,
+                    polite_interval_ms=meta.polite_interval_ms,
+                    rate_per_day=meta.rate_per_day,
+                )
+        except Exception as e:
+            logger.warning(f"加载限流配置失败: {e}")
+
+        return limiter
+
+    @staticmethod
+    def _load_retry_config() -> Dict[str, dict]:
+        """从 source_limits.yaml 读取每个源的重试配置。
+
+        YAML 字段（source 级）::
+
+            retry:
+              max_retries: 2
+              backoff_base: 1.0
+
+        读取失败返回空 dict，调用方回退到构造参数的全局默认值。
+        """
         import yaml
         from pathlib import Path
-
-        limiter = RateLimiter()
 
         config_path = Path(__file__).parent.parent / "config" / "source_limits.yaml"
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 limits_config = yaml.safe_load(f) or {}
-
-            for source, cfg in limits_config.items():
-                if isinstance(cfg, dict) and "rate_per_minute" in cfg:
-                    limiter.configure(
-                        source,
-                        rate_per_minute=cfg["rate_per_minute"],
-                        polite_interval_ms=cfg.get("polite_interval_ms", 1000),
-                    )
         except Exception as e:
-            logger.warning(f"加载限流配置失败，使用默认值: {e}")
-            limiter.configure("tushare", rate_per_minute=120, polite_interval_ms=200)
-            limiter.configure("akshare", rate_per_minute=60, polite_interval_ms=500)
-            limiter.configure("baostock", rate_per_minute=60, polite_interval_ms=300)
+            logger.warning(f"加载重试配置失败，使用全局默认: {e}")
+            return {}
 
-        return limiter
+        result: Dict[str, dict] = {}
+        for source, cfg in limits_config.items():
+            if not isinstance(cfg, dict):
+                continue
+            retry = cfg.get("retry")
+            if isinstance(retry, dict):
+                result[source] = {
+                    "max_retries": int(retry.get("max_retries", 2)),
+                    "backoff_base": float(retry.get("backoff_base", 1.0)),
+                }
+        return result
 
     async def fetch(
         self,
@@ -163,9 +196,7 @@ class FallbackRouter:
         start = time.time()
 
         priority_list = await self._priority.get_priority(market, domain)
-        sources = self._registry.get_ordered_sources(
-            market, domain, user_priority=priority_list
-        )
+        sources = self._registry.get_ordered_sources(market, domain, user_priority=priority_list)
         if preferred_sources:
             preferred_order = {name: i for i, name in enumerate(preferred_sources)}
             original_order = {name: i for i, name in enumerate(sources)}
@@ -184,168 +215,196 @@ class FallbackRouter:
         default_exchange = {"CN": "SSE", "HK": "HKEX", "US": "NYSE"}.get(market, "SSE")
 
         for source_name in sources:
-            # M2 修复：每个源独立计时，避免 latency_ms 包含前序失败源的累计等待。
-            source_start = time.time()
-
-            if self._circuit.is_open(source_name, domain):
-                logger.debug(f"熔断跳过: {source_name}/{domain}")
-                continue
-
-            allowed, wait = await self._rate_limiter.acquire(source_name, domain)
-            if not allowed:
-                await asyncio.sleep(wait)
-                # 等待期间熔断可能已被其他调用方触发；此时不应消耗已扣配额，归还之
-                if self._circuit.is_open(source_name, domain):
-                    await self._rate_limiter.release(source_name, domain)
-                    continue
-
-            # M6 修复：acquire 成功后再检查一次熔断状态。
-            # acquire 和 provider 调用之间有 await 切换点，其他协程可能在此期间
-            # 触发熔断。虽然 Python 单线程 async 中该窗口很短，但若不检查会浪费
-            # rate_limiter 配额（已扣配额但请求必然被熔断拒绝）。
-            if self._circuit.is_open(source_name, domain):
-                await self._rate_limiter.release(source_name, domain)
-                continue
-
-            provider, adapter = await self._get_provider_adapter(market, source_name)
-            if not provider or not adapter:
-                # R13-DS-05 修复：provider/adapter 获取失败时清除探测许可标记，
-                # 防止 _probe_granted 永久残留导致熔断器被永久禁用。
-                self._circuit.clear_probe(source_name, domain)
-                continue
-
-            retry_policy = RetryPolicy(max_retries=self._retry_max_retries)
-            try:
-                raw_data = await retry_policy.execute_with_retry(
-                    self._fetch_raw,
-                    provider,
-                    domain,
-                    symbol,
-                    start_date,
-                    end_date,
-                    default_exchange,
-                )
-
-                # 批量模式不支持 → 静默跳过，不记录失败
-                if raw_data is self._BATCH_NOT_SUPPORTED:
-                    logger.debug(f"源 {source_name}/{domain} 不支持批量模式，跳过")
-                    # R13-DS-05 修复：清除探测许可标记，防止 _probe_granted 残留。
-                    self._circuit.clear_probe(source_name, domain)
-                    continue
-
-                if raw_data is None or (hasattr(raw_data, "empty") and raw_data.empty):
-                    self._circuit.record_failure(source_name, domain)
-                    self._health_monitor.record_call(
-                        market,
-                        source_name,
-                        domain,
-                        success=False,
-                        latency_ms=int((time.time() - source_start) * 1000),
-                        error="empty data",
-                        circuit_state=self._circuit.get_state(
-                            source_name, domain
-                        ).value,
-                    )
-                    fallback_chain.append(source_name)
-                    continue
-
-                # M1 修复：区分"adapter 不支持该域"与"数据质量差"。
-                # 不支持的域不应触发熔断。
-                normalize_result = self._normalizer.normalize_with_status(
-                    raw_data, domain, adapter
-                )
-                records = normalize_result.records
-                if not records:
-                    if normalize_result.status == "error":
-                        self._circuit.record_failure(source_name, domain)
-                    self._health_monitor.record_call(
-                        market,
-                        source_name,
-                        domain,
-                        success=normalize_result.status != "error",
-                        latency_ms=int((time.time() - source_start) * 1000),
-                        error=f"normalize {normalize_result.status}",
-                        circuit_state=self._circuit.get_state(
-                            source_name, domain
-                        ).value,
-                    )
-                    fallback_chain.append(source_name)
-                    continue
-
-                valid, errors = self._validator.validate(records, domain, market)
-
-                # 校验剔除的记录不等于源故障：仍记 success，但记录 warning 供排查
-                dropped = len(records) - len(valid)
-                if errors:
-                    logger.warning(
-                        "数据校验剔除 %d/%d 条记录: market=%s domain=%s source=%s errors=%s",
-                        dropped,
-                        len(records),
-                        market,
-                        domain,
-                        source_name,
-                        errors[:5],
-                    )
-
-                self._circuit.record_success(source_name, domain)
-                result.latency_ms = int((time.time() - start) * 1000)
-                self._health_monitor.record_call(
-                    market,
-                    source_name,
-                    domain,
-                    success=True,
-                    latency_ms=int((time.time() - source_start) * 1000),
-                    circuit_state="closed",
-                )
-                result.success = True
-                result.records = valid
-                result.source = source_name
-                if errors:
-                    result.validation_errors = {
-                        "dropped": dropped,
-                        "total": len(records),
-                        "samples": errors[:5],
-                    }
-                if fallback_chain:
-                    result.fallback_from = " → ".join(fallback_chain)
-                return result
-
-            except DataSourceError as e:
-                self._circuit.record_failure(source_name, domain, e.code)
-                self._health_monitor.record_call(
-                    market,
-                    source_name,
-                    domain,
-                    success=False,
-                    latency_ms=int((time.time() - source_start) * 1000),
-                    error=str(e),
-                    circuit_state=self._circuit.get_state(source_name, domain).value,
-                )
+            status, records, verrs = await self.fetch_source(
+                market, domain, source_name,
+                lambda p: self._fetch_raw(
+                    p, domain, symbol, start_date, end_date, default_exchange
+                ),
+            )
+            if status == "failed":
                 fallback_chain.append(source_name)
-                logger.warning(f"源 {source_name}/{domain} 失败: {e}")
-            except NotImplementedError as e:
-                # 源不支持该域（Provider 未覆写基类方法）：静默跳过，不记录失败
-                # 避免错误地影响断路器状态和重试逻辑
-                logger.debug(f"源 {source_name}/{domain} 不支持该域，跳过: {e}")
-                # R13-DS-05 修复：清除探测许可标记，防止 _probe_granted 残留。
-                self._circuit.clear_probe(source_name, domain)
-            except Exception as e:
-                self._circuit.record_failure(source_name, domain)
-                self._health_monitor.record_call(
-                    market,
-                    source_name,
-                    domain,
-                    success=False,
-                    latency_ms=int((time.time() - source_start) * 1000),
-                    error=str(e),
-                    circuit_state=self._circuit.get_state(source_name, domain).value,
-                )
-                fallback_chain.append(source_name)
-                logger.warning(f"源 {source_name}/{domain} 异常: {e}")
+                continue
+            if status == "skip":
+                continue
+
+            result.success = True
+            result.records = records
+            result.source = source_name
+            result.latency_ms = int((time.time() - start) * 1000)
+            if verrs:
+                result.validation_errors = verrs
+            if fallback_chain:
+                result.fallback_from = " → ".join(fallback_chain)
+            return result
 
         result.error = f"所有源失败: {', '.join(fallback_chain)}"
         result.latency_ms = int((time.time() - start) * 1000)
         return result
+
+    async def fetch_source(
+        self,
+        market: str,
+        domain: str,
+        source_name: str,
+        raw_fetch,
+    ):
+        """单数据源尝试：熔断检查 → 限流 → 重试获取 → 标准化 → 校验。
+
+        从 fetch() 的循环体抽取，供两类调用方复用同一套四件套语义：
+        1. fetch() 内部（标准 symbol 维度获取）
+        2. worker 侧 BaseMarketDomainSync（自定义 provider 方法 + kwargs 的
+           批量域同步，如 HK/US market_quotes 全市场快照）
+
+        Args:
+            raw_fetch: ``async (provider) -> raw``，返回原始数据；
+                返回 ``_BATCH_NOT_SUPPORTED`` 哨兵表示源不支持该调用形态。
+
+        Returns:
+            (status, records, validation_errors)
+            status: "success" / "failed"（已记熔断失败，应尝试次源）/
+            "skip"（源不可用或不支持，静默跳过，不计失败）
+        """
+        source_start = time.time()
+
+        if self._circuit.is_open(source_name, domain=domain, market=market):
+            logger.debug(f"熔断跳过: {source_name}/{domain}")
+            return "skip", [], None
+
+        allowed, wait = await self._rate_limiter.acquire(source_name, domain)
+        if not allowed:
+            await asyncio.sleep(wait)
+            # 等待期间熔断可能已被其他调用方触发；此时不应消耗已扣配额，归还之
+            if self._circuit.is_open(source_name, domain=domain, market=market):
+                await self._rate_limiter.release(source_name, domain)
+                return "skip", [], None
+
+        # M6 修复：acquire 成功后再检查一次熔断状态。
+        # acquire 和 provider 调用之间有 await 切换点，其他协程可能在此期间
+        # 触发熔断。虽然 Python 单线程 async 中该窗口很短，但若不检查会浪费
+        # rate_limiter 配额（已扣配额但请求必然被熔断拒绝）。
+        if self._circuit.is_open(source_name, domain=domain, market=market):
+            await self._rate_limiter.release(source_name, domain)
+            return "skip", [], None
+
+        provider, adapter = await self._get_provider_adapter(market, source_name)
+        if not provider or not adapter:
+            # R13-DS-05 修复：provider/adapter 获取失败时清除探测许可标记，
+            # 防止 _probe_granted 永久残留导致熔断器被永久禁用。
+            self._circuit.clear_probe(source_name, domain=domain, market=market)
+            return "skip", [], None
+
+        retry_cfg = self._retry_config.get(source_name, {})
+        retry_policy = RetryPolicy(
+            max_retries=retry_cfg.get("max_retries", self._retry_max_retries),
+            backoff_base=retry_cfg.get("backoff_base", 1.0),
+        )
+        try:
+            raw_data = await retry_policy.execute_with_retry(raw_fetch, provider)
+
+            # 批量模式不支持 → 静默跳过，不记录失败
+            if raw_data is self._BATCH_NOT_SUPPORTED:
+                logger.debug(f"源 {source_name}/{domain} 不支持批量模式，跳过")
+                # R13-DS-05 修复：清除探测许可标记，防止 _probe_granted 残留。
+                self._circuit.clear_probe(source_name, domain=domain, market=market)
+                return "skip", [], None
+
+            if raw_data is None or (hasattr(raw_data, "empty") and raw_data.empty):
+                self._circuit.record_failure(source_name, domain=domain, market=market)
+                self._health_monitor.record_call(
+                    market,
+                    source_name,
+                    domain,
+                    success=False,
+                    latency_ms=int((time.time() - source_start) * 1000),
+                    error="empty data",
+                    circuit_state=self._circuit.get_state(source_name, domain=domain, market=market).value,
+                )
+                return "failed", [], None
+
+            # M1 修复：区分"adapter 不支持该域"与"数据质量差"。
+            # 不支持的域不应触发熔断。
+            normalize_result = self._normalizer.normalize_with_status(raw_data, domain, adapter)
+            records = normalize_result.records
+            if not records:
+                if normalize_result.status == "error":
+                    self._circuit.record_failure(source_name, domain=domain, market=market)
+                self._health_monitor.record_call(
+                    market,
+                    source_name,
+                    domain,
+                    success=normalize_result.status != "error",
+                    latency_ms=int((time.time() - source_start) * 1000),
+                    error=f"normalize {normalize_result.status}",
+                    circuit_state=self._circuit.get_state(source_name, domain=domain, market=market).value,
+                )
+                return "failed", [], None
+
+            valid, errors = self._validator.validate(records, domain, market)
+
+            # 校验剔除的记录不等于源故障：仍记 success，但记录 warning 供排查
+            dropped = len(records) - len(valid)
+            if errors:
+                logger.warning(
+                    "数据校验剔除 %d/%d 条记录: market=%s domain=%s source=%s errors=%s",
+                    dropped,
+                    len(records),
+                    market,
+                    domain,
+                    source_name,
+                    errors[:5],
+                )
+
+            self._circuit.record_success(source_name, domain=domain, market=market)
+            self._health_monitor.record_call(
+                market,
+                source_name,
+                domain,
+                success=True,
+                latency_ms=int((time.time() - source_start) * 1000),
+                circuit_state="closed",
+            )
+            validation_errors = None
+            if errors:
+                validation_errors = {
+                    "dropped": dropped,
+                    "total": len(records),
+                    "samples": errors[:5],
+                }
+            return "success", valid, validation_errors
+
+        except DataSourceError as e:
+            self._circuit.record_failure(source_name, domain=domain, market=market, error_code=e.code)
+            self._health_monitor.record_call(
+                market,
+                source_name,
+                domain,
+                success=False,
+                latency_ms=int((time.time() - source_start) * 1000),
+                error=str(e),
+                circuit_state=self._circuit.get_state(source_name, domain=domain, market=market).value,
+            )
+            logger.warning(f"源 {source_name}/{domain} 失败: {e}")
+            return "failed", [], None
+        except NotImplementedError as e:
+            # 源不支持该域（Provider 未覆写基类方法）：静默跳过，不记录失败
+            # 避免错误地影响断路器状态和重试逻辑
+            logger.debug(f"源 {source_name}/{domain} 不支持该域，跳过: {e}")
+            # R13-DS-05 修复：清除探测许可标记，防止 _probe_granted 残留。
+            self._circuit.clear_probe(source_name, domain=domain, market=market)
+            return "skip", [], None
+        except Exception as e:
+            self._circuit.record_failure(source_name, domain=domain, market=market)
+            self._health_monitor.record_call(
+                market,
+                source_name,
+                domain,
+                success=False,
+                latency_ms=int((time.time() - source_start) * 1000),
+                error=str(e),
+                circuit_state=self._circuit.get_state(source_name, domain=domain, market=market).value,
+            )
+            logger.warning(f"源 {source_name}/{domain} 异常: {e}")
+            return "failed", [], None
 
     async def _fetch_raw(
         self,
@@ -360,17 +419,11 @@ class FallbackRouter:
             "basic_info": lambda: provider.get_stock_list(),
             "trade_calendar": lambda: provider.get_trade_calendar(exchange, start, end),
             "daily_quotes": lambda: provider.get_daily_quotes(symbol, start, end),
-            "daily_indicators": lambda: self._fetch_daily_indicators(
-                provider, symbol, start, end
-            ),
+            "daily_indicators": lambda: self._fetch_daily_indicators(provider, symbol, start, end),
             "financial_data": lambda: provider.get_financial_data(symbol, start, end),
             "adj_factors": lambda: provider.get_adj_factors(symbol, start, end),
-            "corporate_actions": lambda: provider.get_corporate_actions(
-                symbol, start, end
-            ),
-            "news": lambda: provider.get_news(
-                None if symbol == "__all__" else symbol, start, end
-            ),
+            "corporate_actions": lambda: provider.get_corporate_actions(symbol, start, end),
+            "news": lambda: provider.get_news(None if symbol == "__all__" else symbol, start, end),
             "market_quotes": lambda: provider.get_market_quotes([symbol]),
             "intraday_quotes": lambda: provider.get_intraday_quotes(symbol, start, end),
             "money_flow": lambda: provider.get_money_flow(symbol, start, end),
@@ -386,9 +439,7 @@ class FallbackRouter:
     # 批量模式不支持时返回此 sentinel，调用链应跳过而非记录失败
     _BATCH_NOT_SUPPORTED = object()
 
-    async def _fetch_daily_indicators(
-        self, provider, symbol: str, start: str, end: str
-    ):
+    async def _fetch_daily_indicators(self, provider, symbol: str, start: str, end: str):
         """获取每日指标：per-symbol 模式或按日期批量模式。"""
         if symbol == "__all__":
             # 批量同步模式：使用 trade_date 参数一次获取全市场
@@ -402,9 +453,7 @@ class FallbackRouter:
             # 如果 end 是默认值（2099），使用今天日期
             from datetime import date
 
-            trade_date = (
-                end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")
-            )
+            trade_date = end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")
             return await provider.get_daily_indicators_batch(trade_date)
         return await provider.get_daily_indicators(symbol, start, end)
 

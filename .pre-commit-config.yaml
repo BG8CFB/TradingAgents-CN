@@ -3,6 +3,9 @@
 # - 禁止 routers import 数据层内部实现  -> import-linter forbidden 契约（pyproject.toml）
 # - 禁止 routers 直连 MongoDB 方法调用  -> tests/lint/test_router_conventions.py（pytest，跨平台）
 # - os.getenv 白名单                  -> tests/lint/test_env_access_conventions.py（pytest，跨平台）
+# - 消费层数据访问纪律（禁 SDK import /
+#   禁 app.data.sources import /
+#   services 禁直连 Mongo 句柄）      -> tests/lint/test_data_access_conventions.py（pytest，跨平台）
 #
 # 旧版 bash grep 钩子已移除：误报/漏报（文本匹配无法区分对象归属）、
 # Windows 宿主机无 bash 时直接失效、白名单三处硬编码已发生漂移。

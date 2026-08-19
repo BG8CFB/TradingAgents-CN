@@ -346,7 +346,7 @@ class TestCircuitBreakerServiceUnavailable:
             cb.record_failure(source, domain, error_code=DataErrorCode.SERVICE_UNAVAILABLE)
 
         assert cb.get_state(source, domain) == CircuitState.OPEN
-        state = cb._states[(source, domain)]
+        state = cb._states[(source, domain, "")]
         expected = min(int(COOLDOWN_STEPS[0] * 1.5), 3600)
         assert state["cooldown"] == expected
 

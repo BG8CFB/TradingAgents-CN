@@ -1,4 +1,6 @@
 # 各数据源限流参数
+# retry 块（可选）：max_retries 最大重试次数 / backoff_base 退避倍率；
+# 缺省时 FallbackRouter 使用全局默认（max_retries=2, backoff_base=1.0）
 
 tushare:
   rate_per_minute: 200
@@ -7,6 +9,9 @@ tushare:
   circuit_max_cooldown: 600
   requires_token: true
   token_env_var: TUSHARE_CN_TOKEN
+  retry:
+    max_retries: 2
+    backoff_base: 1.0
 
 tushare_hk:
   rate_per_minute: 200
@@ -15,6 +20,9 @@ tushare_hk:
   circuit_max_cooldown: 600
   requires_token: true
   token_env_var: TUSHARE_HK_TOKEN
+  retry:
+    max_retries: 2
+    backoff_base: 1.0
 
 tushare_us:
   rate_per_minute: 200
@@ -23,6 +31,9 @@ tushare_us:
   circuit_max_cooldown: 600
   requires_token: true
   token_env_var: TUSHARE_US_TOKEN
+  retry:
+    max_retries: 2
+    backoff_base: 1.0
 
 akshare:
   rate_per_minute: 120
@@ -30,6 +41,9 @@ akshare:
   circuit_initial_cooldown: 60
   circuit_max_cooldown: 600
   requires_token: false
+  retry:
+    max_retries: 1
+    backoff_base: 1.0
 
 akshare_hk:
   rate_per_minute: 60
@@ -37,6 +51,9 @@ akshare_hk:
   circuit_initial_cooldown: 60
   circuit_max_cooldown: 600
   requires_token: false
+  retry:
+    max_retries: 1
+    backoff_base: 1.0
 
 baostock:
   rate_per_minute: 50
@@ -45,6 +62,9 @@ baostock:
   circuit_max_cooldown: 600
   requires_token: false
   session_limit: 50
+  retry:
+    max_retries: 1
+    backoff_base: 1.0
 
 yfinance:
   rate_per_minute: 60
@@ -52,6 +72,9 @@ yfinance:
   circuit_initial_cooldown: 60
   circuit_max_cooldown: 1800
   requires_token: false
+  retry:
+    max_retries: 1
+    backoff_base: 2.0
 
 yfinance_hk:
   rate_per_minute: 60
@@ -59,6 +82,9 @@ yfinance_hk:
   circuit_initial_cooldown: 60
   circuit_max_cooldown: 600
   requires_token: false
+  retry:
+    max_retries: 1
+    backoff_base: 2.0
 
 finnhub:
   rate_per_minute: 60
@@ -67,6 +93,9 @@ finnhub:
   circuit_max_cooldown: 1800
   requires_token: true
   token_env_var: FINNHUB_API_KEY
+  retry:
+    max_retries: 1
+    backoff_base: 1.0
 
 alpha_vantage:
   rate_per_minute: 5
@@ -76,6 +105,9 @@ alpha_vantage:
   circuit_max_cooldown: 1800
   requires_token: true
   token_env_var: ALPHA_VANTAGE_API_KEY
+  retry:
+    max_retries: 1
+    backoff_base: 1.0
 
 tencent_hk:
   rate_per_minute: 120
@@ -83,3 +115,6 @@ tencent_hk:
   circuit_initial_cooldown: 30
   circuit_max_cooldown: 300
   requires_token: false
+  retry:
+    max_retries: 1
+    backoff_base: 1.0
