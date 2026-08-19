@@ -136,27 +136,23 @@
       @view-report="currentRow && openReport(currentRow)"
     />
 
-
-    <!-- 报告详情弹窗组件化（预留） -->
-    <TaskReportDialog v-model="reportVisible" :sections="reportSections" :task-id="currentRow?.task_id" @close="reportVisible=false" />
-
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { List, Refresh, Download } from '@element-plus/icons-vue'
 import { analysisApi, type AnalysisTask } from '@/api/analysis'
 import { marked } from 'marked'
 import TaskResultDialog from '@/components/Global/TaskResultDialog.vue'
-import TaskReportDialog from '@/components/Global/TaskReportDialog.vue'
 
 
 marked.setOptions({ breaks: true, gfm: true })
 
 const route = useRoute()
+const router = useRouter()
 
 const activeTab = ref<'all'|'running'|'completed'|'failed'>('all')
 const loading = ref(false)
@@ -335,9 +331,7 @@ const loadList = async () => {
 const applyFilters = () => { currentPage.value = 1; loadList() }
 const resetFilters = () => { filters.value = { dateRange: [], market: '', status: '', stock: '' }; currentPage.value = 1; loadList() }
 
-// 报告弹窗状态
-const reportVisible = ref(false)
-const reportSections = ref<Array<{ key?: string; title: string; content: string }>>([])
+// 报告详情：跳转完整报告页（ReportDetail，含关键点位/分析概览等结构化展示）
 
 const filteredList = computed(() => {
   let arr = list.value
@@ -378,28 +372,12 @@ const openResult = async (row: AnalysisTask) => {
   }
 }
 
-/** 打开报告详情弹窗（含"查看过程"回放入口） */
-const openReport = async (row: AnalysisTask): Promise<void> => {
+/** 跳转完整报告详情页 */
+const openReport = (row: AnalysisTask): void => {
   const id = row?.task_id
   if (!id) { ElMessage.warning('未找到报告ID'); return }
   currentRow.value = row
-  try {
-    const res = await analysisApi.getTaskResult(id)
-    const body = (res?.data ?? {}) as Record<string, unknown>
-    const reports = body.reports as Record<string, unknown> | undefined
-    // 报告显示名由后端下发（report_titles，来源：任务事件 + agent 配置），前端不写死
-    const titles = (body.report_titles ?? {}) as Record<string, string>
-    reportSections.value = Object.entries(reports ?? {})
-      .filter(([, v]) => v != null && v !== '')
-      .map(([key, value]) => ({
-        key,
-        title: titles[key.replace(/_report$/, '')] ?? key,
-        content: typeof value === 'string' ? value : JSON.stringify(value),
-      }))
-    reportVisible.value = true
-  } catch {
-    ElMessage.error('获取报告详情失败')
-  }
+  router.push({ name: 'ReportDetail', params: { id } })
 }
 
 const retryTask = (_row: AnalysisTask) => { ElMessage.info('重试功能待实现') }
