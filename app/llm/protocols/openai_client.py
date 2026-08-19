@@ -11,6 +11,7 @@ OpenAI 兼容协议客户端（官方 openai SDK）
 import json
 from typing import Any, AsyncIterator, Dict, List, Optional
 
+from app.constants.llm_defaults import DEFAULT_MAX_TOKENS
 from ..core.base import BaseLLMClient, StreamEvent
 from ..core.errors import (
     AuthError,
@@ -64,7 +65,7 @@ class OpenAILLMClient(BaseLLMClient):
         base_url: str,
         model: str,
         timeout: float = 300.0,
-        max_tokens: int = 4096,
+        max_tokens: int = DEFAULT_MAX_TOKENS,  # 兜底默认（单一源头 llm_defaults）
         temperature: Optional[float] = None,
     ):
         from openai import AsyncOpenAI

@@ -216,7 +216,13 @@ class LLMConfig(BaseModel):
         default=DEFAULT_MAX_TOKENS,
         ge=1,
         le=128000,
-        description="最大token数（根据模型上下文长度校验）"
+        description="单次请求最大输出token数（与上下文窗口是两个概念）"
+    )
+    context_window: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=10_000_000,
+        description="模型上下文窗口（输入能力，token 数；留空自动取模型目录 context_length）"
     )
     temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0, description="温度参数")
     timeout: int = Field(default=DEFAULT_TIMEOUT, description="请求超时时间(秒)")
@@ -380,6 +386,7 @@ class LLMConfigRequest(BaseModel):
     api_key: Optional[str] = None  # 可选，优先从厂家配置获取
     api_base: Optional[str] = None
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=1, le=128000)
+    context_window: Optional[int] = Field(default=None, ge=1, le=10_000_000)
     temperature: float = DEFAULT_TEMPERATURE
     timeout: int = DEFAULT_TIMEOUT
     retry_times: int = DEFAULT_RETRY_TIMES

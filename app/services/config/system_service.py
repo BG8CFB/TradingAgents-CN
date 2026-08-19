@@ -521,7 +521,7 @@ class SystemService:
         def _llm_sanitize_in(llm: Dict[str, Any]):
             d = dict(llm or {})
             d["api_key"] = ""
-            for fld in ("max_tokens", "temperature", "timeout", "retry_times"):
+            for fld in ("max_tokens", "temperature", "timeout", "retry_times", "context_window"):
                 if d.get(fld) == "" or d.get(fld) is None:
                     d.pop(fld, None)
             return LLMConfig(**d)

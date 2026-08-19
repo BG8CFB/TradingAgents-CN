@@ -39,6 +39,7 @@ export interface LLMConfig {
   api_key?: string  // 可选，优先从厂家配置获取
   api_base?: string
   max_tokens: number
+  context_window?: number | null  // 上下文窗口（输入侧，与 max_tokens 单次输出上限是两个概念；留空继承模型目录）
   temperature: number
   timeout: number
   retry_times: number

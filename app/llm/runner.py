@@ -23,13 +23,13 @@ from .compact.token_counter import TokenCounter
 from .core.base import BaseLLMClient
 from .core.errors import ContextWindowExceededError
 from .core.types import ChatResponse, Message, Role, ToolResultBlock, ToolUseBlock
+from .limits import resolve_output_limits
 from .orchestration.concurrency import partition_tool_calls, run_batches
 from .retry import DEFAULT_MAX_RETRIES, FallbackTriggeredError, with_retry
 
 logger = get_logger("app.llm.runner")
 
 DEFAULT_MAX_TURNS = 16
-ESCALATED_MAX_TOKENS = 64_000  # 截断恢复：升级输出上限（对齐 claude-code）
 MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3  # 恢复消息注入次数上限
 RECOVERY_INSTRUCTION = (
     "Output token limit hit. Resume directly from where you stopped — no apology, "
@@ -235,15 +235,23 @@ async def run_conversation(
         # ── max_output_tokens 截断恢复（对齐 claude-code 两级恢复）──
         if resp.stop_reason.value == "max_tokens":
             truncated_text_parts.append(resp.text())
-            # ① 升级输出上限重发（max_tokens 未配置时同样适用——
-            #    否则回落客户端默认上限且永远无法升级，推理模型必然耗尽）
-            if escalated_max_tokens is None and (
-                max_tokens is None or (max_tokens or 0) <= 8_192
-            ):
-                escalated_max_tokens = ESCALATED_MAX_TOKENS
-                logger.warning(f"⚠️ [runner] 输出截断，升级 max_tokens → {ESCALATED_MAX_TOKENS} 重发")
-                messages.pop()  # 本轮截断响应不保留
-                continue
+            # ① 升级输出上限重发：当前值 < 模型 upper_limit 时升级到 upper_limit
+            #    （每轮一次；对齐 query.ts escalate。配满上限的模型不触发，
+            #    直接走恢复消息续写，省一次无意义重发）
+            if escalated_max_tokens is None:
+                limits_ = resolve_output_limits(
+                    getattr(active_client, "model", "") or "",
+                    db_max_tokens=max_tokens,
+                )
+                current_cap = escalated_max_tokens or max_tokens or limits_.max_tokens
+                if current_cap < limits_.upper_limit:
+                    escalated_max_tokens = limits_.upper_limit
+                    logger.warning(
+                        f"⚠️ [runner] 输出截断，升级 max_tokens {current_cap} → "
+                        f"{limits_.upper_limit} 重发"
+                    )
+                    messages.pop()  # 本轮截断响应不保留
+                    continue
             if output_recovery_count < MAX_OUTPUT_TOKENS_RECOVERY_LIMIT:
                 output_recovery_count += 1  # ② 注入恢复消息续写
                 logger.warning(

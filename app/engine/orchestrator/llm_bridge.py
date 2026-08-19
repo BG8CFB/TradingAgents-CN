@@ -10,12 +10,10 @@
 
 from typing import List, Optional
 
+from app.constants.llm_defaults import DEFAULT_MAX_TOKENS
 from app.llm.core.base import BaseLLMClient
 from app.llm.core.types import Message, Role
 from app.llm.retry import DEFAULT_MAX_RETRIES, FallbackTriggeredError, with_retry
-
-# 引擎纯 LLM 节点的默认输出上限（每模型配置缺省时的兜底）
-DEFAULT_NODE_MAX_TOKENS = 8192
 
 
 def _is_bundle(llm: object) -> bool:
@@ -43,7 +41,9 @@ async def llm_chat(
     bundle = llm if _is_bundle(llm) else None
     primary: BaseLLMClient = bundle.primary if bundle else llm  # type: ignore[assignment]
 
-    eff_max_tokens = max_tokens or (bundle.max_tokens if bundle else None) or DEFAULT_NODE_MAX_TOKENS
+    # 单轮无截断恢复路径：绝不使用小默认值（对齐 claude-code OpenAI 层结论——
+    # "无 escalate 重试的路径用小默认会静默截断"），缺省直接走大值兜底
+    eff_max_tokens = max_tokens or (bundle.max_tokens if bundle else None) or DEFAULT_MAX_TOKENS
     eff_temperature = temperature if temperature is not None else (bundle.temperature if bundle else None)
     retries = bundle.retry_times if bundle and bundle.retry_times is not None else DEFAULT_MAX_RETRIES
 

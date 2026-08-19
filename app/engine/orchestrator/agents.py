@@ -190,13 +190,22 @@ async def run_analyst(
 
         task_message = f"请对股票 {company_name} ({ticker}) 进行全面分析，交易日期：{trade_date}"
 
-        # EngineClientBundle（providers.py）携带每模型参数与 fallback
+        # EngineClientBundle（providers.py）携带每模型参数与 fallback。
+        # 压缩配置用该模型真实 context_window/max_tokens（limits/catalog 解析），
+        # 大窗口模型的分级 buffer（400k/800k 档）由此生效
         bundle = client if hasattr(client, "primary") else None
         compact_config = None
-        if bundle is not None and getattr(bundle, "context_window", None):
+        if bundle is not None:
+            from app.constants.llm_defaults import (
+                DEFAULT_CONTEXT_WINDOW,
+                DEFAULT_MAX_TOKENS,
+            )
             from app.llm.compact.auto_compactor import CompactConfig
 
-            compact_config = CompactConfig(context_window=bundle.context_window)
+            compact_config = CompactConfig(
+                context_window=getattr(bundle, "context_window", None) or DEFAULT_CONTEXT_WINDOW,
+                max_output_tokens=getattr(bundle, "max_tokens", None) or DEFAULT_MAX_TOKENS,
+            )
 
         result = await run_conversation(
             bundle.primary if bundle else client,

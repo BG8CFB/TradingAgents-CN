@@ -100,7 +100,7 @@
       <el-form-item label="模型参数">
         <div style="display: flex; gap: 16px; width: 100%;">
           <div style="flex: 1;">
-            <div class="param-label">最大Token</div>
+            <div class="param-label">单次输出上限(Token)</div>
             <el-input-number
               v-model="formData.max_tokens"
               :min="100"
@@ -108,6 +108,18 @@
               :step="100"
               style="width: 100%;"
             />
+          </div>
+          <div style="flex: 1;">
+            <div class="param-label">上下文窗口(Token)</div>
+            <el-input-number
+              v-model="formData.context_window"
+              :min="1000"
+              :max="10000000"
+              :step="1000"
+              :placeholder="contextWindowPlaceholder"
+              style="width: 100%;"
+            />
+            <div class="form-tip">留空自动继承模型目录窗口（{{ contextWindowPlaceholder }}）</div>
           </div>
           <div style="flex: 1;">
             <div class="param-label">温度</div>
@@ -228,7 +240,14 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { configApi, type LLMProvider, type LLMConfig, validateLLMConfig } from '@/api/config'
 import { getModelCapability } from '@/api/modelCapabilities'
-import { DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TIMEOUT, DEFAULT_RETRY_TIMES } from '@/constants/llmDefaults'
+import {
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_TEMPERATURE,
+  DEFAULT_TIMEOUT,
+  DEFAULT_RETRY_TIMES,
+  MAX_TOKENS_MAX,
+  DEFAULT_CONTEXT_WINDOW,
+} from '@/constants/llmDefaults'
 
 interface Props {
   visible: boolean
@@ -260,6 +279,7 @@ const defaultFormData = {
   model_display_name: '',
   api_base: '',
   max_tokens: DEFAULT_MAX_TOKENS,
+  context_window: undefined as number | undefined,
   temperature: DEFAULT_TEMPERATURE,
   timeout: DEFAULT_TIMEOUT,
   retry_times: DEFAULT_RETRY_TIMES,
@@ -290,19 +310,31 @@ interface ModelInfo {
   input_price_per_1k?: number | null
   output_price_per_1k?: number | null
   context_length?: number | null
+  max_tokens?: number | null
   currency?: string
 }
 
 const modelOptions = ref<Array<{ label: string; value: string }>>([])
 const modelCatalog = ref<Record<string, Array<ModelInfo>>>({})
-const DEFAULT_MAX_TOKENS_LIMIT = 128000
+const DEFAULT_MAX_TOKENS_LIMIT = MAX_TOKENS_MAX
 
+// 单次输出上限的校验上界：用模型目录的 max_tokens（输出能力），
+// 不得把 context_length（输入窗口）误当输出上限
 const maxTokensLimit = computed(() => {
   const models = modelCatalog.value[formData.value.provider]
   if (!models) return DEFAULT_MAX_TOKENS_LIMIT
   const info = models.find(m => m.name === formData.value.model_name)
-  if (info?.context_length && info.context_length > 0) return info.context_length
+  if (info?.max_tokens && info.max_tokens > 0) return info.max_tokens
   return DEFAULT_MAX_TOKENS_LIMIT
+})
+
+// 上下文窗口输入占位：显示目录 context_length（留空 = 自动继承）
+const contextWindowPlaceholder = computed(() => {
+  const models = modelCatalog.value[formData.value.provider]
+  const info = models?.find(m => m.name === formData.value.model_name)
+  return info?.context_length && info.context_length > 0
+    ? String(info.context_length)
+    : String(DEFAULT_CONTEXT_WINDOW)
 })
 
 const loadModelCatalog = async () => {
@@ -370,6 +402,7 @@ const fetchModels = async () => {
         input_price_per_1k: m.input_price_per_1k ?? null,
         output_price_per_1k: m.output_price_per_1k ?? null,
         context_length: m.context_length ?? null,
+        max_tokens: m.max_tokens ?? null,
         currency: m.currency || undefined,
       }))
       modelCatalog.value[formData.value.provider] = models
@@ -456,6 +489,7 @@ watch(
         currency: config.currency || defaultFormData.currency,
         model_display_name: config.model_display_name || '',
         suitable_roles: config.suitable_roles || [],
+        context_window: config.context_window ?? undefined,
       }
       modelOptions.value = getModelOptions(config.provider)
       if (config.model_name) {
@@ -487,6 +521,7 @@ watch(
           currency: props.config.currency || defaultFormData.currency,
           model_display_name: props.config.model_display_name || '',
           suitable_roles: props.config.suitable_roles || [],
+          context_window: props.config.context_window ?? undefined,
         }
         modelOptions.value = getModelOptions(props.config.provider)
         if (props.config.model_name) {

@@ -12,6 +12,7 @@
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
+from app.constants.llm_defaults import DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS
 from app.utils.logging_init import get_logger
 
 from ..core.base import BaseLLMClient
@@ -43,8 +44,10 @@ def _tiered_buffer(context_window: int) -> int:
 
 @dataclass
 class CompactConfig:
-    context_window: int = 128_000  # 模型上下文窗口
-    max_output_tokens: int = 8_192
+    # 兜底默认（单一源头 app/constants/llm_defaults.py）；实际值由调用方
+    # （agents.py 等）从 bundle/limits 解析后传入，禁止依赖小默认
+    context_window: int = DEFAULT_CONTEXT_WINDOW  # 模型上下文窗口（输入侧）
+    max_output_tokens: int = DEFAULT_MAX_TOKENS  # 单次输出上限（参与有效窗口扣减，封顶 20k）
     buffer: Optional[int] = None  # 缺省按窗口分级自动选择
     keep_recent_turns: int = 4  # microcompact 保留最近 N 轮
     min_tool_results_to_clear: int = 2  # 可清理的旧 tool_result 少于该数则直接走 LLM compact

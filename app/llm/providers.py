@@ -61,6 +61,7 @@ class EngineClientBundle:
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
     context_window: Optional[int] = None
+    upper_limit: Optional[int] = None  # 截断升级封顶（limits.py 解析）
     _meta: Dict[str, Any] = field(default_factory=dict)
 
     def __getattr__(self, name: str) -> Any:
@@ -184,7 +185,7 @@ _CONFIG_FIELDS = (
     "provider", "model_name", "api_key", "api_base", "custom_endpoint",
     "enabled", "suitable_roles", "priority",
     # 每模型参数（表单采集，此前未消费）
-    "max_tokens", "temperature", "timeout", "retry_times",
+    "max_tokens", "temperature", "timeout", "retry_times", "context_window",
 )
 
 
@@ -217,19 +218,41 @@ def _normalize_provider_defaults(provider_docs: Any) -> Dict[str, Dict[str, Any]
     return defaults
 
 
-def _build_context_length_index(catalog_docs: Any) -> Dict[str, int]:
-    """model_catalog 文档 → {(provider, model_name): context_length}"""
-    index: Dict[str, int] = {}
+def _build_catalog_index(catalog_docs: Any) -> Dict[str, Dict[str, Optional[int]]]:
+    """model_catalog 文档 → {(provider|model): {"context_length", "max_tokens"}}"""
+    index: Dict[str, Dict[str, Optional[int]]] = {}
     for doc in catalog_docs or []:
         if not isinstance(doc, dict):
             continue
         provider = (doc.get("provider") or "").strip().lower()
         for m in doc.get("models") or []:
             name = m.get("name")
+            if not name:
+                continue
             length = m.get("context_length")
-            if name and isinstance(length, int) and length > 0:
-                index[f"{provider}|{name}"] = length
+            max_tokens = m.get("max_tokens")
+            index[f"{provider}|{name}"] = {
+                "context_length": length if isinstance(length, int) and length > 0 else None,
+                "max_tokens": max_tokens if isinstance(max_tokens, int) and max_tokens > 0 else None,
+            }
     return index
+
+
+async def _load_catalog_index_async() -> Dict[str, Dict[str, Optional[int]]]:
+    """motor 异步读取 model_catalog（主路径）；失败返回空 dict 由 limits 兜底。"""
+    try:
+        from app.core.database import get_mongo_db
+
+        db = get_mongo_db()
+        cursor = db.model_catalog.find(
+            {},
+            {"provider": 1, "models.name": 1, "models.max_tokens": 1, "models.context_length": 1},
+        )
+        docs = await cursor.to_list(200)
+        return _build_catalog_index(docs)
+    except Exception as e:  # noqa: BLE001 - catalog 不可用不阻断，limits 常量兜底
+        logger.info(f"[providers] 异步读取 model_catalog 失败: {e}")
+        return {}
 
 
 async def _load_provider_defaults_async() -> Dict[str, Dict[str, Any]]:
@@ -261,7 +284,7 @@ def _load_all_sync() -> tuple:
             ).limit(200)
         )
         catalog_docs = list(db.model_catalog.find({}, {"provider": 1, "models": 1}).limit(200))
-        return configs, _normalize_provider_defaults(provider_docs), _build_context_length_index(catalog_docs)
+        return configs, _normalize_provider_defaults(provider_docs), _build_catalog_index(catalog_docs)
     except Exception as e:  # noqa: BLE001 - 数据库不可用（独立测试场景）
         logger.info(f"[providers] 同步读取数据库配置失败: {e}")
         return [], {}, {}
@@ -271,24 +294,41 @@ async def _resolve_role_bundle(
     role: str,
     configs: List[Dict[str, Any]],
     provider_defaults: Dict[str, Dict[str, Any]],
-    context_index: Dict[str, int],
+    catalog_index: Dict[str, Dict[str, Optional[int]]],
 ) -> EngineClientBundle:
-    """单角色解析：primary + fallback + 参数；DB 无配置时 .env 回退"""
+    """单角色解析：primary + fallback + 参数；DB 无配置时 .env 回退。
+
+    输出上限/窗口经 limits.resolve_output_limits 统一解析（显式配置 >
+    model_catalog > 环境变量 > 常量兜底），并注入全局 catalog 索引供
+    runner 截断升级等后续解析使用。
+    """
+    from .limits import resolve_output_limits, set_catalog_index
+
+    if catalog_index:
+        set_catalog_index(catalog_index)
+
     resolved = resolve_provider(configs, role, provider_defaults)
     if resolved is None:
         resolved = resolve_from_env()
         logger.info(f"[providers] role={role} 无数据库配置，使用 .env 回退 ({resolved.model})")
-    else:
-        if not resolved.context_window:
-            provider = next(
-                (c.get("provider", "") for c in configs if c.get("model_name") == resolved.model), ""
-            ).strip().lower()
-            resolved.context_window = context_index.get(f"{provider}|{resolved.model}")
-        logger.info(
-            f"[providers] role={role} → {resolved.protocol}:{resolved.model} "
-            f"(数据库配置, base_url={resolved.base_url or '默认'}, "
-            f"max_tokens={resolved.max_tokens or '默认'}, context_window={resolved.context_window or '未知'})"
-        )
+
+    provider = next(
+        (c.get("provider", "") for c in configs if c.get("model_name") == resolved.model), ""
+    ).strip().lower()
+    limits_ = resolve_output_limits(
+        resolved.model,
+        provider or None,
+        db_max_tokens=resolved.max_tokens,
+        db_context_window=resolved.context_window,
+    )
+    bundle_max_tokens = resolved.max_tokens or limits_.max_tokens
+    bundle_context_window = resolved.context_window or limits_.context_window
+    logger.info(
+        f"[providers] role={role} → {resolved.protocol}:{resolved.model} "
+        f"(数据库配置, base_url={resolved.base_url or '默认'}, "
+        f"max_tokens={bundle_max_tokens}, upper_limit={limits_.upper_limit}, "
+        f"context_window={bundle_context_window or '未知'})"
+    )
 
     fallback_resolved = _resolve_fallback(configs, role, resolved.model, provider_defaults)
     fallback_client = None
@@ -305,9 +345,10 @@ async def _resolve_role_bundle(
         primary=build_client(resolved),
         fallback=fallback_client,
         retry_times=resolved.retry_times,
-        max_tokens=resolved.max_tokens,
+        max_tokens=bundle_max_tokens,
         temperature=resolved.temperature,
-        context_window=resolved.context_window,
+        context_window=bundle_context_window,
+        upper_limit=limits_.upper_limit,
     )
 
 
@@ -326,7 +367,7 @@ async def resolve_task_override_bundle(
     """
     configs: List[Dict[str, Any]] = []
     provider_defaults: Dict[str, Dict[str, Any]] = {}
-    context_index: Dict[str, int] = {}
+    catalog_index: Dict[str, Dict[str, Optional[int]]] = {}
     try:
         from app.services.config import config_service
 
@@ -336,30 +377,41 @@ async def resolve_task_override_bundle(
         )
         if configs:
             provider_defaults = await _load_provider_defaults_async()
+            catalog_index = await _load_catalog_index_async()
     except Exception as e:  # noqa: BLE001 - 数据库不可用时仅用入参
         logger.info(f"[providers] 任务覆盖读取数据库配置失败: {e}")
     if not configs:
-        configs, provider_defaults, context_index = _load_all_sync()
+        configs, provider_defaults, catalog_index = _load_all_sync()
 
     # 同名模型配置继承每模型参数（覆盖路径不应丢失 DB 参数）
     inherit = next((c for c in configs if c.get("model_name") == model), None) or {}
     prov = provider or inherit.get("provider") or "openai"
     defaults = provider_defaults.get(prov.strip().lower()) or {}
+
+    from .limits import resolve_output_limits, set_catalog_index
+
+    if catalog_index:
+        set_catalog_index(catalog_index)
+    limits_ = resolve_output_limits(
+        model,
+        prov,
+        db_max_tokens=inherit.get("max_tokens"),
+        db_context_window=inherit.get("context_window"),
+    )
+    db_max = inherit.get("max_tokens")
+    db_window = inherit.get("context_window")
+
     resolved = ResolvedProvider(
         protocol=infer_protocol(prov, defaults.get("protocol")),
         model=model,
         api_key=api_key or inherit.get("api_key") or defaults.get("api_key") or "",
         base_url=base_url or inherit.get("api_base") or defaults.get("default_base_url") or None,
         source="engine-config",
-        max_tokens=inherit.get("max_tokens"),
+        max_tokens=db_max or limits_.max_tokens,
         temperature=inherit.get("temperature"),
         timeout=inherit.get("timeout"),
         retry_times=inherit.get("retry_times"),
-        context_window=None,
-    )
-    provider_l = prov.strip().lower()
-    resolved.context_window = inherit.get("context_window") or context_index.get(
-        f"{provider_l}|{model}"
+        context_window=db_window or limits_.context_window,
     )
     if not resolved.api_key:
         return None
@@ -370,10 +422,11 @@ async def resolve_task_override_bundle(
         max_tokens=resolved.max_tokens,
         temperature=resolved.temperature,
         context_window=resolved.context_window,
+        upper_limit=limits_.upper_limit,
     )
     logger.info(
         f"[providers] 任务覆盖 → {resolved.protocol}:{model} "
-        f"(max_tokens={resolved.max_tokens or '默认'}, "
+        f"(max_tokens={resolved.max_tokens}, upper_limit={limits_.upper_limit}, "
         f"context_window={resolved.context_window or '未知'})"
     )
     return bundle
@@ -386,7 +439,7 @@ async def get_engine_clients() -> Dict[str, EngineClientBundle]:
     """
     configs: List[Dict[str, Any]] = []
     provider_defaults: Dict[str, Dict[str, Any]] = {}
-    context_index: Dict[str, int] = {}
+    catalog_index: Dict[str, Dict[str, Optional[int]]] = {}
     try:
         from app.services.config import config_service
 
@@ -398,13 +451,14 @@ async def get_engine_clients() -> Dict[str, EngineClientBundle]:
         logger.info(f"[providers] 数据库配置不可用: {e}")
     if configs:
         provider_defaults = await _load_provider_defaults_async()
+        catalog_index = await _load_catalog_index_async()
     else:
         # motor 读取失败（常见于分析工作线程跨事件循环）→ pymongo 同步回退
-        configs, provider_defaults, context_index = _load_all_sync()
+        configs, provider_defaults, catalog_index = _load_all_sync()
         if configs:
             logger.info("[providers] motor 不可用，已通过 pymongo 同步读取数据库配置")
 
     bundles: Dict[str, EngineClientBundle] = {}
     for role in ("analyst", "debate"):
-        bundles[role] = await _resolve_role_bundle(role, configs, provider_defaults, context_index)
+        bundles[role] = await _resolve_role_bundle(role, configs, provider_defaults, catalog_index)
     return bundles

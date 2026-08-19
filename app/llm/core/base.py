@@ -36,7 +36,7 @@ class BaseLLMClient(ABC):
         *,
         system: Optional[str] = None,
         tools: Optional[List[ToolDef]] = None,
-        max_tokens: int = 4096,
+        max_tokens: Optional[int] = None,  # None=用客户端实例烙入值
         temperature: Optional[float] = None,
         **kwargs,
     ) -> ChatResponse:
@@ -49,7 +49,7 @@ class BaseLLMClient(ABC):
         *,
         system: Optional[str] = None,
         tools: Optional[List[ToolDef]] = None,
-        max_tokens: int = 4096,
+        max_tokens: Optional[int] = None,  # None=用客户端实例烙入值
         temperature: Optional[float] = None,
         **kwargs,
     ) -> AsyncIterator[StreamEvent]:

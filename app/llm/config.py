@@ -12,6 +12,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, MAX_TOKENS_MAX
 from app.utils.logging_init import get_logger
 
 logger = get_logger("app.llm.config")
@@ -46,17 +47,30 @@ class LLMConfig:
     openai_base_url: str = DEFAULT_OPENAI_BASE_URL
     default_model: str = DEFAULT_MODEL
     timeout: float = 300.0  # 长思考模型可能较慢，参考 claude-code 默认 600s，取 300s
-    max_tokens: int = 4096
+    # 兜底默认（单一源头 app/constants/llm_defaults.py；此前 4096 曾导致推理模型
+    # 思考阶段即截断、正文为空——2026-08-19 事故）。LLM_DEFAULT_MAX_TOKENS 作全局回滚开关。
+    max_tokens: int = DEFAULT_MAX_TOKENS
 
 
 def load_config() -> LLMConfig:
     """从环境变量加载配置（独立使用时先加载项目根 .env）"""
     _load_dotenv_once()
+    raw_max_tokens = os.getenv("LLM_DEFAULT_MAX_TOKENS", "").strip()
+    max_tokens = DEFAULT_MAX_TOKENS
+    if raw_max_tokens:
+        try:
+            val = int(raw_max_tokens)
+        except ValueError:
+            logger.warning(f"⚠️ [app.llm] LLM_DEFAULT_MAX_TOKENS 非法: {raw_max_tokens!r}，忽略")
+        else:
+            if val >= 1:
+                max_tokens = min(val, MAX_TOKENS_MAX)
     cfg = LLMConfig(
         api_key=os.getenv("ARK_API_KEY", ""),
         anthropic_base_url=os.getenv("ARK_ANTHROPIC_BASE_URL", DEFAULT_ANTHROPIC_BASE_URL),
         openai_base_url=os.getenv("ARK_OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL),
         default_model=os.getenv("LLM_DEFAULT_MODEL", DEFAULT_MODEL),
+        max_tokens=max_tokens,
     )
     if not cfg.api_key:
         logger.warning("⚠️ [app.llm] ARK_API_KEY 未配置，调用将在创建客户端时报 AuthError")
