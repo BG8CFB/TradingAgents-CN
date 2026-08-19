@@ -583,6 +583,59 @@ class LLMService:
         """
         return is_valid_api_key(api_key)
 
+    async def migrate_model_protocol_to_providers(self) -> Dict[str, Any]:
+        """一次性迁移：模型配置(llm_configs)中的 protocol 回填到厂家配置(llm_providers)。
+
+        背景：请求协议已上移到厂家级，存量模型级 protocol 需迁移，避免旧字段残留误导。
+        幂等：回填后用 pipeline update 将 llm_configs 内嵌文档的 protocol 置为 $$REMOVE，
+        二次执行时无模型级 protocol 可迁移，自然无操作。
+        """
+        result: Dict[str, Any] = {"migrated_providers": 0, "cleaned_configs": 0}
+        try:
+            db = await self._get_db()
+            doc = await db.system_configs.find_one(
+                {"is_active": True}, sort=[("version", -1)]
+            )
+            llm_configs = (doc or {}).get("llm_configs") or []
+            # provider(lower) → 模型级显式 protocol（仅合法值）
+            pending: Dict[str, str] = {}
+            for c in llm_configs:
+                if not isinstance(c, dict):
+                    continue
+                p = (c.get("protocol") or "").strip().lower()
+                name = (c.get("provider") or "").strip().lower()
+                if p in ("anthropic", "openai") and name:
+                    pending.setdefault(name, p)
+            if not pending:
+                return result
+
+            # 厂家文档 protocol 为空时回填
+            for name, protocol in pending.items():
+                update_result = await db.llm_providers.update_one(
+                    {"name": {"$regex": f"^{name}$", "$options": "i"},
+                     "$or": [{"protocol": None}, {"protocol": ""}, {"protocol": {"$exists": False}}]},
+                    {"$set": {"protocol": protocol, "updated_at": now_tz()}},
+                )
+                result["migrated_providers"] += update_result.modified_count
+
+            # 清理模型配置内嵌文档中的旧 protocol 字段（读出 → Python 剥离 → 整体写回；
+            # 注：$$REMOVE 仅在 $set 字段值直接位置生效，嵌套在 $mergeObjects/$map 内无效）
+            cleaned = [
+                {k: v for k, v in c.items() if k != "protocol"} if isinstance(c, dict) else c
+                for c in llm_configs
+            ]
+            if any("protocol" in c for c in llm_configs if isinstance(c, dict)):
+                await db.system_configs.update_one({"_id": doc["_id"]}, {"$set": {"llm_configs": cleaned}})
+                result["cleaned_configs"] = 1
+            if result["migrated_providers"] or result["cleaned_configs"]:
+                logger.info(
+                    f"✅ [protocol迁移] 厂家回填 {result['migrated_providers']} 条，"
+                    f"清理模型级字段 {result['cleaned_configs']} 个文档"
+                )
+        except Exception as e:  # noqa: BLE001 - 迁移失败不阻断启动，靠厂家名推断兜底
+            logger.warning(f"⚠️ [protocol迁移] 失败（不影响启动，按厂家名推断兜底）: {e}")
+        return result
+
     async def add_llm_provider(self, provider: LLMProvider) -> str:
         """添加大模型厂家"""
         try:

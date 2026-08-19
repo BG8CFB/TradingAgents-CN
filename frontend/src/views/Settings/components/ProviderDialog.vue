@@ -80,6 +80,15 @@
         />
       </el-form-item>
 
+      <el-form-item label="请求协议" prop="protocol">
+        <el-select v-model="formData.protocol" placeholder="自动推断" clearable>
+          <el-option label="自动推断（按厂家名）" value="" />
+          <el-option label="OpenAI 兼容" value="openai" />
+          <el-option label="Anthropic" value="anthropic" />
+        </el-select>
+        <div class="form-tip">该厂家所有模型使用的请求协议，留空按厂家名自动推断</div>
+      </el-form-item>
+
       <el-form-item label="API Key" prop="api_key">
         <el-input
           v-model="formData.api_key"
@@ -223,6 +232,7 @@ const presetProviders = [
     name: 'anthropic',
     display_name: 'Anthropic',
     default_base_url: 'https://api.anthropic.com',
+    protocol: 'anthropic',
     supported_features: ['chat', 'completion', 'function_calling', 'streaming'],
     provider_type: 'llm',
     register_url: 'https://console.anthropic.com/signup',
@@ -261,6 +271,7 @@ const formData = ref<ProviderFormData>({
   name: '',
   display_name: '',
   default_base_url: '',
+  protocol: '',
   api_key: '',
   api_secret: '',
   supported_features: [],
@@ -286,6 +297,7 @@ const resetForm = () => {
     name: '',
     display_name: '',
     default_base_url: '',
+    protocol: '',
     api_key: '',
     api_secret: '',
     supported_features: [],
@@ -349,6 +361,12 @@ const handleSubmit = async () => {
       payload.supported_features = ['chat', 'completion', 'function_calling', 'streaming']
     }
     delete payload.provider_type
+
+    // 协议留空表示按厂家名推断：编辑时显式置 null 清除旧值，新增时不提交
+    if (!payload.protocol) {
+      payload.protocol = isEdit.value ? null : undefined
+      if (payload.protocol === undefined) delete payload.protocol
+    }
 
     // 处理 API Key
     if ('api_key' in payload) {

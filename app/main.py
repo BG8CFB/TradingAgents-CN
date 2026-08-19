@@ -212,6 +212,14 @@ async def _init_system_defaults(logger):
     await SystemInitService.initialize_system()
 
 
+async def _migrate_protocol_to_providers(logger):
+    """一次性迁移：模型级 protocol 回填到厂家级（幂等，失败不阻断启动）"""
+    from app.services.config.llm_service import LLMService
+    result = await LLMService().migrate_model_protocol_to_providers()
+    if result.get("migrated_providers") or result.get("cleaned_configs"):
+        logger.info(f"🔄 协议字段上移厂家级迁移完成: {result}")
+
+
 async def _init_config_bridge(logger):
     """将数据库配置桥接到环境变量"""
     try:
@@ -367,8 +375,13 @@ async def lifespan(app: FastAPI):
     from app.core.async_utils import set_main_loop
     set_main_loop(asyncio.get_running_loop())
 
+    # 注入主循环给 token 用量记录器（跨线程 fire-and-forget 写 Mongo，模式同 analysis_events）
+    from app.services.token_usage_recorder import token_usage_recorder
+    token_usage_recorder.set_server_loop(asyncio.get_running_loop())
+
     await _init_secrets(logger)
     await _init_system_defaults(logger)
+    await _migrate_protocol_to_providers(logger)
     await _init_config_bridge(logger)
     await _apply_dynamic_settings(logger)
 

@@ -18,6 +18,7 @@ export interface LLMProvider {
   is_active: boolean
   supported_features: string[]
   default_base_url?: string
+  protocol?: string  // 请求协议: openai / anthropic，留空按厂家名自动推断
   extra_config?: {
     has_api_key?: boolean
     source?: 'environment' | 'database'
@@ -37,7 +38,6 @@ export interface LLMConfig {
   model_display_name?: string  // 新增：模型显示名称
   api_key?: string  // 可选，优先从厂家配置获取
   api_base?: string
-  protocol?: string  // 请求协议: openai / anthropic，留空按厂家自动推断
   max_tokens: number
   temperature: number
   timeout: number

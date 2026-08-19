@@ -60,6 +60,9 @@ class LLMProvider(BaseModel):
     api_key: Optional[str] = Field(None, description="API密钥")
     api_secret: Optional[str] = Field(None, description="API密钥（某些厂家需要）")
     extra_config: Dict[str, Any] = Field(default_factory=dict, description="额外配置参数")
+    # 请求协议：anthropic（原生 Messages API）| openai（OpenAI 兼容 chat/completions）
+    # 缺省按厂家名推断（anthropic/claude/ark/volcengine→anthropic，其余→openai）
+    protocol: Optional[str] = Field(None, description="请求协议(anthropic/openai)，缺省按厂家名推断")
 
     # 🆕 聚合渠道支持
     is_aggregator: bool = Field(default=False, description="是否为聚合渠道（如302.AI、OpenRouter）")
@@ -117,6 +120,7 @@ class LLMProviderRequest(BaseModel):
     api_key: Optional[str] = Field(None, description="API密钥")
     api_secret: Optional[str] = Field(None, description="API密钥（某些厂家需要）")
     extra_config: Dict[str, Any] = Field(default_factory=dict, description="额外配置参数")
+    protocol: Optional[str] = Field(None, description="请求协议(anthropic/openai)")
 
     # 🆕 聚合渠道支持
     is_aggregator: bool = Field(default=False, description="是否为聚合渠道")
@@ -139,6 +143,7 @@ class LLMProviderResponse(BaseModel):
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
     extra_config: Dict[str, Any] = Field(default_factory=dict)
+    protocol: Optional[str] = None
 
     # 聚合渠道支持
     is_aggregator: bool = False
@@ -202,9 +207,7 @@ class DatabaseType(str, Enum):
 class LLMConfig(BaseModel):
     """大模型配置"""
     provider: str = Field(default="openai", description="供应商标识（支持动态添加）")
-    # 请求协议：anthropic（原生 Messages API）| openai（OpenAI 兼容 chat/completions）
-    # 缺省按 provider 推断（anthropic→anthropic，其余→openai）
-    protocol: Optional[str] = Field(None, description="请求协议(anthropic/openai)，缺省按provider推断")
+    # 请求协议已上移到厂家配置（LLMProvider.protocol），此处不再保存
     model_name: str = Field(..., description="模型名称/代码")
     model_display_name: Optional[str] = Field(None, description="模型显示名称")
     api_key: Optional[str] = Field(None, description="API密钥(可选，优先从厂家配置获取)")
@@ -300,7 +303,7 @@ class DataSourceGrouping(BaseModel):
 
 
 class UsageRecord(BaseModel):
-    """使用记录"""
+    """使用记录（每次 LLM API 调用一条，per-call 粒度）"""
     id: Optional[str] = Field(None, description="记录ID")
     timestamp: str = Field(..., description="时间戳")
     provider: str = Field(..., description="供应商")
@@ -309,9 +312,15 @@ class UsageRecord(BaseModel):
     output_tokens: int = Field(..., description="输出token数")
     cost: float = Field(..., description="成本")
     currency: str = Field(default="CNY", description="货币单位")
-    session_id: str = Field(..., description="会话ID")
+    session_id: str = Field(default="", description="会话ID（语义升级为 task_id，保留字段兼容）")
     analysis_type: str = Field(default="stock_analysis", description="分析类型")
     stock_code: Optional[str] = Field(None, description="股票代码")
+    task_id: str = Field(default="", description="分析任务ID")
+    user_id: str = Field(default="", description="任务发起者用户ID")
+    agent_key: str = Field(default="", description="智能体标识（英文 key，显示名由前端配置解析）")
+    phase: str = Field(default="", description="阶段（analysts/research/trader/risk/summary 等）")
+    cache_creation_input_tokens: int = Field(default=0, description="缓存写入token（Anthropic prompt caching）")
+    cache_read_input_tokens: int = Field(default=0, description="缓存命中token（Anthropic cache_read / OpenAI cached_tokens）")
 
 
 class UsageStatistics(BaseModel):
@@ -319,11 +328,15 @@ class UsageStatistics(BaseModel):
     total_requests: int = Field(default=0, description="总请求数")
     total_input_tokens: int = Field(default=0, description="总输入token数")
     total_output_tokens: int = Field(default=0, description="总输出token数")
+    total_cache_read_tokens: int = Field(default=0, description="缓存命中token总数")
+    total_cache_creation_tokens: int = Field(default=0, description="缓存写入token总数")
     total_cost: float = Field(default=0.0, description="总成本（已废弃，使用 cost_by_currency）")
     cost_by_currency: Dict[str, float] = Field(default_factory=dict, description="按货币统计的成本")
     by_provider: Dict[str, Any] = Field(default_factory=dict, description="按供应商统计")
     by_model: Dict[str, Any] = Field(default_factory=dict, description="按模型统计")
     by_date: Dict[str, Any] = Field(default_factory=dict, description="按日期统计")
+    by_task: Dict[str, Any] = Field(default_factory=dict, description="按任务统计")
+    by_agent: Dict[str, Any] = Field(default_factory=dict, description="按智能体统计")
 
 
 class SystemConfig(BaseModel):
@@ -362,7 +375,6 @@ class SystemConfig(BaseModel):
 class LLMConfigRequest(BaseModel):
     """大模型配置请求"""
     provider: str = Field(..., description="供应商标识（支持动态添加）")
-    protocol: Optional[str] = Field(None, description="请求协议(anthropic/openai)，缺省按provider推断")
     model_name: str
     model_display_name: Optional[str] = None  # 新增：模型显示名称
     api_key: Optional[str] = None  # 可选，优先从厂家配置获取

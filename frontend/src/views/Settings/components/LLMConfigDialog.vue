@@ -77,17 +77,6 @@
         </div>
       </el-form-item>
 
-      <el-form-item label="请求协议" prop="protocol">
-        <el-select v-model="formData.protocol" placeholder="自动推断" clearable>
-          <el-option label="自动推断（按厂家默认）" value="" />
-          <el-option label="OpenAI 兼容" value="openai" />
-          <el-option label="Anthropic" value="anthropic" />
-        </el-select>
-        <div class="form-tip">
-          留空按厂家自动推断；兼容 Anthropic Messages 协议的端点（如火山 Ark）选 Anthropic
-        </div>
-      </el-form-item>
-
       <el-form-item label="显示名称" prop="model_display_name">        <el-input
           v-model="formData.model_display_name"
           placeholder="模型显示名称，如：Qwen3 Flash - 快速经济"
@@ -269,7 +258,6 @@ const defaultFormData = {
   provider: '',
   model_name: '',
   model_display_name: '',
-  protocol: '',
   api_base: '',
   max_tokens: DEFAULT_MAX_TOKENS,
   temperature: DEFAULT_TEMPERATURE,
@@ -414,7 +402,6 @@ const handleProviderChange = async (provider: string) => {
   }
 
   formData.value.model_name = ''
-  formData.value.protocol = ''
   formData.value.input_price_per_1k = 0
   formData.value.output_price_per_1k = 0
   formData.value.currency = 'CNY'
@@ -468,7 +455,6 @@ watch(
         output_price_per_1k: config.output_price_per_1k ?? defaultFormData.output_price_per_1k,
         currency: config.currency || defaultFormData.currency,
         model_display_name: config.model_display_name || '',
-        protocol: config.protocol || '',
         suitable_roles: config.suitable_roles || [],
       }
       modelOptions.value = getModelOptions(config.provider)
@@ -500,7 +486,6 @@ watch(
           output_price_per_1k: props.config.output_price_per_1k ?? defaultFormData.output_price_per_1k,
           currency: props.config.currency || defaultFormData.currency,
           model_display_name: props.config.model_display_name || '',
-          protocol: props.config.protocol || '',
           suitable_roles: props.config.suitable_roles || [],
         }
         modelOptions.value = getModelOptions(props.config.provider)

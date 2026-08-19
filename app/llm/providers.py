@@ -1,8 +1,8 @@
 """
 模型配置 → 客户端解析（后端"添加模型"配置驱动，双协议通用端点）
 
-- 数据库模型配置（app/models/config.py LLMConfig）含 protocol 字段
-  （anthropic | openai，缺省按 provider 推断）
+- 请求协议（anthropic | openai）在厂家配置（llm_providers.protocol）上填写；
+  厂家未填时按厂家名推断（infer_protocol）
 - API Key / base_url 解析优先级（与 test_llm_config 语义一致）：
   模型配置自身 > 厂家配置（llm_providers 集合的 api_key / default_base_url）> .env 回退
 - providers.py 把启用的模型配置解析为 EngineClientBundle：
@@ -74,12 +74,12 @@ class EngineClientBundle:
 
 
 def infer_protocol(provider: str, protocol: Optional[str] = None) -> str:
-    """协议解析：显式 protocol 优先，否则按 provider 推断"""
+    """协议解析：厂家显式 protocol 优先，否则按厂家名推断"""
     if protocol:
         p = protocol.strip().lower()
         if p in ("anthropic", "openai"):
             return p
-        logger.warning(f"⚠️ [providers] 未知 protocol '{protocol}'，按 provider 推断")
+        logger.warning(f"⚠️ [providers] 未知 protocol '{protocol}'，按厂家名推断")
     return _PROVIDER_PROTOCOL.get((provider or "").strip().lower(), DEFAULT_PROTOCOL)
 
 
@@ -101,8 +101,8 @@ def resolve_provider(
 ) -> Optional[ResolvedProvider]:
     """数据库配置 → ResolvedProvider；无可用配置返回 None。
 
-    provider_defaults：{provider_name: {"api_key":…, "default_base_url":…}}（厂家配置），
-    模型配置缺 key/base_url 时按 provider 回退（与 llm_service.test_llm_config 同语义）。
+    provider_defaults：{provider_name: {"api_key":…, "default_base_url":…, "protocol":…}}（厂家配置），
+    模型配置缺 key/base_url 时按 provider 回退，协议取厂家级 protocol（与 llm_service.test_llm_config 同语义）。
     """
     candidates = _pick_candidates(configs, role)
     if not candidates:
@@ -112,7 +112,7 @@ def resolve_provider(
     api_key = cfg.get("api_key") or defaults.get("api_key") or ""
     base_url = cfg.get("api_base") or cfg.get("custom_endpoint") or defaults.get("default_base_url") or None
     return ResolvedProvider(
-        protocol=infer_protocol(cfg.get("provider", ""), cfg.get("protocol")),
+        protocol=infer_protocol(cfg.get("provider", ""), defaults.get("protocol")),
         model=cfg["model_name"],
         api_key=api_key,
         base_url=base_url,
@@ -137,7 +137,7 @@ def _resolve_fallback(
         if cfg["model_name"] != primary_model:
             defaults = (provider_defaults or {}).get((cfg.get("provider") or "").strip().lower()) or {}
             return ResolvedProvider(
-                protocol=infer_protocol(cfg.get("provider", ""), cfg.get("protocol")),
+                protocol=infer_protocol(cfg.get("provider", ""), defaults.get("protocol")),
                 model=cfg["model_name"],
                 api_key=cfg.get("api_key") or defaults.get("api_key") or "",
                 base_url=(
@@ -181,7 +181,7 @@ def build_client(resolved: ResolvedProvider) -> BaseLLMClient:
 # "attached to a different loop"，因此提供 pymongo 同步回退。
 
 _CONFIG_FIELDS = (
-    "provider", "protocol", "model_name", "api_key", "api_base", "custom_endpoint",
+    "provider", "model_name", "api_key", "api_base", "custom_endpoint",
     "enabled", "suitable_roles", "priority",
     # 每模型参数（表单采集，此前未消费）
     "max_tokens", "temperature", "timeout", "retry_times",
@@ -204,7 +204,7 @@ def _normalize_llm_configs(raw_configs: Any) -> List[Dict[str, Any]]:
 
 
 def _normalize_provider_defaults(provider_docs: Any) -> Dict[str, Dict[str, Any]]:
-    """llm_providers 文档 → {provider_name(lower): {api_key, default_base_url}}"""
+    """llm_providers 文档 → {provider_name(lower): {api_key, default_base_url, protocol}}"""
     defaults: Dict[str, Dict[str, Any]] = {}
     for p in provider_docs or []:
         if not isinstance(p, dict) or not p.get("name"):
@@ -212,6 +212,7 @@ def _normalize_provider_defaults(provider_docs: Any) -> Dict[str, Dict[str, Any]
         defaults[str(p["name"]).strip().lower()] = {
             "api_key": p.get("api_key") or "",
             "default_base_url": p.get("default_base_url") or None,
+            "protocol": p.get("protocol") or None,
         }
     return defaults
 
@@ -237,7 +238,9 @@ async def _load_provider_defaults_async() -> Dict[str, Dict[str, Any]]:
         from app.core.database import get_mongo_db
 
         db = get_mongo_db()
-        docs = await db.llm_providers.find({}, {"name": 1, "api_key": 1, "default_base_url": 1}).to_list(200)
+        docs = await db.llm_providers.find(
+            {}, {"name": 1, "api_key": 1, "default_base_url": 1, "protocol": 1}
+        ).to_list(200)
         return _normalize_provider_defaults(docs)
     except Exception as e:  # noqa: BLE001
         logger.info(f"[providers] 异步读取厂家配置失败: {e}")
@@ -253,7 +256,9 @@ def _load_all_sync() -> tuple:
         doc = db.system_configs.find_one({"is_active": True}, sort=[("version", -1)])
         configs = _normalize_llm_configs((doc or {}).get("llm_configs"))
         provider_docs = list(
-            db.llm_providers.find({}, {"name": 1, "api_key": 1, "default_base_url": 1}).limit(200)
+            db.llm_providers.find(
+                {}, {"name": 1, "api_key": 1, "default_base_url": 1, "protocol": 1}
+            ).limit(200)
         )
         catalog_docs = list(db.model_catalog.find({}, {"provider": 1, "models": 1}).limit(200))
         return configs, _normalize_provider_defaults(provider_docs), _build_context_length_index(catalog_docs)
