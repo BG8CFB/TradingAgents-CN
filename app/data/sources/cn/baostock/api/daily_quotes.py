@@ -69,8 +69,8 @@ async def fetch_daily_quotes(
     - 其他 → DataSourceUnavailableError
     """
     bs_code = _to_baostock_code(code)
-    start = start_date.replace("-", "")
-    end = end_date.replace("-", "")
+    # BaoStock 要求 yyyy-mm-dd（带连字符），传 yyyyMMdd 会报“日期格式不正确”
+    start, end = start_date, end_date
     hint = f"code={code}"
 
     def _fetch():
@@ -128,8 +128,8 @@ async def fetch_adj_factors(
     异常分类同 fetch_daily_quotes。
     """
     bs_code = _to_baostock_code(code)
-    start = start_date.replace("-", "")
-    end = end_date.replace("-", "")
+    # BaoStock 要求 yyyy-mm-dd（带连字符），传 yyyyMMdd 会报“日期格式不正确”
+    start, end = start_date, end_date
     hint = f"code={code}"
 
     def _fetch():

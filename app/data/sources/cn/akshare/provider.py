@@ -50,11 +50,14 @@ def _filter_by_date(
         s = str(val)[:10].replace("-", "")
         return s
 
-    mask = df[date_col].apply(_norm)
+    # 分别计算上下界条件再合并：此前 mask 被两次比较覆盖，
+    # 第二次 bool Series 与字符串比较直接抛 TypeError
+    normed = df[date_col].apply(_norm)
+    mask = pd.Series(True, index=df.index)
     if sd:
-        mask = mask >= sd
+        mask &= normed >= sd
     if ed:
-        mask = mask <= ed
+        mask &= normed <= ed
     return df[mask].copy()
 
 
@@ -137,7 +140,8 @@ class AKShareCNProvider(BaseProvider):
     async def get_market_quotes(self, symbols=None, **kwargs) -> pd.DataFrame:
         from .api.quotes_batch import fetch_batch_quotes
 
-        return await fetch_batch_quotes([])
+        # 此前硬编码传空列表，导致任何调用都"所有策略链均无数据 (codes=0)"
+        return await fetch_batch_quotes(list(symbols) if symbols else [])
 
     async def get_intraday_quotes(
         self, symbol: str, start_date: str, end_date: str, **kwargs
@@ -146,9 +150,10 @@ class AKShareCNProvider(BaseProvider):
 
         freq = kwargs.get("freq", "30")
         df = await fetch_intraday_quotes(symbol, period=freq)
-        # AKShare 分钟线返回 "时间" 列（如 "2024-01-15 14:30"），截取前 10 字符做日期过滤
+        # EM 分钟线列名 "时间"，新浪 stock_zh_a_minute 回退列名 "day"，
+        # 截取前 10 字符做日期过滤
         return _filter_by_date(
-            df, start_date, end_date, date_cols=["时间", "date", "trade_date"]
+            df, start_date, end_date, date_cols=["时间", "day", "date", "trade_date"]
         )
 
     async def get_money_flow(

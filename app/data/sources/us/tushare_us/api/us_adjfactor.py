@@ -1,23 +1,24 @@
 """
 Tushare US 美股复权因子 API
+
+调用模板收敛在 app/data/sources/tushare_common/caller.py。
+
+异常语义：NetworkError / RateLimitedError / TokenInvalidError /
+InsufficientCreditsError / DataNotFoundError / DataSourceUnavailableError
+由 call_tushare 统一抛出（内部经 map_tushare_code 错误码分类）。
 """
-import asyncio
 import logging
 from typing import Optional
 
 import pandas as pd
 
-from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
-from app.data.sources.base.mappers import (
-    is_empty_result,
-    map_network_exception,
-    map_tushare_code,
-)
+from app.data.sources.tushare_common.caller import call_tushare
 from app.data.sources.us.tushare_us.code_resolver import get_us_ts_code
 
 logger = logging.getLogger(__name__)
 
 _DOMAIN = "adj_factors"
+_SOURCE = "tushare_us"
 
 
 async def fetch_adj_factors(
@@ -40,27 +41,13 @@ async def fetch_adj_factors(
     if api is None:
         return None
     us_code = await get_us_ts_code(ts_code, api=api)
-    try:
-        df = await asyncio.to_thread(
-            api.us_adjfactor,
-            ts_code=us_code,
-            start_date=start_date.replace("-", ""),
-            end_date=end_date.replace("-", ""),
-        )
-    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
-        raise map_network_exception(exc, "tushare_us", _DOMAIN)
-    except Exception as exc:
-        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
-        mapped = map_tushare_code(error_code, "tushare_us", _DOMAIN, str(exc))
-        if mapped is not None:
-            raise mapped
-        raise DataSourceUnavailableError(
-            "tushare_us", _DOMAIN, f"ts_code={us_code}: {exc}"
-        )
-
-    if is_empty_result(df):
-        logger.warning(f"Tushare US 复权因子返回空数据: {us_code}")
-        raise DataNotFoundError("tushare_us", _DOMAIN, f"{us_code} 无数据")
-
-    logger.info(f"Tushare US 复权因子: {us_code} {len(df)} 条")
-    return df
+    return await call_tushare(
+        api,
+        "us_adjfactor",
+        _SOURCE,
+        _DOMAIN,
+        us_code,
+        ts_code=us_code,
+        start_date=start_date.replace("-", ""),
+        end_date=end_date.replace("-", ""),
+    )

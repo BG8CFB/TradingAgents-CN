@@ -4,6 +4,7 @@ Tushare 龙虎榜 API
 接口: top_list (龙虎榜每日明细) + top_inst (龙虎榜机构明细)
 要求: >= 120 积分
 """
+
 import asyncio
 import logging
 from datetime import timedelta
@@ -14,10 +15,10 @@ import pandas as pd
 from app.core.lru_cache import BoundedLRUCache
 from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
 from app.data.sources.base.mappers import (
-    is_empty_result,
     map_network_exception,
     map_tushare_code,
 )
+from app.data.sources.tushare_common.caller import call_tushare
 from app.utils.time_utils import now_config_tz
 
 from .connection import TushareConnection
@@ -33,7 +34,9 @@ _SYMBOL_THROTTLE_SECONDS = 0.3
 # 对同一 ts_code 发起 30 次 tushare.top_list 调用导致 N+1 问题
 # maxsize=128：覆盖典型 watchlist（≤100 只）；TTL=1h：跨任务阶段可复用
 _symbol_cache: BoundedLRUCache = BoundedLRUCache(
-    maxsize=128, ttl=3600.0, name="dragon_tiger_by_symbol",
+    maxsize=128,
+    ttl=3600.0,
+    name="dragon_tiger_by_symbol",
 )
 # 缓存未命中的哨兵（避免反复重试 30 天扫描后才知道无数据）
 _NOT_FOUND_SENTINEL = "__not_found__"
@@ -87,23 +90,7 @@ async def _fetch_by_date(
         kwargs["start_date"] = str(start_date).replace("-", "")
         kwargs["end_date"] = str(end_date or start_date).replace("-", "")
 
-    try:
-        df = await asyncio.to_thread(conn.api.top_list, **kwargs)
-    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
-        raise map_network_exception(exc, "tushare", _DOMAIN)
-    except Exception as exc:
-        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
-        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
-        if mapped is not None:
-            raise mapped
-        raise DataSourceUnavailableError("tushare", _DOMAIN, str(exc))
-
-    if is_empty_result(df):
-        logger.debug(f"Tushare 龙虎榜(日期)为空: {kwargs}")
-        raise DataNotFoundError("tushare", _DOMAIN, f"{kwargs} 无数据")
-
-    logger.info(f"Tushare 龙虎榜(日期): {len(df)} 条")
-    return df
+    return await call_tushare(conn, "top_list", "tushare", _DOMAIN, str(kwargs), **kwargs)
 
 
 async def _fetch_by_symbol(
@@ -135,9 +122,7 @@ async def _fetch_by_symbol(
                 # 鉴权/积分类异常：不可能通过重试解决，直接透传
                 raise mapped
             # 其他未知异常：记录后继续尝试下一日
-            last_business_error = DataSourceUnavailableError(
-                "tushare", _DOMAIN, f"{check_date}: {exc}"
-            )
+            last_business_error = DataSourceUnavailableError("tushare", _DOMAIN, f"{check_date}: {exc}")
             await asyncio.sleep(_SYMBOL_THROTTLE_SECONDS)
             continue
 
@@ -146,9 +131,7 @@ async def _fetch_by_symbol(
             # 精确匹配：ts_code 形如 "000001.SH"，按点号拆分后取前缀比较
             filtered = df[df["ts_code"].astype(str).str.split(".").str[0] == symbol]
             if not filtered.empty:
-                logger.info(
-                    f"Tushare 龙虎榜({ts_code}): {len(filtered)} 条 ({check_date})"
-                )
+                logger.info(f"Tushare 龙虎榜({ts_code}): {len(filtered)} 条 ({check_date})")
                 return filtered
         await asyncio.sleep(_SYMBOL_THROTTLE_SECONDS)
 

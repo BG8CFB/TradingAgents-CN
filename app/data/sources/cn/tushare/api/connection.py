@@ -1,106 +1,63 @@
+"""Tushare CN 连接管理 — 委托共享 TushareClient。
+
+原有实现自带一份 DB-token 读取（system_configs.data_source_configs），
+与 app/utils/ds_key_utils.get_datasource_api_key 近似重复且行为略不同；
+现已统一走 TushareClient → get_datasource_api_key（DB 优先 + ENV 回退）。
+本模块保留 TushareConnection 外观与单例接口，供 CN api/ 子模块与
+Provider 兼容调用（conn.api / conn.is_available() / conn.connect()）。
 """
-Tushare 连接管理：Token 获取、连接建立、单例维护
-"""
-import asyncio
+
 import logging
 import threading
 from typing import Optional
 
-from app.core.config import settings
-
-try:
-    import tushare as ts
-    TUSHARE_AVAILABLE = True
-except ImportError:
-    TUSHARE_AVAILABLE = False
-    ts = None
+from app.data.sources.tushare_common.client import TushareClient
 
 logger = logging.getLogger(__name__)
 
 
 class TushareConnection:
-    """Tushare API 连接管理器"""
+    """Tushare API 连接管理器（外观：包装共享 TushareClient）"""
 
-    def __init__(self):
-        self.api = None
-        self.connected = False
-        self.token_source: Optional[str] = None
-        self._token: Optional[str] = None
+    def __init__(self, client: Optional[TushareClient] = None):
+        self._client = client or TushareClient(
+            source_name="tushare",
+            probe_endpoint="stock_basic",
+            probe_kwargs={"list_status": "L", "limit": 1},
+            min_credits=120,
+        )
 
-    @staticmethod
-    def _get_token_from_database() -> Optional[str]:
-        """从数据库读取 Tushare Token（优先于环境变量）"""
-        try:
-            from app.core.database import get_mongo_db_sync
-            db = get_mongo_db_sync()
-            config_data = db.system_configs.find_one(
-                {"is_active": True},
-                sort=[("version", -1)],
-            )
-            if config_data and config_data.get("data_source_configs"):
-                for ds_config in config_data["data_source_configs"]:
-                    if ds_config.get("type") == "tushare":
-                        api_key = ds_config.get("api_key")
-                        if api_key and not api_key.startswith("your_"):
-                            return api_key
-        except Exception as e:
-            logger.debug(f"从数据库读取 Token 失败: {e}")
-        return None
+    # ── 外观属性：CN api/ 模块与既有调用方依赖 conn.api ────────
 
-    def _resolve_env_token(self) -> Optional[str]:
-        """读取 A 股 Tushare Token：优先 TUSHARE_CN_TOKEN，回退 TUSHARE_TOKEN。"""
-        if settings.TUSHARE_CN_TOKEN:
-            return settings.TUSHARE_CN_TOKEN
-        return settings.TUSHARE_TOKEN or None
+    @property
+    def api(self):
+        return self._client.api
+
+    @property
+    def connected(self) -> bool:
+        return self._client.connected
+
+    @property
+    def token_source(self) -> Optional[str]:
+        return self._client.token_source
 
     def connect_sync(self) -> bool:
-        """同步连接到 Tushare"""
-        if not TUSHARE_AVAILABLE:
-            logger.error("Tushare 库不可用")
-            return False
-
-        db_token = self._get_token_from_database()
-        env_token = self._resolve_env_token()
-
-        for token, source in [(db_token, "database"), (env_token, "env")]:
-            if not token:
-                continue
-            try:
-                ts.set_token(token)
-                api = ts.pro_api()
-                test = api.stock_basic(list_status="L", limit=1)
-                if test is not None and not test.empty:
-                    self.api = api
-                    self.connected = True
-                    self.token_source = source
-                    self._token = token
-                    logger.info(f"Tushare 连接成功 (Token 来源: {source})")
-                    return True
-            except Exception as e:
-                logger.debug(f"{source} Token 连接失败: {e}")
-
-        logger.warning("Tushare Token 未配置或全部失效")
-        return False
+        return self._client.connect_sync()
 
     async def connect(self) -> bool:
         """异步连接"""
-        return await asyncio.to_thread(self.connect_sync)
+        return await self._client.connect()
 
     def is_available(self) -> bool:
-        return TUSHARE_AVAILABLE and self.connected and self.api is not None
+        return self._client.is_available()
+
+    def invalidate(self) -> None:
+        """作废缓存 api（允许一次性重建）。"""
+        self._client.invalidate()
 
     def query(self, api_name: str, **kwargs):
         """通用 Tushare API 查询"""
-        if not self.is_available():
-            return None
-        try:
-            method = getattr(self.api, api_name, None)
-            if method:
-                return method(**kwargs)
-            return self.api.query(api_name, **kwargs)
-        except Exception as e:
-            logger.error(f"Tushare query({api_name}) 失败: {e}")
-            raise
+        return self._client.query(api_name, **kwargs)
 
 
 # 单例

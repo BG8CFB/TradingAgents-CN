@@ -37,12 +37,22 @@ async def fetch_margin_trading(
             from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
             wait_rate_limit()
             code = symbol.zfill(6)
-            if code.startswith("6"):
-                return ak.stock_margin_detail_sse(code=code)
-            elif code.startswith("0") or code.startswith("3"):
-                return ak.stock_margin_detail_szse(date=_latest_trade_date())
-            else:
-                return None
+            # 两融明细当日通常盘后才发布；从最近工作日向前回退，取首个有数据的日期
+            for date in _recent_trade_dates(4):
+                if code.startswith("6"):
+                    # akshare >= 1.18: 签名为 date=<交易日>，返回全市场当日明细后按代码过滤
+                    df = ak.stock_margin_detail_sse(date=date)
+                    if df is not None and not df.empty:
+                        return df[
+                            df["标的证券代码"].astype(str).str.zfill(6) == code
+                        ]
+                elif code.startswith("0") or code.startswith("3"):
+                    df = ak.stock_margin_detail_szse(date=date)
+                    if df is not None and not df.empty:
+                        return df
+                else:
+                    return None
+            return None
 
         df = await asyncio.to_thread(_fetch)
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
@@ -69,18 +79,19 @@ async def fetch_margin_trading(
     return df
 
 
-def _latest_trade_date() -> str:
-    """返回最近的交易日日期字符串（YYYYMMDD）。
+def _recent_trade_dates(n: int = 4) -> list:
+    """返回最近 n 个工作日日期字符串列表（YYYYMMDD，从近到远）。
 
-    AKShare 深市明细接口 stock_margin_detail_szse 按日期查询全市场，
-    需传入一个有效的交易日。这里用一个简单的工作日回退逻辑，
-    避免引入对交易日历的异步依赖（周末/节假日返回空会被上层视为无数据）。
+    AKShare 两融明细接口按日期查询全市场，当日数据通常盘后才发布；
+    调用方依次尝试，取首个有数据的日期。用简单的工作日回退逻辑，
+    避免引入对交易日历的异步依赖。
     """
     from datetime import datetime, timedelta
 
-    today = datetime.now()
-    for offset in range(0, 7):
-        day = today - timedelta(days=offset)
-        if day.weekday() < 5:  # 周一至周五
-            return day.strftime("%Y%m%d")
-    return today.strftime("%Y%m%d")
+    dates, day, offset = [], datetime.now(), 0
+    while len(dates) < n and offset < 14:
+        d = day - timedelta(days=offset)
+        if d.weekday() < 5:  # 周一至周五
+            dates.append(d.strftime("%Y%m%d"))
+        offset += 1
+    return dates

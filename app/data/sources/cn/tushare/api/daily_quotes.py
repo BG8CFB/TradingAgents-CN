@@ -1,5 +1,9 @@
 """
 Tushare 日线行情 API
+
+fetch_daily_quotes 使用 ts.pro_bar 模块函数（非 pro_api 方法，
+带复权参数），保留独立调用体；fetch_realtime_batch 的调用模板
+收敛在 app/data/sources/tushare_common/caller.py。
 """
 import asyncio
 import logging
@@ -13,6 +17,7 @@ from app.data.sources.base.mappers import (
     map_network_exception,
     map_tushare_code,
 )
+from app.data.sources.tushare_common.caller import call_tushare
 from app.utils.time_utils import now_config_tz, format_date_compact
 
 from .connection import TushareConnection
@@ -25,6 +30,7 @@ except ImportError:
     ts = None
 
 _DOMAIN = "daily_quotes"
+_SOURCE = "tushare"
 
 
 async def fetch_daily_quotes(
@@ -45,38 +51,31 @@ async def fetch_daily_quotes(
     freq = freq_map.get(period, "D")
 
     try:
-        if ts_code.endswith(".HK"):
-            df = await asyncio.to_thread(
-                conn.api.hk_daily,
-                ts_code=ts_code,
-                start_date=start_str,
-                end_date=end_str,
-            )
-        else:
-            df = await asyncio.to_thread(
-                ts.pro_bar,
-                ts_code=ts_code,
-                api=conn.api,
-                start_date=start_str,
-                end_date=end_str,
-                freq=freq,
-                adj="qfq",
-            )
+        # 港股行情已独立为 tushare_hk 源（独立 Token/积分），CN 源不再处理 .HK 代码
+        df = await asyncio.to_thread(
+            ts.pro_bar,
+            ts_code=ts_code,
+            api=conn.api,
+            start_date=start_str,
+            end_date=end_str,
+            freq=freq,
+            adj="qfq",
+        )
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
-        raise map_network_exception(exc, "tushare", _DOMAIN)
+        raise map_network_exception(exc, _SOURCE, _DOMAIN)
     except Exception as exc:
         error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
-        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
+        mapped = map_tushare_code(error_code, _SOURCE, _DOMAIN, str(exc))
         if mapped is not None:
             raise mapped
         raise DataSourceUnavailableError(
-            "tushare", _DOMAIN, f"ts_code={ts_code}: {exc}"
+            _SOURCE, _DOMAIN, f"ts_code={ts_code}: {exc}"
         )
 
     if is_empty_result(df):
         logger.warning(f"Tushare 返回空行情: {ts_code} {start_str}-{end_str}")
         raise DataNotFoundError(
-            "tushare", _DOMAIN, f"ts_code={ts_code} {start_str}-{end_str} 无数据"
+            _SOURCE, _DOMAIN, f"ts_code={ts_code} {start_str}-{end_str} 无数据"
         )
 
     # 统一列名
@@ -91,29 +90,13 @@ async def fetch_daily_quotes(
 
 async def fetch_realtime_batch(conn: TushareConnection) -> Optional[pd.DataFrame]:
     """批量获取全市场实时行情（rt_k 接口）"""
-    if not conn.is_available():
-        return None
-
-    try:
-        df = await asyncio.to_thread(
-            conn.api.rt_k,
-            ts_code="3*.SZ,6*.SH,0*.SZ,9*.BJ",
-        )
-    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
-        raise map_network_exception(exc, "tushare", "realtime_quotes")
-    except Exception as exc:
-        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
-        mapped = map_tushare_code(error_code, "tushare", "realtime_quotes", str(exc))
-        if mapped is not None:
-            raise mapped
-        raise DataSourceUnavailableError("tushare", "realtime_quotes", str(exc))
-
-    if is_empty_result(df):
-        logger.warning("Tushare 实时行情返回空")
-        raise DataNotFoundError("tushare", "realtime_quotes", "无数据")
-
-    logger.info(f"Tushare 实时行情: {len(df)} 只")
-    return df
+    return await call_tushare(
+        conn,
+        "rt_k",
+        _SOURCE,
+        "realtime_quotes",
+        ts_code="3*.SZ,6*.SH,0*.SZ,9*.BJ",
+    )
 
 
 def _format_compact(date_str: str) -> str:

@@ -1,5 +1,8 @@
 """
-AKShare HK 港股公司行为 API — stock_hk_ggcgy_em 接口封装。
+AKShare HK 港股公司行为 API — stock_hk_dividend_payout_em 接口封装。
+
+历史接口 stock_hk_ggcgy_em 已从 akshare >= 1.18 移除（上游下线），
+替代接口 stock_hk_dividend_payout_em（分红/派息/除净记录）。
 """
 import asyncio
 import logging
@@ -20,9 +23,9 @@ _DOMAIN = "corporate_actions"
 
 
 async def fetch_corporate_actions(symbol: str) -> Optional[pd.DataFrame]:
-    """获取港股公司行为（分红 / 拆股 / 合股 / 供股等）。
+    """获取港股公司行为（分红 / 派息 / 除净等）。
 
-    AKShare stock_hk_ggcgy_em() 返回指定股票的历史公司行为记录。
+    AKShare stock_hk_dividend_payout_em() 返回指定股票的分红派息记录。
 
     Raises
     ------
@@ -38,19 +41,18 @@ async def fetch_corporate_actions(symbol: str) -> Optional[pd.DataFrame]:
     Parameters
     ----------
     symbol : str
-        5 位港股代码，如 "00700"。也可以接受 "0700.HK" 格式（自动清理）。
-
+        港股代码，如 "00700" / "0700.HK"（自动清理为 5 位零填充格式）。
     Returns
     -------
     Optional[pd.DataFrame]
-        原始 DataFrame，包含 代码 / 类型 / 除净日 / 派息 / 送股比例 等字段。
+        原始 DataFrame，包含 最新公告日期 / 财政年度 / 分红方案 / 除净日 等字段。
     """
     try:
         import akshare as ak
 
-        # 标准化代码为 5 位
+        # 接口要求 5 位零填充代码（默认值 03900 可证；实测去零后返回空）
         normalized = str(symbol).replace(".HK", "").lstrip("0").zfill(5)
-        df = await asyncio.to_thread(ak.stock_hk_ggcgy_em, symbol=normalized)
+        df = await asyncio.to_thread(ak.stock_hk_dividend_payout_em, symbol=normalized)
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
         # 网络异常：可重试
         raise map_network_exception(exc, "akshare_hk", _DOMAIN)

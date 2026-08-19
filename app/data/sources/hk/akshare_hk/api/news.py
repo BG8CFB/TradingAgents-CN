@@ -48,6 +48,12 @@ async def fetch_news(symbol: str) -> Optional[pd.DataFrame]:
     try:
         import akshare as ak
 
+        # akshare >= 1.18.8 已移除 stock_hk_notice_report（港股公告接口下线），
+        # 上游无等价替代接口。此处显式声明不支持，让 FallbackRouter 干净地跳到次源，
+        # 而非 AttributeError 被误记为数据格式异常。
+        raise NotImplementedError(
+            "akshare 已移除 stock_hk_notice_report 接口（上游下线），akshare_hk 不支持 news 域"
+        )
         # 标准化代码为 5 位
         normalized = str(symbol).replace(".HK", "").lstrip("0").zfill(5)
         df = await asyncio.to_thread(ak.stock_hk_notice_report, symbol=normalized)

@@ -1,22 +1,23 @@
 """
 Tushare US 美股交易日历 API
+
+调用模板收敛在 app/data/sources/tushare_common/caller.py。
+
+异常语义：NetworkError / RateLimitedError / TokenInvalidError /
+InsufficientCreditsError / DataNotFoundError / DataSourceUnavailableError
+由 call_tushare 统一抛出（内部经 map_tushare_code 错误码分类）。
 """
-import asyncio
 import logging
 from typing import Optional
 
 import pandas as pd
 
-from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
-from app.data.sources.base.mappers import (
-    is_empty_result,
-    map_network_exception,
-    map_tushare_code,
-)
+from app.data.sources.tushare_common.caller import call_tushare
 
 logger = logging.getLogger(__name__)
 
 _DOMAIN = "trade_calendar"
+_SOURCE = "tushare_us"
 
 
 async def fetch_trade_calendar(
@@ -36,29 +37,9 @@ async def fetch_trade_calendar(
     Returns:
         交易日历 DataFrame，失败返回 None
     """
-    if api is None:
-        return None
     params: dict = {"exchange": exchange}
     if start_date:
         params["start_date"] = start_date.replace("-", "")
     if end_date:
         params["end_date"] = end_date.replace("-", "")
-    try:
-        df = await asyncio.to_thread(api.us_tradecal, **params)
-    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
-        raise map_network_exception(exc, "tushare_us", _DOMAIN)
-    except Exception as exc:
-        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
-        mapped = map_tushare_code(error_code, "tushare_us", _DOMAIN, str(exc))
-        if mapped is not None:
-            raise mapped
-        raise DataSourceUnavailableError(
-            "tushare_us", _DOMAIN, f"exchange={exchange}: {exc}"
-        )
-
-    if is_empty_result(df):
-        logger.warning(f"Tushare US 交易日历返回空数据: {exchange}")
-        raise DataNotFoundError("tushare_us", _DOMAIN, f"{exchange} 无数据")
-
-    logger.info(f"Tushare US 交易日历: {exchange} {len(df)} 条")
-    return df
+    return await call_tushare(api, "us_tradecal", _SOURCE, _DOMAIN, exchange, **params)

@@ -22,6 +22,7 @@ async def fetch_batch_quotes(codes: List[str]) -> Dict[str, Dict[str, Any]]:
         ("em_direct", _fetch_em_spot_direct),
         ("tencent_batch", _fetch_tencent_batch),
         ("ak_api", _fetch_ak_spot),
+        ("sina_spot", _fetch_sina_spot),
     ]:
         try:
             result = await strategy_fn(codes)
@@ -87,4 +88,31 @@ async def _fetch_ak_spot(codes: List[str]) -> Optional[Dict[str, Dict[str, Any]]
         return result if result else None
     except Exception as e:
         logger.debug(f"AKShare批量获取行情失败: {e}")
+        return None
+
+
+async def _fetch_sina_spot(codes: List[str]) -> Optional[Dict[str, Dict[str, Any]]]:
+    """策略 4: 新浪全市场快照（stock_zh_a_spot，分页较慢 ~25s，但不受东财封禁影响）"""
+    try:
+        import akshare as ak
+
+        def _fetch():
+            from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+            wait_rate_limit()
+            return ak.stock_zh_a_spot()
+
+        df = await asyncio.to_thread(_fetch)
+        if df is None or df.empty:
+            return None
+
+        result = {}
+        # codes 为空 = 全市场快照（provider 的 market_quotes 域语义）
+        code_set = {str(c).zfill(6) for c in codes} or None
+        for _, row in df.iterrows():
+            code = str(row.get("代码", "")).zfill(6)
+            if code_set is None or code in code_set:
+                result[code] = row.to_dict()
+        return result if result else None
+    except Exception as e:
+        logger.debug(f"AKShare新浪快照失败: {e}")
         return None

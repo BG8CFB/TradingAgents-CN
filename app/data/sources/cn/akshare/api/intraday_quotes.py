@@ -38,7 +38,29 @@ async def fetch_intraday_quotes(
         def _fetch():
             from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
             wait_rate_limit()
-            return ak.stock_zh_a_hist_min_em(symbol=code, period=period, adjust="")
+            try:
+                return ak.stock_zh_a_hist_min_em(symbol=code, period=period, adjust="")
+            except Exception as exc:
+                # 东财分钟线在部分网络环境被拒（RemoteDisconnected）；
+                # 回退到新浪 stock_zh_a_minute（period 取值一致，列名
+                # day/open/... 与 adapter 的英文字段映射兼容）。
+                # requests.ConnectionError 不是内置 ConnectionError 子类，
+                # 按异常名判定网络族错误
+                if not isinstance(exc, (ConnectionError, TimeoutError)) and type(
+                    exc
+                ).__name__ not in (
+                    "ConnectionError",
+                    "ConnectTimeout",
+                    "ReadTimeout",
+                    "ChunkedEncodingError",
+                    "ProtocolError",
+                ):
+                    raise
+                from app.data.sources.cn.akshare.api.adj_factors import _to_sina_symbol
+                wait_rate_limit()
+                return ak.stock_zh_a_minute(
+                    symbol=_to_sina_symbol(code), period=period
+                )
 
         df = await asyncio.to_thread(_fetch)
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:

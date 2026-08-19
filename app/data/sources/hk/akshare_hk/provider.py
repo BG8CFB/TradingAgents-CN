@@ -44,11 +44,14 @@ def _filter_by_date(
         s = str(val)[:10].replace("-", "")
         return s
 
-    mask = df[date_col].apply(_norm)
+    # 分别计算上下界条件再合并：此前 mask 被两次比较覆盖，
+    # 第二次 bool Series 与字符串比较直接抛 TypeError（调用方吞成 None）
+    normed = df[date_col].apply(_norm)
+    mask = pd.Series(True, index=df.index)
     if sd:
-        mask = mask >= sd
+        mask &= normed >= sd
     if ed:
-        mask = mask <= ed
+        mask &= normed <= ed
     return df[mask].copy()
 
 

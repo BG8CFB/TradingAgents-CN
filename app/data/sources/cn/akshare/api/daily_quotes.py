@@ -42,12 +42,39 @@ async def fetch_daily_quotes(
         def _fetch():
             from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
             wait_rate_limit()
-            return ak.stock_zh_a_hist(
-                symbol=code, period=ak_period,
-                start_date=start_date.replace("-", ""),
-                end_date=end_date.replace("-", ""),
-                adjust=adjust,
-            )
+            try:
+                return ak.stock_zh_a_hist(
+                    symbol=code, period=ak_period,
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                    adjust=adjust,
+                )
+            except Exception as exc:
+                # 东财 stock_zh_a_hist 在部分网络环境被整体拒绝
+                # （RemoteDisconnected）；回退到新浪 stock_zh_a_daily（仅日线，
+                # 列名 date/open/... 与 adapter 的英文字段映射兼容）。
+                # 注意 requests.ConnectionError 不是内置 ConnectionError 子类，
+                # 这里按异常名判定网络族错误
+                if period != "daily" or not isinstance(
+                    exc, (ConnectionError, TimeoutError)
+                ) and type(exc).__name__ not in (
+                    "ConnectionError",
+                    "ConnectTimeout",
+                    "ReadTimeout",
+                    "ChunkedEncodingError",
+                    "ProtocolError",
+                ):
+                    raise
+                from app.data.sources.cn.akshare.api.adj_factors import _to_sina_symbol
+                wait_rate_limit()
+                sina_df = ak.stock_zh_a_daily(
+                    symbol=_to_sina_symbol(code), adjust=adjust if adjust != "" else "",
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                )
+                if sina_df is not None and not sina_df.empty:
+                    sina_df = sina_df.reset_index() if sina_df.index.name == "date" else sina_df
+                return sina_df
 
         df = await asyncio.to_thread(_fetch)
     except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:

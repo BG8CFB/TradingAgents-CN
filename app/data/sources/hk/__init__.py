@@ -10,7 +10,7 @@ def get_hk_provider(source_name: str) -> Optional[BaseProvider]:
     if source_name == "tushare_hk":
         from .tushare_hk.provider import TushareHKProvider
         return TushareHKProvider()
-    elif source_name in ("akshare", "akshare_hk"):
+    elif source_name == "akshare_hk":
         from .akshare_hk.provider import AKShareHKProvider
         return AKShareHKProvider()
     elif source_name in ("yfinance", "yfinance_hk"):
@@ -26,7 +26,7 @@ def get_hk_adapter(source_name: str) -> Optional[BaseAdapter]:
     if source_name == "tushare_hk":
         from .tushare_hk.adapter import TushareHKAdapter
         return TushareHKAdapter()
-    elif source_name in ("akshare", "akshare_hk"):
+    elif source_name == "akshare_hk":
         from .akshare_hk.adapter import AKShareHKAdapter
         return AKShareHKAdapter()
     elif source_name in ("yfinance", "yfinance_hk"):

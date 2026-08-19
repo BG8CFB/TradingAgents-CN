@@ -1,22 +1,31 @@
 """
 Tushare HK 港股财务数据 API — 多表联合（利润表/资产负债表/现金流量表）。
+
+调用模板收敛在 app/data/sources/tushare_common/caller.py。
+
+异常语义：NetworkError / RateLimitedError / TokenInvalidError /
+InsufficientCreditsError / DataNotFoundError / DataSourceUnavailableError
+由 call_tushare 统一抛出（内部经 map_tushare_code 错误码分类）。
 """
-import asyncio
 import logging
 from typing import Optional
 
 import pandas as pd
 
-from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
-from app.data.sources.base.mappers import (
-    is_empty_result,
-    map_network_exception,
-    map_tushare_code,
-)
+from app.data.sources.tushare_common.caller import call_tushare
 
 logger = logging.getLogger(__name__)
 
 _DOMAIN = "financial_data"
+_SOURCE = "tushare_hk"
+
+# 报表类型 → Tushare HK 接口
+_API_METHOD_MAP = {
+    "income": "hk_income",
+    "balance": "hk_balancesheet",
+    "cashflow": "hk_cashflow",
+    "indicator": "hk_fina_indicator",
+}
 
 
 def _compact_date(value: Optional[str]) -> Optional[str]:
@@ -24,9 +33,7 @@ def _compact_date(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
     cleaned = str(value).strip().replace("-", "")
-    if not cleaned:
-        return None
-    return cleaned
+    return cleaned or None
 
 
 async def fetch_financial_data(
@@ -40,43 +47,13 @@ async def fetch_financial_data(
     """获取港股财务报表数据。
 
     根据 statement_type 路由到对应的 Tushare HK 接口：
-    - income     → api.hk_income()
-    - balance    → api.hk_balancesheet()
-    - cashflow   → api.hk_cashflow()
-    - indicator  → api.hk_fina_indicator()
+    income/balance/cashflow/indicator。
 
-    Parameters
-    ----------
-    api : tushare.pro_api
-        已初始化的 Tushare pro_api 实例。
-    ts_code : str
-        Tushare 格式港股代码，如 "0700.HK"。
-    statement_type : str
-        报表类型: income / balance / cashflow / indicator。
     start_date, end_date : Optional[str]
-        ISO 格式日期（YYYY-MM-DD）。按 Tushare 的公告日 ``ann_date`` 过滤
-        （"在该区间内披露的报表"语义最稳定）。两端皆闭区间；未提供则不传。
-    period : Optional[str]
-        报告期末月（YYYYMMDD），如 "20231231"。用于精确指定单期报表。
-
-    Returns
-    -------
-    Optional[pd.DataFrame]
-        原始 DataFrame，字段因报表类型不同而异。
+        ISO 格式日期（YYYY-MM-DD）。按公告日 ``ann_date`` 过滤（闭区间）；
+        未提供则不传。period : 报告期末月（YYYYMMDD）。
     """
-    if api is None:
-        return None
-    api_method_map = {
-        "income": "hk_income",
-        "balance": "hk_balancesheet",
-        "cashflow": "hk_cashflow",
-        "indicator": "hk_fina_indicator",
-    }
-    method_name = api_method_map.get(statement_type, "hk_income")
-    method = getattr(api, method_name, None)
-    if method is None:
-        logger.error(f"Tushare HK 不支持的财务接口: {method_name}")
-        return None
+    method_name = _API_METHOD_MAP.get(statement_type, "hk_income")
 
     params = {"ts_code": ts_code}
     start_compact = _compact_date(start_date)
@@ -88,24 +65,11 @@ async def fetch_financial_data(
     if period:
         params["period"] = _compact_date(period)
 
-    try:
-        df = await asyncio.to_thread(lambda: method(**params))
-    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
-        raise map_network_exception(exc, "tushare_hk", _DOMAIN)
-    except Exception as exc:
-        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
-        mapped = map_tushare_code(error_code, "tushare_hk", _DOMAIN, str(exc))
-        if mapped is not None:
-            raise mapped
-        raise DataSourceUnavailableError(
-            "tushare_hk", _DOMAIN, f"ts_code={ts_code} ({statement_type}): {exc}"
-        )
-
-    if is_empty_result(df):
-        logger.warning(f"Tushare HK 财务数据返回空数据: {ts_code} ({statement_type})")
-        raise DataNotFoundError(
-            "tushare_hk", _DOMAIN, f"{ts_code} ({statement_type}) 无数据"
-        )
-
-    logger.info(f"Tushare HK 财务数据({statement_type}): {ts_code} {len(df)} 条")
-    return df
+    return await call_tushare(
+        api,
+        method_name,
+        _SOURCE,
+        _DOMAIN,
+        f"{ts_code} ({statement_type})",
+        **params,
+    )

@@ -3,25 +3,22 @@ Tushare 大宗交易 API
 
 接口: block_trade (大宗交易明细)
 要求: >= 120 积分
+
+调用模板收敛在 app/data/sources/tushare_common/caller.py。
 """
-import asyncio
 import logging
 from typing import Optional
 
 import pandas as pd
 
-from app.data.sources.base.exceptions import DataNotFoundError, DataSourceUnavailableError
-from app.data.sources.base.mappers import (
-    is_empty_result,
-    map_network_exception,
-    map_tushare_code,
-)
+from app.data.sources.tushare_common.caller import call_tushare
 
 from .connection import TushareConnection
 
 logger = logging.getLogger(__name__)
 
 _DOMAIN = "block_trade"
+_SOURCE = "tushare"
 
 
 async def fetch_block_trade(
@@ -32,9 +29,6 @@ async def fetch_block_trade(
     limit: int = 500,
 ) -> Optional[pd.DataFrame]:
     """获取大宗交易数据"""
-    if not conn.is_available():
-        return None
-
     kwargs = {}
     if ts_code:
         kwargs["ts_code"] = ts_code
@@ -45,20 +39,4 @@ async def fetch_block_trade(
     if not start_date and not end_date and not ts_code:
         kwargs["limit"] = limit
 
-    try:
-        df = await asyncio.to_thread(conn.api.block_trade, **kwargs)
-    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
-        raise map_network_exception(exc, "tushare", _DOMAIN)
-    except Exception as exc:
-        error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
-        mapped = map_tushare_code(error_code, "tushare", _DOMAIN, str(exc))
-        if mapped is not None:
-            raise mapped
-        raise DataSourceUnavailableError("tushare", _DOMAIN, str(exc))
-
-    if is_empty_result(df):
-        logger.debug("Tushare 大宗交易为空")
-        raise DataNotFoundError("tushare", _DOMAIN, "无数据")
-
-    logger.info(f"Tushare 大宗交易: {len(df)} 条")
-    return df
+    return await call_tushare(conn, "block_trade", _SOURCE, _DOMAIN, **kwargs)

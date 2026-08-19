@@ -168,9 +168,13 @@ async def fetch_financial_data(
                 IndexError,
                 AttributeError,
                 ValueError,
+                TypeError,
                 pandas.errors.EmptyDataError,
             ) as e:
                 # 单个子表数据格式异常（AKShare 返回结构变化或缺字段）：跳过该表，不影响其他表
+                # TypeError 也按子表级异常处理：东财系报表接口（*_by_report_em）
+                # 在页面结构变化/网络被拒时 akshare 内部抛 'NoneType' object is
+                # not subscriptable；单表降级跳过，不影响 THS 摘要等其他子表
                 logger.debug(f"AKShare获取财务数据 {name} 格式异常: {e}")
                 continue
             # 其他异常（网络/超时/未知）不在此处吞掉，让其上抛到外层异常分类器处理
@@ -215,9 +219,19 @@ def _filter_df_by_report_period(
     end = str(end_date).replace("-", "") if end_date else None
 
     def _norm(v):
-        return str(v).replace("-", "") if v is not None else ""
+        if v is None:
+            return ""
+        s = str(v).replace("-", "")
+        # THS 摘要（stock_financial_abstract_ths 按年度）的报告期列是年份 int
+        # （1989、1990…），直接字符串比较会被任何日期范围过滤光；按年报期
+        # Y1231 归一
+        if len(s) == 4 and s.isdigit():
+            s += "1231"
+        return s
 
-    mask = df[col].apply(_norm)
+    # 初始必须为全 True 的 bool Series：此前误用 str Series 起步，
+    # 与后续 bool 条件做 & 时抛 "operation 'and_' not supported for dtype 'str'"
+    mask = pd.Series(True, index=df.index)
     if start:
         mask = mask & df[col].apply(lambda v: _norm(v) >= start)
     if end:

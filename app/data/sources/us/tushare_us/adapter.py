@@ -1,6 +1,11 @@
 """Tushare US Adapter — 原始数据 → 标准 Schema。
 
 ts_code .O/.N 映射，USD 货币。
+
+与 HK 逐字相同/可参数化的标准化逻辑（交易日历 / 复权因子 / 日线行情 /
+财务数据）收敛在 app/data/sources/tushare_common/adapters.py；
+本类只注入市场差异（symbol 大写解析、无单位换算、US 字段候选链）
+和 US 独有的 basic_info 映射。
 """
 
 import logging
@@ -9,12 +14,14 @@ from typing import Any, List
 import pandas as pd
 
 from app.data.sources.base.adapter import BaseAdapter
-from app.data.schema.base.types import _safe_float, _parse_date
+from app.data.schema.base.types import _parse_date
 from app.data.schema.domains.basic_info import StockBasicInfoSchema
-from app.data.schema.domains.trade_calendar import TradeCalendarSchema
-from app.data.schema.domains.daily_quotes import DailyQuotesSchema
-from app.data.schema.domains.adj_factors import AdjFactorsSchema
-from app.data.schema.domains.financial_data import FinancialDataSchema
+from app.data.sources.tushare_common.adapters import (
+    adapt_adj_factors,
+    adapt_daily_quotes,
+    adapt_financial_data,
+    adapt_trade_calendar,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +30,19 @@ def _parse_symbol_from_ts_code(ts_code: str) -> str:
     if isinstance(ts_code, str) and "." in ts_code:
         return ts_code.split(".")[0].upper()
     return str(ts_code).upper()
+
+
+# US 财务字段候选链（原始单位为美元，无换算）
+_US_FINANCIAL_FIELDS = {
+    "revenue": ("revenue", "total_revenue"),
+    "net_profit": ("net_income",),
+    "total_assets": ("total_assets",),
+    "total_equity": ("total_equity",),
+    "roe": ("roe",),
+    "eps": ("eps",),
+    "operating_cashflow": ("operating_cashflow",),
+}
+_US_FINANCIAL_SCALES: dict = {}
 
 
 class TushareUSAdapter(BaseAdapter):
@@ -54,102 +74,36 @@ class TushareUSAdapter(BaseAdapter):
             ))
         return results
 
-    def adapt_trade_calendar(self, raw: Any) -> List[TradeCalendarSchema]:
-        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
-        if df.empty:
-            return []
-        results = []
-        for _, row in df.iterrows():
-            get = row.get
-            cal_date = _parse_date(get("cal_date"))
-            if not cal_date:
-                continue
-            results.append(TradeCalendarSchema(
-                symbol="__calendar__",
-                market="US",
-                data_source="tushare_us",
-                exchange=get("exchange", "NYSE"),
-                cal_date=cal_date,
-                is_open=bool(get("is_open", 1)),
-                pretrade_date=_parse_date(get("pretrade_date")),
-            ))
-        return results
+    def adapt_trade_calendar(self, raw: Any) -> List:
+        return adapt_trade_calendar(
+            raw, market="US", source_name="tushare_us", default_exchange="NYSE"
+        )
 
-    def adapt_daily_quotes(self, raw: Any) -> List[DailyQuotesSchema]:
-        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
-        if df.empty:
-            return []
-        results = []
-        for _, row in df.iterrows():
-            get = row.get
-            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "")))
-            trade_date = _parse_date(get("trade_date"))
-            if not trade_date:
-                continue
+    def adapt_daily_quotes(self, raw: Any) -> List:
+        return adapt_daily_quotes(
+            raw,
+            market="US",
+            source_name="tushare_us",
+            parse_symbol=_parse_symbol_from_ts_code,
+            amount_scale=1.0,
+            compute_change=False,
+            with_turnover=False,
+        )
 
-            close = _safe_float(get("close"))
-            pre_close = _safe_float(get("pre_close"))
-            change = _safe_float(get("change"))
-            pct_chg = _safe_float(get("pct_chg"))
+    def adapt_adj_factors(self, raw: Any) -> List:
+        return adapt_adj_factors(
+            raw,
+            market="US",
+            source_name="tushare_us",
+            parse_symbol=_parse_symbol_from_ts_code,
+        )
 
-            results.append(DailyQuotesSchema(
-                symbol=symbol,
-                market="US",
-                data_source="tushare_us",
-                trade_date=trade_date,
-                period="daily",
-                open=_safe_float(get("open")),
-                high=_safe_float(get("high")),
-                low=_safe_float(get("low")),
-                close=close,
-                pre_close=pre_close,
-                change=change,
-                pct_chg=pct_chg,
-                volume=_safe_float(get("vol")),
-                amount=_safe_float(get("amount")),
-            ))
-        return results
-
-    def adapt_adj_factors(self, raw: Any) -> List[AdjFactorsSchema]:
-        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
-        if df.empty:
-            return []
-        results = []
-        for _, row in df.iterrows():
-            get = row.get
-            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "")))
-            trade_date = _parse_date(get("trade_date"))
-            if not trade_date:
-                continue
-            results.append(AdjFactorsSchema(
-                symbol=symbol,
-                market="US",
-                data_source="tushare_us",
-                trade_date=trade_date,
-                adj_factor=_safe_float(get("adj_factor")),
-            ))
-        return results
-
-    def adapt_financial_data(self, raw: Any) -> List[FinancialDataSchema]:
-        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
-        if df.empty:
-            return []
-        results = []
-        for _, row in df.iterrows():
-            get = row.get
-            symbol = _parse_symbol_from_ts_code(str(get("ts_code", "")))
-            results.append(FinancialDataSchema(
-                symbol=symbol,
-                market="US",
-                data_source="tushare_us",
-                report_period=_parse_date(get("end_date") or get("ann_date")),
-                announce_date=_parse_date(get("ann_date")),
-                revenue=_safe_float(get("revenue") or get("total_revenue")),
-                net_profit=_safe_float(get("net_income")),
-                total_assets=_safe_float(get("total_assets")),
-                total_equity=_safe_float(get("total_equity")),
-                roe=_safe_float(get("roe")),
-                eps=_safe_float(get("eps")),
-                operating_cashflow=_safe_float(get("operating_cashflow")),
-            ))
-        return results
+    def adapt_financial_data(self, raw: Any) -> List:
+        return adapt_financial_data(
+            raw,
+            market="US",
+            source_name="tushare_us",
+            parse_symbol=_parse_symbol_from_ts_code,
+            field_map=_US_FINANCIAL_FIELDS,
+            unit_scales=_US_FINANCIAL_SCALES,
+        )
