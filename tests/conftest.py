@@ -570,3 +570,30 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "integration: mark test as integration test")
     config.addinivalue_line("markers", "requires_db: mark test as requiring database")
     config.addinivalue_line("markers", "ai: mark test as requiring AI API")
+
+
+# 依赖真实基础设施的 fixture：用到它们的测试自动归入 integration 层
+_INTEGRATION_FIXTURES = frozenset({"mongodb_available", "redis_available"})
+
+
+def pytest_collection_modifyitems(config, items):
+    """自动分层：把依赖真实 MongoDB/Redis 的测试标记为 integration。
+
+    分层依据（满足其一即可）：
+    - 测试文件位于 tests/integration/ 目录
+    - 测试请求了 mongodb_available / redis_available fixture
+      （这两个 fixture 在服务不可用时 skip，因此只应在带 services 容器的
+      integration job 中有意义地执行）
+    - 显式标记了 requires_db
+
+    这样 CI 可以用 `-m "not integration"` 在无容器环境跑纯单元测试，
+    用 `-m "integration"` 单独跑基础设施测试，避免 2000+ 测试全量混跑。
+    """
+    for item in items:
+        path = str(item.fspath)
+        if (
+            os.sep + "integration" + os.sep in path
+            or _INTEGRATION_FIXTURES.intersection(item.fixturenames)
+            or item.get_closest_marker("requires_db")
+        ):
+            item.add_marker(pytest.mark.integration)
