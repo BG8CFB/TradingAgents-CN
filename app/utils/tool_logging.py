@@ -324,7 +324,7 @@ def log_analysis_module(module_name: str, session_id: str = None):
             symbol = None
 
             # 特殊处理：信号处理模块的参数结构
-            if module_name == "graph_signal_processing":
+            if module_name in ("graph_signal_processing", "signal_processing"):
                 # 信号处理模块：process_signal(self, full_signal, stock_symbol=None)
                 if len(args) >= 3:  # self, full_signal, stock_symbol
                     symbol = str(args[2]) if args[2] else None

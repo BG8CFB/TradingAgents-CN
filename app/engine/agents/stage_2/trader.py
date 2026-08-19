@@ -5,7 +5,7 @@ from app.llm.core.types import Message, Role
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
-from app.engine.orchestrator.llm_bridge import llm_chat
+from app.engine.orchestrator.invoker import run_agent_turn
 
 logger = get_logger("default")
 
@@ -131,19 +131,16 @@ def create_trader(llm, memory):
 
             full_system_prompt = base_prompt + "\n\n" + system_context
 
-            messages = [
-                Message(role=Role.USER, content=context_content),
-            ]
-
             logger.debug(f"💰 [DEBUG] 准备调用LLM，系统提示包含货币: {currency}")
 
-            trader_content = await llm_chat(
-                llm, messages,
+            trader_content = await run_agent_turn(
+                llm, [], context_content,
                 system=full_system_prompt,
                 task_id=state.get("task_id") or "",
                 agent_key="trader",
                 phase="trader",
                 user_id=state.get("user_id") or "",
+                event_sink=state.get("_event_sink"),
             )
 
             # H-2: 空响应降级 — LLM 返回空内容时使用占位文本

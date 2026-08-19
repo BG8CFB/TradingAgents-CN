@@ -19,7 +19,7 @@ from typing import Literal
 from app.llm.core.types import Message, Role
 
 from app.utils.logging_init import get_logger
-from app.engine.orchestrator.llm_bridge import llm_chat
+from app.engine.orchestrator.invoker import run_agent_turn
 from app.engine.agents.utils.agent_config import (
     build_stage3_report_path,
     load_agent_config,
@@ -270,16 +270,15 @@ def create_debator(llm, side: Literal["risky", "safe", "neutral"] = "risky"):
             else:
                 trigger_msg = cfg["trigger_debate"].format(round=current_round_index)
 
-            messages.append(Message(role=Role.USER, content=trigger_msg))
-
-            # ── 7. 执行推理（新层客户端，带重试） ──────────────────
-            content = await llm_chat(
-                llm, messages,
+            # ── 7. 执行推理（统一会话循环：压缩/截断恢复/fallback/事件流）──
+            content = await run_agent_turn(
+                llm, messages, trigger_msg,
                 system=system,
                 task_id=state.get("task_id") or "",
                 agent_key=f"risk_debater_{side}",
                 phase="risk",
                 user_id=state.get("user_id") or "",
+                event_sink=state.get("_event_sink"),
             )
 
             # H-2: 空响应降级 — LLM 返回空内容时使用占位文本

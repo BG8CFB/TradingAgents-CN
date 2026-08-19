@@ -94,7 +94,10 @@ class AutoCompactor:
         """预测式：当前 token + 本轮最大输出 + 工具结果增长预估 > 有效窗口 即提前压缩"""
         if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
             return False
-        projected = self.counter.count(messages) + self.config.max_output_tokens + PREDICTED_TURN_GROWTH
+        # 输出预留与 effective_window 同步封顶 20k：max_output_tokens ≥ 窗口时
+        # （如默认 128k/128k 的兜底配置）全额预留会让 projected 恒大于窗口
+        output_reserve = min(self.config.max_output_tokens, MAX_OUTPUT_TOKENS_FOR_SUMMARY)
+        projected = self.counter.count(messages) + output_reserve + PREDICTED_TURN_GROWTH
         return projected > self.config.effective_window
 
     def is_blocking(self, messages: List[Message]) -> bool:

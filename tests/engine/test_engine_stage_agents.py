@@ -9,6 +9,7 @@ import json
 import pytest
 
 from app.engine.agents.stage_4.summary_agent import create_summary_agent
+from app.llm.core.base import BaseLLMClient, StreamEvent
 from app.llm.core.types import ChatResponse, Message, Role, StopReason
 
 
@@ -19,20 +20,30 @@ def _chat_response(text: str) -> ChatResponse:
     )
 
 
-class RecordingLLM:
+class RecordingLLM(BaseLLMClient):
     """记录调用的 LLM（真实类，非 MagicMock）。
 
-    实现新层 BaseLLMClient 的 chat 协议（async chat -> ChatResponse），
-    生产代码经 orchestrator/llm_bridge.llm_chat 调用本类。
+    实现新层 BaseLLMClient 协议（chat / chat_stream / count_tokens），
+    生产代码经 orchestrator/invoker.run_agent_turn → run_conversation 调用本类。
     """
 
+    protocol = "openai"
+
     def __init__(self, response_text="分析报告内容"):
+        self.model = "recording-model"
         self.calls = []
         self.response_text = response_text
 
     async def chat(self, messages, *, system=None, **kwargs):
         self.calls.append({"messages": list(messages), "system": system})
         return _chat_response(self.response_text)
+
+    async def chat_stream(self, messages, *, system=None, **kwargs):
+        resp = await self.chat(messages, system=system)
+        yield StreamEvent("message", response=resp)
+
+    async def count_tokens(self, messages):
+        return 1
 
 
 class RecordingMemory:
@@ -133,7 +144,7 @@ class TestSummaryAgentBehavior:
 
     @pytest.mark.asyncio
     async def test_handles_llm_exception(self):
-        class FailingLLM:
+        class FailingLLM(RecordingLLM):
             async def chat(self, messages, *, system=None, **kwargs):
                 raise RuntimeError("LLM 服务不可用")
 

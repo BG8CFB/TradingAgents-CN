@@ -1,7 +1,7 @@
-"""runner / llm_bridge 的 token 用量记录钩子测试（unit）
+"""runner / invoker 的 token 用量记录钩子测试（unit）
 
 用测试代码内实现的记录型 BaseLLMClient 子类与捕获型 recorder 替身
-（非 mock 框架）驱动真实 run_conversation / llm_chat 代码路径。
+（非 mock 框架）驱动真实 run_conversation / run_agent_turn 代码路径。
 """
 
 import pytest
@@ -9,7 +9,7 @@ import pytest
 from app.llm.core.base import BaseLLMClient, StreamEvent
 from app.llm.core.types import ChatResponse, Message, Role, StopReason, Usage
 from app.llm.runner import run_conversation
-from app.engine.orchestrator.llm_bridge import llm_chat
+from app.engine.orchestrator.invoker import run_agent_turn
 
 
 class ScriptedClient(BaseLLMClient):
@@ -83,11 +83,12 @@ async def test_run_conversation_records_usage(capture):
 
 
 @pytest.mark.asyncio
-async def test_llm_chat_records_usage(capture):
+async def test_run_agent_turn_records_usage(capture):
     client = ScriptedClient()
-    text = await llm_chat(
+    text = await run_agent_turn(
         client,
-        [Message(role=Role.USER, content="你好")],
+        [Message(role=Role.USER, content="背景报告")],
+        "你好",
         system="s",
         task_id="task_rec_2",
         agent_key="trader",

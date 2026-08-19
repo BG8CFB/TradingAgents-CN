@@ -1,7 +1,6 @@
 import json
-from app.llm.core.types import Message, Role
 from app.utils.logging_init import get_logger
-from app.engine.orchestrator.llm_bridge import llm_chat
+from app.engine.orchestrator.invoker import run_agent_turn
 
 logger = get_logger("default")
 
@@ -242,17 +241,19 @@ def create_summary_agent(llm):
             missing_labels=missing_labels,
         )
 
-        # 3. 调用 LLM（异步：通过 ainvoke 统一桥接，避免事件循环阻塞）
+        # 3. 调用 LLM（统一会话循环：压缩/截断恢复/fallback/事件流）
         try:
             content = (
-                await llm_chat(
+                await run_agent_turn(
                     llm,
-                    [Message(role=Role.USER, content=user_prompt)],
+                    [],
+                    user_prompt,
                     system=SYSTEM_PROMPT,
                     task_id=state.get("task_id") or "",
                     agent_key="summary",
                     phase="summary",
                     user_id=state.get("user_id") or "",
+                    event_sink=state.get("_event_sink"),
                 )
             ).strip()
             

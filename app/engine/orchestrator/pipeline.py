@@ -152,6 +152,8 @@ async def run_pipeline(
         _notify_progress(progress_callback, node_name)
 
     state = create_initial_state(company_name, trade_date, task_id=task_id, user_id=user_id)
+    # 事件汇聚点经 state 下发（业务节点经 invoker 透传给 run_conversation，Stage 2-4 过程可观测）
+    state["_event_sink"] = event_sink
 
     try:
         try:
@@ -234,11 +236,13 @@ async def run_pipeline(
                     state[report_key] = report_content
 
             state.pop("_phase", None)
+            state.pop("_event_sink", None)
             state["node_timings"] = dict(node_timings)
             return state
         except Exception as e:
             # partial_state 异常语义保留：携带已完成节点的部分结果
             state.pop("_phase", None)
+            state.pop("_event_sink", None)
             state["node_timings"] = dict(node_timings)
             e.partial_state = state  # type: ignore[attr-defined]
             raise

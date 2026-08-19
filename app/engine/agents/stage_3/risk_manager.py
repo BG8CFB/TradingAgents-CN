@@ -12,7 +12,7 @@ from app.engine.agents.utils.agent_config import (  # noqa: E402 (intentional la
     load_agent_config,
     resolve_company_name,
 )
-from app.engine.orchestrator.llm_bridge import llm_chat  # noqa: E402 (intentional late import)
+from app.engine.orchestrator.invoker import run_agent_turn  # noqa: E402 (intentional late import)
 
 _STAGE3_PREFIXES = frozenset({"risky_", "safe_", "neutral_"})
 
@@ -118,18 +118,18 @@ def create_risk_manager(llm, memory):
 
 请直接生成报告内容。
 """
-            messages.append(Message(role=Role.USER, content=user_content))
-
             logger.info("👔 [Risk Manager] 开始生成最终风控裁决报告...")
 
-            # 5. 执行推理（新层客户端，带重试）
-            final_content = await llm_chat(
-                llm, messages,
+            # 5. 执行推理（统一会话循环：压缩/截断恢复/fallback/事件流）
+            #    辩论卷宗作为本轮 user_message 传入，不重复进 history
+            final_content = await run_agent_turn(
+                llm, messages, user_content,
                 system=system,
                 task_id=state.get("task_id") or "",
                 agent_key="risk_manager",
                 phase="risk",
                 user_id=state.get("user_id") or "",
+                event_sink=state.get("_event_sink"),
             )
 
             # H-2: 空响应降级 — LLM 返回空内容时使用占位文本

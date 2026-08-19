@@ -319,7 +319,8 @@ class TradingAgentsGraph:
 
     def reflect_and_remember(self, returns_losses):
         """Reflect on decisions and update memory based on returns."""
-        from .reflection import Reflector
+        from app.core.async_utils import run_async
+        from app.engine.agents.postprocess.reflector import Reflector
 
         if not self.curr_state:
             return
@@ -342,19 +343,20 @@ class TradingAgentsGraph:
         risk_state = self.curr_state.get("risk_debate_state") or {}
 
         if inv_state and self.bull_memory:
-            self._reflector.reflect_bull_researcher(self.curr_state, returns_losses, self.bull_memory)
+            run_async(self._reflector.reflect_bull_researcher(self.curr_state, returns_losses, self.bull_memory))
         if inv_state and self.bear_memory:
-            self._reflector.reflect_bear_researcher(self.curr_state, returns_losses, self.bear_memory)
+            run_async(self._reflector.reflect_bear_researcher(self.curr_state, returns_losses, self.bear_memory))
         if inv_state and self.invest_judge_memory:
-            self._reflector.reflect_invest_judge(self.curr_state, returns_losses, self.invest_judge_memory)
+            run_async(self._reflector.reflect_invest_judge(self.curr_state, returns_losses, self.invest_judge_memory))
         if self.curr_state.get("trader_investment_plan") and self.trader_memory:
-            self._reflector.reflect_trader(self.curr_state, returns_losses, self.trader_memory)
+            run_async(self._reflector.reflect_trader(self.curr_state, returns_losses, self.trader_memory))
         if risk_state and self.risk_manager_memory:
-            self._reflector.reflect_risk_manager(self.curr_state, returns_losses, self.risk_manager_memory)
+            run_async(self._reflector.reflect_risk_manager(self.curr_state, returns_losses, self.risk_manager_memory))
 
     def process_signal(self, full_signal, stock_symbol=None):
         """Process a signal to extract the core decision."""
-        from .signal_processing import SignalProcessor
+        from app.core.async_utils import run_async
+        from app.engine.agents.postprocess.signal_processor import SignalProcessor
 
         if not hasattr(self, "_signal_processor"):
             try:
@@ -373,4 +375,4 @@ class TradingAgentsGraph:
                     "risk_score": 0.5,
                     "reasoning": "信号处理初始化失败",
                 }
-        return self._signal_processor.process_signal(full_signal, stock_symbol)
+        return run_async(self._signal_processor.process_signal(full_signal, stock_symbol))

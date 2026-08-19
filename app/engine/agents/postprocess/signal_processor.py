@@ -1,4 +1,4 @@
-# TradingAgents/graph/signal_processing.py
+"""信号提取（自 graph/signal_processing.py 迁移，async 化并统一走 invoker 会话循环）"""
 
 import json
 import re
@@ -37,11 +37,13 @@ def _extract_json(text: str) -> str:
         i += 1
     return text[start:]
 
-from app.engine.orchestrator.llm_bridge import sync_chat  # noqa: E402 (intentional late import)
+
+from app.engine.orchestrator.invoker import run_agent_turn  # noqa: E402 (intentional late import)
 
 from app.utils.logging_init import get_logger  # noqa: E402 (intentional late import)
 from app.utils.tool_logging import log_graph_module  # noqa: E402 (intentional late import)
-logger = get_logger("graph.signal_processing")
+
+logger = get_logger("engine.postprocess.signal_processing")
 
 # 共享的价格提取正则模式
 _PRICE_PATTERNS = [
@@ -72,7 +74,7 @@ class SignalProcessor:
         self.user_id = user_id
 
     @log_graph_module("signal_processing")
-    def process_signal(self, full_signal: str, stock_symbol: str = None) -> dict:
+    async def process_signal(self, full_signal: str, stock_symbol: str = None) -> dict:
         """
         Process a full trading signal to extract structured decision information.
 
@@ -151,8 +153,8 @@ class SignalProcessor:
         logger.debug(f"🔍 [SignalProcessor] 准备调用LLM，信号长度: {len(full_signal)}")
 
         try:
-            response = sync_chat(
-                self.llm, human_content,
+            response = await run_agent_turn(
+                self.llm, [], human_content,
                 system=system_prompt,
                 agent_key="signal_processor",
                 phase="signal_processing",

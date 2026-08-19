@@ -1,5 +1,5 @@
 """
-测试 SignalProcessor 信号处理模块
+测试 SignalProcessor 信号处理模块（agents/postprocess/signal_processor.py，async 化）
 
 业务逻辑测试：直接调用纯逻辑函数（无需 LLM）
 LLM 集成测试：标记 @pytest.mark.ai，使用真实 API
@@ -7,7 +7,7 @@ LLM 集成测试：标记 @pytest.mark.ai，使用真实 API
 
 import pytest
 
-from app.engine.graph.signal_processing import SignalProcessor
+from app.engine.agents.postprocess.signal_processor import SignalProcessor
 
 
 def _create_sp():
@@ -24,26 +24,26 @@ class TestSignalProcessorInit:
 class TestProcessSignalInvalidInput:
     """process_signal 的无效输入处理（不调用 LLM）"""
 
-    def test_none_input(self):
+    async def test_none_input(self):
         sp = _create_sp()
-        result = sp.process_signal(None)
+        result = await sp.process_signal(None)
         assert result["action"] == "持有"
         assert result["target_price"] is None
         assert result["confidence"] == 0.5
 
-    def test_empty_string_input(self):
+    async def test_empty_string_input(self):
         sp = _create_sp()
-        result = sp.process_signal("")
+        result = await sp.process_signal("")
         assert result["action"] == "持有"
 
-    def test_whitespace_only_input(self):
+    async def test_whitespace_only_input(self):
         sp = _create_sp()
-        result = sp.process_signal("   \n\t  ")
+        result = await sp.process_signal("   \n\t  ")
         assert result["action"] == "持有"
 
-    def test_non_string_input(self):
+    async def test_non_string_input(self):
         sp = _create_sp()
-        result = sp.process_signal(123)
+        result = await sp.process_signal(123)
         assert result["action"] == "持有"
 
 
@@ -93,10 +93,10 @@ class TestGetDefaultDecision:
 class TestProcessSignalFallback:
     """LLM 不可用时的降级处理"""
 
-    def test_llm_none_falls_back_to_simple(self):
+    async def test_llm_none_falls_back_to_simple(self):
         """LLM 为 None 时降级到简单决策提取"""
         sp = _create_sp()
-        result = sp.process_signal("建议买入，目标价位50元", stock_symbol="000001")
+        result = await sp.process_signal("建议买入，目标价位50元", stock_symbol="000001")
         assert result["action"] == "买入"
         assert result["target_price"] == 50.0
 
@@ -109,7 +109,7 @@ class TestProcessSignalWithLLM:
     """
 
     @pytest.mark.ai
-    def test_buy_signal_with_real_llm(self):
+    async def test_buy_signal_with_real_llm(self):
         """使用真实 LLM 处理买入信号（app/llm 新层客户端）"""
         from tests.engine.test_engine_reflection import _build_real_llm_client
 
@@ -117,7 +117,7 @@ class TestProcessSignalWithLLM:
         if llm is None:
             pytest.skip("无可用 LLM 凭据（DEEPSEEK_API_KEY 或 ARK_API_KEY）")
         sp = SignalProcessor(llm=llm)
-        result = sp.process_signal(
+        result = await sp.process_signal(
             "基于技术分析，建议买入平安银行，目标价位16.50元",
             stock_symbol="000001",
         )
