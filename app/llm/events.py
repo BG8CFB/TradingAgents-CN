@@ -8,6 +8,8 @@
 - tool_call / tool_result        工具调用与结果（payload: name、input、output、耗时、is_error）
 - compact                        上下文压缩发生（payload: 层级 micro/auto/reactive、前后 token）
 - user_message_injected          用户消息注入运行中的智能体（payload: agent_key、text 摘要）
+- progress                       流水线进度消息（payload: text）——经 on_progress 通道转发，
+                                  兼容旧 progress_callback 外部接口（不落库）
 """
 
 import asyncio
@@ -21,6 +23,8 @@ logger = get_logger("app.llm.events")
 
 # 不落库、仅实时下发的事件（高频）
 REALTIME_ONLY = {"text_delta"}
+# 仅经 on_progress 通道转发的事件（进度消息，走旧 progress_callback 兼容出口）
+PROGRESS_ONLY = {"progress"}
 
 
 @dataclass
@@ -55,10 +59,12 @@ class EventSink:
         on_persist: Optional[Callable[[List[Event]], Any]] = None,
         persist_batch: int = 20,
         persist_interval: float = 2.0,
+        on_progress: Optional[Callable[[str], Any]] = None,
     ):
         self.task_id = task_id
         self._on_event = on_event  # 实时回调（同步或异步）
         self._on_persist = on_persist  # 落库回调（批量）
+        self._on_progress = on_progress  # 进度回调（旧 progress_callback 兼容出口）
         self._persist_batch = persist_batch
         self._persist_interval = persist_interval
         self._buffer: List[Event] = []
@@ -102,8 +108,16 @@ class EventSink:
                     await result
             except Exception as e:  # noqa: BLE001 - 事件失败不阻断对话
                 logger.warning(f"⚠️ [events] 实时回调失败: {e}")
+        # 进度转发（progress 事件专走旧 progress_callback 兼容出口）
+        if event_type in PROGRESS_ONLY and self._on_progress is not None:
+            try:
+                result = self._on_progress(str(payload.get("text", "")))
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"⚠️ [events] 进度回调失败: {e}")
         # 落库缓冲（text_delta 等高频事件不落库）
-        if self._on_persist is not None and event_type not in REALTIME_ONLY:
+        if self._on_persist is not None and event_type not in REALTIME_ONLY and event_type not in PROGRESS_ONLY:
             self._buffer.append(ev)
             if len(self._buffer) >= self._persist_batch or (
                 self._buffer and time.time() - self._last_flush >= self._persist_interval

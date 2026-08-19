@@ -38,16 +38,18 @@ async def gather_conversations(
     """并发执行多个 run_conversation。
 
     Args:
-        client: 共享的协议客户端
+        client: 缺省共享的协议客户端；任务可在 kwargs 里自带 `client` 覆盖
+            （各分析师 bundle 参数不同时使用），自带 client 时不额外注入 fallback
         tasks: 每项是 run_conversation 的关键字参数字典，至少含 user_message
         concurrency: 最大并发数（信号量限流）
     """
     sem = asyncio.Semaphore(concurrency)
 
     async def _run(task_kwargs: dict) -> Optional[RunResult]:
+        task_client = task_kwargs.pop("client", None) or client
         async with sem:
             try:
-                return await run_conversation(client, **task_kwargs)
+                return await run_conversation(task_client, **task_kwargs)
             except Exception as e:  # noqa: BLE001 - 单任务失败不拖垮整批
                 logger.error(f"❌ [parallel] 任务失败: {e}", exc_info=True)
                 return None

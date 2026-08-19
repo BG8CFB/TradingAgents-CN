@@ -11,7 +11,7 @@
 import time
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from app.utils.logging_init import get_logger
 
@@ -50,6 +50,7 @@ def make_dispatch_agent_tool(
     agent_key: str = "",
     phase: str = "",
     user_id: str = "",
+    event_sink: Optional[Any] = None,
 ) -> ToolDef:
     """构造 dispatch_agent 工具。
 
@@ -59,6 +60,7 @@ def make_dispatch_agent_tool(
         max_turns: 子代理默认轮数上限
         task_id / agent_key / phase / user_id: token 用量统计上下文（透传给
             run_conversation；agent_key 会带上 .sub.{agent_id} 后缀区分父子）
+        event_sink: 事件汇聚点（透传给 run_conversation，子代理过程可观测）
     """
 
     async def _dispatch(
@@ -67,6 +69,7 @@ def make_dispatch_agent_tool(
         from ..runner import run_conversation  # 延迟导入避免循环依赖
 
         agent_id = f"agent-{uuid.uuid4().hex[:8]}"
+        sub_agent_key = f"{agent_key}.sub.{agent_id}" if agent_key else agent_id
         # 子代理工具子集：剔除 dispatch_agent 防递归
         if tools:
             subset_defs = [t for t in registry.defs() if t.name in tools and t.name != DISPATCH_AGENT_TOOL_NAME]
@@ -74,8 +77,7 @@ def make_dispatch_agent_tool(
             subset_defs = [t for t in registry.defs() if t.name != DISPATCH_AGENT_TOOL_NAME]
 
         sub_registry = ToolRegistry()
-        for t in subset_defs:
-            sub_registry._tools[t.name] = t  # 直接复用 ToolDef（含 handler 与并发标记）
+        sub_registry.extend(subset_defs)  # 复用 ToolDef（含 handler 与并发标记）
 
         logger.info(f"🤖 [subagent] {agent_id} 启动: {description} (工具: {[t.name for t in subset_defs]})")
         start = time.monotonic()
@@ -87,9 +89,10 @@ def make_dispatch_agent_tool(
             tools=subset_defs,
             max_turns=max_turns_ or max_turns,
             task_id=task_id,
-            agent_key=f"{agent_key}.sub.{agent_id}" if agent_key else agent_id,
+            agent_key=sub_agent_key,
             phase=phase,
             user_id=user_id,
+            event_sink=event_sink,
         )
         duration_ms = int((time.monotonic() - start) * 1000)
         total_tokens = result.total_tokens

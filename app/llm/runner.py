@@ -283,7 +283,7 @@ async def run_conversation(
             break
 
         # ── 同轮多工具：并发分区执行 ─────────────────────────────────
-        outputs = await _execute_partitioned(reg, tool_uses, safe_map, extra_defs, emit)
+        outputs = await _execute_partitioned(reg, tool_uses, safe_map, extra_defs, emit, task_id=task_id)
         result.tool_calls_executed += len(tool_uses)
         result_blocks = [
             ToolResultBlock(
@@ -312,6 +312,7 @@ async def _execute_partitioned(
     tool_uses: List[ToolUseBlock],
     safe_map: dict,
     extra_defs: Optional[dict] = None,
+    task_id: str = "",
     emit: Optional[Any] = None,
 ) -> List[str]:
     """按并发分区执行同轮工具调用；未注册进 registry 的 ad-hoc 工具直接调 handler"""
@@ -328,7 +329,7 @@ async def _execute_partitioned(
                     result = await result
                 out = str(result)
             else:
-                out = await reg.execute(tu.name, tu.input)
+                out = await reg.execute(tu.name, tu.input, task_id=task_id)
         except Exception as e:  # noqa: BLE001 - 回传错误而非中断
             out = f"工具执行失败: {e}"
         if emit is not None:

@@ -32,8 +32,10 @@ def mcp_tool_name(server: str, tool: str) -> str:
     return f"{TOOL_NAME_PREFIX}{_INVALID_CHARS.sub('_', server)}__{_INVALID_CHARS.sub('_', tool)}"
 
 
-def _format_content(result) -> str:
-    """call_tool 结果 → 文本：text 优先，structuredContent JSON 化，超长截断"""
+def _format_content(result, *, task_id: str = "") -> str:
+    """call_tool 结果 → 文本：text 优先，structuredContent JSON 化；超限统一走 result_budget 落盘预览"""
+    from ..tools.result_budget import apply_result_budget
+
     parts: List[str] = []
     for block in result.content or []:
         text = getattr(block, "text", None)
@@ -43,10 +45,7 @@ def _format_content(result) -> str:
         parts.append(json.dumps(result.structuredContent, ensure_ascii=False))
     if not parts:
         return "(空结果)"
-    text = "\n".join(parts)
-    if len(text) > MAX_TOOL_RESULT_CHARS:
-        text = text[:MAX_TOOL_RESULT_CHARS] + f"\n...(截断，原始长度 {len(text)} 字符)"
-    return text
+    return apply_result_budget("mcp_result", "\n".join(parts), task_id=task_id, max_chars=MAX_TOOL_RESULT_CHARS)
 
 
 def make_mcp_tool_def(cfg: MCPServerConfig, manager: MCPManager, tool) -> ToolDef:

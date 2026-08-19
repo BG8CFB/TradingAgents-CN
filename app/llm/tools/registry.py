@@ -83,8 +83,21 @@ class ToolRegistry:
     def defs(self) -> List[ToolDef]:
         return list(self._tools.values())
 
-    async def execute(self, name: str, tool_input: Dict[str, Any]) -> str:
-        """执行工具，返回字符串结果。未知工具/异常都转为可回传的错误文本。"""
+    def extend(self, defs: List[ToolDef]) -> None:
+        """批量并入已构造的 ToolDef（直接复用定义，含 handler 与并发标记）。
+
+        公共 API：子代理取工具子集等场景应使用本方法，禁止直接访问内部存储。
+        """
+        for t in defs:
+            self._tools[t.name] = t
+
+    async def execute(self, name: str, tool_input: Dict[str, Any], *, task_id: str = "") -> str:
+        """执行工具，返回字符串结果。未知工具/异常都转为可回传的错误文本。
+
+        结果统一经过 result_budget：超限落盘 + 预览引用，防止大输出撑爆上下文。
+        """
+        from .result_budget import apply_result_budget
+
         tool = self._tools.get(name)
         if tool is None:
             return f"错误：未知工具 '{name}'"
@@ -92,7 +105,7 @@ class ToolRegistry:
             result = tool.handler(**tool_input)
             if inspect.isawaitable(result):
                 result = await result
-            return str(result)
+            return apply_result_budget(name, str(result), task_id=task_id)
         except Exception as e:  # noqa: BLE001 - 工具错误必须回传给模型而非中断循环
             logger.warning(f"工具 {name} 执行失败: {e}")
             return f"工具执行失败: {e}"
