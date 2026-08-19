@@ -147,3 +147,5 @@ frontend/nul
 
 # Skill 系统：Git/registry 安装缓存目录（不追踪，但 config/skills/ 本身可追踪）
 config/skills/.cache/
+*.egg-info/
+config/agents/*.yaml.lock
