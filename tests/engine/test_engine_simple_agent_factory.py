@@ -8,7 +8,6 @@ SimpleAgentFactory 仅保留 create_analysts() 工厂方法。
 """
 
 import os
-import pytest
 
 from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
 

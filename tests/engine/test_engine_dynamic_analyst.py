@@ -4,7 +4,6 @@
 验证工厂方法的查找、映射和进度功能。
 """
 
-import os
 import pytest
 
 from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory

@@ -1,6 +1,5 @@
 """测试报告服务"""
 
-import pytest
 
 
 class TestReportsServiceImport:

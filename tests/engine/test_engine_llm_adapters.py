@@ -1,6 +1,5 @@
 """测试 LLM 适配器：OpenAICompatibleAdapter、BaseChatAdapter、factory"""
 
-import os
 import pytest
 
 from app.engine.llm_adapters.factory import create_llm, PROVIDER_DEFAULTS

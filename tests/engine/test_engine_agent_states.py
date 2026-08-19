@@ -4,8 +4,7 @@ Agent 状态定义测试
 以及 update_reports reducer 函数
 """
 
-import pytest
-from typing import get_type_hints, get_args, get_origin
+from typing import get_type_hints
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +224,6 @@ class TestAgentState:
     def test_inherits_from_messages_state(self):
         """应继承自 MessagesState（通过字段存在性验证）"""
         from app.engine.agents.utils.agent_states import AgentState
-        from langgraph.graph import MessagesState
 
         # TypedDict 不支持 issubclass，通过检查 messages 字段验证继承关系
         hints = get_type_hints(AgentState)

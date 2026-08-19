@@ -7,7 +7,6 @@ A股股票基础信息同步到MongoDB
 
 import os
 import sys
-import json
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 import pandas as pd
@@ -28,7 +27,7 @@ try:
     MONGODB_AVAILABLE = True
 except ImportError:
     MONGODB_AVAILABLE = False
-    logger.error(f"❌ pymongo未安装，请运行: pip install pymongo")
+    logger.error("❌ pymongo未安装，请运行: pip install pymongo")
 
 class StockInfoSyncer:
     """A股股票信息同步器"""
@@ -79,7 +78,7 @@ class StockInfoSyncer:
     def _init_mongodb(self):
         """初始化MongoDB连接"""
         if not MONGODB_AVAILABLE:
-            logger.error(f"❌ MongoDB不可用，请安装pymongo")
+            logger.error("❌ MongoDB不可用，请安装pymongo")
             return
         
         try:
@@ -171,11 +170,11 @@ class StockInfoSyncer:
     def sync_to_mongodb(self, stock_data: pd.DataFrame) -> bool:
         """将股票数据同步到MongoDB"""
         if self.mongodb_db is None:
-            logger.error(f"❌ MongoDB未连接，无法同步数据")
+            logger.error("❌ MongoDB未连接，无法同步数据")
             return False
         
         if stock_data is None or stock_data.empty:
-            logger.error(f"❌ 没有数据需要同步")
+            logger.error("❌ 没有数据需要同步")
             return False
         
         try:
@@ -221,14 +220,14 @@ class StockInfoSyncer:
             if bulk_operations:
                 result = collection.bulk_write(bulk_operations)
                 
-                logger.info(f"📊 数据同步完成:")
+                logger.info("📊 数据同步完成:")
                 logger.info(f"  - 插入新记录: {result.upserted_count}")
                 logger.info(f"  - 更新记录: {result.modified_count}")
                 logger.info(f"  - 匹配记录: {result.matched_count}")
                 
                 return True
             else:
-                logger.error(f"❌ 没有数据需要同步")
+                logger.error("❌ 没有数据需要同步")
                 return False
                 
         except Exception as e:
@@ -324,57 +323,57 @@ class StockInfoSyncer:
         """关闭数据库连接"""
         if self.mongodb_client:
             self.mongodb_client.close()
-            logger.info(f"🔒 MongoDB连接已关闭")
+            logger.info("🔒 MongoDB连接已关闭")
 
 
 def main():
     """主函数"""
-    logger.info(f"=")
-    logger.info(f"📊 A股股票基础信息同步到MongoDB")
-    logger.info(f"=")
+    logger.info("=")
+    logger.info("📊 A股股票基础信息同步到MongoDB")
+    logger.info("=")
     
     # 创建同步器
     syncer = StockInfoSyncer()
     
     if syncer.mongodb_db is None:
-        logger.error(f"❌ MongoDB连接失败，请检查配置")
+        logger.error("❌ MongoDB连接失败，请检查配置")
         return
     
     try:
         # 同步股票数据
-        logger.info(f"\n🏢 同步股票数据...")
+        logger.info("\n🏢 同步股票数据...")
         stock_data = syncer.fetch_stock_data('stock')
         if stock_data is not None:
             syncer.sync_to_mongodb(stock_data)
         
         # 同步指数数据
-        logger.info(f"\n📊 同步指数数据...")
+        logger.info("\n📊 同步指数数据...")
         index_data = syncer.fetch_stock_data('index')
         if index_data is not None:
             syncer.sync_to_mongodb(index_data)
         
         # 同步ETF数据
-        logger.info(f"\n📈 同步ETF数据...")
+        logger.info("\n📈 同步ETF数据...")
         etf_data = syncer.fetch_stock_data('etf')
         if etf_data is not None:
             syncer.sync_to_mongodb(etf_data)
         
         # 显示统计信息
-        logger.info(f"\n📊 同步统计信息:")
+        logger.info("\n📊 同步统计信息:")
         stats = syncer.get_sync_statistics()
         if stats:
             logger.info(f"  总记录数: {stats.get('total_count', 0)}")
             
             market_dist = stats.get('market_distribution', {})
             if market_dist:
-                logger.info(f"  市场分布:")
+                logger.info("  市场分布:")
                 for market, count in market_dist.items():
                     market_name = "深圳" if market == 'sz' else "上海"
                     logger.info(f"    {market_name}市场: {count} 条")
             
             category_dist = stats.get('category_distribution', {})
             if category_dist:
-                logger.info(f"  分类分布:")
+                logger.info("  分类分布:")
                 for category, count in category_dist.items():
                     logger.info(f"    {category}: {count} 条")
             
@@ -383,13 +382,13 @@ def main():
                 logger.info(f"  最近更新: {latest_update}")
         
         # 示例查询
-        logger.debug(f"\n🔍 示例查询 - 查找平安银行:")
+        logger.debug("\n🔍 示例查询 - 查找平安银行:")
         results = syncer.query_stocks(name="平安", limit=5)
         for result in results:
             logger.info(f"  {result['code']} - {result['name']} ({result['market']})")
         
     except KeyboardInterrupt:
-        logger.info(f"\n⏹️ 用户中断操作")
+        logger.info("\n⏹️ 用户中断操作")
     except Exception as e:
         logger.error(f"\n❌ 同步过程中发生错误: {e}")
         import traceback
@@ -398,7 +397,7 @@ def main():
     finally:
         syncer.close()
     
-    logger.info(f"\n✅ 同步完成")
+    logger.info("\n✅ 同步完成")
 
 
 if __name__ == "__main__":

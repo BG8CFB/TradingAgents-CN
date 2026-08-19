@@ -1,6 +1,5 @@
 """测试美股适配器 — 大写 ticker、adj_close、公司行为。"""
 
-import pytest
 import pandas as pd
 
 from app.data.sources.us.yfinance.adapter import YFinanceUSAdapter

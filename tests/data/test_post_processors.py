@@ -1,6 +1,5 @@
 """后处理器测试 — PeriodAggregator (日→周/月) 与 AdjFactorCalculator (复权因子)。"""
 
-import pytest
 
 from app.data.processor.post_processors.period_aggregator import PeriodAggregator
 from app.data.processor.post_processors.adj_factor_calculator import AdjFactorCalculator

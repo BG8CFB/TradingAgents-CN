@@ -1,6 +1,5 @@
 """测试 schema/domains 各域 Schema 定义。"""
 
-import pytest
 from dataclasses import fields
 
 

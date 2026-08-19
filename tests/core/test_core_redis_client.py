@@ -4,8 +4,6 @@
 使用 SimulatedRedis 进行测试，不依赖真实 Redis 连接
 """
 
-import json
-import pytest
 
 from app.core.redis_client import RedisKeys, RedisService, get_redis_service
 

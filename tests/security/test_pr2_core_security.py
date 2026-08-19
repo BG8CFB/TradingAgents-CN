@@ -8,7 +8,6 @@ PR2 核心安全测试
 - S11 操作日志中间件不再二次 decode JWT
 """
 
-import asyncio
 import os
 import tempfile
 from pathlib import Path

@@ -2,12 +2,9 @@
 测试 app/core/config.py — Settings 配置类
 """
 
-import importlib
 import os
 import sys
-import warnings
 
-import pytest
 from test_infra import env_vars
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

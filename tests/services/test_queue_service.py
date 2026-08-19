@@ -4,7 +4,6 @@
 使用 SimulatedRedis 内存模拟，不依赖真实 Redis
 """
 
-import json
 import pytest
 
 from app.services.queue_service import QueueService

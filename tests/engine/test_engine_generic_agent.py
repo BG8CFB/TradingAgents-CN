@@ -5,7 +5,6 @@
 """
 
 import os
-import pytest
 
 from app.engine.agents.utils.agent_config import (
     resolve_company_name,

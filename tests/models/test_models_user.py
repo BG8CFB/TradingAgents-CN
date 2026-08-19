@@ -18,7 +18,6 @@ from app.models.user import (
     UserLogin,
     UserSession,
     TokenResponse,
-    PyObjectId,
     validate_object_id,
     serialize_object_id,
 )

@@ -1,7 +1,6 @@
 """测试配置桥接模块"""
 
 import os
-import pytest
 
 from test_infra import env_vars
 from app.core.config_bridge import (

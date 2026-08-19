@@ -11,7 +11,6 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import jwt
-import pytest
 
 from app.core.config import settings
 from app.services.auth_service import AuthService, TokenData

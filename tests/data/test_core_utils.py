@@ -1,6 +1,5 @@
 """core/ 工具模块测试 — DataDomain、SemanticType、MarketType、normalize_symbol、RefreshResult。"""
 
-import pytest
 
 from app.data.core.domain import (
     MARKET_DATA_DOMAINS,

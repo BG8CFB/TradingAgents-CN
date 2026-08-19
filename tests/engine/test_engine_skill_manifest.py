@@ -14,7 +14,6 @@ Skill 系统测试套件
 - 使用项目内置的 3 个种子 skill 作为真实测试数据
 - 不依赖 MongoDB/Redis 的测试用例可在无基础设施环境运行
 """
-import os
 import sys
 from pathlib import Path
 

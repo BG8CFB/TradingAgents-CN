@@ -1,6 +1,5 @@
 """Validator 写入前校验测试 — 覆盖所有域的必填字段、价格范围、涨跌幅。"""
 
-import pytest
 
 from app.data.processor.validator import Validator
 

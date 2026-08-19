@@ -11,15 +11,11 @@
 设计原则：不使用 unittest.mock，所有路径使用真实代码。
 """
 
-import os
 import pytest
 import asyncio
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.data.scheduler.engine import SchedulerEngine
-from app.data.scheduler.job_registry import JobRegistry
 
 
 class FakeJob:

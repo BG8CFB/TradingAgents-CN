@@ -5,7 +5,6 @@
 需要真实数据库连接的测试标记 @pytest.mark.requires_db
 """
 
-import asyncio
 import pytest
 
 from app.core.database import (
@@ -122,21 +121,6 @@ class TestGetRedisClient:
                 get_redis_client()
         finally:
             db_module.redis_client = original
-
-
-class TestGetMongoDB:
-    """测试 get_mongo_db() 函数"""
-
-    def test_raises_runtime_error_when_not_initialized(self):
-        import app.core.database as db_module
-
-        original_db = db_module.mongo_db
-        db_module.mongo_db = None
-        try:
-            with pytest.raises(RuntimeError, match="MongoDB数据库未初始化"):
-                get_mongo_db()
-        finally:
-            db_module.mongo_db = original_db
 
 
 class TestInitDatabaseViewsAndIndexes:

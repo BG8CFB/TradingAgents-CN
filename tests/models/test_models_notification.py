@@ -10,8 +10,6 @@ from bson import ObjectId
 from pydantic import ValidationError
 
 from app.models.notification import (
-    NotificationType,
-    NotificationStatus,
     NotificationCreate,
     NotificationDB,
     NotificationOut,

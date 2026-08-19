@@ -11,7 +11,7 @@ import asyncio
 import os
 import sys
 import warnings
-from typing import AsyncGenerator, Generator
+from typing import Generator
 
 import pytest
 import pytest_asyncio
@@ -191,7 +191,6 @@ def redis_available():
 # 模拟数据 Fixtures（真实数据结构，非 MagicMock）
 # ============================================================
 
-import importlib
 import os as _os
 _sys_path_test = _os.path.dirname(_os.path.abspath(__file__))
 if _sys_path_test not in sys.path:

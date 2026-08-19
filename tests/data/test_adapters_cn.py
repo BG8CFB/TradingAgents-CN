@@ -1,6 +1,5 @@
 """测试 A 股三源适配器 — 字段映射、单位转换、空值处理。"""
 
-import pytest
 import pandas as pd
 import numpy as np
 

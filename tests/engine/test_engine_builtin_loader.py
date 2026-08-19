@@ -4,7 +4,6 @@
 验证内置工具模块的加载行为。
 """
 
-import pytest
 
 from app.engine.tools.builtin.loader import load_builtin_tools, get_builtin_tool_specs
 from app.engine.tools.builtin.registry import BUILTIN_TOOL_REGISTRY

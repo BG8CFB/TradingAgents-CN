@@ -1,7 +1,5 @@
 """测试 schema/markets 三市场特化字段。"""
 
-import pytest
-from dataclasses import fields
 
 
 class TestCNBasicInfoFields:

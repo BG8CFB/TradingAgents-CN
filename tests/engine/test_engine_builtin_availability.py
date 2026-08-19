@@ -4,8 +4,6 @@
 get_availability_summary 函数，验证可用性检测逻辑。
 """
 
-import os
-import pytest
 
 from app.engine.tools.builtin.availability import (
     check_tool_availability,

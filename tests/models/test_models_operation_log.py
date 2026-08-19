@@ -14,7 +14,6 @@ from app.models.operation_log import (
     OperationLogQuery,
     OperationLogListResponse,
     OperationLogStats,
-    OperationLogStatsResponse,
     ClearLogsRequest,
     ClearLogsResponse,
     ActionType,

@@ -4,16 +4,13 @@
 使用真实的 Starlette Request 对象替代 MagicMock
 """
 
-import asyncio
-import os
 import uuid
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from fastapi import FastAPI, Request, Response
-from starlette.testclient import TestClient
+from fastapi import FastAPI, Request
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +332,7 @@ class TestOperationLogMiddleware:
     def test_should_skip_when_globally_disabled(self):
         """全局禁用时应跳过日志"""
         from app.middleware.operation_log_middleware import (
-            OperationLogMiddleware, set_operation_log_enabled,
+            set_operation_log_enabled,
         )
 
         middleware = self._make_middleware()
@@ -351,7 +348,6 @@ class TestOperationLogMiddleware:
 
     def test_action_type_mapping(self):
         """路径到操作类型的映射应正确"""
-        from app.middleware.operation_log_middleware import OperationLogMiddleware
         from app.models.operation_log import ActionType
 
         middleware = self._make_middleware()
@@ -364,7 +360,6 @@ class TestOperationLogMiddleware:
 
     def test_action_description_for_analysis(self):
         """分析路径的操作描述应正确"""
-        from app.middleware.operation_log_middleware import OperationLogMiddleware
 
         middleware = self._make_middleware()
 
@@ -376,7 +371,6 @@ class TestOperationLogMiddleware:
 
     def test_action_description_for_auth(self):
         """认证路径的操作描述应正确"""
-        from app.middleware.operation_log_middleware import OperationLogMiddleware
 
         middleware = self._make_middleware()
 

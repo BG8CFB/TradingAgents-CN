@@ -1,7 +1,5 @@
-from test_infra import env_vars
 """测试 API Key 工具函数"""
 
-import os
 import pytest
 
 from app.utils.api_key_utils import (

@@ -11,7 +11,6 @@ Provider/Adapter/MongoDB/Redis 连接，在无真实服务时无法完全执行�
 本测试聚焦于可独立验证的纯逻辑部分。
 """
 
-import asyncio
 import pytest
 
 from app.data.core.refresh_service import DataRefreshService, _cooldown_cache

@@ -1,6 +1,5 @@
 """测试 builtin/helpers 辅助函数"""
 
-import pytest
 
 from app.engine.tools.common.format import format_result
 

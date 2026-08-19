@@ -4,7 +4,7 @@ def main():
     from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
     from app.utils.logging_manager import get_logger
 
-    logger = get_logger('default')
+    get_logger('default')  # 初始化根日志器
 
     # Create a custom config
     config = DEFAULT_CONFIG.copy()

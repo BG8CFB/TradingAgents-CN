@@ -4,7 +4,6 @@
 直接调用 Propagator 真实函数，不使用 patch
 """
 
-import pytest
 
 from app.engine.graph.propagation import Propagator
 

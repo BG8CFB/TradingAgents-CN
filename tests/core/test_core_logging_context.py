@@ -4,7 +4,6 @@
 
 import logging
 
-import pytest
 
 from app.core.logging_context import trace_id_var, LoggingContextFilter
 

@@ -6,7 +6,6 @@
 """
 
 import asyncio
-import pytest
 
 
 class TestFreshnessCheck:

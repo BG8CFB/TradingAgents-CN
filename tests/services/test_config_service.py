@@ -1,6 +1,5 @@
 """测试配置服务门面"""
 
-import pytest
 
 
 class TestConfigServiceImport:

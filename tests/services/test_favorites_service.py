@@ -1,6 +1,5 @@
 """测试自选股服务"""
 
-import pytest
 from datetime import datetime
 
 from app.services.favorites_service import FavoritesService

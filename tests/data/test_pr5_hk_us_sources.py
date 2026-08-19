@@ -7,7 +7,6 @@ PR5 测试 — HK/US 数据源异常分类 + FallbackRouter 单例
 - C4 单例化不破坏现有调用方（refresh_service / sync_job / multi_source_basics_sync / domain_sync）
 """
 
-import asyncio
 import importlib
 import inspect
 

@@ -2,8 +2,6 @@
 测试 app/core/rate_limiter.py — 速率限制器模块
 """
 
-import asyncio
-import time
 
 import pytest
 

@@ -17,8 +17,7 @@
 import pytest
 
 from app.data.core.interface import DataInterface
-from app.data.core.result import RefreshResult, DomainRefreshResult
-from app.data.schema.base.enums import RefreshStatus
+from app.data.core.result import RefreshResult
 
 
 # ---------------------------------------------------------------------------

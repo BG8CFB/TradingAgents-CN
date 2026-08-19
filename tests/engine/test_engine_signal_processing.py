@@ -5,11 +5,9 @@
 LLM 集成测试：标记 @pytest.mark.ai，使用真实 API
 """
 
-import json
 import pytest
 
 from app.engine.graph.signal_processing import SignalProcessor
-from app.utils.stock_utils import StockUtils
 
 
 def _create_sp():

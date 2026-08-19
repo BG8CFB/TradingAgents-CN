@@ -11,7 +11,6 @@
 
 import pytest
 
-from app.data.scheduler.checkpoint import CheckpointManager
 
 
 class TestGetCheckpoint:

@@ -1,6 +1,5 @@
 """测试 Scheduler — Job 注册、检查点管理、依赖链、时区处理。"""
 
-import pytest
 from datetime import datetime, timezone
 
 from app.data.scheduler.job_registry import JobRegistry

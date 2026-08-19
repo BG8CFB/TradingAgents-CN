@@ -7,7 +7,6 @@ Rules:
 3. No router file should import motor or call find_one/aggregate directly
 """
 import ast
-import os
 from pathlib import Path
 
 ROUTERS_DIR = Path(__file__).parent.parent.parent / "app" / "routers"

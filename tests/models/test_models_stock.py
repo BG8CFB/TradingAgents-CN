@@ -54,7 +54,6 @@ class TestMarketType:
 
     def test_valid_values(self):
         """合法市场类型"""
-        from app.models.stock_models import MarketType
         # Literal["CN", "HK", "US"] - 直接在模型中验证
         info = MarketInfo(
             market="CN",
@@ -71,7 +70,6 @@ class TestExchangeType:
 
     def test_all_exchanges(self):
         """所有交易所类型"""
-        from app.models.stock_models import ExchangeType
         for exchange in ("SZSE", "SSE", "SEHK", "NYSE", "NASDAQ"):
             info = MarketInfo(
                 market="CN",
@@ -99,7 +97,6 @@ class TestStockStatus:
 
     def test_valid_statuses(self):
         """合法上市状态"""
-        from app.models.stock_models import StockStatus
         for status in ("L", "D", "P"):
             stock = StockBasicInfoExtended(
                 symbol="000001",
@@ -115,7 +112,6 @@ class TestCurrencyType:
 
     def test_valid_currencies(self):
         """合法货币类型"""
-        from app.models.stock_models import CurrencyType
         for cur in ("CNY", "HKD", "USD"):
             info = MarketInfo(
                 market="CN",

@@ -1,10 +1,8 @@
 """测试港股适配器 — 5 位代码补零、HKD、公司行为。"""
 
-import pytest
 import pandas as pd
 
 from app.data.sources.hk.akshare_hk.adapter import AKShareHKAdapter
-from app.data.sources.hk.yfinance_hk.adapter import YFinanceHKAdapter
 from app.data.sources.hk.tushare_hk.adapter import TushareHKAdapter
 from app.data.sources.hk.tencent_hk.adapter import TencentHKAdapter
 
