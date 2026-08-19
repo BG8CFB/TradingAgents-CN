@@ -1,5 +1,5 @@
 def main():
-    from app.engine.graph.trading_graph import TradingAgentsGraph
+    from app.engine.runtime import AnalysisRuntime
     from app.engine.default_config import DEFAULT_CONFIG
     from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
     from app.utils.logging_manager import get_logger
@@ -21,10 +21,10 @@ def main():
         raise ValueError("未找到阶段1智能体配置，请先在 phase1_agents_config.yaml 中添加。")
 
     # Initialize with custom config
-    ta = TradingAgentsGraph(selected_analysts=selected_analysts, debug=True, config=config)
+    ta = AnalysisRuntime(selected_analysts=selected_analysts, debug=True, config=config)
 
     # forward propagate
-    _, decision = ta.propagate("NVDA", "2024-05-10")
+    _, decision = ta.propagate_sync("NVDA", "2024-05-10")
     print(decision)
 
 

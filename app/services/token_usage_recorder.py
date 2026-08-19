@@ -1,3 +1,4 @@
+# data-access-exempt: 用量统计直写 Mongo（同 usage_statistics_service 聚合层）
 """LLM Token 用量记录器
 
 - 每次 LLM API 调用记一条到 Mongo `token_usage` 集合（per-call 粒度，

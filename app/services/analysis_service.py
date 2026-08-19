@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 import concurrent.futures
 
-from app.engine.graph.trading_graph import TradingAgentsGraph
+from app.engine.runtime import AnalysisRuntime
 from app.engine.default_config import DEFAULT_CONFIG
 from app.utils.runtime_paths import get_analysis_results_dir
 from app.data.core.interface import DataInterface
@@ -585,14 +585,14 @@ class AnalysisService:
 
         return get_mongo_db_sync()
 
-    def _get_trading_graph(self, config: Dict[str, Any]) -> TradingAgentsGraph:
+    def _get_trading_graph(self, config: Dict[str, Any]) -> AnalysisRuntime:
         """获取或创建TradingAgents实例 (每次创建新实例以保证线程安全)"""
         selected = config.get("selected_analysts") or []
         if not selected:
             raise ValueError(
                 "selected_analysts 不能为空，请先在阶段1配置分析师后再发起任务。"
             )
-        return TradingAgentsGraph(
+        return AnalysisRuntime(
             selected_analysts=selected, debug=config.get("debug", False), config=config
         )
 
@@ -1355,18 +1355,18 @@ class AnalysisService:
             import time
 
             graph_init_start = time.time()
-            logger.info("⏱️ [性能追踪] 开始创建 TradingAgentsGraph...")
+            logger.info("⏱️ [性能追踪] 开始创建 AnalysisRuntime...")
 
             trading_graph = self._get_trading_graph(config)
 
             graph_init_elapsed = time.time() - graph_init_start
             logger.info(
-                f"⏱️ [性能追踪] TradingAgentsGraph 创建完成，耗时: {graph_init_elapsed:.2f} 秒 ({graph_init_elapsed / 60:.2f} 分钟)"
+                f"⏱️ [性能追踪] AnalysisRuntime 创建完成，耗时: {graph_init_elapsed:.2f} 秒 ({graph_init_elapsed / 60:.2f} 分钟)"
             )
 
             if graph_init_elapsed > 60:
                 logger.warning(
-                    "⚠️ [性能瓶颈] TradingAgentsGraph 初始化耗时超过 1 分钟！这是主要性能瓶颈！"
+                    "⚠️ [性能瓶颈] AnalysisRuntime 初始化耗时超过 1 分钟！这是主要性能瓶颈！"
                 )
 
             start_time = now_config_tz()
@@ -1418,7 +1418,7 @@ class AnalysisService:
 
             event_sink = create_event_sink(task_id, server_loop=server_loop)
             try:
-                state, decision = trading_graph.propagate(
+                state, decision = trading_graph.propagate_sync(
                     request.stock_code,
                     analysis_date,
                     progress_callback=graph_progress_callback,

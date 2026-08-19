@@ -28,7 +28,7 @@ MAX_ROUNDS = 10
 
 @dataclass
 class PipelineDeps:
-    """pipeline 依赖（由 TradingAgentsGraph 构造）"""
+    """pipeline 依赖（由 AnalysisRuntime 构造）"""
 
     analyst_client: Any  # BaseLLMClient
     debate_client: Any  # BaseLLMClient

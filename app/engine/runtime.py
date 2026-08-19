@@ -1,5 +1,6 @@
-# TradingAgents/graph/trading_graph.py
-# 手写编排入口（orchestrator/pipeline）— LangGraph/langchain 已完全移除
+# TradingAgents/engine/runtime.py
+# 分析运行时入口（原 graph/trading_graph.py 瘦身迁移，graph/ 目录退役）
+# 手写编排（orchestrator/pipeline）— LangGraph/langchain 已完全移除
 
 import asyncio
 import json
@@ -30,8 +31,8 @@ def _classify_node(node_name: str) -> str:
     return "other"
 
 
-class TradingAgentsGraph:
-    """Main class that orchestrates the trading agents framework."""
+class AnalysisRuntime:
+    """分析运行时：客户端解析、memory 装配、流水线执行与后处理（信号提取/反思）。"""
 
     def __init__(
         self,
@@ -49,7 +50,7 @@ class TradingAgentsGraph:
         # 如果外部已注入 MCP 开关
         if self.config.get("mcp_tool_loader") and not self.config.get("enable_mcp", False):
             self.config["enable_mcp"] = True
-            logger.info("🔧 [TradingGraph] 检测到 MCP 配置，已自动启用 MCP 工具")
+            logger.info("🔧 [AnalysisRuntime] 检测到 MCP 配置，已自动启用 MCP 工具")
 
         # Create necessary directories
         cache_root = self.config.get("data_cache_dir") or str(get_eval_results_dir().parent / "cache" / "dataflows")
@@ -76,6 +77,7 @@ class TradingAgentsGraph:
         self.curr_state = None
         self.ticker = None
         self.log_states_dict = {}
+
 
     # ── 客户端解析 ────────────────────────────────────────────────────
 
@@ -112,14 +114,14 @@ class TradingAgentsGraph:
 
     # ── 主入口 ────────────────────────────────────────────────────────
 
-    def propagate(self, company_name, trade_date, progress_callback=None, task_id=None, event_sink=None, user_id=None):
+    async def propagate(self, company_name, trade_date, progress_callback=None, task_id=None, event_sink=None, user_id=None):
         """Run the analysis pipeline for a company on a specific date.
 
         progress_callback 为旧兼容入口：pipeline 内部经 EventSink.on_progress
         单通道转发（进度机制已收敛，ProgressManager 已删除）。
         """
         logger.debug(
-            f"🔍 [GRAPH DEBUG] propagate: company='{company_name}', "
+            f"🔍 [RUNTIME DEBUG] propagate: company='{company_name}', "
             f"trade_date='{trade_date}', task_id='{task_id}'"
         )
         self.ticker = company_name
@@ -127,37 +129,29 @@ class TradingAgentsGraph:
         total_start_time = time.time()
         self._current_task_id = task_id
 
-        async def _run() -> Dict[str, Any]:
-            clients = await self._resolve_clients()
-            self._last_debate_client = clients["debate"]
-            deps = PipelineDeps(
-                analyst_client=clients["analyst"],
-                debate_client=clients["debate"],
-                toolkit=self.toolkit,
-                bull_memory=self.bull_memory,
-                bear_memory=self.bear_memory,
-                trader_memory=self.trader_memory,
-                invest_judge_memory=self.invest_judge_memory,
-                risk_manager_memory=self.risk_manager_memory,
-                config=self.config,
-            )
-            return await run_pipeline(
-                deps,
-                company_name,
-                trade_date,
-                self.selected_analysts,
-                task_id=task_id,
-                progress_callback=progress_callback,
-                event_sink=event_sink,
-                user_id=user_id,
-            )
-
-        try:
-            final_state = asyncio.run(_run())
-        except Exception as e:
-            logger.error(f"❌ 分析流程执行异常: {e}")
-            e.partial_state = getattr(e, "partial_state", None)  # type: ignore[attr-defined]
-            raise
+        clients = await self._resolve_clients()
+        self._last_debate_client = clients["debate"]
+        deps = PipelineDeps(
+            analyst_client=clients["analyst"],
+            debate_client=clients["debate"],
+            toolkit=self.toolkit,
+            bull_memory=self.bull_memory,
+            bear_memory=self.bear_memory,
+            trader_memory=self.trader_memory,
+            invest_judge_memory=self.invest_judge_memory,
+            risk_manager_memory=self.risk_manager_memory,
+            config=self.config,
+        )
+        final_state = await run_pipeline(
+            deps,
+            company_name,
+            trade_date,
+            self.selected_analysts,
+            task_id=task_id,
+            progress_callback=progress_callback,
+            event_sink=event_sink,
+            user_id=user_id,
+        )
 
         if final_state is None:
             logger.error("final_state 为 None，分析流程未产生任何输出")
@@ -190,7 +184,7 @@ class TradingAgentsGraph:
             or ""
         )
         if final_signal:
-            decision = self.process_signal(final_signal, company_name)
+            decision = await self.process_signal(final_signal, company_name)
         else:
             decision = {
                 "action": "观望",
@@ -204,6 +198,10 @@ class TradingAgentsGraph:
         decision["model_info"] = model_info
 
         return final_state, decision
+
+    def propagate_sync(self, company_name, trade_date, **kwargs):
+        """同步入口（工作线程/CLI）：事件循环内运行完整流水线"""
+        return asyncio.run(self.propagate(company_name, trade_date, **kwargs))
 
     # ── 性能统计 ─────────────────────────────────────────────────────
 
@@ -310,9 +308,8 @@ class TradingAgentsGraph:
             json.dump(self.log_states_dict, f, indent=4, ensure_ascii=False)
         os.replace(tmp_file, log_file)
 
-    def reflect_and_remember(self, returns_losses):
+    async def reflect_and_remember(self, returns_losses):
         """Reflect on decisions and update memory based on returns."""
-        from app.core.async_utils import run_async
         from app.engine.agents.postprocess.reflector import Reflector
 
         if not self.curr_state:
@@ -321,7 +318,7 @@ class TradingAgentsGraph:
             # 反思需要 LLM 客户端：用数据库配置解析
             reflector = None
             try:
-                clients = asyncio.run(self._resolve_clients())
+                clients = await self._resolve_clients()
                 reflector = Reflector(
                     clients["debate"],
                     task_id=self.curr_state.get("task_id") or "",
@@ -336,24 +333,28 @@ class TradingAgentsGraph:
         risk_state = self.curr_state.get("risk_debate_state") or {}
 
         if inv_state and self.bull_memory:
-            run_async(self._reflector.reflect_bull_researcher(self.curr_state, returns_losses, self.bull_memory))
+            await self._reflector.reflect_bull_researcher(self.curr_state, returns_losses, self.bull_memory)
         if inv_state and self.bear_memory:
-            run_async(self._reflector.reflect_bear_researcher(self.curr_state, returns_losses, self.bear_memory))
+            await self._reflector.reflect_bear_researcher(self.curr_state, returns_losses, self.bear_memory)
         if inv_state and self.invest_judge_memory:
-            run_async(self._reflector.reflect_invest_judge(self.curr_state, returns_losses, self.invest_judge_memory))
+            await self._reflector.reflect_invest_judge(self.curr_state, returns_losses, self.invest_judge_memory)
         if self.curr_state.get("trader_investment_plan") and self.trader_memory:
-            run_async(self._reflector.reflect_trader(self.curr_state, returns_losses, self.trader_memory))
+            await self._reflector.reflect_trader(self.curr_state, returns_losses, self.trader_memory)
         if risk_state and self.risk_manager_memory:
-            run_async(self._reflector.reflect_risk_manager(self.curr_state, returns_losses, self.risk_manager_memory))
+            await self._reflector.reflect_risk_manager(self.curr_state, returns_losses, self.risk_manager_memory)
 
-    def process_signal(self, full_signal, stock_symbol=None):
-        """Process a signal to extract the core decision."""
+    def reflect_and_remember_sync(self, returns_losses):
         from app.core.async_utils import run_async
+
+        run_async(self.reflect_and_remember(returns_losses))
+
+    async def process_signal(self, full_signal, stock_symbol=None):
+        """Process a signal to extract the core decision."""
         from app.engine.agents.postprocess.signal_processor import SignalProcessor
 
         if not hasattr(self, "_signal_processor"):
             try:
-                clients = asyncio.run(self._resolve_clients())
+                clients = await self._resolve_clients()
                 self._signal_processor = SignalProcessor(
                     clients["debate"],
                     task_id=(self.curr_state or {}).get("task_id") or "",
@@ -368,4 +369,13 @@ class TradingAgentsGraph:
                     "risk_score": 0.5,
                     "reasoning": "信号处理初始化失败",
                 }
-        return run_async(self._signal_processor.process_signal(full_signal, stock_symbol))
+        return await self._signal_processor.process_signal(full_signal, stock_symbol)
+
+    def process_signal_sync(self, full_signal, stock_symbol=None):
+        from app.core.async_utils import run_async
+
+        return run_async(self.process_signal(full_signal, stock_symbol))
+
+
+# 旧名兼容：外部历史引用平滑迁移
+TradingAgentsGraph = AnalysisRuntime

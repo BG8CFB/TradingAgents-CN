@@ -20,7 +20,6 @@ GETENV_WHITELIST = [
     "core/config_initializer.py",
     "core/startup_validator.py",
     "engine/config/env_utils.py",
-    "engine/graph/trading_graph.py",
     "llm/config.py",
     "llm/limits.py",  # 输出上限解析器：读 LLM_DEFAULT_MAX_TOKENS 全局回滚开关
     "worker/scheduler_setup.py",

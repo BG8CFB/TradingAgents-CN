@@ -24,7 +24,7 @@ class Toolkit:
     配置为实例属性（非类变量），保证多任务并发隔离。
 
     历史问题：``_config`` 曾是类变量 + ``update_config`` 类方法，导致两个
-    ``TradingAgentsGraph`` 实例并发分析时 config 互相污染。本版本彻底删除
+    ``AnalysisRuntime`` 实例并发分析时 config 互相污染。本版本彻底删除
     类变量 / 类方法，每个实例独立持有 config。
     """
 
