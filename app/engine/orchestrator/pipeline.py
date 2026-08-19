@@ -223,6 +223,7 @@ async def run_pipeline(
                 deps.toolkit,
                 max_tool_calls=int(config.get("max_tool_calls", 12)),
                 mcp_tools=mcp_tools,
+                enable_subagent=bool(config.get("enable_subagent", False)),
             )
             concurrency = max(1, int(config.get("analyst_concurrency", 5) or 1))
             semaphore = asyncio.Semaphore(concurrency)

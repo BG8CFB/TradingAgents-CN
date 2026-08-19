@@ -35,6 +35,7 @@ class AnalystSpec:
     unavailable_tool_ids: List[str] = field(default_factory=list)
     callable_tools: List[ToolDef] = field(default_factory=list)  # LLM 可调用工具
     enable_skill_listing: bool = False
+    enable_subagent: bool = False  # 装配 dispatch_agent 子代理工具（默认关闭）
     max_tool_calls: int = 12
 
 
@@ -206,11 +207,32 @@ async def run_analyst(
                 max_output_tokens=getattr(bundle, "max_tokens", None) or DEFAULT_MAX_TOKENS,
             )
 
+        # 子代理即工具（默认关闭）：dispatch_agent 复用分析师的父工具注册表，
+        # 子代理可按 tools 参数取子集（递归派发在 dispatch 内部剔除）
+        effective_tools = spec.callable_tools or None
+        if spec.enable_subagent and spec.callable_tools:
+            from app.llm.orchestration.subagent import make_dispatch_agent_tool
+            from app.llm.tools.registry import ToolRegistry
+
+            base_registry = ToolRegistry()
+            base_registry.extend(spec.callable_tools)
+            dispatch = make_dispatch_agent_tool(
+                bundle.primary if bundle else client,
+                base_registry,
+                task_id=task_id,
+                agent_key=agent_key,
+                phase="analysts",
+                user_id=state.get("user_id") or "",
+                event_sink=event_sink,
+            )
+            effective_tools = [*spec.callable_tools, dispatch]
+            logger.info(f"🤖 [{spec.name}] 已装配子代理工具 dispatch_agent")
+
         result = await run_conversation(
             bundle.primary if bundle else client,
             task_message,
             system=system_prompt,
-            tools=spec.callable_tools or None,
+            tools=effective_tools,
             max_turns=spec.max_tool_calls,
             max_tokens=bundle.max_tokens if bundle else None,
             temperature=bundle.temperature if bundle else None,
@@ -343,6 +365,7 @@ async def build_analyst_specs(
     *,
     max_tool_calls: int = 12,
     mcp_tools: Optional[List[ToolDef]] = None,
+    enable_subagent: bool = False,
 ) -> Dict[str, AnalystSpec]:
     """根据前端选择 + 配置文件装配分析师规格（串行执行；结构预留并行）
 
@@ -419,6 +442,7 @@ async def build_analyst_specs(
             unavailable_tool_ids=unavailable,
             callable_tools=callable_tools,
             enable_skill_listing=enable_skill_listing,
+            enable_subagent=enable_subagent,
             max_tool_calls=max_tool_calls,
         )
         logger.info(
