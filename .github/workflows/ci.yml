@@ -1,15 +1,11 @@
 name: Test
 
+# 触发策略（节省 Actions 配额）：
+# - 普通 push 到 main/develop 不触发测试，本地用 scripts/run_full_tests.sh 预检
+# - pull_request 仍触发，保证 PR 质量
+# - workflow_dispatch 支持在 Actions 页面手动触发
+# - 打 tag 前请先本地跑 scripts/run_full_tests.sh，通过后再 tag 触发 Docker Publish
 on:
-  push:
-    branches: [main, develop]
-    paths:
-      - 'app/**'
-      - 'tests/**'
-      - 'config/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main, develop]
     paths:
@@ -19,6 +15,7 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/ci.yml'
+  workflow_dispatch:
 
 # 同一分支连续推送时取消仍在进行的旧运行，节省 Actions 配额
 concurrency:
