@@ -438,7 +438,7 @@
               <el-select
                 v-model="systemSettings.analyst_model"
                 :disabled="!isEditable('analyst_model')"
-                placeholder="选择分析师模型"
+                :placeholder="allEnabledModels.length ? '选择分析师模型（默认第一个启用模型）' : '未添加模型，请先在「模型配置」中添加'"
                 filterable
               >
                 <el-option
@@ -453,14 +453,14 @@
                   </div>
                 </el-option>
               </el-select>
-              <div class="setting-description">用于一阶段分析师（市场分析、新闻分析等），低幻觉、数字敏感（推荐：qwen-turbo）</div>
+              <div class="setting-description">用于一阶段分析师（市场分析、新闻分析等），低幻觉、数字敏感；未设置时默认使用第一个启用的模型</div>
             </el-form-item>
 
             <el-form-item label="辩论推理模型">
               <el-select
                 v-model="systemSettings.debate_model"
                 :disabled="!isEditable('debate_model')"
-                placeholder="选择辩论推理模型"
+                :placeholder="allEnabledModels.length ? '选择辩论推理模型（默认第一个启用模型）' : '未添加模型，请先在「模型配置」中添加'"
                 filterable
               >
                 <el-option
@@ -475,7 +475,7 @@
                   </div>
                 </el-option>
               </el-select>
-              <div class="setting-description">用于二至四阶段（辩论、风控、交易决策），强逻辑推理（推荐：qwen-max）</div>
+              <div class="setting-description">用于二至四阶段（辩论、风控、交易决策），强逻辑推理；未设置时默认使用第一个启用的模型</div>
             </el-form-item>
 
             <el-form-item label="启用成本跟踪">
@@ -1302,8 +1302,8 @@ const loadSystemSettings = async () => {
     systemSettings.value = {
       // 🔧 添加 default_provider 字段
       default_provider: '',
-      analyst_model: 'qwen-turbo',
-      debate_model: 'qwen-max',
+      analyst_model: '',
+      debate_model: '',
       default_analysis_timeout: 300,
       enable_cache: true,
       cache_ttl: 3600,
@@ -1332,6 +1332,15 @@ const loadSystemSettings = async () => {
     // 规整元数据为map
     const metaList = meta?.items || []
     systemSettingsMeta.value = Object.fromEntries(metaList.map((m: SettingMeta) => [m.key, m]))
+
+    // 未显式设置默认模型时，自动选中第一个启用的模型（不写死具体模型 ID）
+    const firstModel = allEnabledModels.value[0]?.model_name || ''
+    if (!systemSettings.value.analyst_model && firstModel) {
+      systemSettings.value.analyst_model = firstModel
+    }
+    if (!systemSettings.value.debate_model && firstModel) {
+      systemSettings.value.debate_model = firstModel
+    }
   } catch (error) {
     console.error('❌ 加载系统设置失败:', error)
     ElMessage.error('加载系统设置失败')

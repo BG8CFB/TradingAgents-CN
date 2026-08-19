@@ -423,8 +423,8 @@ export const configApi = {
       // 🔧 修复：后端返回的是 {config: {...}, version, cached_at}
       const settings = response.config || response
       return {
-        analyst_model: settings.analyst_model || 'qwen-turbo',
-        debate_model: settings.debate_model || 'qwen-max'
+        analyst_model: settings.analyst_model || '',
+        debate_model: settings.debate_model || ''
       }
     })
   },

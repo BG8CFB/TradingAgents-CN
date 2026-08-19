@@ -261,61 +261,56 @@ class ModelCapabilityService:
         """
         推荐合适的模型对（分析师模型 + 辩论模型）
 
+        选择顺序（均不写死任何具体模型 ID）：
+        1. system_settings 中用户显式指定的 analyst_model / debate_model（须存在于启用模型中）
+        2. 按用途（suitable_roles）匹配的、按入库顺序的第一个启用模型
+        3. 任意第一个启用模型
+        4. 没有任何启用模型时返回 ("", "")
+
         Returns:
-            (analyst_model, debate_model) 元组
+            (analyst_model, debate_model) 元组；未添加模型时为 ("", "")
         """
-        # 获取所有启用的模型
+        # 获取所有启用的模型（保持入库顺序，即"第一个添加的"在前）
         try:
             llm_configs = self._get_llm_configs_from_db()
             enabled_models = [c for c in llm_configs if c.enabled]
         except Exception as e:
             logger.error(f"获取模型配置失败: {e}")
-            return self._get_default_models()
+            return "", ""
 
         if not enabled_models:
-            logger.warning("没有启用的模型，使用默认配置")
-            return self._get_default_models()
+            logger.warning("未添加任何启用的模型，无法推荐默认模型")
+            return "", ""
 
-        # 筛选适合一阶段分析的模型
-        analyst_candidates = []
-        for m in enabled_models:
-            roles = getattr(m, 'suitable_roles', [ModelRole.BOTH])
-            features = getattr(m, 'features', [])
+        enabled_names = {m.model_name for m in enabled_models}
 
-            if (ModelRole.ANALYST in roles or ModelRole.BOTH in roles) and \
-               ModelFeature.TOOL_CALLING in features:
-                analyst_candidates.append(m)
+        # 1. 用户在系统设置中显式指定的模型优先
+        settings_analyst = self._get_system_setting("analyst_model", "")
+        settings_debate = self._get_system_setting("debate_model", "")
 
-        # 筛选适合辩论推理的模型
-        debate_candidates = []
-        for m in enabled_models:
-            roles = getattr(m, 'suitable_roles', [ModelRole.BOTH])
+        analyst_model = settings_analyst if settings_analyst in enabled_names else ""
+        debate_model = settings_debate if settings_debate in enabled_names else ""
 
-            if ModelRole.DEBATE in roles or ModelRole.BOTH in roles:
-                debate_candidates.append(m)
+        # 2. 按用途匹配的第一个启用模型（suitable_roles 选择在这里生效）
+        if not analyst_model:
+            for m in enabled_models:
+                roles = getattr(m, 'suitable_roles', [ModelRole.BOTH]) or [ModelRole.BOTH]
+                if ModelRole.ANALYST in roles or ModelRole.BOTH in roles:
+                    analyst_model = m.model_name
+                    break
 
-        # 按性价比排序
-        analyst_candidates.sort(
-            key=lambda x: (
-                getattr(x, 'capability_level', 2),
-                -getattr(x, 'performance_metrics', {}).get("cost", 3) if getattr(x, 'performance_metrics', None) else 0
-            ),
-            reverse=True
-        )
+        if not debate_model:
+            for m in enabled_models:
+                roles = getattr(m, 'suitable_roles', [ModelRole.BOTH]) or [ModelRole.BOTH]
+                if ModelRole.DEBATE in roles or ModelRole.BOTH in roles:
+                    debate_model = m.model_name
+                    break
 
-        debate_candidates.sort(
-            key=lambda x: (
-                getattr(x, 'capability_level', 2),
-                getattr(x, 'performance_metrics', {}).get("quality", 3) if getattr(x, 'performance_metrics', None) else 0
-            ),
-            reverse=True
-        )
-
-        analyst_model = analyst_candidates[0].model_name if analyst_candidates else None
-        debate_model = debate_candidates[0].model_name if debate_candidates else None
-
-        if not analyst_model or not debate_model:
-            return self._get_default_models()
+        # 3. 兜底：任意第一个启用模型
+        if not analyst_model:
+            analyst_model = enabled_models[0].model_name
+        if not debate_model:
+            debate_model = enabled_models[0].model_name
 
         logger.info(
             f"🤖 推荐模型: analyst={analyst_model} (一阶段分析), debate={debate_model} (辩论推理)"
@@ -324,15 +319,12 @@ class ModelCapabilityService:
         return analyst_model, debate_model
 
     def _get_default_models(self) -> Tuple[str, str]:
-        """获取默认模型对"""
-        try:
-            analyst_model = self._get_system_setting("analyst_model", "qwen-turbo")
-            debate_model = self._get_system_setting("debate_model", "qwen-plus")
-            logger.info(f"使用系统默认模型: analyst={analyst_model}, debate={debate_model}")
-            return analyst_model, debate_model
-        except Exception as e:
-            logger.error(f"获取默认模型失败: {e}")
-            return "qwen-turbo", "qwen-plus"
+        """获取系统设置中指定的默认模型对（不再有写死的回退模型）"""
+        analyst_model = self._get_system_setting("analyst_model", "")
+        debate_model = self._get_system_setting("debate_model", "")
+        if analyst_model or debate_model:
+            logger.info(f"使用系统设置指定的模型: analyst={analyst_model}, debate={debate_model}")
+        return analyst_model, debate_model
 
     def _recommend_model(self, model_type: str, min_level: int) -> str:
         """推荐满足要求的模型"""

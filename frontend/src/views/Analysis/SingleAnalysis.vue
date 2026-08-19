@@ -890,10 +890,10 @@ const generateStepsFromBackend = (backendSteps: { step?: string; name?: string; 
   }))
 }
 
-// 模型设置
+// 模型设置（初始为空，由后端设置或第一个启用模型填充）
 const modelSettings = ref({
-  analystModel: 'qwen-turbo',
-  debateModel: 'qwen-max'
+  analystModel: '',
+  debateModel: ''
 })
 
 // 可用的模型列表（从配置中获取）
@@ -1845,6 +1845,11 @@ const initializeModelSettings = async () => {
     const llmConfigs = await configApi.getLLMConfigs()
     availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled)
 
+    // 未设置默认模型时，回退到第一个启用的模型（不写死具体模型 ID）
+    const firstModel = availableModels.value[0]?.model_name || ''
+    if (!modelSettings.value.analystModel) modelSettings.value.analystModel = firstModel
+    if (!modelSettings.value.debateModel) modelSettings.value.debateModel = firstModel
+
     if (import.meta.env.DEV) {
       console.log('加载模型配置成功:', {
         quick: modelSettings.value.analystModel,
@@ -1854,8 +1859,8 @@ const initializeModelSettings = async () => {
     }
   } catch (error) {
     console.error('加载默认模型配置失败:', (error as any)?.message || error)
-    modelSettings.value.analystModel = 'qwen-turbo'
-    modelSettings.value.debateModel = 'qwen-max'
+    modelSettings.value.analystModel = ''
+    modelSettings.value.debateModel = ''
   }
 }
 

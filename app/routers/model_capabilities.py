@@ -51,6 +51,12 @@ async def recommend_models(current_user: dict = Depends(get_current_user)):
 
         analyst_model, debate_model = capability_service.recommend_models()
 
+        if not analyst_model or not debate_model:
+            raise HTTPException(
+                status_code=400,
+                detail="未添加任何启用的模型，请先在 设置 → 模型配置 中添加并启用模型",
+            )
+
         logger.info(f"🔍 推荐模型: analyst={analyst_model}, debate={debate_model}")
 
         analyst_info = capability_service.get_model_config(analyst_model)
