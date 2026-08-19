@@ -11,6 +11,7 @@
 - phase2/phase3 开关三拓扑：P2+P3 / P2 / 仅 P3(P2 关→分析师直连 Trader)
 """
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -129,6 +130,37 @@ async def run_pipeline(
 
     node_timings: Dict[str, float] = {}
 
+    # 进度单通道：progress_callback 旧兼容入口统一挂到 EventSink.on_progress
+    # （无 event_sink 时构造轻量 sink，仅转发进度，不落库不下发）
+    if event_sink is None and progress_callback is not None:
+        from app.llm.events import EventSink
+
+        event_sink = EventSink(task_id=task_id or "", on_progress=progress_callback)
+
+    def _progress_text(node_name: str) -> str:
+        """节点名 → 中文进度消息（映射与旧 _send_progress_update 一致；空串=跳过）"""
+        try:
+            from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+
+            mapping = DynamicAnalystFactory.build_node_mapping()
+            message = mapping.get(node_name)
+            if message is None:
+                return ""  # 跳过（工具节点、消息清理节点）
+            return message or f"🔍 {node_name}"
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"⚠️ [orchestrator] 进度文案解析失败: {e}")
+            return ""
+
+    async def _emit_progress(node_name: str, phase: str = "") -> None:
+        if event_sink is None:
+            return
+        text = _progress_text(node_name)
+        if text:
+            try:
+                await event_sink.emit("progress", agent_key=node_name, phase=phase, text=text)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"⚠️ [orchestrator] 进度事件发射失败: {e}")
+
     async def _run_node(
         node_name: str, node_fn, st: Dict[str, Any], event_key: str = "", display_name: str = "",
         critical: bool = False,
@@ -149,6 +181,7 @@ async def run_pipeline(
                 "agent_start", agent_key=key, phase=st.get("_phase", ""),
                 name=display_name or node_name,
             )
+            await _emit_progress(node_name, phase=st.get("_phase", ""))
         try:
             try:
                 update = await node_fn(st)
@@ -174,7 +207,6 @@ async def run_pipeline(
                     "agent_end", agent_key=key, duration_ms=int(elapsed * 1000)
                 )
         _merge_state_update(st, update or {})
-        _notify_progress(progress_callback, node_name)
 
     state = create_initial_state(company_name, trade_date, task_id=task_id, user_id=user_id)
     # 事件汇聚点经 state 下发（业务节点经 invoker 透传给 run_conversation，Stage 2-4 过程可观测）
@@ -182,7 +214,7 @@ async def run_pipeline(
 
     try:
         try:
-            # ── Phase 1：分析师串行（单点封装，预留并行）─────────────
+            # ── Phase 1：分析师并行（concurrency 可配，=1 等价旧串行）──
             state["_phase"] = "analysts"
             from .agents import build_analyst_specs, run_analyst
 
@@ -192,13 +224,46 @@ async def run_pipeline(
                 max_tool_calls=int(config.get("max_tool_calls", 12)),
                 mcp_tools=mcp_tools,
             )
-            for internal_key, spec in specs.items():
+            concurrency = max(1, int(config.get("analyst_concurrency", 5) or 1))
+            semaphore = asyncio.Semaphore(concurrency)
+
+            async def _run_analyst(internal_key: str, spec) -> Dict[str, Any]:
+                """单个分析师并行单元：事件/计时/进度 + run_analyst（失败降级）"""
                 node_name = _format_analyst_node(internal_key)
+                start = time.time()
+                if event_sink is not None:
+                    event_sink.mark_running(internal_key)
+                    await event_sink.emit(
+                        "agent_start", agent_key=internal_key, phase="analysts",
+                        name=spec.name,
+                    )
+                    await _emit_progress(node_name, phase="analysts")
+                try:
+                    async with semaphore:
+                        return await run_analyst(
+                            spec, deps.analyst_client, state, event_sink=event_sink
+                        )
+                except Exception as e:  # noqa: BLE001 - run_analyst 内部已有降级，此处兜底
+                    logger.error(f"❌ [orchestrator] 分析师 {spec.name} 异常: {e}", exc_info=True)
+                    _record_error(state, node_name, str(e), start, retried=False)
+                    return {}
+                finally:
+                    elapsed = time.time() - start
+                    node_timings[node_name] = elapsed
+                    logger.info(f"⏱️ [{node_name}] 耗时: {elapsed:.2f}秒")
+                    if event_sink is not None:
+                        event_sink.mark_completed(internal_key)
+                        await event_sink.emit(
+                            "agent_end", agent_key=internal_key,
+                            duration_ms=int(elapsed * 1000),
+                        )
 
-                async def _analyst_node(st, _spec=spec):
-                    return await run_analyst(_spec, deps.analyst_client, st, event_sink=event_sink)
-
-                await _run_node(node_name, _analyst_node, state, event_key=internal_key, display_name=spec.name)
+            analyst_results = await asyncio.gather(
+                *[_run_analyst(k, s) for k, s in specs.items()]
+            )
+            # 按 specs 序回填合并（与旧串行执行的 state 报告顺序一致）
+            for (_internal_key, _spec), update in zip(specs.items(), analyst_results):
+                _merge_state_update(state, update or {})
 
             # ── Phase 2：公平辩论（Bull 先发言，交替各 rounds+1 次）+ 裁决
             if phase2_enabled:
@@ -253,8 +318,10 @@ async def run_pipeline(
             summary_node = create_summary_agent(deps.debate_client)
             # Summary 为终端节点：重试后仍失败则整体失败（不再产出假成功报告）
             await _run_node("Summary Agent", summary_node, state, critical=True)
-            if progress_callback:
-                progress_callback("📊 生成报告")
+            if event_sink is not None:
+                await event_sink.emit(
+                    "progress", agent_key="Summary Agent", phase="summary", text="📊 生成报告"
+                )
 
             # reports 字典回填顶层 *_report 字段（支持自定义智能体，与旧逻辑一致）
             for report_key, report_content in (state.get("reports") or {}).items():
@@ -281,20 +348,3 @@ async def run_pipeline(
                 logger.warning(f"⚠️ [orchestrator] 关闭 MCP 连接失败: {e}")
 
 
-def _notify_progress(progress_callback: Optional[Callable[[str], None]], node_name: str) -> None:
-    """节点完成后发送中文进度消息（映射与旧 _send_progress_update 一致）"""
-    if not progress_callback:
-        return
-    try:
-        from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
-
-        mapping = DynamicAnalystFactory.build_node_mapping()
-        message = mapping.get(node_name)
-        if message is None:
-            return  # 跳过（工具节点、消息清理节点）
-        if message:
-            progress_callback(message)
-        else:
-            progress_callback(f"🔍 {node_name}")
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"⚠️ [orchestrator] 进度回调失败: {e}")

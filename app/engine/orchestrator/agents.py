@@ -156,13 +156,12 @@ async def run_analyst(
     *,
     event_sink=None,
 ) -> Dict[str, Any]:
-    """执行单个分析师：预注入 → run_conversation（新层循环）→ 报告回写"""
-    from app.engine.agents.analysts.dynamic_analyst import ProgressManager
+    """执行单个分析师：预注入 → run_conversation（新层循环）→ 报告回写
 
+    生命周期事件（agent_start/agent_end + running 标记）由 pipeline 单点管理。
+    """
     task_id = state.get("task_id") or ""
-    ProgressManager.node_start(spec.name, task_id=task_id)
     agent_key = spec.internal_key
-    # 生命周期事件（agent_start/agent_end + running 标记）由 pipeline._run_node 单点管理
 
     try:
         ticker = state.get("company_of_interest", "")
@@ -255,8 +254,6 @@ async def run_analyst(
             "messages": [Message(role=Role.ASSISTANT, content=error_report)],
             "reports": {report_key: error_report},
         }
-    finally:
-        ProgressManager.node_end(spec.name, task_id=task_id)
 
 
 async def _resolve_company(ticker: str) -> str:

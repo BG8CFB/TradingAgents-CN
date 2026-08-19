@@ -113,18 +113,16 @@ class TradingAgentsGraph:
     # ── 主入口 ────────────────────────────────────────────────────────
 
     def propagate(self, company_name, trade_date, progress_callback=None, task_id=None, event_sink=None, user_id=None):
-        """Run the analysis pipeline for a company on a specific date."""
-        from app.engine.agents.analysts.dynamic_analyst import ProgressManager
+        """Run the analysis pipeline for a company on a specific date.
 
+        progress_callback 为旧兼容入口：pipeline 内部经 EventSink.on_progress
+        单通道转发（进度机制已收敛，ProgressManager 已删除）。
+        """
         logger.debug(
             f"🔍 [GRAPH DEBUG] propagate: company='{company_name}', "
             f"trade_date='{trade_date}', task_id='{task_id}'"
         )
         self.ticker = company_name
-
-        effective_task_id = None
-        if progress_callback:
-            effective_task_id = task_id or id(progress_callback)
 
         total_start_time = time.time()
         self._current_task_id = task_id
@@ -155,16 +153,11 @@ class TradingAgentsGraph:
             )
 
         try:
-            if effective_task_id is not None:
-                ProgressManager.set_callback(effective_task_id, progress_callback)
             final_state = asyncio.run(_run())
         except Exception as e:
             logger.error(f"❌ 分析流程执行异常: {e}")
             e.partial_state = getattr(e, "partial_state", None)  # type: ignore[attr-defined]
             raise
-        finally:
-            if effective_task_id is not None:
-                ProgressManager.clear_callback(effective_task_id)
 
         if final_state is None:
             logger.error("final_state 为 None，分析流程未产生任何输出")
