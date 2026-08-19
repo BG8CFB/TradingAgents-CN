@@ -134,6 +134,84 @@ class TestSummaryNodePromptConstruction:
         assert "IGNORE_ALL_PRIOR_INSTRUCTIONS" in human_content
 
 
+class TestInputHealthCheck:
+    """输入体检（代码层确定性判断）：
+    占位/整体失败报告不喂给 LLM，全部无效时跳过 LLM 直接失败返回。
+    """
+
+    def test_is_invalid_report_boundaries(self):
+        from app.engine.agents.stage_4.summary_agent import _is_invalid_report
+
+        # ⚠️ 开头的上游占位文本 → 无效
+        assert _is_invalid_report("⚠️ 分析师未生成有效报告（LLM 返回空响应）。")
+        # 短文本且含失败关键字 → 整体失败说明
+        assert _is_invalid_report("⚠️ 数据获取失败: 连接超时")
+        assert _is_invalid_report("市场数据获取失败")
+        # 长报告仅个别小节含失败字样 → 有效
+        assert not _is_invalid_report("正常分析内容" * 50 + "\n| 政策监管类 | 0条 | 无相关新闻（数据获取失败）|")
+        # 正常文本 / 空值
+        assert not _is_invalid_report("MARKET_ANALYSIS_CONTENT" * 10)
+        assert _is_invalid_report("")
+        assert _is_invalid_report(None)
+
+    @pytest.mark.asyncio
+    async def test_placeholder_report_excluded_but_summary_generated(self):
+        """市场报告为空响应占位、新闻报告长文含失败小节 → LLM 照常被调用，
+        占位文本不进入 prompt，缺失元信息随消息传递。"""
+        long_news = "新闻分析正常内容。" * 200 + "\n| 政策监管类 | 0条 | 无相关新闻（数据获取失败）|"
+        llm = RecordingLLM(json.dumps({
+            "key_indicators": {}, "model_confidence": 55,
+            "risk_assessment": {"level": "Medium", "score": 5.0, "description": "test"},
+            "analysis_summary": "test", "investment_recommendation": "test",
+            "analysis_reference": [], "final_signal": "Hold",
+        }))
+        node = create_summary_agent(llm)
+        state = {
+            "company_of_interest": "000001",
+            "market_report": "⚠️ 分析师未生成有效报告（LLM 返回空响应）。",
+            "news_report": long_news,
+            "trader_investment_plan": "MARKER_TRADER_PLAN",
+            "final_trade_decision": "MARKER_FINAL_DECISION",
+            "risk_debate_state": {"history": "MARKER_DEBATE"},
+        }
+        result = await node(state)
+
+        assert len(llm.calls) == 1
+        human_content = llm.calls[0]["messages"][0].content
+        # 占位文本不进入 prompt
+        assert "LLM 返回空响应" not in human_content
+        # 缺失元信息存在，且长新闻报告原文保留
+        assert "数据缺失" in human_content
+        # 长新闻报告（仅小节失败，整体有效）原文进入 prompt（前 500 字符）
+        assert "新闻分析正常内容" in human_content
+        assert "<market_report>（该项数据缺失）</market_report>" in human_content
+        assert "<news_report>" in human_content
+        # 返回 LLM 的正常结构，而非失败结构
+        assert result["structured_summary"]["model_confidence"] == 55
+
+    @pytest.mark.asyncio
+    async def test_all_inputs_invalid_skips_llm(self):
+        """全部核心输入无效 → 不调 LLM，直接返回诚实失败结构"""
+        llm = RecordingLLM("{}")
+        node = create_summary_agent(llm)
+        placeholder = "⚠️ 分析师未生成有效报告（LLM 返回空响应）。"
+        state = {
+            "company_of_interest": "000001",
+            "market_report": placeholder,
+            "news_report": placeholder,
+            "trader_investment_plan": placeholder,
+            "final_trade_decision": placeholder,
+            "risk_debate_state": {"history": ""},
+        }
+        result = await node(state)
+
+        assert len(llm.calls) == 0
+        structured = result["structured_summary"]
+        assert structured["analysis_summary"] == "数据获取失败，无法生成报告"
+        assert structured["model_confidence"] == 0
+        assert structured["risk_assessment"]["description"] == "数据获取失败，无法生成报告"
+
+
 class TestSummaryWithRealLLM:
     """使用真实 LLM 的 summary 测试（app/llm 新层客户端）"""
 
