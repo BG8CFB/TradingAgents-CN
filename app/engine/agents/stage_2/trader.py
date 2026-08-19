@@ -1,4 +1,3 @@
-import asyncio
 import time
 
 from app.llm.core.types import Message, Role
@@ -56,19 +55,10 @@ def create_trader(llm, memory):
             # 🔥 使用所有动态发现的报告构建 curr_situation
             curr_situation = "\n\n".join([content for content in all_reports.values() if content])
 
-            # 检查memory是否可用
-            if memory is not None:
-                logger.warning("⚠️ [DEBUG] memory可用，获取历史记忆")
-                past_memories = await asyncio.to_thread(
-                    memory.get_memories, curr_situation, n_matches=2
-                )
-                past_memory_str = ""
-                for i, rec in enumerate(past_memories, 1):
-                    past_memory_str += rec["recommendation"] + "\n\n"
-            else:
-                logger.warning("⚠️ [DEBUG] memory为None，跳过历史记忆检索")
-                past_memories = []
-                past_memory_str = "暂无历史记忆数据可参考。"
+            # 历史记忆检索（统一入口 fetch_memory_brief：线程池 + 失败降级）
+            from app.engine.agents.utils.memory import fetch_memory_brief
+
+            past_memory_str = await fetch_memory_brief(memory, curr_situation, n=2) or "暂无历史记忆数据可参考。"
 
             # 获取研究经理裁决（阶段2开启时有值，否则为默认文本）
             investment_debate_state = state.get("investment_debate_state", {})

@@ -419,3 +419,27 @@ class FinancialSituationMemory:
             info['last_text_processing'] = self._last_text_info
             
         return info
+
+
+# ── 统一检索入口（写读对称：Reflector 写入的 memory 在辩论/裁决节点消费） ─────
+
+
+async def fetch_memory_brief(memory, situation: str, n: int = 2) -> str:
+    """检索 n 条相似历史记忆并拼接为 prompt 注入文本。
+
+    - ChromaDB 检索是同步阻塞调用，放线程池执行
+    - memory 为 None → 返回空串（调用方决定是否注入/占位）
+    - 检索失败 / 记忆库为空 → 占位文案（不阻断节点）
+    """
+    import asyncio
+
+    if memory is None or not situation:
+        return ""
+    try:
+        past = await asyncio.to_thread(memory.get_memories, situation, n_matches=n)
+        if not past:
+            return "暂无历史记忆数据可参考。"
+        return "\n\n".join(rec.get("recommendation", "") for rec in past if rec.get("recommendation"))
+    except Exception as e:  # noqa: BLE001 - 记忆检索失败不阻断分析
+        logger.warning(f"⚠️ 历史记忆检索失败，跳过注入: {e}")
+        return "暂无历史记忆数据可参考。"
