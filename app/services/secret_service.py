@@ -7,6 +7,7 @@
 
 持久化层级（多层兜底，保证多 worker 一致性）：
 1. MongoDB system_secrets 集合（主存储）
+# data-access-exempt: 应用层集合（密钥管理）
 2. runtime/.secrets.json 文件（DB 不可达时的兜底）
 3. os.environ（运行期共享）
 """

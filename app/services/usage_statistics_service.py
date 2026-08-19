@@ -2,6 +2,7 @@
 使用统计服务
 管理模型使用记录和成本统计
 """
+# data-access-exempt: 应用层集合（用量统计）
 
 import logging
 from datetime import datetime, timedelta

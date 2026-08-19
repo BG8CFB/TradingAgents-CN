@@ -1,6 +1,7 @@
 """
 Database status and connection checks, extracted from DatabaseService.
 """
+# data-access-exempt: 数据库状态巡检，本身就是 Mongo 运维操作
 from __future__ import annotations
 
 from typing import Any, Dict

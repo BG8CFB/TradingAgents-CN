@@ -3,6 +3,7 @@
 
 提供模型能力评估、验证和推荐功能。
 """
+# data-access-exempt: 应用层集合（模型能力配置）
 
 from typing import Tuple, Dict, Optional, Any
 from app.constants.model_capabilities import (

@@ -1,6 +1,7 @@
 """
 数据库配置管理与连接测试服务
 """
+# data-access-exempt: 数据库配置管理（运维操作，自管 Motor 客户端）
 
 import time
 import os

@@ -2,6 +2,7 @@
 分析报告服务层
 从 app/routers/reports.py 中提取所有 MongoDB 操作，提供统一的数据访问接口
 """
+# data-access-exempt: 应用层集合（analysis_reports）
 
 import asyncio
 import logging

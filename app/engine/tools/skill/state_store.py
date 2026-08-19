@@ -1,4 +1,5 @@
 """
+# data-access-exempt: Skill 状态持久化（skill_state 应用层集合仓储）
 Skill 状态持久化层
 
 封装对 MongoDB skill_state 与 skill_install_logs 集合的访问。

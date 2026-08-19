@@ -7,7 +7,5 @@ async def sync_market_quotes(symbols: list = None):
     return await sync_domain(
         domain="market_quotes",
         provider_method="get_market_quotes",
-        adapter_method="adapt_market_quotes",
         provider_kwargs_fn=lambda: {"symbols": symbols or ["AAPL"]},
-        filter_fields=["symbol"],
     )

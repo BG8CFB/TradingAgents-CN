@@ -3,6 +3,7 @@
 MongoDB存储适配器
 用于将token使用记录存储到MongoDB数据库
 """
+# data-access-exempt: engine 配置存储适配层（自管 MongoClient 生命周期）
 
 from typing import Dict, List, Any
 from dataclasses import asdict

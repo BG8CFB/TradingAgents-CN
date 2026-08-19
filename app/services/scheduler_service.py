@@ -4,6 +4,7 @@
 定时任务管理服务
 提供定时任务的查询、暂停、恢复、手动触发等功能
 """
+# data-access-exempt: 应用层集合（调度任务/检查点）
 
 import asyncio
 from typing import List, Dict, Any, Optional

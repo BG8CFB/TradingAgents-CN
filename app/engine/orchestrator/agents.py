@@ -7,6 +7,7 @@ Phase 1 分析师装配（新层：run_conversation + ToolDef 工具 + <tool_dat
   + skill 渐进式披露（清单注入 + skill 工具）
 - 工具调用循环：app/llm/runner（max_turns 防循环、分层压缩、重试、用户消息注入）
 """
+# data-access-exempt: US 公司名 yfinance 降级兜底（本地 basic_info miss 时才触发，无标准写回路径）
 
 import asyncio
 import inspect
@@ -280,13 +281,37 @@ async def _resolve_company(ticker: str) -> str:
             else:
                 company_name = f"港股{clean_ticker}"
         elif market_info["is_us"]:
-            company_name = await asyncio.to_thread(_get_us_company_name, ticker)
+            # 主路径：本地标准库 US basic_info（命中即返回）；
+            # 本地缓存 miss 才降级 yfinance（网络调用放线程池）
+            from app.data.core.interface import DataInterface
+
+            us_name = None
+            di = DataInterface.get_instance()
+            for sym in (ticker, ticker.upper()):
+                result = await di.read("US", "basic_info", symbol=sym)
+                data = result.get("data")
+                if data:
+                    doc = data[0] if isinstance(data, list) and data else data
+                    us_name = (
+                        doc.get("name") or doc.get("name_en") or doc.get("name_zh")
+                    )
+                    if us_name:
+                        break
+            if us_name:
+                company_name = us_name
+            else:
+                company_name = await asyncio.to_thread(_get_us_company_name, ticker)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"⚠️ 获取公司名称失败: {e}")
     return company_name
 
 
 def _get_us_company_name(ticker: str) -> str:
+    """yfinance 降级路径：US basic_info 本地缓存未命中时兜底。
+
+    注意：查询结果不写回标准库（避免半截 basic_info 文档污染唯一键语义），
+    待 US basic_info 同步覆盖该股票后自然走主路径。
+    """
     try:
         import yfinance as yf
 

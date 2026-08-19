@@ -3,6 +3,7 @@
 Extracted from AnalysisService to reduce file size and improve modularity
 without changing external behavior.
 """
+# data-access-exempt: 应用层集合（analysis_tasks 状态更新）
 from __future__ import annotations
 
 from typing import Optional, Dict, Any

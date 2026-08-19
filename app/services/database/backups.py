@@ -1,6 +1,7 @@
 """
 Backup, import, and export routines extracted from DatabaseService.
 """
+# data-access-exempt: 数据库备份/导入/导出管理，本身就是 Mongo 运维操作
 
 from __future__ import annotations
 

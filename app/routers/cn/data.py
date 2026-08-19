@@ -1,4 +1,5 @@
 """A 股数据管理路由 — /api/cn/data。"""
+# data-access-exempt: 熔断 reset 运维端点（Phase 2 遗留：单例对齐待修）
 
 import logging
 from typing import Dict, List, Optional

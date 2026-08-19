@@ -7,12 +7,10 @@ async def sync_financial_data(symbol: str = None, start_date: str = None, end_da
     return await sync_domain(
         domain="financial_data",
         provider_method="get_financial_data",
-        adapter_method="adapt_financial_data",
         provider_kwargs_fn=lambda: {
             "symbol": symbol or "00700",
             "start_date": start_date or "2020-01-01",
             "end_date": end_date or "2099-12-31",
             "statement_type": statement_type,
         },
-        filter_fields=["symbol", "report_period", "statement_type"],
     )

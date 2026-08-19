@@ -1,22 +1,22 @@
-"""跨市场域同步抽象基类 — 统一 CN/HK/US 三个市场共有的"priority fallback + bulk upsert + sync_event + checkpoint"流程。
+"""跨市场域同步抽象基类 — 统一 CN/HK/US 三个市场共有的
+"router 四件套 fallback + Repo upsert + sync_event + checkpoint" 流程。
 
 历史背景：
     1. CN 域（``app/worker/cn/domain_sync/base_domain_sync.py``）使用 FallbackRouter
-       + 单 symbol 同步，复杂度高（依赖 router.fetch 内部的熔断/重试）。
-    2. HK/US 域（``app/worker/hk/domain_sync/_common.py`` 和
-       ``app/worker/us/domain_sync/_common.py``）使用简单 priority 循环 + bulk_write
-       upsert，逻辑相同但代码各自实现一遍。
+       + 单 symbol 同步（熔断/限流/重试/校验四件套齐备）。
+    2. HK/US 域曾各自实现"priority 循环 + 裸 bulk_write"，无四件套保护，
+       upsert filter 由调用方手写，绕过 Repo 主键定义 — 已收敛到本基类。
 
-本抽象类针对 (2) 提供统一基类，子类只需声明 market + provider/adapter 工厂即可。
-CN 域的 FallbackRouter 路径不强制收敛，保持现有 BaseDomainSync 不变。
+现状（2026-08 数据层标准化 Phase 3）：
+    本基类的 ``sync()`` 通过 ``FallbackRouter.fetch_source()`` 复用与 CN 侧
+    完全相同的熔断/限流/重试/校验语义；入库统一分发到对应 Repo
+    （upsert 键来自 key_spec / index_definitions，单一事实源）。
 """
 
 import logging
 import time
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Callable, Dict, List, Optional
-
-from pymongo import UpdateOne
 
 from app.core.database import get_mongo_db
 from app.data.storage.mongo.collections import get_collection_name
@@ -24,36 +24,53 @@ from app.utils.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 
+# 域 → Repo 模块/类名映射（懒加载，避免 import 环）
+# 新增域同步时若表中无对应 Repo，sync() 会显式报错而非静默直写库
+_REPO_TABLE: Dict[str, tuple] = {
+    "basic_info": ("basic_info_repo", "BasicInfoRepo"),
+    "trade_calendar": ("trade_calendar_repo", "TradeCalendarRepo"),
+    "daily_quotes": ("daily_quotes_repo", "DailyQuotesRepo"),
+    "daily_indicators": ("daily_indicators_repo", "DailyIndicatorsRepo"),
+    "financial_data": ("financial_data_repo", "FinancialDataRepo"),
+    "adj_factors": ("adj_factors_repo", "AdjFactorsRepo"),
+    "corporate_actions": ("corporate_actions_repo", "CorporateActionsRepo"),
+    "market_quotes": ("market_quotes_repo", "MarketQuotesRepo"),
+    "news": ("news_repo", "NewsRepo"),
+}
+
+
+def _get_repo(domain: str) -> Any:
+    """按域懒加载 Repo 实例（统一 upsert_many(records, market) 接口）。"""
+    from importlib import import_module
+
+    entry = _REPO_TABLE.get(domain)
+    if not entry:
+        raise ValueError(
+            f"域 {domain} 无对应 Repo；请在 _REPO_TABLE 注册"
+            f"（app/worker/base_market_sync.py）"
+        )
+    module = import_module(
+        f"app.data.storage.mongo.repositories.{entry[0]}"
+    )
+    return getattr(module, entry[1])()
+
 
 class BaseMarketDomainSync(ABC):
     """跨市场（CN/HK/US）域级同步基类。
 
     子类责任：
         - 声明 ``market``（"CN" / "HK" / "US"）和 ``domain``
-        - 实现 ``get_provider(source_name)`` 和 ``get_adapter(source_name)`` 工厂
 
     基类负责：
         - 通过 CapabilityRegistry + PriorityConfig 解析数据源优先级
-        - 优先级 fallback：第一个成功源返回后停止
-        - bulk_write upsert（filter_fields 由调用方传入）
-        - sync_event 写入（成功/失败均记录）
+        - 逐源走 ``FallbackRouter.fetch_source()``（熔断/限流/重试/校验四件套）
+        - 入库分发到对应 Repo（upsert 键来自 key_spec 单一事实源）
+        - sync_event 写入（成功/失败均记录）+ checkpoint
     """
 
     market: str = ""
     domain: str = ""
     description: str = ""
-
-    @abstractmethod
-    def get_provider(self, source_name: str) -> Any:
-        """根据 source_name 返回对应 Provider 实例（不存在则返回 None）。"""
-
-    @abstractmethod
-    def get_adapter(self, source_name: str) -> Any:
-        """根据 source_name 返回对应 Adapter 实例（不存在则返回 None）。"""
-
-    def get_default_filter_fields(self) -> List[str]:
-        """默认 upsert filter 字段（子类可覆盖）。"""
-        return ["symbol"]
 
     async def get_sources(self) -> List[str]:
         """通过 CapabilityRegistry + PriorityConfig 解析优先级。"""
@@ -70,17 +87,13 @@ class BaseMarketDomainSync(ABC):
     async def sync(
         self,
         provider_method: str,
-        adapter_method: str,
         provider_kwargs_fn: Optional[Callable[[], Dict]] = None,
-        filter_fields: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """执行单域同步（按优先级 fallback）。
+        """执行单域同步（router 四件套 fallback + Repo 入库）。
 
         Args:
-            provider_method: Provider 上的方法名
-            adapter_method: Adapter 上的方法名
+            provider_method: Provider 上的方法名（raw fetch 入口）
             provider_kwargs_fn: 可选函数，返回传递给 provider 方法的 kwargs
-            filter_fields: MongoDB upsert filter 字段；为空则用 get_default_filter_fields()
 
         Note:
             **失败也写 sync_event**（``event_type=SYNC_FAILED``）是设计意图 —
@@ -88,70 +101,56 @@ class BaseMarketDomainSync(ABC):
             若曾依赖"无 sync_event 即失败"的旧逻辑（HK/US 历史 _common 实现），
             迁移后需相应调整监控告警阈值，避免 SYNC_FAILED 计数突增。
         """
+        from app.data.processor.fallback_router import FallbackRouter
+
         start = time.time()
+        router = FallbackRouter.get_instance()
         sources = await self.get_sources()
-        fields = filter_fields or self.get_default_filter_fields()
+        kwargs = provider_kwargs_fn() if provider_kwargs_fn else {}
+
+        repo = _get_repo(self.domain)
+        fallback_chain: List[str] = []
 
         for source_name in sources:
-            provider = self.get_provider(source_name)
-            adapter = self.get_adapter(source_name)
-            if not provider or not adapter:
+            async def raw_fetch(provider, _kwargs=kwargs, _method=provider_method):
+                return await getattr(provider, _method)(**_kwargs)
+
+            status, records, _verrs = await router.fetch_source(
+                self.market, self.domain, source_name, raw_fetch
+            )
+            if status == "failed":
+                fallback_chain.append(source_name)
+                continue
+            if status == "skip":
                 continue
 
-            try:
-                kwargs = provider_kwargs_fn() if provider_kwargs_fn else {}
-                raw = await getattr(provider, provider_method)(**kwargs)
-                if raw is None:
-                    continue
-                if hasattr(raw, "empty") and raw.empty:
-                    continue
+            # success：Router 已完成标准化 + 校验（输出 db-ready dicts）
+            count = await repo.upsert_many(records, self.market)
+            elapsed = int((time.time() - start) * 1000)
+            logger.info(
+                f"{self.market} {self.domain} 同步完成: "
+                f"{count} 条, 源={source_name}, 耗时={elapsed}ms"
+            )
 
-                records = getattr(adapter, adapter_method)(raw)
-                if not records:
-                    continue
+            await self._write_sync_event(
+                success=True, source=source_name, record_count=count,
+                duration_ms=elapsed,
+            )
+            await self._write_checkpoint(
+                success=True, source=source_name, record_count=count,
+                duration_ms=elapsed,
+            )
 
-                docs = [r.to_db_doc() for r in records]
-                db = get_mongo_db()
-                collection = db[get_collection_name(self.domain, self.market)]
-
-                ops = []
-                for d in docs:
-                    filt = {f: d[f] for f in fields if f in d and d[f] is not None}
-                    if filt:
-                        ops.append(UpdateOne(filt, {"$set": d}, upsert=True))
-
-                if ops:
-                    await collection.bulk_write(ops, ordered=False)
-
-                elapsed = int((time.time() - start) * 1000)
-                logger.info(
-                    f"{self.market} {self.domain} 同步完成: "
-                    f"{len(ops)} 条, 源={source_name}, 耗时={elapsed}ms"
-                )
-
-                await self._write_sync_event(
-                    success=True, source=source_name, record_count=len(ops),
-                    duration_ms=elapsed,
-                )
-                await self._write_checkpoint(
-                    success=True, source=source_name, record_count=len(ops),
-                    duration_ms=elapsed,
-                )
-
-                return {
-                    "domain": self.domain, "success": True, "source": source_name,
-                    "records": len(ops), "duration_ms": elapsed,
-                }
-            except Exception as e:
-                logger.warning(
-                    f"{self.market} {self.domain} 源 {source_name} 失败: {e}"
-                )
-                continue
+            return {
+                "domain": self.domain, "success": True, "source": source_name,
+                "records": count, "duration_ms": elapsed,
+            }
 
         elapsed = int((time.time() - start) * 1000)
+        error = f"所有数据源失败: {', '.join(fallback_chain)}" if fallback_chain else "无可用数据源"
         await self._write_sync_event(
             success=False, source="", record_count=0,
-            duration_ms=elapsed, error="所有数据源失败",
+            duration_ms=elapsed, error=error,
         )
         await self._write_checkpoint(
             success=False, source="", record_count=0,
@@ -159,7 +158,7 @@ class BaseMarketDomainSync(ABC):
         )
         return {
             "domain": self.domain, "success": False,
-            "error": "所有数据源失败", "duration_ms": elapsed,
+            "error": error, "duration_ms": elapsed,
         }
 
     async def _write_sync_event(

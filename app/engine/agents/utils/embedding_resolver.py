@@ -6,6 +6,7 @@ DashScope → OpenAI 兼容 → DISABLED
 
 API Key 从数据库 llm_providers 集合读取，不从环境变量读取。
 """
+# data-access-exempt: embedding provider 解析器读写应用层集合配置
 
 from dataclasses import dataclass
 from typing import Optional, Any

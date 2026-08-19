@@ -1,11 +1,12 @@
 """
 Multi-source stock basics synchronization service
 - Supports multiple data sources with fallback mechanism
-- Priority: Tushare > AKShare > BaoStock 
+- Priority: Tushare > AKShare > BaoStock
 - Fetches A-share stock basic info with extended financial metrics
 - Upserts into MongoDB collection `stock_basic_info`
 - Provides unified interface for different data sources
 """
+# data-access-exempt: 生产侧同步服务写路径（读兜底已加 projection/limit，写路径待 Repo 化收敛）
 from __future__ import annotations
 
 import asyncio
@@ -218,13 +219,13 @@ class MultiSourceBasicsSyncService:
                     stock_df = pd.DataFrame(fetch_result.data)
                     source_used = fetch_result.source or cn_sources[0]
                 else:
-                    # 回退到 MongoDB 已有数据
+                    # 回退到 MongoDB 已有数据（带 projection 与上限，禁止无界全表读）
                     from app.data.storage.mongo.client import get_motor_db
                     from app.data.storage.mongo.collections import get_collection_name
                     mdb = get_motor_db()
                     existing = await mdb[get_collection_name("basic_info", "CN")].find(
-                        {}, {"_id": 0}
-                    ).to_list(length=None)
+                        {}, {"_id": 0, "symbol": 1, "name": 1, "list_status": 1}
+                    ).limit(20000).to_list(length=None)
                     if existing:
                         stock_df = pd.DataFrame(existing)
                         source_used = "mongodb_cache"

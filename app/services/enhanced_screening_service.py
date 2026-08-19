@@ -2,6 +2,7 @@
 增强的股票筛选服务
 结合数据库优化和传统筛选方式，提供高效的股票筛选功能
 """
+# data-access-exempt: get_industries 的 industry $group 聚合保留数据层直查（待 Reader 提供 get_field_values 后收敛）
 
 import asyncio
 import logging
@@ -18,7 +19,6 @@ from app.services.enhanced_screening.utils import (  # noqa: E402 (intentional l
     analyze_conditions as _analyze_conditions_util,
     convert_conditions_to_traditional_format as _convert_to_traditional_util,
 )
-from app.core.database import get_mongo_db  # noqa: E402 (intentional late import)
 
 
 class EnhancedScreeningService:
@@ -91,16 +91,15 @@ class EnhancedScreeningService:
             # 若使用数据库优化路径，则从数据库行情表进行富集（避免请求时外部调用）
             if source == "mongodb" and items:
                 try:
-                    db = get_mongo_db()
-                    from app.data.storage.mongo.collections import get_collection_name
-                    coll = db[get_collection_name("market_quotes", "CN")]
+                    from app.data.core.interface import DataInterface
+
+                    di = DataInterface.get_instance()
                     codes = [str(it.get("symbol")).zfill(6) for it in items if it.get("symbol")]
                     if codes:
-                        cursor = coll.find(
-                            {"symbol": {"$in": codes}},
-                            projection={"_id": 0, "symbol": 1, "close": 1, "pct_chg": 1, "amount": 1},
+                        quotes_list = await di.read_batch(
+                            "CN", "market_quotes", codes,
+                            projection={"symbol": 1, "close": 1, "pct_chg": 1, "amount": 1},
                         )
-                        quotes_list = await cursor.to_list(length=len(codes))
                         quotes_map = {}
                         for d in quotes_list:
                             k = str(d.get("symbol")).zfill(6)
@@ -123,23 +122,15 @@ class EnhancedScreeningService:
                 missing_pct = [it for it in items if it.get("pct_chg") is None]
                 if missing_pct:
                     try:
-                        dq_coll = db[get_collection_name("daily_quotes", "CN")]
+                        from app.data.core.interface import DataInterface
+
+                        di = DataInterface.get_instance()
                         missing_codes = [str(it.get("symbol")).zfill(6) for it in missing_pct if it.get("symbol")]
                         if missing_codes:
-                            pipeline = [
-                                {"$match": {"symbol": {"$in": missing_codes}}},
-                                {"$sort": {"trade_date": -1}},
-                                {"$group": {
-                                    "_id": "$symbol",
-                                    "pct_chg": {"$first": "$pct_chg"},
-                                    "close": {"$first": "$close"},
-                                    "amount": {"$first": "$amount"},
-                                }},
-                            ]
-                            dq_map = {}
-                            async for doc in dq_coll.aggregate(pipeline):
-                                k = str(doc.get("_id")).zfill(6)
-                                dq_map[k] = doc
+                            dq_map = await di.read_latest_batch(
+                                "CN", "daily_quotes", missing_codes,
+                                projection={"pct_chg": 1, "close": 1, "amount": 1},
+                            )
                             enriched = 0
                             for it in missing_pct:
                                 key = str(it.get("symbol")).zfill(6)
@@ -254,9 +245,10 @@ class EnhancedScreeningService:
         """
         try:
             from app.data.core.registry.priority import PriorityConfig
-
-            db = get_mongo_db()
+            from app.data.storage.mongo.client import get_motor_db
             from app.data.storage.mongo.collections import get_collection_name
+
+            db = get_motor_db()
             collection = db[get_collection_name("basic_info", "CN")]
 
             pc = PriorityConfig()

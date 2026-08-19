@@ -4,6 +4,7 @@
 - 所有端点均需鉴权 (Bearer Token)
 - 路径前缀在 main.py 中挂载为 /api，当前路由自身前缀为 /stocks
 """
+# data-access-exempt: 聚合端点使用数据层 aggregation 工具（processor 公开能力，无直连库）
 from typing import Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 import logging

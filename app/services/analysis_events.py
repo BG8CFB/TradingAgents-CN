@@ -5,6 +5,7 @@
 - 维护 task → EventSink 活动注册表，供 WS 上行 user_message 校验 running 状态
 - 历史回放：GET /api/analysis/tasks/{id}/events（分页/过滤）从 Mongo 读取
 """
+# data-access-exempt: 应用层集合（analysis_events 事件持久化）
 
 import asyncio
 import time

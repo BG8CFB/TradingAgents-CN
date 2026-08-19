@@ -1,6 +1,7 @@
 """
 大模型配置与厂家管理服务
 """
+# data-access-exempt: 应用层集合（llm_providers/system_configs）
 
 import ipaddress
 import socket

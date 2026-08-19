@@ -1,6 +1,7 @@
 """
 操作日志服务
 """
+# data-access-exempt: 应用层集合（操作日志）
 
 import logging
 import re

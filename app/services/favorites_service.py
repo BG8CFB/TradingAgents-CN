@@ -1,6 +1,7 @@
 """
 自选股服务
 """
+# data-access-exempt: 应用层集合（users/user_favorites）直查属架构豁免；业务数据读取已收敛至 DataInterface
 
 import logging
 from typing import List, Optional, Dict, Any
@@ -110,24 +111,22 @@ class FavoritesService:
         # 先格式化基础字段
         items = [self._format_favorite(fav) for fav in favorites]
 
+        # TODO(Phase 4): 自选股当前仅支持 A 股；多市场需按 favorite.market 分市场查询
+        market = "CN"
+
         # 批量获取股票基础信息（板块等）
         codes = [it.get("stock_code") for it in items if it.get("stock_code")]
         if codes:
             try:
-                # 获取数据源优先级配置
-                from app.data.core.registry.priority import PriorityConfig
+                # 从 stock_basic_info 获取板块信息（经 DataInterface 读取。
+                # 单版本覆盖语义下每 symbol 仅一份当前生效文档，无需按 data_source 过滤。）
+                from app.data.core.interface import DataInterface
 
-                pc = PriorityConfig()
-                enabled_sources = await pc.get_priority("CN", "basic_info")
-                preferred_source = enabled_sources[0] if enabled_sources else "tushare"
-
-                # 从 stock_basic_info 获取板块信息（只查询优先级最高的数据源）
-                basic_info_coll = db["stock_basic_info"]
-                cursor = basic_info_coll.find(
-                    {"symbol": {"$in": codes}, "data_source": preferred_source},
-                    {"symbol": 1, "exchange": 1, "market": 1, "_id": 0},
+                di = DataInterface.get_instance()
+                basic_docs = await di.read_batch(
+                    market, "basic_info", codes,
+                    projection={"symbol": 1, "exchange": 1, "market": 1},
                 )
-                basic_docs = await cursor.to_list(length=None)
                 basic_map = {
                     str(d.get("symbol")).zfill(6): d for d in (basic_docs or [])
                 }
@@ -156,38 +155,27 @@ class FavoritesService:
         # 批量获取行情（优先使用入库的 market_quotes，30秒更新）
         if codes:
             try:
-                # 1) 从 market_quotes 获取最新价格
-                mq_coll = db["market_quotes"]
-                mq_cursor = mq_coll.find(
-                    {"symbol": {"$in": codes}},
-                    {"symbol": 1, "last_price": 1, "last_volume": 1, "last_updated": 1},
+                from app.data.core.interface import DataInterface
+
+                di = DataInterface.get_instance()
+
+                # 1) 从 market_quotes 获取最新价格（按市场经 DataInterface 批量读取）
+                mq_docs = await di.read_batch(
+                    market, "market_quotes", codes,
+                    projection={
+                        "symbol": 1, "last_price": 1,
+                        "last_volume": 1, "last_updated": 1,
+                    },
                 )
-                mq_docs = await mq_cursor.to_list(length=None)
                 mq_map = {str(d.get("symbol")).zfill(6): d for d in (mq_docs or [])}
 
-                # 2) 从 daily_quotes 获取最新交易日的收盘价和涨跌幅
-                from app.data.storage.mongo.collections import get_collection_name
-
-                dq_coll_name = get_collection_name("daily_quotes", "CN")
-                dq_coll = db[dq_coll_name]
-
-                # 批量获取每只股票最新一条行情（aggregation 替代 N+1 find_one）
+                # 2) 从 daily_quotes 批量获取每只股票最新一条行情（read_latest_batch 折叠）
                 pct_map = {}
                 try:
-                    pipeline = [
-                        {"$match": {"symbol": {"$in": codes}}},
-                        {"$sort": {"trade_date": -1}},
-                        {
-                            "$group": {
-                                "_id": "$symbol",
-                                "close": {"$first": "$close"},
-                                "pct_chg": {"$first": "$pct_chg"},
-                                "trade_date": {"$first": "$trade_date"},
-                            }
-                        },
-                    ]
-                    latest_docs = await dq_coll.aggregate(pipeline).to_list(length=None)
-                    pct_map = {doc["_id"]: doc for doc in (latest_docs or [])}
+                    pct_map = await di.read_latest_batch(
+                        "CN", "daily_quotes", codes,
+                        projection={"close": 1, "pct_chg": 1, "trade_date": 1},
+                    )
                 except Exception as e:
                     logger.warning(f"批量获取 daily_quotes 最新行情失败: {e}")
 

@@ -1,6 +1,7 @@
 """
 系统配置与导入导出管理服务
 """
+# data-access-exempt: 系统配置导入导出（system_configs 应用层集合）
 
 import logging
 from pathlib import Path

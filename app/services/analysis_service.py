@@ -2,6 +2,7 @@
 股票分析服务
 整合了原 simple_analysis_service.py 和 analysis_service.py 的功能
 """
+# data-access-exempt: 应用层集合（analysis_tasks/reports/users/notifications 等）直查属架构豁免；业务数据读取已收敛至 DataInterface
 
 import asyncio
 import atexit
@@ -2670,34 +2671,22 @@ class AnalysisService:
         按数据源优先级查询 stock_basic_info，并补充 market_quotes。
         """
         try:
-            db = get_mongo_db()
+            from app.data.core.interface import DataInterface
+
+            di = DataInterface.get_instance()
             code6 = str(symbol).zfill(6)
 
-            # 数据源优先级
-            try:
-                from app.data.core.registry.priority import PriorityConfig
-
-                enabled_sources = PriorityConfig().get_default_sources(
-                    "CN", "basic_info"
-                )
-            except Exception as e:
-                logger.debug(f"获取数据源优先级失败，使用默认列表: {e}")
-                enabled_sources = ["tushare", "akshare", "baostock"]
-
-            b = None
-            for src in enabled_sources:
-                b = await db.stock_basic_info.find_one(
-                    {"symbol": code6, "data_source": src}, {"_id": 0}
-                )
-                if b:
-                    break
-            if not b:
-                b = await db.stock_basic_info.find_one({"symbol": code6}, {"_id": 0})
+            # 单版本覆盖语义下每 symbol 仅一份当前生效文档，直接经 DataInterface 读取
+            b_result = await di.read("CN", "basic_info", symbol=code6)
+            b = b_result.get("data")
+            if isinstance(b, list):
+                b = b[0] if b else None
 
             if not b:
                 return None
 
-            q = await db.market_quotes.find_one({"symbol": code6}, {"_id": 0})
+            q_result = await di.read("CN", "market_quotes", symbol=code6)
+            q = q_result.get("data")
 
             return {
                 "symbol": b.get("symbol", code6),
@@ -2727,33 +2716,17 @@ class AnalysisService:
         在 stock_basic_info 集合中搜索股票（支持名称/代码/符号模糊匹配）。
         """
         try:
-            db = get_mongo_db()
-            import re
+            from app.data.core.interface import DataInterface
 
-            escaped_query = re.escape(query)
-            search_regex = f".*{escaped_query}.*"
-            filter_expr: Dict[str, Any] = {
-                "$or": [
-                    {"name": {"$regex": search_regex, "$options": "i"}},
-                    {"symbol": {"$regex": search_regex, "$options": "i"}},
-                ],
-            }
-            if market:
-                filter_expr["market"] = market
-
-            cursor = db.stock_basic_info.find(
-                filter_expr,
-                {
-                    "name": 1,
-                    "symbol": 1,
-                    "market": 1,
-                    "industry": 1,
-                    "_id": 0,
-                },
-            ).limit(limit)
+            di = DataInterface.get_instance()
+            docs = await di.search_basic_info(
+                "CN", query, fields=["symbol", "name"], limit=limit
+            )
 
             results = []
-            async for doc in cursor:
+            for doc in docs:
+                if market and doc.get("market") != market:
+                    continue
                 results.append(
                     {
                         "symbol": doc.get("symbol", ""),
@@ -2785,18 +2758,19 @@ class AnalysisService:
                 if not symbol:
                     continue
                 code6 = str(symbol).zfill(6)
-                b = await db.stock_basic_info.find_one(
-                    {"symbol": code6}, {"_id": 0, "name": 1, "market": 1}
-                )
+
+                from app.data.core.interface import DataInterface
+
+                di = DataInterface.get_instance()
+                b_result = await di.read("CN", "basic_info", symbol=code6)
+                b = b_result.get("data")
+                if isinstance(b, list):
+                    b = b[0] if b else None
 
                 # 从 daily_quotes 获取最新收盘价和涨跌幅
-                from app.data.storage.mongo.collections import get_collection_name
-
-                dq_coll = db[get_collection_name("daily_quotes", "CN")]
-                dq = await dq_coll.find_one(
-                    {"symbol": code6},
-                    {"_id": 0, "close": 1, "pct_chg": 1, "volume": 1},
-                    sort=[("trade_date", -1)],
+                dq = await di.read_latest(
+                    "CN", "daily_quotes", code6,
+                    projection={"close": 1, "pct_chg": 1, "volume": 1},
                 )
 
                 results.append(

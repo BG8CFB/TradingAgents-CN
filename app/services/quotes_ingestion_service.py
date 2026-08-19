@@ -1,5 +1,7 @@
 import asyncio
 import logging
+
+# data-access-exempt: quotes ingestion 生产侧写路径（Phase 4 收敛读路径，写路径待 MarketQuotesRepo 化）
 from datetime import datetime, time as dtime, timedelta
 from typing import Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -777,14 +779,12 @@ class QuotesIngestionService:
             最新行情文档，不存在返回 None
         """
         try:
-            db = get_mongo_db()
+            from app.data.core.interface import DataInterface
+
             symbol6 = str(symbol).zfill(6)
 
-            doc = await db[get_collection_name("daily_quotes", self._market)].find_one(
-                {"symbol": symbol6},
-                sort=[("trade_date", -1)]
-            )
-            return doc
+            di = DataInterface.get_instance()
+            return await di.read_latest(self._market, "daily_quotes", symbol6)
 
         except Exception as e:
             logger.error(f"获取最新日线数据失败 symbol={symbol}: {e}")
@@ -801,11 +801,13 @@ class QuotesIngestionService:
             行情文档，不存在返回 None
         """
         try:
-            db = get_mongo_db()
+            from app.data.core.interface import DataInterface
+
             symbol6 = str(symbol).zfill(6)
 
-            doc = await db[self.collection_name].find_one({"symbol": symbol6})
-            return doc
+            di = DataInterface.get_instance()
+            result = await di.read(self._market, "market_quotes", symbol=symbol6)
+            return result.get("data")
 
         except Exception as e:
             logger.error(f"获取行情数据失败 symbol={symbol}: {e}")

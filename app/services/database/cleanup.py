@@ -1,6 +1,7 @@
 """
 Cleanup routines extracted from DatabaseService.
 """
+# data-access-exempt: 数据库清理管理，本身就是 Mongo 运维操作
 from __future__ import annotations
 
 from datetime import timedelta

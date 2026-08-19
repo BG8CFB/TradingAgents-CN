@@ -2,6 +2,8 @@
 新闻数据服务
 提供统一的新闻数据存储、查询和管理功能
 """
+# data-access-exempt: 写路径（bulk_write upsert 与唯一索引创建）无 DataInterface 写 API，
+# 保留直连 Mongo；读路径（query_news）已全部经 DataInterface.screen("CN", "news")。
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -461,8 +463,6 @@ class NewsDataService:
             新闻数据列表
         """
         try:
-            collection = self._get_collection()
-
             self.logger.info("🔍 [query_news] 开始查询新闻数据")
             self.logger.info(f"   参数: symbol={params.symbol}, start_time={params.start_time}, end_time={params.end_time}, limit={params.limit}")
 
@@ -509,23 +509,22 @@ class NewsDataService:
 
             self.logger.info(f"   最终查询条件: {query}")
 
-            # 先统计总数
-            total_count = await collection.count_documents(query)
+            # 经 DataInterface 读取 news 域（CN 市场），不再直连 stock_news 集合。
+            # screen 支持 filters/sort/skip/limit，与原 Mongo 查询语义等价。
+            from app.data.core.interface import DataInterface
+
+            result = await DataInterface.get_instance().screen(
+                "CN",
+                "news",
+                filters=query,
+                sort=[(params.sort_by, params.sort_order)],
+                skip=params.skip,
+                limit=params.limit,
+            )
+            total_count = result.get("total", 0)
             self.logger.info(f"   数据库中符合条件的总记录数: {total_count}")
 
-            # 执行查询
-            cursor = collection.find(query)
-
-            # 排序
-            cursor = cursor.sort(params.sort_by, params.sort_order)
-            self.logger.info(f"   排序: {params.sort_by} ({params.sort_order})")
-
-            # 分页
-            cursor = cursor.skip(params.skip).limit(params.limit)
-            self.logger.info(f"   分页: skip={params.skip}, limit={params.limit}")
-
-            # 获取结果
-            results = await cursor.to_list(length=None)
+            results = result.get("items", [])
             self.logger.info(f"   查询返回: {len(results)} 条记录")
 
             # 🔧 转换 ObjectId 为字符串，避免 JSON 序列化错误

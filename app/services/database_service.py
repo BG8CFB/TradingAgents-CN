@@ -1,6 +1,7 @@
 """
 数据库管理服务
 """
+# data-access-exempt: 数据库管理门面（运维操作）
 
 import logging
 from typing import Dict, Any, List

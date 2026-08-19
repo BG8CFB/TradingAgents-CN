@@ -1,6 +1,7 @@
 """
 市场分类与模型目录管理服务
 """
+# data-access-exempt: 应用层集合（市场分类目录）管理服务
 
 import asyncio
 import logging

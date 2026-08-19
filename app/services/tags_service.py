@@ -1,6 +1,7 @@
 """
 用户自定义标签服务
 """
+# data-access-exempt: 应用层集合（用户标签）
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from bson import ObjectId

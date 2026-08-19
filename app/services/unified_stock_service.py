@@ -3,7 +3,6 @@
 """统一股票数据服务 — 通过 DataInterface 访问，供路由层调用。"""
 
 import logging
-import re
 from typing import Dict, List, Optional
 
 from app.data.core.interface import DataInterface
@@ -32,29 +31,12 @@ class UnifiedStockService:
         return result.get("data")
 
     async def search_stocks(self, market: str, query: str, limit: int = 20) -> List[Dict]:
-        """搜索股票 — 通过 DataInterface 的底层仓储实现 regex 搜索。"""
-        from app.data.core.reader import Reader
-        reader = Reader()
-        repo = reader._get_repo("basic_info")
-        if not repo:
-            return []
-
-        from app.data.storage.mongo.client import get_motor_db
-        from app.data.storage.mongo.collections import get_collection_name
-        db = get_motor_db()
-        coll = db[get_collection_name("basic_info", market)]
-
-        safe_query = re.escape(query)
-        filter_query = {
-            "$or": [
-                {"symbol": {"$regex": safe_query, "$options": "i"}},
-                {"name": {"$regex": safe_query, "$options": "i"}},
-                {"name_en": {"$regex": safe_query, "$options": "i"}},
-                {"full_symbol": {"$regex": safe_query, "$options": "i"}},
-            ]
-        }
-        cursor = coll.find(filter_query, {"_id": 0}).limit(limit)
-        return await cursor.to_list(length=None)
+        """搜索股票 — 通过 DataInterface.search_basic_info 实现 regex 搜索。"""
+        return await self._di().search_basic_info(
+            market, query,
+            fields=["symbol", "name", "name_en", "full_symbol"],
+            limit=limit,
+        )
 
     async def get_daily_quotes(
         self, market: str, code: str,
@@ -81,16 +63,8 @@ class UnifiedStockService:
         # 2) daily_quotes 最新一条：获取 open/high/low/close/pct_chg/volume/amount/turnover_rate
         dq = {}
         try:
-            from app.data.storage.mongo.client import get_motor_db
-            from app.data.storage.mongo.collections import get_collection_name
-            db = get_motor_db()
-            dq_coll = db[get_collection_name("daily_quotes", "CN")]
-            latest_dq = await dq_coll.find_one(
-                {"symbol": code6},
-                sort=[("trade_date", -1)],
-            )
+            latest_dq = await di.read_latest("CN", "daily_quotes", code6)
             if latest_dq:
-                latest_dq.pop("_id", None)
                 dq = latest_dq
         except Exception as e:
             logger.warning(f"获取 daily_quotes 最新记录失败: {e}")

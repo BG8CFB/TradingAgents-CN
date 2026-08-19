@@ -1,6 +1,7 @@
 """
 通知服务：持久化 + 列表 + 已读 + SSE 发布
 """
+# data-access-exempt: 应用层集合（notifications）
 import logging
 from datetime import timedelta
 from typing import Any, Dict, List, Optional

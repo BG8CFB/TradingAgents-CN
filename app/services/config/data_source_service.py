@@ -1,6 +1,7 @@
 """
 数据源分组与连接测试服务
 """
+# data-access-exempt: 数据源连通性测试功能（需直读源配置）
 
 import time
 import asyncio

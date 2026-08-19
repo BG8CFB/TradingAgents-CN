@@ -230,35 +230,44 @@ class ScreeningService:
         return _safe_float_util(v)
 
     def _get_universe(self) -> List[str]:
-        """获取A股代码集合：从 MongoDB stock_basic_info 集合获取所有A股股票代码"""
+        """获取A股代码集合：经 DataInterface 读取 basic_info 域（CN 市场）"""
         try:
-            from app.core.database import get_mongo_db_sync
+            from app.core.async_utils import run_async
+            from app.data.core.interface import DataInterface
 
-            db = get_mongo_db_sync()
-            collection = db.stock_basic_info
-
-            # 使用同步 PyMongo 客户端查询
-            cursor = collection.find(
-                {
-                    "$or": [
-                        {"market_info.market": "CN"},
-                        {"category": "stock_cn"},
-                        {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}
-                    ]
-                },
-                {"symbol": 1, "_id": 0}
+            # 与原直连查询语义等价：同样的 $or 过滤 + 仅投影 symbol；
+            # limit=0 表示不限制数量（screen 仅在 truthy 时应用 limit）。
+            result = run_async(
+                DataInterface.get_instance().screen(
+                    "CN",
+                    "basic_info",
+                    filters={
+                        "$or": [
+                            {"market_info.market": "CN"},
+                            {"category": "stock_cn"},
+                            {"market": "CN"},
+                            {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}
+                        ]
+                    },
+                    projection={"symbol": 1},
+                    limit=0,
+                )
             )
 
-            codes = [doc.get("symbol") for doc in cursor if doc.get("symbol")]
+            codes = [
+                doc.get("symbol")
+                for doc in result.get("items", [])
+                if doc.get("symbol")
+            ]
 
             if codes:
-                logger.info(f"📊 从 MongoDB 获取到 {len(codes)} 只A股股票")
+                logger.info(f"📊 从数据层获取到 {len(codes)} 只A股股票")
                 return codes
             else:
-                logger.warning("⚠️ MongoDB 中未找到股票数据，请先执行数据同步")
+                logger.warning("⚠️ 数据库中未找到股票数据，请先执行数据同步")
                 return []
 
         except Exception as e:
-            logger.error(f"❌ 从 MongoDB 获取股票列表失败: {e}")
+            logger.error(f"❌ 从数据层获取股票列表失败: {e}")
             return []
 

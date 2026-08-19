@@ -23,8 +23,8 @@ class DomainAvailabilityChecker:
     def _load_standard_domains(self) -> set:
         """加载标准域名称集合"""
         try:
-            from app.data.storage.mongo.collections import _BUSINESS_COLLECTIONS
-            return set(_BUSINESS_COLLECTIONS.keys())
+            from app.data.storage.mongo.collections import get_all_domains
+            return set(get_all_domains())
         except Exception as e:
             logger.debug(f"加载标准域名称失败: {e}")
             return set()
