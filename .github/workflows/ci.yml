@@ -64,7 +64,13 @@ jobs:
           . .venv/bin/activate
           python --version
           uv pip install -e .
-          uv pip install pytest pytest-asyncio pytest-timeout hypothesis httpx
+          uv pip install pytest pytest-asyncio pytest-timeout hypothesis httpx ruff import-linter
+
+      - name: Lint & architecture contracts
+        run: |
+          . .venv/bin/activate
+          ruff check app/ tests/ scripts/
+          lint-imports
 
       - name: Run unit tests
         run: |

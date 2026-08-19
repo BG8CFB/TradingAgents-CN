@@ -166,16 +166,22 @@ npm run format       # Prettier
 
 The historical `tradingagents/` package has been merged into `app/engine/`. All core agent logic lives under `app/engine/`. Any remaining `tradingagents` imports are compatibility shims — use `app.engine.*` for new code.
 
-### Governance & Pre-commit Hooks
+### Governance & 架构约束（2026-08 工具化重构）
 
-`.pre-commit-config.yaml` enforces:
+架构约束不再使用 bash grep 钩子（误报/漏报、Windows 上失效），改为声明式工具，配置集中在 `pyproject.toml`：
 
-- **`no-mongo-in-routers`** — Rejects direct MongoDB calls (`find_one`, `aggregate`, etc.) in `app/routers/`
-- **`no-bare-os-getenv`** — `os.getenv()` only in whitelisted config modules (`core/config.py`, `core/config_bridge.py`, `core/config_initializer.py`, `engine/config/env_utils.py`, `engine/graph/trading_graph.py`, `engine/llm_adapters/`, `worker/scheduler_setup.py`)
-- **`no-config-manager-import`** — Blocks re-introduction of removed `config_manager`
-- **`ruff`** + **`ruff-format`** — Standard Python linting
+| 约束 | 执行方式 |
+|---|---|
+| 禁止 import 已移除的 `config_manager` | ruff `TID251` banned-api（`pyproject.toml`） |
+| routers 不得 import `app.data.storage` / `app.data.sources` | import-linter forbidden 契约（`lint-imports`） |
+| routers 不得直接调用 MongoDB 方法（`find_one` 等） | `tests/lint/test_router_conventions.py`（pytest，跨平台） |
+| `os.getenv()` 仅限配置层白名单模块 | `tests/lint/test_env_access_conventions.py`（pytest，跨平台） |
+| Python 风格 | ruff + ruff-format（pre-commit） |
 
-Convention tests in `tests/lint/test_router_conventions.py` enforce router naming (API prefix, English tags).
+**os.getenv 白名单**（改动时须同步 `tests/lint/test_env_access_conventions.py`）：
+`core/config.py`、`core/env.py`、`core/config_bridge.py`、`core/config_initializer.py`、`core/startup_validator.py`、`engine/config/env_utils.py`、`engine/graph/trading_graph.py`、`engine/llm_adapters/`（子包）、`llm/config.py`、`worker/scheduler_setup.py`
+
+路由命名约定（API prefix `/api/<domain>`、英文 Title-Case tags）同样由 `tests/lint/test_router_conventions.py` 强制。
 
 ### Multi-Agent Workflow (`app/engine/`)
 
@@ -193,6 +199,10 @@ Graph construction: `app/engine/graph/setup.py`. State propagation: `propagation
 ### MCP Architecture
 
 - **`app/engine/tools/mcp/`** — MCP tool **consumer** infrastructure (loader, task manager with circuit breakers, health monitor, tool node). Connections initialized at app startup in `main.py` lifespan. The project only consumes external MCP servers configured in `config/mcp.json`; it is not an MCP server itself.
+
+### Skill Architecture
+
+可分发能力包（SKILL.md + manifest + scripts），详见 `docs/skill-architecture.md`（扫描目录、依赖自动安装安全控制、与 builtin 工具集成、API/前端入口）。
 
 ### Data Layer (`app/data/`)
 
@@ -220,6 +230,16 @@ di = DataInterface.get_instance()
 result = await di.read("CN", "000001", "daily_quotes",
                        start_date="2024-01-01", end_date="2024-12-31")
 ```
+
+**Development Roadmap (Data Layer)** — 源标准化入库、统一消费：
+
+任何数据源接入时只需编写它自己的 Provider/Adapter，把数据规范化成数据库的标准 schema 入库；项目所有消费方（agent 工具、路由、服务）只通过 `DataInterface` 读取标准库，不感知具体数据源的存在。接入新源是纯增量工作（只加 adapter），消费方零改动；多源回退、熔断、限流全部收敛在 `app/data/` 内部。
+
+具体约束：
+- 消费层禁止"查库不到就直连数据源 API 兜底"。正确路径是 `di.read()` → 触发 `di.refresh()` 补数 → 再读，降级逻辑留在数据层内部
+- 标准 schema 必须使用中立字段（`symbol` / `trade_date` 等），不得携带任何单一数据源的方言（如 tushare 的 `ts_code` 作为必填校验字段）
+- 同一 domain 不同源入库的数据形状与主键语义必须一致（主键在 domain 级显式声明，不靠采样记录猜测）
+- 数据源连接层（如 Tushare 上游地址覆写）必须由环境变量/settings 开关控制且默认关闭，不得无条件生效
 
 ### Backend API (`app/`)
 

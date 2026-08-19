@@ -42,14 +42,21 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-# 2. unit 层（与 CI unit job 相同参数；容器在跑也不影响，DB 测试有 sim 降级）
-echo -e "${YELLOW}========== [1/2] unit 层 ==========${NC}"
+# 2. 静态检查与架构契约（ruff banned-api + import-linter，无需容器）
+echo -e "${YELLOW}========== [1/3] 静态检查 ==========${NC}"
+python -m ruff check app/ tests/ scripts/
+[[ $? -ne 0 ]] && fail=1
+lint-imports
+[[ $? -ne 0 ]] && fail=1
+
+# 3. unit 层（与 CI unit job 相同参数；容器在跑也不影响，DB 测试有 sim 降级）
+echo -e "${YELLOW}========== [2/3] unit 层 ==========${NC}"
 python -m pytest tests/ -m "not integration and not slow and not ai" \
     --tb=short --durations=20 --timeout=120 -q -p no:cacheprovider
 [[ $? -ne 0 ]] && fail=1
 
-# 3. integration 层（与 CI integration job 相同参数）
-echo -e "${YELLOW}========== [2/2] integration 层 ==========${NC}"
+# 4. integration 层（与 CI integration job 相同参数）
+echo -e "${YELLOW}========== [3/3] integration 层 ==========${NC}"
 python -m pytest tests/ -m "integration and not ai" \
     --tb=short --durations=20 --timeout=180 -q -p no:cacheprovider
 [[ $? -ne 0 ]] && fail=1

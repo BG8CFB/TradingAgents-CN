@@ -1,42 +1,26 @@
+# 架构约束的执行位置（2026-08 重构，单一事实源见 AGENTS.md）：
+# - 禁止 import config_manager        -> ruff TID251（pyproject.toml banned-api）
+# - 禁止 routers import 数据层内部实现  -> import-linter forbidden 契约（pyproject.toml）
+# - 禁止 routers 直连 MongoDB 方法调用  -> tests/lint/test_router_conventions.py（pytest，跨平台）
+# - os.getenv 白名单                  -> tests/lint/test_env_access_conventions.py（pytest，跨平台）
+#
+# 旧版 bash grep 钩子已移除：误报/漏报（文本匹配无法区分对象归属）、
+# Windows 宿主机无 bash 时直接失效、白名单三处硬编码已发生漂移。
 repos:
-  - repo: local
-    hooks:
-      # 禁止路由层直连 MongoDB
-      - id: no-mongo-in-routers
-        name: No MongoDB in routers
-        entry: bash -c 'grep -rn "find_one(\|aggregate(\|update_one(\|insert_one(\|delete_one(\|\.find(\|count_documents(\|distinct(\|create_index(\|drop_index(\|replace_one(\|bulk_write(" app/routers/ | grep -v __pycache__ | grep -v "config/" && exit 1 || exit 0'
-        language: system
-        types: [python]
-        pass_filenames: false
-
-      # 禁止路由层直接依赖 storage 层（redis / cache / mongo）—— 必须走 service 层
-      - id: no-storage-in-routers
-        name: No storage imports in routers
-        entry: bash -c 'grep -rn "from app\.data\.storage\.\(redis\|cache\|mongo\)" app/routers/ | grep -v __pycache__ && exit 1 || exit 0'
-        language: system
-        types: [python]
-        pass_filenames: false
-
-      # 禁止 os.getenv 散落（仅允许配置层和工具模块）
-      - id: no-bare-os-getenv
-        name: No os.getenv outside config modules
-        entry: bash -c 'grep -rn "os.getenv(" app/ | grep -v __pycache__ | grep -v "app/core/config.py" | grep -v "app/core/config_bridge.py" | grep -v "app/core/config_initializer.py" | grep -v "app/core/startup_validator.py" | grep -v "app/engine/config/env_utils.py" | grep -v "app/engine/graph/trading_graph.py" | grep -v "app/engine/llm_adapters/" | grep -v "app/worker/scheduler_setup.py" && exit 1 || exit 0'
-        language: system
-        types: [python]
-        pass_filenames: false
-
-      # 禁止重新引入已删除的 config_manager
-      - id: no-config-manager-import
-        name: No config_manager imports
-        entry: bash -c 'grep -rn "from app.engine.config.config_manager import" app/ | grep -v __pycache__ && exit 1 || exit 0'
-        language: system
-        types: [python]
-        pass_filenames: false
-
-  # Python linting
+  # Python linting + 架构禁令（banned-api）
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.4
+    rev: v0.15.12
     hooks:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  # 分层/关系型架构契约（基于真实 import 解析）
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: Architecture contracts (import-linter)
+        entry: lint-imports
+        language: system
+        pass_filenames: false
+        types: [python]
