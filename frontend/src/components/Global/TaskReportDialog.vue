@@ -11,7 +11,17 @@
     <template v-else>
       <el-empty description="暂无内容" />
     </template>
+
+    <!-- 内嵌分析过程面板（回放模式） -->
+    <div v-if="showProcess && taskId" class="process-section">
+      <el-divider content-position="left">分析过程（回放）</el-divider>
+      <ProcessPanel :task-id="taskId" replay class="embedded-process-panel" />
+    </div>
+
     <template #footer>
+      <el-button v-if="taskId" @click="showProcess = !showProcess">
+        {{ showProcess ? '收起过程' : '查看过程' }}
+      </el-button>
       <el-button @click="emit('close')">关闭</el-button>
     </template>
   </el-dialog>
@@ -19,9 +29,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { renderMarkdown } from '@/utils/markdown'
-const props = defineProps<{ modelValue: boolean; sections: Array<{ key?: string; title: string; content: string }> }>()
+import ProcessPanel from '@/components/Analysis/ProcessPanel.vue'
+const props = defineProps<{ modelValue: boolean; sections: Array<{ key?: string; title: string; content: string }>; taskId?: string }>()
 const emit = defineEmits(['update:modelValue','close'])
 const visible = computed({ get: () => props.modelValue, set: (v: boolean) => emit('update:modelValue', v) })
 const active = ref('0')
+const showProcess = ref(false)
 </script>
-
+<style scoped>
+.process-section { margin-top: 8px; }
+.embedded-process-panel { height: 480px; }
+</style>

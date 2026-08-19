@@ -4,7 +4,7 @@ get_realtime_stock_news, get_stock_news_unified。"""
 from datetime import datetime, timedelta
 from typing import Annotated
 
-from langchain_core.tools import tool
+
 
 from app.utils.logging_init import get_logger
 from app.utils.tool_logging import log_tool_call
@@ -14,7 +14,7 @@ from .toolkit_helpers import _run_async, _get_us_news_sync
 logger = get_logger("agents")
 
 
-@tool
+
 def get_finnhub_news(
     ticker: Annotated[str, "Search query of a company, e.g. 'AAPL, TSM, etc."],
     start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
@@ -38,7 +38,7 @@ def get_finnhub_news(
     return finnhub_news_result
 
 
-@tool
+
 def get_reddit_stock_info(
     ticker: Annotated[str, "Ticker of a company. e.g. AAPL, TSM"],
     curr_date: Annotated[str, "Current date you want to get news for"],
@@ -57,7 +57,7 @@ def get_reddit_stock_info(
     return stock_news_results
 
 
-@tool
+
 def get_realtime_stock_news(
     ticker: Annotated[str, "Ticker of a company. e.g. AAPL, TSM"],
     curr_date: Annotated[str, "Current date in yyyy-mm-dd format"],
@@ -111,7 +111,7 @@ def get_realtime_stock_news(
         return f"实时新闻获取失败: {e}"
 
 
-@tool
+
 @log_tool_call(tool_name="get_stock_news_unified", log_args=True)
 def get_stock_news_unified(
     ticker: Annotated[str, "股票代码（支持A股、港股、美股）"],

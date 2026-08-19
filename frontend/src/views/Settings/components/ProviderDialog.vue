@@ -119,26 +119,6 @@
           inactive-text="禁用"
         />
       </el-form-item>
-
-      <!-- 高级设置（折叠） -->
-      <el-collapse class="advanced-collapse">
-        <el-collapse-item title="高级设置（官网、文档地址等）" name="advanced">
-          <el-form-item label="官网">
-            <el-input v-model="formData.website" placeholder="https://openai.com" />
-          </el-form-item>
-          <el-form-item label="API文档">
-            <el-input v-model="formData.api_doc_url" placeholder="https://platform.openai.com/docs" />
-          </el-form-item>
-          <el-form-item label="描述">
-            <el-input
-              v-model="formData.description"
-              type="textarea"
-              :rows="2"
-              placeholder="可选"
-            />
-          </el-form-item>
-        </el-collapse-item>
-      </el-collapse>
     </el-form>
 
     <template #footer>
@@ -206,9 +186,6 @@ const presetProviders = [
   {
     name: 'dashscope',
     display_name: '阿里云百炼',
-    description: '阿里云百炼大模型服务平台，提供通义千问等模型',
-    website: 'https://bailian.console.aliyun.com',
-    api_doc_url: 'https://help.aliyun.com/zh/dashscope/',
     default_base_url: 'https://dashscope.aliyuncs.com/api/v1',
     supported_features: ['chat', 'completion', 'embedding', 'function_calling', 'streaming'],
     provider_type: 'llm',
@@ -218,9 +195,6 @@ const presetProviders = [
   {
     name: '302ai',
     display_name: '302.AI',
-    description: '302.AI是企业级AI聚合平台',
-    website: 'https://302.ai',
-    api_doc_url: 'https://doc.302.ai',
     default_base_url: 'https://api.302.ai/v1',
     supported_features: ['chat', 'completion', 'embedding', 'image', 'vision', 'function_calling', 'streaming'],
     provider_type: 'llm',
@@ -230,9 +204,6 @@ const presetProviders = [
   {
     name: 'deepseek',
     display_name: 'DeepSeek',
-    description: 'DeepSeek提供高性能的AI推理服务',
-    website: 'https://www.deepseek.com',
-    api_doc_url: 'https://platform.deepseek.com/api-docs',
     default_base_url: 'https://api.deepseek.com',
     supported_features: ['chat', 'completion', 'function_calling', 'streaming'],
     provider_type: 'llm',
@@ -242,9 +213,6 @@ const presetProviders = [
   {
     name: 'openai',
     display_name: 'OpenAI',
-    description: 'OpenAI，提供GPT系列模型',
-    website: 'https://openai.com',
-    api_doc_url: 'https://platform.openai.com/docs',
     default_base_url: 'https://api.openai.com/v1',
     supported_features: ['chat', 'completion', 'embedding', 'image', 'vision', 'function_calling', 'streaming'],
     provider_type: 'llm',
@@ -254,9 +222,6 @@ const presetProviders = [
   {
     name: 'anthropic',
     display_name: 'Anthropic',
-    description: 'Anthropic，提供Claude系列模型',
-    website: 'https://anthropic.com',
-    api_doc_url: 'https://docs.anthropic.com',
     default_base_url: 'https://api.anthropic.com',
     supported_features: ['chat', 'completion', 'function_calling', 'streaming'],
     provider_type: 'llm',
@@ -266,9 +231,6 @@ const presetProviders = [
   {
     name: 'google',
     display_name: 'Google AI',
-    description: 'Google AI，提供Gemini系列模型',
-    website: 'https://ai.google.dev',
-    api_doc_url: 'https://ai.google.dev/docs',
     default_base_url: 'https://generativelanguage.googleapis.com/v1',
     supported_features: ['chat', 'completion', 'embedding', 'vision', 'function_calling', 'streaming'],
     provider_type: 'llm',
@@ -278,9 +240,6 @@ const presetProviders = [
   {
     name: 'zhipu',
     display_name: '智谱AI',
-    description: '智谱AI，提供GLM系列中文大模型',
-    website: 'https://zhipuai.cn',
-    api_doc_url: 'https://open.bigmodel.cn/doc',
     default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
     supported_features: ['chat', 'completion', 'embedding', 'function_calling', 'streaming'],
     provider_type: 'llm',
@@ -290,9 +249,6 @@ const presetProviders = [
   {
     name: 'baidu',
     display_name: '百度智能云',
-    description: '百度，提供文心一言等AI服务',
-    website: 'https://cloud.baidu.com',
-    api_doc_url: 'https://cloud.baidu.com/doc/WENXINWORKSHOP/index.html',
     default_base_url: 'https://aip.baidubce.com',
     supported_features: ['chat', 'completion', 'embedding', 'streaming'],
     provider_type: 'llm',
@@ -304,9 +260,6 @@ const presetProviders = [
 const formData = ref<ProviderFormData>({
   name: '',
   display_name: '',
-  description: '',
-  website: '',
-  api_doc_url: '',
   default_base_url: '',
   api_key: '',
   api_secret: '',
@@ -332,9 +285,6 @@ const resetForm = () => {
   formData.value = {
     name: '',
     display_name: '',
-    description: '',
-    website: '',
-    api_doc_url: '',
     default_base_url: '',
     api_key: '',
     api_secret: '',
@@ -499,29 +449,6 @@ const handleSubmit = async () => {
   :deep(.el-button) {
     font-size: 14px;
     padding: 8px 16px;
-  }
-}
-
-.advanced-collapse {
-  margin-top: 12px;
-  border: none;
-
-  :deep(.el-collapse-item__header) {
-    background: var(--el-fill-color-lighter);
-    padding: 0 12px;
-    border-radius: 4px;
-    border: none;
-    font-weight: 500;
-    color: var(--el-text-color-secondary);
-    font-size: 13px;
-  }
-
-  :deep(.el-collapse-item__wrap) {
-    border: none;
-  }
-
-  :deep(.el-collapse-item__content) {
-    padding-top: 16px;
   }
 }
 </style>

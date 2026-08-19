@@ -45,7 +45,7 @@ from app.services.progress.log_handler import (
 from app.services.websocket_manager import get_websocket_manager
 from app.core.config import settings
 from app.utils.timezone import now_utc, now_config_tz, format_date_short, format_iso
-from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
+from app.llm.mcp import service as mcp_service
 
 # 设置日志
 logger = logging.getLogger("app.services.analysis_service")
@@ -607,22 +607,14 @@ class AnalysisService:
         """
         if config.get("enable_mcp"):
             return
-        if not LANGCHAIN_MCP_AVAILABLE:
-            return
 
         try:
-            factory = get_mcp_loader_factory()
-            # 不再检查 _initialized，因为连接在应用启动时已建立
-
-            tool_ids = selected_tool_ids or []
-            loader = factory.create_loader(tool_ids, include_local=False)
-            mcp_tools = list(loader())
-
-            if mcp_tools:
+            # 新层 MCPManager：有启用的 server 则启用，连接与工具发现由 orchestrator pipeline 执行
+            enabled = mcp_service.enabled_server_configs()
+            if enabled:
                 config["enable_mcp"] = True
-                config["mcp_tool_loader"] = loader
-                config.setdefault("mcp_tool_ids", tool_ids)
-                logger.info(f"自动启用MCP工具: {len(mcp_tools)}个")
+                config.setdefault("mcp_tool_ids", selected_tool_ids or [])
+                logger.info(f"自动启用MCP工具: {len(enabled)} 个 server")
             else:
                 logger.info("MCP支持已检测，无可用外部工具")
         except Exception as exc:
@@ -928,12 +920,19 @@ class AnalysisService:
             effective_settings = await config_provider.get_effective_system_settings()
             params = request.parameters or AnalysisParameters()
 
-            if not getattr(params, "analyst_model", None):
-                params.analyst_model = effective_settings.get(
-                    "analyst_model", "qwen-turbo"
+            # 模型默认值：系统设置优先，未设置时按"第一个启用的模型"推荐，不写死具体模型 ID
+            if not getattr(params, "analyst_model", None) or not getattr(params, "debate_model", None):
+                from app.services.model_capability_service import (
+                    get_model_capability_service,
                 )
-            if not getattr(params, "debate_model", None):
-                params.debate_model = effective_settings.get("debate_model", "qwen-max")
+
+                rec_analyst, rec_debate = (
+                    get_model_capability_service().recommend_models()
+                )
+                if not getattr(params, "analyst_model", None):
+                    params.analyst_model = effective_settings.get("analyst_model") or rec_analyst
+                if not getattr(params, "debate_model", None):
+                    params.debate_model = effective_settings.get("debate_model") or rec_debate
 
             stock_symbols = request.get_symbols()
 
@@ -1030,6 +1029,7 @@ class AnalysisService:
             request,
             progress_tracker,
             mcp_tool_ids or [],
+            loop,
         )
         return result
 
@@ -1092,6 +1092,7 @@ class AnalysisService:
         request: SingleAnalysisRequest,
         progress_tracker: Optional[RedisProgressTracker] = None,
         mcp_tool_ids: Optional[List[str]] = None,
+        server_loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> Dict[str, Any]:
         """同步执行分析的具体实现"""
         # 任务级 MCP 管理器（用于隔离和管理 MCP 工具状态）
@@ -1205,6 +1206,12 @@ class AnalysisService:
             else:
                 analyst_model, debate_model = capability_service.recommend_models()
 
+            # 未添加任何启用模型时给出明确错误，而不是静默使用不存在的默认模型
+            if not analyst_model or not debate_model:
+                raise ValueError(
+                    "未添加任何启用的模型，请先在 设置 → 模型配置 中添加并启用模型"
+                )
+
             # DeepSeek 旧模型弃用提醒
             for _mn in [analyst_model, debate_model]:
                 if _mn in _DEPRECATED_MODELS:
@@ -1260,20 +1267,10 @@ class AnalysisService:
                 )
 
             if selected_mcp_tools:
-                if not LANGCHAIN_MCP_AVAILABLE:
-                    logger.warning("选择MCP工具但未安装langchain-mcp，已跳过")
-                else:
-                    try:
-                        factory = get_mcp_loader_factory()
-                        config["enable_mcp"] = True
-                        # 仅加载外部 MCP 工具，避免本地 MCP 工具重复注册
-                        config["mcp_tool_loader"] = factory.create_loader(
-                            selected_mcp_tools, include_local=False
-                        )
-                        config["mcp_tool_ids"] = selected_mcp_tools
-                        logger.info(f"配置MCP工具加载器: {len(selected_mcp_tools)}个")
-                    except Exception as e:
-                        logger.error(f"配置MCP工具加载器失败: {e}")
+                # 新层 MCPManager：启用 MCP，工具发现与按 id 过滤由 orchestrator pipeline 执行
+                config["enable_mcp"] = True
+                config["mcp_tool_ids"] = selected_mcp_tools
+                logger.info(f"启用MCP工具（按选择过滤）: {len(selected_mcp_tools)}个")
 
             # 若未显式选择但外部 MCP 工具已配置，则自动启用
             self._auto_enable_mcp(config, selected_mcp_tools)
@@ -1415,13 +1412,20 @@ class AnalysisService:
                 except Exception as e:
                     logger.debug(f"进度回调更新失败: {e}")
 
-            # 执行分析
-            state, decision = trading_graph.propagate(
-                request.stock_code,
-                analysis_date,
-                progress_callback=graph_progress_callback,
-                task_id=task_id,
-            )
+            # 执行分析（事件汇聚点：实时 WS + Mongo 落库，供过程面板/回放）
+            from app.services.analysis_events import create_event_sink, release_event_sink
+
+            event_sink = create_event_sink(task_id, server_loop=server_loop)
+            try:
+                state, decision = trading_graph.propagate(
+                    request.stock_code,
+                    analysis_date,
+                    progress_callback=graph_progress_callback,
+                    task_id=task_id,
+                    event_sink=event_sink,
+                )
+            finally:
+                release_event_sink(task_id, server_loop=server_loop)
 
             update_progress_sync(90, "处理分析结果...", "result_processing")
             execution_time = (now_config_tz() - start_time).total_seconds()
@@ -1600,15 +1604,17 @@ class AnalysisService:
 
         # 5. 从 messages 列表中提取 (最终兜底)
         if "messages" in state and isinstance(state["messages"], list):
-            from langchain_core.messages import AIMessage
+            from app.llm.core.types import Message, Role
 
             messages_reports_count = 0
             for msg in reversed(state["messages"]):
+                # 新层 Message 无 name 字段；命名报告消息（若上游附加）作兜底提取
+                msg_name = getattr(msg, "name", "")
                 if (
-                    isinstance(msg, AIMessage)
-                    and hasattr(msg, "name")
-                    and msg.name
-                    and msg.name.endswith("_report")
+                    isinstance(msg, Message)
+                    and msg.role == Role.ASSISTANT
+                    and msg_name
+                    and msg_name.endswith("_report")
                 ):
                     report_key = msg.name
                     if report_key not in reports:

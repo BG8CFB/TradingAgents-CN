@@ -269,22 +269,18 @@ async def _init_scheduler(logger):
 
 
 async def _init_mcp(logger):
-    """初始化 MCP 连接和健康检查任务"""
-    from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
+    """初始化 MCP 连接（新层 app/llm/mcp）和健康检查任务"""
+    from app.llm.mcp import service as mcp_service
     from app.core.task_registry import task_registry
 
-    if not LANGCHAIN_MCP_AVAILABLE:
-        logger.info("ℹ️  langchain-mcp-adapters 未安装，MCP 功能不可用")
-        return None
-
-    logger.info("🔧 初始化 MCP 连接管理器...")
-    factory = get_mcp_loader_factory()
-    await factory.initialize_connections()
+    logger.info("🔧 初始化 MCP 连接管理器（新层 MCPManager）...")
+    connected = await mcp_service.startup()
 
     async def mcp_health_check_loop():
         while True:
             try:
-                await factory.health_check_all()
+                for name in list(mcp_service.enabled_server_configs()):
+                    await mcp_service.ping_server(name)
                 await asyncio.sleep(30)
             except asyncio.CancelledError:
                 break
@@ -298,7 +294,7 @@ async def _init_mcp(logger):
         name="mcp_health_check",
         critical=False,
     )
-    logger.info("✅ MCP 连接已初始化，健康检查任务已启动")
+    logger.info(f"✅ MCP 连接已初始化（{connected} 个 server），健康检查任务已启动")
     return None
 
 
@@ -444,9 +440,8 @@ async def lifespan(app: FastAPI):
         # 1. MCP 健康检查任务由 task_registry.shutdown 统一 cancel（见下方 4.5）
         # 这里仅关闭 MCP 连接
         try:
-            from app.engine.tools.mcp import get_mcp_loader_factory
-            factory = get_mcp_loader_factory()
-            await factory.close()
+            from app.llm.mcp import service as mcp_service
+            await mcp_service.shutdown()
             logger.info("🛑 MCP 连接已关闭")
         except Exception as e:
             logger.warning(f"MCP 连接关闭失败: {e}")

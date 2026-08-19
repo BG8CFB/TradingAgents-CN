@@ -6,9 +6,58 @@ LLM 集成测试：标记 @pytest.mark.ai，使用真实 API
 """
 
 import pytest
-from langchain_core.messages import AIMessage
 
 from app.engine.graph.reflection import Reflector
+from app.llm.core.types import ChatResponse, Message, Role, StopReason
+
+
+def _chat_response(text: str) -> ChatResponse:
+    return ChatResponse(
+        message=Message(role=Role.ASSISTANT, content=text),
+        stop_reason=StopReason.END_TURN,
+    )
+
+
+def _build_real_llm_client():
+    """基于 app/llm 新层构建真实客户端（DEEPSEEK_API_KEY 优先，ARK 回退）。
+
+    无可用凭据时返回 None，由调用方 skip。
+    """
+    import os
+    from pathlib import Path
+
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+    except ImportError:
+        pass
+
+    from app.llm.config import load_config
+    from app.llm.providers import ResolvedProvider, build_client
+
+    deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
+    if deepseek_key:
+        rp = ResolvedProvider(
+            protocol="openai",
+            model="deepseek-chat",
+            api_key=deepseek_key,
+            base_url="https://api.deepseek.com",
+            source="env",
+        )
+        return build_client(rp)
+
+    cfg = load_config()
+    if cfg.api_key:
+        rp = ResolvedProvider(
+            protocol="anthropic",
+            model=cfg.default_model,
+            api_key=cfg.api_key,
+            base_url=cfg.anthropic_base_url,
+            source="env",
+        )
+        return build_client(rp)
+    return None
 
 
 class RecordingMemory:
@@ -22,15 +71,19 @@ class RecordingMemory:
 
 
 class RecordingLLM:
-    """记录调用情况的 LLM 对象（真实类，非 MagicMock）"""
+    """记录调用情况的 LLM 对象（真实类，非 MagicMock）。
+
+    实现新层 BaseLLMClient 的 chat 协议（async chat -> ChatResponse），
+    Reflector 经 llm_bridge.sync_chat 调用本类。
+    """
 
     def __init__(self, response_content="反思结果：需要改进风险控制"):
         self.calls = []
         self.response_content = response_content
 
-    def invoke(self, messages):
-        self.calls.append(messages)
-        return AIMessage(content=self.response_content)
+    async def chat(self, messages, *, system=None, **kwargs):
+        self.calls.append({"messages": list(messages), "system": system})
+        return _chat_response(self.response_content)
 
 
 class TestReflectorInit:
@@ -92,12 +145,16 @@ class TestReflectOnComponent:
         r._reflect_on_component("BULL", "看涨报告", "市场情况", "盈利5%")
 
         assert len(llm.calls) == 1
-        messages = llm.calls[0]
-        assert len(messages) == 2
-        assert messages[0][0] == "system"
-        assert messages[1][0] == "human"
-        assert "盈利5%" in messages[1][1]
-        assert "看涨报告" in messages[1][1]
+        call = llm.calls[0]
+        # system 走独立参数（新层契约），包含静态反思 prompt
+        assert "推理" in call["system"]
+        assert "改进" in call["system"]
+        # 消息列表仅含一条 USER 消息
+        assert len(call["messages"]) == 1
+        msg = call["messages"][0]
+        assert msg.role == Role.USER
+        assert "盈利5%" in msg.content
+        assert "看涨报告" in msg.content
 
 
 class TestReflectBullResearcher:
@@ -116,8 +173,7 @@ class TestReflectBullResearcher:
         r = Reflector(llm)
         r.reflect_bull_researcher(sample_agent_state, "盈利5%", RecordingMemory())
 
-        messages = llm.calls[0]
-        human_msg = messages[1][1]
+        human_msg = llm.calls[0]["messages"][0].content
         assert "看好市场" in human_msg
 
 
@@ -127,8 +183,7 @@ class TestReflectBearResearcher:
         r = Reflector(llm)
         r.reflect_bear_researcher(sample_agent_state, "亏损3%", RecordingMemory())
 
-        messages = llm.calls[0]
-        human_msg = messages[1][1]
+        human_msg = llm.calls[0]["messages"][0].content
         assert "看空市场" in human_msg
 
 
@@ -139,8 +194,7 @@ class TestReflectTrader:
         r = Reflector(llm)
         r.reflect_trader(sample_agent_state, "盈利5%", RecordingMemory())
 
-        messages = llm.calls[0]
-        human_msg = messages[1][1]
+        human_msg = llm.calls[0]["messages"][0].content
         assert "建议买入100股" in human_msg
 
 
@@ -150,8 +204,7 @@ class TestReflectInvestJudge:
         r = Reflector(llm)
         r.reflect_invest_judge(sample_agent_state, "盈利5%", RecordingMemory())
 
-        messages = llm.calls[0]
-        human_msg = messages[1][1]
+        human_msg = llm.calls[0]["messages"][0].content
         assert "裁决结果" in human_msg
 
 
@@ -161,24 +214,19 @@ class TestReflectRiskManager:
         r = Reflector(llm)
         r.reflect_risk_manager(sample_agent_state, "亏损3%", RecordingMemory())
 
-        messages = llm.calls[0]
-        human_msg = messages[1][1]
+        human_msg = llm.calls[0]["messages"][0].content
         assert "风控裁决" in human_msg
 
 
 class TestReflectorWithRealLLM:
-    """使用真实 LLM API 的反思测试"""
+    """使用真实 LLM API 的反思测试（app/llm 新层客户端）"""
 
     @pytest.mark.ai
     def test_reflect_bull_with_real_llm(self, sample_agent_state):
-        from app.engine.llm_adapters.factory import create_llm
-        import os
+        llm = _build_real_llm_client()
+        if llm is None:
+            pytest.skip("无可用 LLM 凭据（DEEPSEEK_API_KEY 或 ARK_API_KEY）")
 
-        api_key = os.environ.get("DEEPSEEK_API_KEY")
-        if not api_key:
-            pytest.skip("需要 DEEPSEEK_API_KEY 环境变量")
-
-        llm = create_llm(provider="deepseek", model="deepseek-chat", api_key=api_key)
         r = Reflector(llm)
         memory = RecordingMemory()
         r.reflect_bull_researcher(sample_agent_state, "盈利5%", memory)

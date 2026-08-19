@@ -1,7 +1,7 @@
 import json
-from langchain_core.messages import HumanMessage, SystemMessage
+from app.llm.core.types import Message, Role
 from app.utils.logging_init import get_logger
-from app.core.async_utils import ainvoke
+from app.engine.orchestrator.llm_bridge import llm_chat
 
 logger = get_logger("default")
 
@@ -159,12 +159,13 @@ def create_summary_agent(llm):
 
         # 3. 调用 LLM（异步：通过 ainvoke 统一桥接，避免事件循环阻塞）
         try:
-            response = await ainvoke(llm, [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(content=user_prompt)
-            ])
-            
-            content = (response.content or "").strip()
+            content = (
+                await llm_chat(
+                    llm,
+                    [Message(role=Role.USER, content=user_prompt)],
+                    system=SYSTEM_PROMPT,
+                )
+            ).strip()
             
             # 清理可能的 markdown 标记
             if content.startswith("```json"):

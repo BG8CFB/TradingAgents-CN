@@ -104,34 +104,6 @@ class TestInferToolKey:
         assert isinstance(result, str)
 
 
-class TestWrapToolSafe:
-    def test_wrapped_tool_preserves_name(self):
-        """本地工具（无 server_name）应直接返回不包装"""
-        from langchain_core.tools import tool as lc_tool
-
-        @lc_tool
-        def test_tool(x: str) -> str:
-            """测试工具"""
-            return x
-
-        wrapped = DynamicAnalystFactory._wrap_tool_safe(test_tool, None)
-        assert wrapped is not None
-        assert wrapped.name == "test_tool"
-
-    def test_wrapped_tool_with_toolkit(self):
-        """传入 toolkit（但非外部 MCP 工具）应直接返回"""
-        from langchain_core.tools import tool as lc_tool
-
-        @lc_tool
-        def test_tool(x: str) -> str:
-            """测试工具"""
-            return x
-
-        toolkit = {"task_mcp_manager": None}
-        wrapped = DynamicAnalystFactory._wrap_tool_safe(test_tool, toolkit)
-        assert wrapped is not None
-
-
 class TestClearCache:
     def test_clear_cache_no_error(self):
         DynamicAnalystFactory.clear_cache()

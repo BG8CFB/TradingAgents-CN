@@ -1,0 +1,264 @@
+"""
+保序流水线（替代 LangGraph graph/setup.py 的编排）
+
+硬约束（与旧图语义完全一致，禁止漂移）：
+- Phase 1 分析师严格串行（单点封装 run_stage，预留后期并行）
+- Phase 2 公平辩论：Bull 先发言，之后 Bull/Bear 交替，各发言 rounds+1 次，
+  总发言上限 2*(rounds+1)（节点内 count/current_round_index=count//2 语义保留）
+- Trader 恒执行（phase2 关闭时直接从分析师进入）
+- Phase 3 风险循环固定 Risky→Safe→Neutral，总发言上限 3*(rounds+1)
+- Summary 恒执行
+- phase2/phase3 开关三拓扑：P2+P3 / P2 / 仅 P3(P2 关→分析师直连 Trader)
+"""
+
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
+
+from app.utils.logging_init import get_logger
+
+from .state import create_initial_state
+
+logger = get_logger("orchestrator.pipeline")
+
+# 辩论轮次安全上限（与旧 ConditionalLogic.MAX_ROUNDS 一致）
+MAX_ROUNDS = 10
+
+
+@dataclass
+class PipelineDeps:
+    """pipeline 依赖（由 TradingAgentsGraph 构造）"""
+
+    analyst_client: Any  # BaseLLMClient
+    debate_client: Any  # BaseLLMClient
+    toolkit: Any
+    bull_memory: Any = None
+    bear_memory: Any = None
+    trader_memory: Any = None
+    invest_judge_memory: Any = None
+    risk_manager_memory: Any = None
+    config: Dict[str, Any] = field(default_factory=dict)
+
+
+def _format_analyst_node(internal_key: str) -> str:
+    """internal_key → 节点名（与旧 setup.py 一致，如 'market' → 'Market Analyst'）"""
+    return internal_key.replace("_", " ").title().replace(" ", "_") + " Analyst"
+
+
+def _merge_state_update(target: Dict[str, Any], update: Dict[str, Any]) -> None:
+    """顺序合并节点增量（reports 字典合并、messages 追加，其余覆盖）"""
+    if not update:
+        return
+    if "reports" in update and isinstance(update["reports"], dict):
+        target["reports"] = {**(target.get("reports") or {}), **update["reports"]}
+    if "messages" in update and isinstance(update["messages"], list):
+        target.setdefault("messages", [])
+        target["messages"].extend(update["messages"])
+    for k, v in update.items():
+        if k in ("reports", "messages"):
+            continue
+        target[k] = v
+
+
+async def run_pipeline(
+    deps: PipelineDeps,
+    company_name: str,
+    trade_date: str,
+    selected_analysts: List[str],
+    *,
+    task_id: Optional[str] = None,
+    progress_callback: Optional[Callable[[str], None]] = None,
+    event_sink: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """执行完整分析流水线，返回最终 state（字段形状与旧 final_state 一致）"""
+    config = deps.config or {}
+    phase2_enabled = bool(config.get("phase2_enabled", False))
+    phase3_enabled = bool(config.get("phase3_enabled", False))
+
+    max_debate_rounds = config.get("phase2_debate_rounds")
+    if max_debate_rounds is None:
+        max_debate_rounds = config.get("max_debate_rounds", 1)
+    max_debate_rounds = max(0, min(int(max_debate_rounds), MAX_ROUNDS))
+    if not phase2_enabled:
+        max_debate_rounds = 0
+
+    max_risk_rounds = config.get("phase3_debate_rounds")
+    if max_risk_rounds is None:
+        max_risk_rounds = config.get("max_risk_discuss_rounds", 1)
+    max_risk_rounds = max(0, min(int(max_risk_rounds), MAX_ROUNDS))
+    if not phase3_enabled:
+        max_risk_rounds = 0
+
+    # ── MCP 工具（任务级统一发现；新层 MCPManager，pipeline 结束统一关闭）──
+    mcp_manager = None
+    mcp_tools: List = []
+    enable_mcp = bool(getattr(deps.toolkit, "enable_mcp", False))
+    if enable_mcp:
+        try:
+            from app.llm.mcp.client import MCPManager
+            from app.llm.mcp.tools import discover_mcp_tools
+
+            mcp_manager = MCPManager()
+            mcp_tools = await discover_mcp_tools(mcp_manager)
+            # 用户显式选择的 MCP 工具 id 过滤（analysis_service 传入）
+            selected_ids = config.get("mcp_tool_ids")
+            if selected_ids:
+                selected_set = set(selected_ids)
+                mcp_tools = [t for t in mcp_tools if t.name in selected_set]
+                logger.info(
+                    f"🔧 [orchestrator] MCP 工具按选择过滤: {len(mcp_tools)}/{len(selected_set)} 个"
+                )
+            logger.info(f"🔧 [orchestrator] MCP 工具发现: {len(mcp_tools)} 个")
+        except Exception as e:  # noqa: BLE001 - MCP 不可用不阻断分析
+            logger.warning(f"⚠️ [orchestrator] MCP 工具发现失败，跳过: {e}")
+            mcp_manager = None
+            mcp_tools = []
+
+    node_timings: Dict[str, float] = {}
+
+    async def _run_node(
+        node_name: str, node_fn, st: Dict[str, Any], event_key: str = "", display_name: str = ""
+    ) -> None:
+        """执行单个节点：计时 + 事件 + 增量合并
+
+        event_key：事件流的 agent_key（用户消息门禁/面板 tab 依据）。
+        分析师必须传 internal_key（与 run_conversation 内事件同键），其余阶段默认用 node_name。
+        display_name：面板展示名（缺省用 node_name）。
+        """
+        key = event_key or node_name
+        start = time.time()
+        if event_sink is not None:
+            event_sink.mark_running(key)
+            await event_sink.emit(
+                "agent_start", agent_key=key, phase=st.get("_phase", ""),
+                name=display_name or node_name,
+            )
+        try:
+            update = await node_fn(st)
+        except Exception as e:  # noqa: BLE001 - 节点异常降级（节点内部已有降级，此处兜底）
+            logger.error(f"❌ [orchestrator] 节点 {node_name} 异常: {e}", exc_info=True)
+            update = {}
+        finally:
+            elapsed = time.time() - start
+            node_timings[node_name] = elapsed
+            logger.info(f"⏱️ [{node_name}] 耗时: {elapsed:.2f}秒")
+            if event_sink is not None:
+                event_sink.mark_completed(key)
+                await event_sink.emit(
+                    "agent_end", agent_key=key, duration_ms=int(elapsed * 1000)
+                )
+        _merge_state_update(st, update or {})
+        _notify_progress(progress_callback, node_name)
+
+    state = create_initial_state(company_name, trade_date, task_id=task_id)
+
+    try:
+        try:
+            # ── Phase 1：分析师串行（单点封装，预留并行）─────────────
+            state["_phase"] = "analysts"
+            from .agents import build_analyst_specs, run_analyst
+
+            specs = await build_analyst_specs(
+                selected_analysts,
+                deps.toolkit,
+                max_tool_calls=int(config.get("max_tool_calls", 12)),
+                mcp_tools=mcp_tools,
+            )
+            for internal_key, spec in specs.items():
+                node_name = _format_analyst_node(internal_key)
+
+                async def _analyst_node(st, _spec=spec):
+                    return await run_analyst(_spec, deps.analyst_client, st, event_sink=event_sink)
+
+                await _run_node(node_name, _analyst_node, state, event_key=internal_key, display_name=spec.name)
+
+            # ── Phase 2：公平辩论（Bull 先发言，交替各 rounds+1 次）+ 裁决
+            if phase2_enabled:
+                state["_phase"] = "research"
+                from app.engine.agents.stage_2.research_manager import create_research_manager
+                from app.engine.agents.stage_2.researcher_factory import create_researcher
+
+                bull_node = create_researcher(deps.debate_client, deps.bull_memory, side="bull")
+                bear_node = create_researcher(deps.debate_client, deps.bear_memory, side="bear")
+                research_manager = create_research_manager(deps.debate_client, deps.invest_judge_memory)
+
+                # 总发言 2*(rounds+1)：for 循环展开与旧条件路由 Bull→Bear 交替完全等价
+                for _round in range(max_debate_rounds + 1):
+                    await _run_node("Bull Researcher", bull_node, state)
+                    await _run_node("Bear Researcher", bear_node, state)
+                await _run_node("Research Manager", research_manager, state)
+
+            # ── Trader（恒执行）──────────────────────────────────────
+            state["_phase"] = "trader"
+            from app.engine.agents.stage_2.trader import create_trader
+
+            trader_node = create_trader(deps.debate_client, deps.trader_memory)
+            await _run_node("Trader", trader_node, state)
+
+            # ── Phase 3：风险辩论（固定 Risky→Safe→Neutral 循环）+ 裁决
+            if phase3_enabled:
+                state["_phase"] = "risk"
+                from app.engine.agents.stage_3.debator_factory import create_debator
+                from app.engine.agents.stage_3.risk_manager import create_risk_manager
+
+                debators = {
+                    "Risky Analyst": create_debator(deps.debate_client, side="risky"),
+                    "Safe Analyst": create_debator(deps.debate_client, side="safe"),
+                    "Neutral Analyst": create_debator(deps.debate_client, side="neutral"),
+                }
+                risk_manager = create_risk_manager(deps.debate_client, deps.risk_manager_memory)
+
+                # 总发言 3*(rounds+1)：固定顺序循环与旧条件路由等价
+                for _round in range(max_risk_rounds + 1):
+                    for node_name in ("Risky Analyst", "Safe Analyst", "Neutral Analyst"):
+                        await _run_node(node_name, debators[node_name], state)
+                await _run_node("Risk Judge", risk_manager, state)
+
+            # ── Summary（恒执行）─────────────────────────────────────
+            state["_phase"] = "summary"
+            from app.engine.agents.stage_4.summary_agent import create_summary_agent
+
+            summary_node = create_summary_agent(deps.debate_client)
+            await _run_node("Summary Agent", summary_node, state)
+            if progress_callback:
+                progress_callback("📊 生成报告")
+
+            # reports 字典回填顶层 *_report 字段（支持自定义智能体，与旧逻辑一致）
+            for report_key, report_content in (state.get("reports") or {}).items():
+                if report_key.endswith("_report") and report_content and not state.get(report_key):
+                    state[report_key] = report_content
+
+            state.pop("_phase", None)
+            state["node_timings"] = dict(node_timings)
+            return state
+        except Exception as e:
+            # partial_state 异常语义保留：携带已完成节点的部分结果
+            state.pop("_phase", None)
+            state["node_timings"] = dict(node_timings)
+            e.partial_state = state  # type: ignore[attr-defined]
+            raise
+    finally:
+        if mcp_manager is not None:
+            try:
+                await mcp_manager.close_all()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"⚠️ [orchestrator] 关闭 MCP 连接失败: {e}")
+
+
+def _notify_progress(progress_callback: Optional[Callable[[str], None]], node_name: str) -> None:
+    """节点完成后发送中文进度消息（映射与旧 _send_progress_update 一致）"""
+    if not progress_callback:
+        return
+    try:
+        from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+
+        mapping = DynamicAnalystFactory.build_node_mapping()
+        message = mapping.get(node_name)
+        if message is None:
+            return  # 跳过（工具节点、消息清理节点）
+        if message:
+            progress_callback(message)
+        else:
+            progress_callback(f"🔍 {node_name}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"⚠️ [orchestrator] 进度回调失败: {e}")

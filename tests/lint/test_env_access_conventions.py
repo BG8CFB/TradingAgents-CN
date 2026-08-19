@@ -21,7 +21,6 @@ GETENV_WHITELIST = [
     "core/startup_validator.py",
     "engine/config/env_utils.py",
     "engine/graph/trading_graph.py",
-    "engine/llm_adapters/",  # 整个适配器子包
     "llm/config.py",
     "worker/scheduler_setup.py",
 ]

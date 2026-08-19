@@ -4,11 +4,11 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-**TradingAgents-CN** (`v1.3.2`) is a Chinese stock analysis platform using a multi-agent AI system built with LangGraph. It consists of:
+**TradingAgents-CN** (`v1.3.2`) is a Chinese stock analysis platform using a multi-agent AI system built on a hand-written orchestrator (LangGraph/langchain fully removed). It consists of:
 
 - **Backend API**: FastAPI (`app/`) — Web server, database management, real-time notifications
 - **Frontend**: Vue 3 + Element Plus + Vite (`frontend/`) — Single SPA UI
-- **Core Engine**: LangGraph multi-agent system (`app/engine/`) — 4-stage analysis pipeline
+- **Core Engine**: Multi-agent system (`app/engine/` + `app/llm/`) — 4-stage ordered analysis pipeline
 - **Data Layer**: Multi-source stock data with MongoDB + Redis caching
 - **Runtime**: `runtime/` holds `cache/`, `data/`, `logs/`, `results/` (created at startup)
 
@@ -179,26 +179,27 @@ The historical `tradingagents/` package has been merged into `app/engine/`. All 
 | Python 风格 | ruff + ruff-format（pre-commit） |
 
 **os.getenv 白名单**（改动时须同步 `tests/lint/test_env_access_conventions.py`）：
-`core/config.py`、`core/env.py`、`core/config_bridge.py`、`core/config_initializer.py`、`core/startup_validator.py`、`engine/config/env_utils.py`、`engine/graph/trading_graph.py`、`engine/llm_adapters/`（子包）、`llm/config.py`、`worker/scheduler_setup.py`
+`core/config.py`、`core/env.py`、`core/config_bridge.py`、`core/config_initializer.py`、`core/startup_validator.py`、`engine/config/env_utils.py`、`engine/graph/trading_graph.py`、`llm/config.py`、`worker/scheduler_setup.py`
 
 路由命名约定（API prefix `/api/<domain>`、英文 Title-Case tags）同样由 `tests/lint/test_router_conventions.py` 强制。
 
 ### Multi-Agent Workflow (`app/engine/`)
 
-LangGraph 4-stage pipeline, configured via YAML files in `config/agents/`:
+Hand-written ordered 4-stage pipeline (`app/engine/orchestrator/pipeline.py`, no LangGraph), configured via YAML files in `config/agents/`:
 
-1. **Stage 1 — Analysts** (`app/engine/agents/analysts/`): Vertical analysts run in parallel. Dynamic loading via `dynamic_analyst.py`. Config: `phase1_agents_config.yaml`
-2. **Stage 2 — Research Debate** (`app/engine/agents/stage_2/`): Bull/Bear debate. Config: `phase2_agents_config.yaml`
-3. **Stage 3 — Risk Management** (`app/engine/agents/stage_3/`): Risk teams evaluate plans. Config: `phase3_agents_config.yaml`
+1. **Stage 1 — Analysts** (`app/engine/orchestrator/agents.py`): Vertical analysts run strictly serial (parallel-ready structure). Dynamic loading via `dynamic_analyst.py`. Config: `phase1_agents_config.yaml`
+2. **Stage 2 — Research Debate** (`app/engine/agents/stage_2/`): Bull/Bear fair debate (Bull first, alternating, equal turns). Config: `phase2_agents_config.yaml`
+3. **Stage 3 — Risk Management** (`app/engine/agents/stage_3/`): Risky→Safe→Neutral fixed order. Config: `phase3_agents_config.yaml`
 4. **Stage 4 — Trader** (`app/engine/agents/stage_4/`): Final trading decision
 
-**Key entry point**: `TradingAgentsGraph.propagate(company_name, trade_date, progress_callback=None, task_id=None)` in `app/engine/graph/trading_graph.py`
+**Key entry point**: `TradingAgentsGraph.propagate(company_name, trade_date, progress_callback=None, task_id=None, event_sink=None)` in `app/engine/graph/trading_graph.py`
 
-Graph construction: `app/engine/graph/setup.py`. State propagation: `propagation.py`. Routing/reflection/signal: `conditional_logic.py`, `reflection.py`, `signal_processing.py`.
+Orchestration: `orchestrator/pipeline.py` (ordering/fair-debate guarantees), `orchestrator/state.py` (plain-dict state, field shape identical to the legacy AgentState). Reflection/signal: `graph/reflection.py`, `graph/signal_processing.py`. LLM calls go through `app/engine/orchestrator/llm_bridge.py` → `app/llm/`.
 
 ### MCP Architecture
 
-- **`app/engine/tools/mcp/`** — MCP tool **consumer** infrastructure (loader, task manager with circuit breakers, health monitor, tool node). Connections initialized at app startup in `main.py` lifespan. The project only consumes external MCP servers configured in `config/mcp.json`; it is not an MCP server itself.
+- **`app/llm/mcp/`** — MCP tool **consumer** runtime (official `mcp` SDK: client, tool discovery, service). Connections initialized at app startup in `main.py` lifespan. The project only consumes external MCP servers configured in `config/mcp.json`; it is not an MCP server itself.
+- **`app/engine/tools/mcp/`** — MCP management plane (config file utils, validator, health monitor, task manager) — no runtime connections.
 
 ### Skill Architecture
 
@@ -251,13 +252,17 @@ result = await di.read("CN", "000001", "daily_quotes",
 - `worker/` — Background tasks (`cn/`, `hk/`, `us/` per-market sync workers)
 - `middleware/` — Request/response middleware
 
-### LLM Integration (`app/engine/llm_adapters/`)
+### LLM Integration (`app/llm/`)
 
-Adapter pattern for multiple providers via OpenAI-compatible endpoints:
+Dual-protocol direct SDK layer (Anthropic Messages + OpenAI-compatible), no langchain:
 
-- `openai_compatible_base.py` — Shared base (SiliconFlow, OpenRouter, Qianfan, Zhipu, custom)
-- `dashscope_openai_adapter.py`, `deepseek_adapter.py`, `google_openai_adapter.py` — Provider-specific adapters
-- Anthropic via `langchain-anthropic` (not a custom adapter)
+- `providers.py` — DB model configs (with `protocol` field) → clients; `.env` fallback; `get_engine_clients()` returns `{"analyst", "debate"}`
+- `runner.py` — conversation loop with max_turns loop protection, layered context compaction, user-message injection between turns, event stream
+- `retry.py` — withRetry (exponential backoff, rate-limit fallback)
+- `events.py` — EventSink (realtime WS `agent_event` + Mongo `analysis_events` persistence, replay via `GET /api/analysis/tasks/{id}/events`)
+- `message_queue.py` — per-agent user message queues (WS uplink `{"type":"user_message"}`, injected as `<system-reminder>` between turns; only running agents accept messages)
+- `mcp/` — official `mcp` SDK client + tool discovery (`config/mcp.json` management plane stays in `app/engine/tools/mcp/`)
+- `skills/`, `tools/` — SkillStore progressive disclosure + ToolDef adapters
 
 Config loaded dynamically from database at runtime (`config_service`), `.env` as fallback.
 
@@ -271,8 +276,9 @@ Required:
 - `JWT_SECRET`, `CSRF_SECRET`
 
 Optional (AI features):
-- `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `GOOGLE_API_KEY`
-- `TUSHARE_TOKEN`
+- AI model configs (provider / model / API key / parameters) are managed in the database via the Web UI ("Settings → LLM"); the engine reads them from `system_configs.llm_configs` + `llm_providers` at runtime (`app/llm/providers.py`)
+- `.env` only holds `ARK_API_KEY` / `ARK_BASE_URL` etc. as fallback when a model config carries no key (see `app/llm/config.py`)
+- `TUSHARE_TOKEN` (stock data source)
 
 ### Runtime Configuration (`config/`)
 

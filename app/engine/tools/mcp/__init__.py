@@ -1,18 +1,9 @@
-from .loader import (
-    get_mcp_loader_factory,
-    MCPToolLoaderFactory,
-    LANGCHAIN_MCP_AVAILABLE,
-    load_local_mcp_tools,
-    get_all_tools_mcp,
-)
-from .tool_node import (
-    create_tool_node,
-    create_error_handler,
-    get_default_error_handler,
-    MCPToolError,
-    DataSourceError,
-    InvalidArgumentError,
-)
+"""MCP 管理面（配置/校验/健康/任务管理）。
+
+连接执行与工具发现已迁移至新层 app/llm/mcp（官方 mcp SDK）；
+本包保留配置文件管理与运维能力，供 routers/mcp 与管理界面使用。
+"""
+
 from .config_utils import (
     MCPServerConfig,
     MCPServerType,
@@ -47,19 +38,6 @@ from .task_manager import (
 )
 
 __all__ = [
-    # Loader (基于官方 langchain-mcp-adapters)
-    "get_mcp_loader_factory",
-    "MCPToolLoaderFactory",
-    "LANGCHAIN_MCP_AVAILABLE",
-    "load_local_mcp_tools",
-    "get_all_tools_mcp",
-    # ToolNode
-    "create_tool_node",
-    "create_error_handler",
-    "get_default_error_handler",
-    "MCPToolError",
-    "DataSourceError",
-    "InvalidArgumentError",
     # Config
     "MCPServerConfig",
     "MCPServerType",

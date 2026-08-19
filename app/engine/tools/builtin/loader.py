@@ -1,10 +1,13 @@
 """
 内置工具加载器
 
-从 BUILTIN_TOOL_REGISTRY 加载所有内置工具，包装为 LangChain StructuredTool。
+从 BUILTIN_TOOL_REGISTRY 加载所有内置工具，包装为轻量 ToolInfo
+（去 langchain StructuredTool；引擎运行时的工具调用走新层 app/llm ToolDef，
+本注册面仅供工具管理/可用性查询使用）。
 """
 import logging
-from typing import Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
 
 from app.engine.tools.builtin.registry import (
     BUILTIN_TOOL_REGISTRY,
@@ -14,21 +17,30 @@ from app.engine.tools.builtin.registry import (
 logger = logging.getLogger(__name__)
 
 
-def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
+@dataclass
+class ToolInfo:
+    """轻量工具描述对象（供注册中心/路由管理面使用）"""
+
+    name: str
+    description: str
+    func: Callable
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List[ToolInfo]:
     """
     加载所有内置工具
 
-    从 BUILTIN_TOOL_REGISTRY 遍历，包装为 LangChain StructuredTool。
-    可用性过滤在 simple_agent_factory 中完成（基于 AvailabilityCache）。
+    从 BUILTIN_TOOL_REGISTRY 遍历，包装为 ToolInfo。
+    可用性过滤在分析侧完成（基于 AvailabilityCache）。
 
     Args:
         toolkit_config: 工具配置字典（当前未使用，保留接口）
 
     Returns:
-        LangChain Tool 列表
+        ToolInfo 列表
     """
-    import inspect
-    from langchain_core.tools import StructuredTool
+    import importlib
 
     all_tools = []
 
@@ -41,7 +53,6 @@ def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
             real_fn = fn
             if fn.__doc__ in ("", None):
                 # 尝试直接导入真实模块
-                import importlib
                 _M = "app.engine.tools.builtin.tools"
                 module_map = {
                     "daily_quotes": ("market", "get_stock_data"),
@@ -65,28 +76,16 @@ def load_builtin_tools(toolkit_config: Optional[Dict] = None) -> List:
                     mod = importlib.import_module(f"{_M}.{mapping[0]}")
                     real_fn = getattr(mod, mapping[1])
 
-            # 用 StructuredTool 显式包装，不依赖函数 docstring
-            inspect.signature(real_fn)
-
-            tool = StructuredTool.from_function(
-                func=real_fn,
+            tool = ToolInfo(
                 name=spec.tool_id,
                 description=spec.description,
-            )
-
-            # 附加元数据
-            try:
-                existing_meta = getattr(tool, "metadata", None) or {}
-                tool.metadata = {
-                    **existing_meta,
+                func=real_fn,
+                metadata={
                     "tool_category": "builtin",
                     "tool_id": spec.tool_id,
                     "builtin_domains": spec.domains,
-                }
-            except Exception as e:
-                logger.debug(f"设置内置工具元数据失败 ({spec.tool_id}): {e}")
-                pass
-
+                },
+            )
             all_tools.append(tool)
 
         except Exception as e:

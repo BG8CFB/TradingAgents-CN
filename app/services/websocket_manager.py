@@ -69,8 +69,12 @@ class WebSocketManager:
             self.active_connections[task_id].add(websocket)
 
         # 2. accept（在锁外执行网络 IO）
+        # 客户端可能通过 Sec-WebSocket-Protocol 子协议传 token（['bearer', jwt]），
+        # 此时必须在 accept 中回显一个子协议，否则浏览器会立即终止握手
+        offered = websocket.headers.get("sec-websocket-protocol", "")
+        subprotocol = "bearer" if "bearer" in offered.split(",") else None
         try:
-            await websocket.accept()
+            await websocket.accept(subprotocol=subprotocol)
         except Exception as e:
             # accept 失败：回滚占位
             async with self._lock:

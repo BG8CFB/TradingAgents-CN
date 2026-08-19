@@ -202,6 +202,9 @@ class DatabaseType(str, Enum):
 class LLMConfig(BaseModel):
     """大模型配置"""
     provider: str = Field(default="openai", description="供应商标识（支持动态添加）")
+    # 请求协议：anthropic（原生 Messages API）| openai（OpenAI 兼容 chat/completions）
+    # 缺省按 provider 推断（anthropic→anthropic，其余→openai）
+    protocol: Optional[str] = Field(None, description="请求协议(anthropic/openai)，缺省按provider推断")
     model_name: str = Field(..., description="模型名称/代码")
     model_display_name: Optional[str] = Field(None, description="模型显示名称")
     api_key: Optional[str] = Field(None, description="API密钥(可选，优先从厂家配置获取)")
@@ -359,6 +362,7 @@ class SystemConfig(BaseModel):
 class LLMConfigRequest(BaseModel):
     """大模型配置请求"""
     provider: str = Field(..., description="供应商标识（支持动态添加）")
+    protocol: Optional[str] = Field(None, description="请求协议(anthropic/openai)，缺省按provider推断")
     model_name: str
     model_display_name: Optional[str] = None  # 新增：模型显示名称
     api_key: Optional[str] = None  # 可选，优先从厂家配置获取

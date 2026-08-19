@@ -492,6 +492,16 @@ async def get_task_result(
 
         final_result_data["reports"] = validated_reports
 
+        # 报告 key → 智能体中文显示名（来源：任务事件 + agent 配置，前端不写死名称）
+        try:
+            from app.services.report_titles import build_report_titles
+
+            final_result_data["report_titles"] = await build_report_titles(
+                task_id, list(validated_reports.keys())
+            )
+        except Exception as title_err:  # noqa: BLE001 - 标题失败不影响结果返回
+            logger.warning(f"⚠️ [RESULT] 构建报告标题映射失败: {title_err}")
+
         logger.info(f"✅ [RESULT] 成功获取任务结果: {task_id}")
         logger.info(f"📊 [RESULT] 最终返回 {len(final_result_data.get('reports', {}))} 个报告")
 
@@ -780,6 +790,47 @@ async def get_user_analysis_history(
         raise HTTPException(status_code=400, detail=safe_error_message(e, "获取分析历史失败"))
 
 # WebSocket 端点
+async def _handle_task_ws_message(websocket, task_id: str, data: str) -> None:
+    """处理任务 WS 上行消息：user_message → 校验 running → 入队并回执"""
+    import json
+
+    from app.services.analysis_events import enqueue_user_message, running_agents
+
+    try:
+        msg = json.loads(data)
+    except (TypeError, ValueError):
+        return  # 心跳等非 JSON 消息忽略
+
+    if not isinstance(msg, dict) or msg.get("type") != "user_message":
+        return
+
+    agent_key = str(msg.get("agent_key") or "").strip()
+    text = str(msg.get("text") or "").strip()
+    if not agent_key or not text:
+        await websocket.send_text(json.dumps({
+            "type": "user_message_rejected",
+            "task_id": task_id,
+            "reason": "agent_key 与 text 不能为空",
+        }))
+        return
+
+    ok = enqueue_user_message(task_id, agent_key, text)
+    if ok:
+        await websocket.send_text(json.dumps({
+            "type": "user_message_injected",
+            "task_id": task_id,
+            "agent_key": agent_key,
+        }))
+    else:
+        await websocket.send_text(json.dumps({
+            "type": "user_message_rejected",
+            "task_id": task_id,
+            "agent_key": agent_key,
+            "reason": "该智能体当前不在运行中，仅分析中的智能体可接收消息",
+            "running_agents": running_agents(task_id),
+        }))
+
+
 @router.websocket("/ws/task/{task_id}")
 async def websocket_task_progress(websocket: WebSocket, task_id: str):
     """WebSocket 端点：实时获取任务进度。
@@ -889,13 +940,13 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
             "message": "WebSocket 连接已建立"
         }))
 
-        # 保持连接活跃
+        # 保持连接活跃（支持上行：用户向运行中的智能体发消息）
         while True:
             try:
-                # 接收客户端的心跳消息
+                # 接收客户端的心跳/控制消息
                 data = await websocket.receive_text()
-                # 可以处理客户端发送的消息
                 logger.debug(f"📡 收到 WebSocket 消息: {data}")
+                await _handle_task_ws_message(websocket, task_id, data)
             except WebSocketDisconnect:
                 break
             except Exception as e:
@@ -910,6 +961,43 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
         await websocket_manager.disconnect(websocket, task_id)
 
 # 任务详情查询路由（放在最后避免与 /tasks/{task_id}/status 冲突）
+@router.get("/tasks/{task_id}/events")
+async def get_task_events(
+    task_id: str,
+    agent_key: Optional[str] = None,
+    event_type: Optional[str] = None,
+    after_seq: int = 0,
+    limit: int = 500,
+    user: dict = Depends(get_current_user),
+):
+    """获取任务分析过程事件（回放）：按 seq 升序，支持按 agent/类型过滤与增量拉取。
+
+    管理员可查任意任务；普通用户仅能查自己的。
+    """
+    from app.services.analysis_events import load_events
+    from app.services.analysis_service import get_analysis_service
+
+    try:
+        task = await get_analysis_service().get_task_with_status_fallback(
+            task_id, None if user.get("is_admin") else user["id"]
+        )
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在或无权访问")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"任务校验失败: {e}")
+
+    events = await load_events(
+        task_id,
+        agent_key=agent_key,
+        event_type=event_type,
+        after_seq=after_seq,
+        limit=limit,
+    )
+    return {"success": True, "data": events, "count": len(events)}
+
+
 @router.get("/tasks/{task_id}/details")
 async def get_task_details(
     task_id: str,

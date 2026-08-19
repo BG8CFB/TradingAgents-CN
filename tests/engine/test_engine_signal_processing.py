@@ -110,15 +110,12 @@ class TestProcessSignalWithLLM:
 
     @pytest.mark.ai
     def test_buy_signal_with_real_llm(self):
-        """使用真实 LLM 处理买入信号"""
-        from app.engine.llm_adapters.factory import create_llm
-        import os
+        """使用真实 LLM 处理买入信号（app/llm 新层客户端）"""
+        from tests.engine.test_engine_reflection import _build_real_llm_client
 
-        api_key = os.environ.get("DEEPSEEK_API_KEY")
-        if not api_key:
-            pytest.skip("需要 DEEPSEEK_API_KEY 环境变量")
-
-        llm = create_llm(provider="deepseek", model="deepseek-chat", api_key=api_key)
+        llm = _build_real_llm_client()
+        if llm is None:
+            pytest.skip("无可用 LLM 凭据（DEEPSEEK_API_KEY 或 ARK_API_KEY）")
         sp = SignalProcessor(llm=llm)
         result = sp.process_signal(
             "基于技术分析，建议买入平安银行，目标价位16.50元",

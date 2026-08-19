@@ -138,14 +138,14 @@
 
 
     <!-- 报告详情弹窗组件化（预留） -->
-    <TaskReportDialog v-model="reportVisible" :sections="reportSections" @close="reportVisible=false" />
+    <TaskReportDialog v-model="reportVisible" :sections="reportSections" :task-id="currentRow?.task_id" @close="reportVisible=false" />
 
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { List, Refresh, Download } from '@element-plus/icons-vue'
 import { analysisApi, type AnalysisTask } from '@/api/analysis'
@@ -155,12 +155,7 @@ import TaskReportDialog from '@/components/Global/TaskReportDialog.vue'
 
 
 marked.setOptions({ breaks: true, gfm: true })
-// @ts-expect-error
-const _renderMarkdown = (s: string) => {
-  try { return marked.parse(s||'') as string } catch { return s }
-}
 
-const router = useRouter()
 const route = useRoute()
 
 const activeTab = ref<'all'|'running'|'completed'|'failed'>('all')
@@ -383,10 +378,28 @@ const openResult = async (row: AnalysisTask) => {
   }
 }
 
-const openReport = (row: AnalysisTask): void => {
+/** 打开报告详情弹窗（含"查看过程"回放入口） */
+const openReport = async (row: AnalysisTask): Promise<void> => {
   const id = row?.task_id
   if (!id) { ElMessage.warning('未找到报告ID'); return }
-  router.push({ name: 'ReportDetail', params: { id } })
+  currentRow.value = row
+  try {
+    const res = await analysisApi.getTaskResult(id)
+    const body = (res?.data ?? {}) as Record<string, unknown>
+    const reports = body.reports as Record<string, unknown> | undefined
+    // 报告显示名由后端下发（report_titles，来源：任务事件 + agent 配置），前端不写死
+    const titles = (body.report_titles ?? {}) as Record<string, string>
+    reportSections.value = Object.entries(reports ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([key, value]) => ({
+        key,
+        title: titles[key.replace(/_report$/, '')] ?? key,
+        content: typeof value === 'string' ? value : JSON.stringify(value),
+      }))
+    reportVisible.value = true
+  } catch {
+    ElMessage.error('获取报告详情失败')
+  }
 }
 
 const retryTask = (_row: AnalysisTask) => { ElMessage.info('重试功能待实现') }

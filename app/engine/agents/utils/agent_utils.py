@@ -1,8 +1,6 @@
 """Toolkit 聚合门面 — 保留对外兼容接口，实现委托到子模块。"""
 
 
-from langchain_core.messages import HumanMessage, RemoveMessage
-
 from app.engine.default_config import DEFAULT_CONFIG
 from app.utils.logging_init import get_logger
 
@@ -18,22 +16,6 @@ from .toolkit_fundamentals import get_stock_fundamentals_unified
 from .toolkit_sentiment import get_stock_sentiment_unified
 
 logger = get_logger("agents")
-
-
-def create_msg_delete():
-    def delete_messages(state):
-        """Clear messages and add placeholder for Anthropic compatibility"""
-        messages = state["messages"]
-
-        # Remove all messages
-        removal_operations = [RemoveMessage(id=m.id) for m in messages]
-
-        # Add a minimal placeholder message
-        placeholder = HumanMessage(content="Continue")
-
-        return {"messages": removal_operations + [placeholder]}
-
-    return delete_messages
 
 
 class Toolkit:

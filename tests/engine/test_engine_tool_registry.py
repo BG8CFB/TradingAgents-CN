@@ -1,27 +1,22 @@
 """
 工具注册中心测试
 测试 ToolRegistry 单例模式、注册、查找和禁用功能
-使用真实的 LangChain Tool 对象替代 MagicMock
+使用轻量真实对象（SimpleNamespace，含 name/description 属性）替代 MagicMock
 """
 
 import threading
+from types import SimpleNamespace
 
 import pytest
-from langchain_core.tools import tool as lc_tool
 
 
 # ---------------------------------------------------------------------------
-# Helpers: 创建真实的 LangChain 工具
+# Helpers: 创建轻量工具对象（registry 只依赖 name 属性）
 # ---------------------------------------------------------------------------
 
 def _make_real_tool(name: str):
-    """创建真实的 LangChain 工具"""
-    @lc_tool
-    def _inner(x: str) -> str:
-        """测试工具"""
-        return x
-    _inner.name = name
-    return _inner
+    """创建带 name/description 的轻量工具对象"""
+    return SimpleNamespace(name=name, description="测试工具")
 
 
 # ---------------------------------------------------------------------------

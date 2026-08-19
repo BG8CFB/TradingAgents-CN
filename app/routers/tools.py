@@ -19,7 +19,7 @@ from app.engine.tools.registry import (
     TOOL_TYPE_MCP,
     TOOL_TYPE_SKILL,
 )
-from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
+from app.llm.mcp import service as mcp_service
 
 router = APIRouter(prefix="/api/tools", tags=["Tools"])
 logger = logging.getLogger(__name__)
@@ -97,20 +97,18 @@ async def list_available_tools(
     toolkit = Toolkit()
     tool_registry = ToolRegistry.get_instance()
 
-    # 获取 MCP 工具加载器
-    mcp_tool_loader = None
-    if include_mcp and LANGCHAIN_MCP_AVAILABLE:
+    # MCP 工具：新层 service 列举（连接复用共享 MCPManager）
+    mcp_tools_info: List[Dict[str, Any]] = []
+    if include_mcp:
         try:
-            factory = get_mcp_loader_factory()
-            mcp_tool_loader = factory.create_loader([], include_local=False)
+            mcp_tools_info = await mcp_service.list_tools()
         except Exception as e:
-            logger.warning(f"获取 MCP 工具加载器失败: {e}")
+            logger.warning(f"获取 MCP 工具列表失败: {e}")
 
     from app.engine.tools.registry import get_all_tools
     tools = get_all_tools(
         toolkit=toolkit,
-        enable_mcp=include_mcp,
-        mcp_tool_loader=mcp_tool_loader,
+        enable_mcp=False,
     )
 
     # 获取可用性数据（仅在内置工具时有效）
@@ -187,25 +185,20 @@ async def list_available_tools(
         })
 
     # 添加外部 MCP 服务器的工具（非 local 的）
-    if include_mcp and LANGCHAIN_MCP_AVAILABLE:
-        try:
-            factory = get_mcp_loader_factory()
-            mcp_tools_info = factory.list_available_tools()
-            for ti in mcp_tools_info:
-                tool_name = ti.get("name")
-                server_name = ti.get("serverName", "mcp")
-                if tool_name and tool_name not in seen and server_name != "local":
-                    seen.add(tool_name)
-                    items.append({
-                        "name": tool_name,
-                        "description": ti.get("description", ""),
-                        "tool_type": TOOL_TYPE_MCP,
-                        "display_name": tool_name,
-                        "source": server_name,
-                        "availability": {"status": "unknown", "detail": ""},
-                    })
-        except Exception as e:
-            logger.warning(f"获取外部 MCP 工具列表失败: {e}")
+    if include_mcp:
+        for ti in mcp_tools_info:
+            tool_name = ti.get("name")
+            server_name = ti.get("serverName", "mcp")
+            if tool_name and tool_name not in seen and server_name != "local":
+                seen.add(tool_name)
+                items.append({
+                    "name": tool_name,
+                    "description": ti.get("description", ""),
+                    "tool_type": TOOL_TYPE_MCP,
+                    "display_name": tool_name,
+                    "source": server_name,
+                    "availability": {"status": "unknown", "detail": ""},
+                })
 
     return {"success": True, "data": items, "count": len(items)}
 

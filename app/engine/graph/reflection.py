@@ -1,7 +1,8 @@
 # TradingAgents/graph/reflection.py
 
-from typing import Dict, Any
-from langchain_openai import ChatOpenAI
+from typing import Any, Dict
+
+from app.engine.orchestrator.llm_bridge import sync_chat
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
@@ -11,7 +12,7 @@ logger = get_logger("default")
 class Reflector:
     """Handles reflection on decisions and updating memory."""
 
-    def __init__(self, llm: ChatOpenAI):
+    def __init__(self, llm):
         """Initialize the reflector with an LLM."""
         self.llm = llm
         self.reflection_system_prompt = self._get_reflection_prompt()
@@ -66,17 +67,13 @@ class Reflector:
         self, component_type: str, report: str, situation: str, returns_losses
     ) -> str:
         """Generate reflection for a component."""
-        messages = [
-            ("system", self.reflection_system_prompt),
-            (
-                "human",
-                f"Returns: {returns_losses}\n\nAnalysis/Decision: {report}\n\nObjective Market Reports for Reference: {situation}",
-            ),
-        ]
+        user_prompt = (
+            f"Returns: {returns_losses}\n\nAnalysis/Decision: {report}\n\n"
+            f"Objective Market Reports for Reference: {situation}"
+        )
 
         try:
-            result = self.llm.invoke(messages).content
-            return result
+            return sync_chat(self.llm, user_prompt, system=self.reflection_system_prompt)
         except Exception as e:
             logger.error(f"反思组件 [{component_type}] 失败: {e}")
             return ""

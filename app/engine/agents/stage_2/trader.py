@@ -1,11 +1,11 @@
 import asyncio
 import time
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from app.llm.core.types import Message, Role
 
 # 导入统一日志系统
 from app.utils.logging_init import get_logger
-from app.core.async_utils import ainvoke
+from app.engine.orchestrator.llm_bridge import llm_chat
 
 logger = get_logger("default")
 
@@ -132,14 +132,12 @@ def create_trader(llm, memory):
             full_system_prompt = base_prompt + "\n\n" + system_context
 
             messages = [
-                SystemMessage(content=full_system_prompt),
-                HumanMessage(content=context_content),
+                Message(role=Role.USER, content=context_content),
             ]
 
             logger.debug(f"💰 [DEBUG] 准备调用LLM，系统提示包含货币: {currency}")
 
-            result = await ainvoke(llm, messages)
-            trader_content = result.content or ""
+            trader_content = await llm_chat(llm, messages, system=full_system_prompt)
 
             # H-2: 空响应降级 — LLM 返回空内容时使用占位文本
             if not trader_content.strip():
@@ -151,7 +149,7 @@ def create_trader(llm, memory):
             logger.debug("💰 [DEBUG] ===== 交易员节点结束 =====")
 
             return {
-                "messages": [result],
+                "messages": [Message(role=Role.ASSISTANT, content=trader_content)],
                 "trader_investment_plan": trader_content,
                 "sender": "Trader",
             }

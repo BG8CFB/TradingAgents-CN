@@ -178,15 +178,18 @@ class DynamicAnalystFactory:
             if env_dir and os.path.exists(env_dir):
                 config_path = os.path.join(env_dir, "phase1_agents_config.yaml")
             else:
-                # 获取当前文件所在目录
+                # 获取当前文件所在目录，向上逐级查找 config/agents（兼容 app/engine/... 新布局）
                 current_dir = os.path.dirname(os.path.abspath(__file__))
-                # tradingagents/agents/analysts -> tradingagents/agents -> tradingagents -> root
-                project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+                config_path_candidate = ""
+                probe = current_dir
+                for _ in range(6):
+                    probe = os.path.dirname(probe)
+                    candidate = os.path.join(probe, "config", "agents", "phase1_agents_config.yaml")
+                    if os.path.exists(candidate):
+                        config_path_candidate = candidate
+                        break
 
                 # 2. 尝试使用 config/agents/phase1_agents_config.yaml
-                config_dir = os.path.join(project_root, "config", "agents")
-                config_path_candidate = os.path.join(config_dir, "phase1_agents_config.yaml")
-
                 if os.path.exists(config_path_candidate):
                     config_path = config_path_candidate
                 else:
@@ -562,143 +565,3 @@ class DynamicAnalystFactory:
         cls._config_mtime.clear()
         logger.info("🔄 已清除智能体配置缓存")
 
-    @classmethod
-    def _mcp_settings_from_toolkit(cls, toolkit):
-        """
-        提取 MCP 相关开关和加载器
-        """
-        enable_mcp = False
-        mcp_loader = None
-
-        if isinstance(toolkit, dict):
-            enable_mcp = bool(toolkit.get("enable_mcp", False))
-            mcp_loader = toolkit.get("mcp_tool_loader")
-        else:
-            enable_mcp = bool(getattr(toolkit, "enable_mcp", False))
-            mcp_loader = getattr(toolkit, "mcp_tool_loader", None)
-
-        return enable_mcp, mcp_loader
-
-    @staticmethod
-    def _wrap_tool_safe(tool, toolkit=None):
-        """
-        包装工具以支持 MCP 断路器功能
-        """
-        # 获取任务级 MCP 管理器（如果存在）
-        task_mcp_manager = None
-        if toolkit:
-            if isinstance(toolkit, dict):
-                task_mcp_manager = toolkit.get("task_mcp_manager")
-            else:
-                task_mcp_manager = getattr(toolkit, "task_mcp_manager", None)
-
-        # 获取工具的服务器名称（用于 MCP 工具识别）
-        server_name = None
-        tool_metadata = getattr(tool, "metadata", {}) or {}
-        if isinstance(tool_metadata, dict):
-            server_name = tool_metadata.get("server_name")
-        if not server_name:
-            server_name = getattr(tool, "server_name", None)
-            if not server_name:
-                server_name = getattr(tool, "_server_name", None)
-
-        # 判断是否为外部 MCP 工具（有服务器名称且不是 "local"）
-        is_external_mcp_tool = server_name is not None and server_name != "local"
-
-        # 只有外部 MCP 工具需要断路器检查
-        if not is_external_mcp_tool or not task_mcp_manager:
-            return tool  # 本地工具直接返回，不做包装
-
-        tool_name = getattr(tool, "name", "unknown")
-
-        # 同步方法包装（仅外部 MCP 工具）
-        if hasattr(tool, "func") and callable(tool.func):
-            original_func = tool.func
-
-            def safe_func(*args, **kwargs):
-                import asyncio
-
-                async def check_and_execute():
-                    # 检查断路器状态
-                    if not await task_mcp_manager.is_tool_available(tool_name, server_name):
-                        return {
-                            "status": "disabled",
-                            "message": f"工具 {tool_name} 在当前任务中已禁用（连续失败或断路器打开）",
-                            "tool_name": tool_name
-                        }
-
-                    # 通过任务管理器执行（包含重试和并发控制）
-                    return await task_mcp_manager.execute_tool(
-                        tool_name,
-                        original_func,
-                        server_name=server_name,
-                        *args,
-                        **kwargs
-                    )
-
-                # 在同步环境中运行异步函数
-                # 优先在当前线程直接运行（无线程开销）；仅在事件循环线程中才降级到新线程
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = None
-
-                result = None
-                if loop is not None and loop.is_running():
-                    # 当前线程已有运行中的事件循环，必须在新线程中隔离运行
-                    import threading
-                    result_container = {}
-
-                    def run_in_thread():
-                        try:
-                            result_container['result'] = asyncio.run(check_and_execute())
-                        except Exception as e:
-                            result_container['error'] = e
-
-                    t = threading.Thread(target=run_in_thread, daemon=True)
-                    t.start()
-                    t.join(timeout=120)
-                    if t.is_alive():
-                        return f"❌ 工具 {tool_name} 执行超时"
-
-                    if 'error' in result_container:
-                        error = result_container['error']
-                        logger.error(f"⚠️ [MCP断路器] 工具 {tool_name} 执行异常: {error}")
-                        return f"❌ 工具 {tool_name} 执行出错: {str(error)}"
-                    result = result_container.get('result')
-                else:
-                    # 当前线程无事件循环，直接运行
-                    try:
-                        result = asyncio.run(check_and_execute())
-                    except Exception as e:
-                        logger.error(f"⚠️ [MCP断路器] 工具 {tool_name} 执行异常: {e}")
-                        return f"❌ 工具 {tool_name} 执行出错: {str(e)}"
-
-                # 检查是否为错误状态
-                if isinstance(result, dict) and result.get("status") in ["error", "disabled"]:
-                    logger.warning(f"⚠️ [MCP断路器] 工具 {tool_name} 返回: {result.get('status')}")
-                    return f"❌ 工具 {tool_name} 不可用: {result.get('message', '未知错误')}\n请尝试其他工具继续分析。"
-                return result
-
-            tool.func = safe_func
-
-        # 异步方法包装（仅外部 MCP 工具）
-        if hasattr(tool, "coroutine") and callable(tool.coroutine):
-            original_coro = tool.coroutine
-
-            async def safe_coro(*args, **kwargs):
-                # 检查并执行
-                if not await task_mcp_manager.is_tool_available(tool_name, server_name):
-                    return f"❌ 工具 {tool_name} 在当前任务中已禁用（断路器打开）\n请尝试其他工具继续分析。"
-
-                return await task_mcp_manager.execute_tool(
-                    tool_name,
-                    original_coro,
-                    server_name=server_name,
-                    *args,
-                    **kwargs
-                )
-
-            tool.coroutine = safe_coro
-
-        return tool

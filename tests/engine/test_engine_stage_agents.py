@@ -6,34 +6,33 @@ LLM 集成测试：标记 @pytest.mark.ai，使用真实 API
 """
 
 import json
-import os
 import pytest
-from langchain_core.messages import AIMessage
 
 from app.engine.agents.stage_4.summary_agent import create_summary_agent
+from app.llm.core.types import ChatResponse, Message, Role, StopReason
+
+
+def _chat_response(text: str) -> ChatResponse:
+    return ChatResponse(
+        message=Message(role=Role.ASSISTANT, content=text),
+        stop_reason=StopReason.END_TURN,
+    )
 
 
 class RecordingLLM:
     """记录调用的 LLM（真实类，非 MagicMock）。
 
-    同时实现 invoke（同步）和 ainvoke（异步）：
-    - ainvoke 走真实 async 路径，与生产 langchain LLM 一致
-    - invoke 保留用于同步回退或直接调用场景
-    - 生产代码通过 ``app.core.async_utils.ainvoke`` 调用，会优先使用 ainvoke
+    实现新层 BaseLLMClient 的 chat 协议（async chat -> ChatResponse），
+    生产代码经 orchestrator/llm_bridge.llm_chat 调用本类。
     """
 
     def __init__(self, response_text="分析报告内容"):
         self.calls = []
         self.response_text = response_text
 
-    def invoke(self, messages, **kwargs):
-        self.calls.append(messages)
-        return AIMessage(content=self.response_text)
-
-    async def ainvoke(self, messages, **kwargs):
-        # 走真实异步路径（不经线程池），保证测试场景与生产一致
-        self.calls.append(messages)
-        return AIMessage(content=self.response_text)
+    async def chat(self, messages, *, system=None, **kwargs):
+        self.calls.append({"messages": list(messages), "system": system})
+        return _chat_response(self.response_text)
 
 
 class RecordingMemory:
@@ -135,10 +134,7 @@ class TestSummaryAgentBehavior:
     @pytest.mark.asyncio
     async def test_handles_llm_exception(self):
         class FailingLLM:
-            def invoke(self, messages, **kwargs):
-                raise RuntimeError("LLM 服务不可用")
-
-            async def ainvoke(self, messages, **kwargs):
+            async def chat(self, messages, *, system=None, **kwargs):
                 raise RuntimeError("LLM 服务不可用")
 
         node = create_summary_agent(FailingLLM())
@@ -173,7 +169,7 @@ class TestSummaryAgentBehavior:
 
     @pytest.mark.asyncio
     async def test_llm_receives_all_reports(self):
-        """H4 后契约：动态内容在 HumanMessage 而非 SystemMessage。
+        """H4 后契约：动态内容在 USER 消息而非 system 参数。
 
         用独特标记词避免与 SYSTEM_PROMPT 静态字段描述词冲突。
         """
@@ -198,18 +194,18 @@ class TestSummaryAgentBehavior:
         await node(state)
 
         assert len(llm.calls) == 1
-        messages = llm.calls[0]
-        assert len(messages) == 2  # SystemMessage + HumanMessage
+        call = llm.calls[0]
+        assert len(call["messages"]) == 1  # 单条 USER 消息（system 走独立参数）
 
-        system_content = messages[0].content
-        human_content = messages[1].content
+        system_content = call["system"]
+        human_content = call["messages"][0].content
 
         # 反向断言：独特标记词绝不能出现在静态 SYSTEM_PROMPT 中
         assert "MARKET_DETAIL_MARKER" not in system_content
         assert "TRADER_PLAN_MARKER" not in system_content
         assert "FINAL_DECISION_MARKER" not in system_content
 
-        # 正向断言：动态内容在 HumanMessage 的 XML 边界符内
+        # 正向断言：动态内容在 USER 消息的 XML 边界符内
         assert "MARKET_DETAIL_MARKER" in human_content
         assert "TRADER_PLAN_MARKER" in human_content
         assert "FINAL_DECISION_MARKER" in human_content
@@ -217,18 +213,17 @@ class TestSummaryAgentBehavior:
 
 
 class TestStageAgentsWithRealLLM:
-    """使用真实 LLM API 的 Stage Agent 测试"""
+    """使用真实 LLM API 的 Stage Agent 测试（app/llm 新层客户端）"""
 
     @pytest.mark.ai
     @pytest.mark.asyncio
     async def test_summary_with_real_llm(self):
-        from app.engine.llm_adapters.factory import create_llm
+        from tests.engine.test_engine_reflection import _build_real_llm_client
 
-        api_key = os.environ.get("DEEPSEEK_API_KEY")
-        if not api_key:
-            pytest.skip("需要 DEEPSEEK_API_KEY 环境变量")
+        llm = _build_real_llm_client()
+        if llm is None:
+            pytest.skip("无可用 LLM 凭据（DEEPSEEK_API_KEY 或 ARK_API_KEY）")
 
-        llm = create_llm(provider="deepseek", model="deepseek-chat", api_key=api_key)
         node = create_summary_agent(llm)
         state = {
             "company_of_interest": "000001",

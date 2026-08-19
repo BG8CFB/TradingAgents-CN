@@ -164,7 +164,7 @@
                         <span class="label">参与角色:</span>
                         <div class="agent-tags">
                           <el-tag v-for="agent in phase.agents" :key="agent" size="small" type="info" effect="plain">
-                            {{ agent }}
+                            {{ stageAgentNames[agent] || agent }}
                           </el-tag>
                         </div>
                       </div>
@@ -370,9 +370,19 @@
           </el-card>
         </el-col>
 
-        <!-- 右侧：高级配置 -->
+        <!-- 右侧：分析中显示过程面板，空闲时显示高级配置 -->
         <el-col :span="6">
-          <el-card class="config-card" shadow="hover">
+          <!-- 分析过程面板（类 Claude Code） -->
+          <el-card v-if="showProcessPanel" class="config-card process-card" shadow="hover">
+            <template #header>
+              <div class="card-header">
+                <h3>分析过程</h3>
+                <el-tag type="success" size="small">实时</el-tag>
+              </div>
+            </template>
+            <ProcessPanel class="process-panel-wrapper" />
+          </el-card>
+          <el-card v-else class="config-card" shadow="hover">
             <template #header>
               <div class="card-header">
                 <h3>高级配置</h3>
@@ -728,12 +738,15 @@ import { analysisApi, type SingleAnalysisRequest } from '@/api/analysis'
 import { stocksApi } from '@/api/stocks'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { useAnalysisProcessStore } from '@/stores/analysisProcess'
 import { configApi } from '@/api/config'
 import { agentConfigApi } from '@/api/agentConfigs'
+import { loadAgentDisplayNames } from '@/utils/agentDisplayNames'
 import { mcpApi } from '@/api/mcp'
 import { reportsApi } from '@/api/reports'
 import type { MCPTool } from '@/types/mcp'
 import DeepModelSelector from '@/components/DeepModelSelector.vue'
+import ProcessPanel from '@/components/Analysis/ProcessPanel.vue'
 import { normalizeAnalystIds } from '@/constants/analysts'
 import { PHASES, estimateTotalTime } from '@/constants/phases'
 import { renderMarkdown } from '@/utils/markdown'
@@ -770,6 +783,10 @@ interface AnalysisForm {
 
 // 使用store
 const route = useRoute()
+const analysisProcessStore = useAnalysisProcessStore()
+
+// 是否显示分析过程面板（分析进行中替换右侧高级配置卡片）
+const showProcessPanel = computed(() => analysisStatus.value === 'running' && !!currentTaskId.value)
 
 const submitting = ref(false)
 
@@ -818,11 +835,19 @@ const getAnalystIcon = (slug: string) => {
   return map[slug] || 'User'
 }
 
+// 阶段 2-4 报告显示名映射（后端配置统一构建，前端不写死智能体名称）
+const stageAgentNames = ref<Record<string, string>>({})
+
 // 获取分析师列表
 const fetchAnalysts = async () => {
   loadingAnalysts.value = true
   try {
-    const res = await agentConfigApi.getPhase(1)
+    // 并行拉取阶段1列表与全阶段显示名映射
+    const [res, names] = await Promise.all([
+      agentConfigApi.getPhase(1),
+      loadAgentDisplayNames(),
+    ])
+    stageAgentNames.value = names
     if (res.success && res.data && res.data.customModes) {
       analysts.value = res.data.customModes.map(mode => ({
         id: mode.slug, // 使用 slug 作为唯一标识
@@ -1183,6 +1208,9 @@ const submitAnalysis = async () => {
 
     analysisStatus.value = 'running'
     showResults.value = false
+
+    // 连接分析过程 WS，实时展示各智能体执行时间线
+    analysisProcessStore.start(currentTaskId.value)
     progressInfo.value = {
       progress: 0,
       currentStep: '正在初始化分析...',
@@ -1270,6 +1298,7 @@ const startPollingTaskStatus = () => {
 
         analysisStatus.value = 'completed'
         showResults.value = true
+        analysisProcessStore.stop()  // 断开分析过程 WS
         progressInfo.value.progress = 100
         progressInfo.value.currentStep = '分析完成'
         progressInfo.value.message = '分析已完成！'
@@ -1287,6 +1316,7 @@ const startPollingTaskStatus = () => {
       } else if (status.status === 'failed') {
         // 分析失败
         analysisStatus.value = 'failed'
+        analysisProcessStore.stop()  // 断开分析过程 WS
         progressInfo.value.currentStep = '分析失败'
 
         // 格式化错误消息（保留换行符）
@@ -1462,28 +1492,24 @@ const getAnalysisReports = (data: any) => {
     return reports
   }
 
-  // 非第1阶段的固定报告映射（研究团队、交易团队、风险管理团队等）
-  const fixedReportMappings: Record<string, { title: string, category: string }> = {
-    // 研究团队 (3个)
-    'bull_researcher': { title: '🐂 多头研究员', category: '研究团队' },
-    'bear_researcher': { title: '🐻 空头研究员', category: '研究团队' },
-    'research_team_decision': { title: '🔬 研究经理决策', category: '研究团队' },
-
-    // 交易团队 (1个)
-    'trader_investment_plan': { title: '💼 交易员计划', category: '交易团队' },
-
-    // 风险管理团队 (4个)
-    'risky_analyst': { title: '⚡ 激进分析师', category: '风险管理团队' },
-    'safe_analyst': { title: '🛡️ 保守分析师', category: '风险管理团队' },
-    'neutral_analyst': { title: '⚖️ 中性分析师', category: '风险管理团队' },
-    'risk_management_decision': { title: '👔 投资组合经理', category: '风险管理团队' },
-
-    // 最终决策 (1个)
-    'final_trade_decision': { title: '🎯 最终交易决策', category: '最终决策' },
-
-    // 兼容旧格式 - 投资建议保留，其他内部状态隐藏
-    'investment_plan': { title: '📋 投资建议', category: '其他' }
+  // 非第1阶段报告映射：显示名来自后端配置映射（stageAgentNames），前端不写死智能体名称
+  const fixedMeta: Record<string, { icon: string, category: string }> = {
+    'bull_researcher': { icon: '🐂', category: '研究团队' },
+    'bear_researcher': { icon: '🐻', category: '研究团队' },
+    'research_team_decision': { icon: '🔬', category: '研究团队' },
+    'trader_investment_plan': { icon: '💼', category: '交易团队' },
+    'risky_analyst': { icon: '⚡', category: '风险管理团队' },
+    'safe_analyst': { icon: '🛡️', category: '风险管理团队' },
+    'neutral_analyst': { icon: '⚖️', category: '风险管理团队' },
+    'risk_management_decision': { icon: '👔', category: '风险管理团队' },
+    'final_trade_decision': { icon: '🎯', category: '最终决策' },
+    'investment_plan': { icon: '📋', category: '其他' }
   }
+  const fixedReportMappings: Record<string, { title: string, category: string }> = {}
+  Object.entries(fixedMeta).forEach(([key, meta]) => {
+    const name = stageAgentNames.value[key] || (key === 'final_trade_decision' ? '最终交易决策' : key === 'investment_plan' ? '投资建议' : '')
+    if (name) fixedReportMappings[key] = { title: `${meta.icon} ${name}`, category: meta.category }
+  })
 
   // 从已加载的分析师列表动态生成第1阶段报告映射
   const dynamicReportMappings: Record<string, { title: string, category: string }> = {}
@@ -2008,6 +2034,16 @@ watch([() => modelSettings.value.analystModel, () => modelSettings.value.debateM
   min-height: 100vh;
   background: var(--el-bg-color-page);
   padding: 24px;
+
+  .process-card {
+    :deep(.el-card__body) {
+      padding: 12px;
+    }
+  }
+
+  .process-panel-wrapper {
+    height: 560px;
+  }
 
   .page-header {
     margin-bottom: 32px;

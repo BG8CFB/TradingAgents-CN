@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from langchain_core.tools import tool
+
 
 from app.utils.logging_init import get_logger
 from app.utils.tool_logging import log_tool_call
@@ -12,7 +12,7 @@ from .toolkit_helpers import _run_async, _get_stock_data_sync
 logger = get_logger("agents")
 
 
-@tool
+
 def get_china_market_overview(
     curr_date: Annotated[str, "当前日期，格式 yyyy-mm-dd"],
 ) -> str:
@@ -66,7 +66,7 @@ def get_china_market_overview(
         return f"中国市场概览获取失败: {str(e)}"
 
 
-@tool
+
 @log_tool_call(tool_name="get_stock_market_data_unified", log_args=True)
 def get_stock_market_data_unified(
     ticker: Annotated[str, "股票代码（支持A股、港股、美股）"],

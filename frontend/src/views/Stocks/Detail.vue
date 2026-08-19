@@ -378,8 +378,7 @@ import type { EChartsOption } from 'echarts'
 import { favoritesApi } from '@/api/favorites'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useNotificationStore } from '@/stores/notifications'
-import { agentConfigApi } from '@/api/agentConfigs'
-import { normalizeAnalystId } from '@/constants/analysts'
+import { loadAgentDisplayNames } from '@/utils/agentDisplayNames'
 
 
 echartsUse([CandlestickChart, GridComponent, TooltipComponent, DataZoomComponent, LegendComponent, TitleComponent, CanvasRenderer])
@@ -511,43 +510,12 @@ function formatDateTag(dateStr: string | null): string {
 // 分析师名称映射
 const analystNameMap = ref<Record<string, string>>({})
 
-// 获取分析师名称映射（从后端动态配置构建）
+// 获取智能体显示名映射（阶段 1-3 后端配置统一构建，前端不写死名称）
 const loadAnalystNameMap = async () => {
   try {
-    const res = await agentConfigApi.getPhase(1)
-    if (res.success && res.data?.customModes) {
-      const map: Record<string, string> = {}
-      res.data.customModes.forEach(mode => {
-        const name = mode.name || mode.slug
-        if (mode.slug) {
-          // 1. 原始 slug 映射
-          map[mode.slug] = name
-          
-          // 2. 规范化 ID 映射
-          const normalized = normalizeAnalystId(mode.slug)
-          if (normalized) {
-            map[normalized] = name
-          }
-
-          // 3. 报告模块 key 映射 (e.g. market-analyst -> market_report)
-          // 逻辑: 移除 -analyst 后缀, 横杠转下划线, 添加 _report 后缀
-          const baseKey = mode.slug.replace(/-analyst$/, '').replace(/-/g, '_')
-          const reportKey = `${baseKey}_report`
-          
-          // 直接使用中文名称，不添加图标
-          map[reportKey] = name
-
-          // 4. 额外兼容常见 key 变体
-          map[baseKey] = name
-          map[`${baseKey}_analyst`] = name
-        }
-      })
-      analystNameMap.value = map
-    } else {
-      analystNameMap.value = {}
-    }
+    analystNameMap.value = await loadAgentDisplayNames()
   } catch (error) {
-    console.error('获取分析师配置失败:', error)
+    console.error('获取智能体配置失败:', error)
     analystNameMap.value = {}
   }
 }
@@ -1159,46 +1127,29 @@ function formatNewsTime(dateStr: string | null | undefined): string {
 
 // 格式化报告名称
 function formatReportName(key: string): string {
-  // 1. 优先使用动态加载的映射 (第一阶段分析师)
+  // 优先使用后端配置映射（阶段 1-3 智能体，含报告 key 别名）
   if (analystNameMap.value && analystNameMap.value[key]) {
     return analystNameMap.value[key]
   }
 
-  // 非第1阶段的固定报告映射（研究团队、交易团队、风险管理团队等）
+  // 非智能体产出的固定文档段落标题（决策汇总类，不属于任何智能体名称）
   const fixedNameMap: Record<string, string> = {
-    // 研究团队 (3个)
-    'bull_researcher': '多头研究员',
-    'bear_researcher': '空头研究员',
-    'research_team_decision': '研究经理决策',
-
-    // 交易团队 (1个)
-    'trader_investment_plan': '交易员计划',
-
-    // 风险管理团队 (4个)
-    'risky_analyst': '激进分析师',
-    'safe_analyst': '保守分析师',
-    'neutral_analyst': '中性分析师',
-    'risk_management_decision': '投资组合经理',
-
-    // 最终决策 (1个)
     'final_trade_decision': '最终交易决策',
-
-    // 兼容旧字段
     'investment_plan': '分析参考',
     'investment_debate_state': '研究团队决策（旧）',
     'risk_debate_state': '风险管理团队（旧）'
   }
-  
+
   if (fixedNameMap[key]) {
     return fixedNameMap[key]
   }
-  
-  // 对于第1阶段分析师报告，自动生成友好名称
-  if (key.endsWith('_report')) {
-    const name = key.replace('_report', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-    return `${name} Agent`
+
+  // 对于第1阶段分析师报告，尝试按 base key 匹配配置
+  if (key.endsWith('_report') && analystNameMap.value) {
+    const base = key.replace('_report', '')
+    if (analystNameMap.value[base]) return analystNameMap.value[base]
   }
-  
+
   return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
 }
 

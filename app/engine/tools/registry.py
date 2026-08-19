@@ -148,26 +148,21 @@ class ToolRegistry:
             self._builtin_metas = {}
 
     def _load_skill_meta_tool(self):
-        """加载 Skill 的 load_skill Meta-Tool"""
+        """Skill 渐进式披露工具（load_skill）
+
+        引擎运行时的 skill 列表工具已由新层 app/llm/skills 提供
+        （orchestrator 的 enable_skill_listing + skill_listing_tool），
+        注册面不再注册旧 Meta-Tool。此处保留方法以维持初始化流程稳定。
+        """
+        self._skill_tools = []
         try:
             from app.engine.tools.skill import SkillRegistry
 
             skill_registry = SkillRegistry.get_instance()
-
             if not skill_registry.list_skills():
-                logger.info("[ToolRegistry] 无已安装技能，跳过 load_skill 工具注册")
-                self._skill_tools = []
-                return
-
-            from app.engine.tools.skill.meta_tool import create_load_skill_tool
-
-            load_skill_tool = create_load_skill_tool(skill_registry)
-            if load_skill_tool:
-                self._skill_tools = [load_skill_tool]
-                logger.info("[ToolRegistry] Skill Meta-Tool 加载完成")
+                logger.info("[ToolRegistry] 无已安装技能，跳过 skill 工具注册")
         except Exception as e:
-            logger.debug(f"[ToolRegistry] Skill Meta-Tool 加载失败（可忽略）: {e}")
-            self._skill_tools = []
+            logger.debug(f"[ToolRegistry] Skill 注册检查失败（可忽略）: {e}")
 
     def _load_skill_entrypoints(self):
         """把 skill 的脚本入口注册为 builtin 工具"""

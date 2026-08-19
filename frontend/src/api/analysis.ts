@@ -107,6 +107,26 @@ export interface AnalysisResult {
   updated_at: string
 }
 
+/** 分析过程事件（agent 执行时间线的单条事件，来自 WS /api/analysis/ws/task/{task_id} 或事件回放接口） */
+export interface AgentEvent {
+  task_id?: string
+  seq: number
+  ts?: number | string
+  phase?: string
+  agent_key: string
+  event_type:
+    | 'agent_start'
+    | 'agent_end'
+    | 'llm_request'
+    | 'llm_response'
+    | 'tool_call'
+    | 'tool_result'
+    | 'compact'
+    | 'user_message_injected'
+    | string
+  payload?: Record<string, unknown>
+}
+
 /** 任务列表中的单个任务项（精简，仅前端消费字段） */
 export interface AnalysisTask {
   task_id: string
@@ -208,6 +228,16 @@ export const analysisApi = {
   // 获取任务结果（新版 simple service）
   getTaskResult(taskId: string): Promise<ApiResponse<Record<string, unknown>>>{
     return request.get(`/api/analysis/tasks/${taskId}/result`)
+  },
+
+  // 获取任务分析过程事件（回放用，支持按 agent/类型过滤与增量拉取）
+  getTaskEvents(taskId: string, params?: {
+    agent_key?: string
+    event_type?: string
+    after_seq?: number
+    limit?: number
+  }): Promise<ApiResponse<AgentEvent[]>> {
+    return request.get(`/api/analysis/tasks/${taskId}/events`, { params })
   },
 
   // 标记任务为失败

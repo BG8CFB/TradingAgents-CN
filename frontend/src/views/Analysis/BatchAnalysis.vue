@@ -194,7 +194,7 @@
                         <span class="label">参与角色:</span>
                         <div class="agent-tags">
                           <el-tag v-for="agent in phase.agents" :key="agent" size="small" type="info" effect="plain">
-                            {{ agent }}
+                            {{ stageAgentNames[agent] || agent }}
                           </el-tag>
                         </div>
                       </div>
@@ -337,6 +337,7 @@ import { PHASES, estimateTotalTime } from '@/constants/phases'
 import { configApi } from '@/api/config'
 import { mcpApi } from '@/api/mcp'
 import { agentConfigApi } from '@/api/agentConfigs'
+import { loadAgentDisplayNames } from '@/utils/agentDisplayNames'
 import type { MCPTool } from '@/types/mcp'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -398,11 +399,19 @@ const getAnalystIcon = (slug: string) => {
   return map[slug] || 'User'
 }
 
+// 阶段 2-4 报告显示名映射（后端配置统一构建，前端不写死智能体名称）
+const stageAgentNames = ref<Record<string, string>>({})
+
 // 获取分析师列表
 const fetchAnalysts = async () => {
   loadingAnalysts.value = true
   try {
-    const res = await agentConfigApi.getPhase(1)
+    // 并行拉取阶段1列表与全阶段显示名映射
+    const [res, names] = await Promise.all([
+      agentConfigApi.getPhase(1),
+      loadAgentDisplayNames(),
+    ])
+    stageAgentNames.value = names
     if (res.success && res.data && res.data.customModes) {
       analysts.value = res.data.customModes.map(mode => ({
         id: mode.slug, // 使用 slug 作为唯一标识

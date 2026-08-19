@@ -97,11 +97,18 @@ def load_agent_config(slug: str) -> str:
         if env_dir and os.path.exists(env_dir):
             agents_dirs.append(env_dir)
         else:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-            config_agents_dir = os.path.join(project_root, "config", "agents")
-            if os.path.exists(config_agents_dir):
-                agents_dirs.append(config_agents_dir)
+            # 从本文件（app/engine/agents/utils/）向上探测项目根的 config/agents，
+            # 避免固定层级 dirname 在不同安装布局下定位到错误目录
+            probe = os.path.dirname(os.path.abspath(__file__))
+            for _ in range(8):
+                candidate = os.path.join(probe, "config", "agents")
+                if os.path.exists(candidate):
+                    agents_dirs.append(candidate)
+                    break
+                nxt = os.path.dirname(probe)
+                if nxt == probe:
+                    break
+                probe = nxt
 
         config_files = [
             "phase1_agents_config.yaml",

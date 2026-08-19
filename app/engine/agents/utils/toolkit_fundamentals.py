@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from langchain_core.tools import tool
+
 
 from app.utils.logging_init import get_logger
 from app.utils.tool_logging import log_tool_call
@@ -13,7 +13,7 @@ from .toolkit_helpers import _run_async, _get_stock_data_sync, _get_stock_info_s
 logger = get_logger("agents")
 
 
-@tool
+
 @log_tool_call(tool_name="get_stock_fundamentals_unified", log_args=True)
 def get_stock_fundamentals_unified(
     ticker: Annotated[str, "股票代码（支持A股、港股、美股）"],

@@ -1,12 +1,11 @@
-import asyncio
 import logging
 from typing import Any, Dict
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.llm.mcp import service as mcp_service
 from app.routers.auth_db import get_current_user, require_admin
-from app.engine.tools.mcp import LANGCHAIN_MCP_AVAILABLE, get_mcp_loader_factory
 from app.engine.tools.mcp.config_utils import (
     MCPServerConfig,
     get_config_path,
@@ -23,7 +22,7 @@ logger = logging.getLogger("app.routers.mcp")
 # 安全模型说明：
 # MCP 服务器是管理员通过 /api/mcp/connectors/update 自配置的——
 # 这是用户对自己服务器负责的场景，访问控制由 require_admin 守门即可。
-# 命令执行由 langchain-mcp 的 stdio_client / streamablehttp_client 隔离，
+# 命令执行由官方 mcp SDK 的 stdio_client / streamablehttp_client 隔离，
 # 不存在直接的 subprocess.Popen 路径。配置类型/字段校验由 Pydantic schema 完成。
 
 
@@ -44,47 +43,21 @@ async def list_connectors(user: dict = Depends(get_current_user)) -> Dict[str, A
     """
     full_config = load_mcp_config(CONFIG_FILE)
     servers_config = full_config.get("mcpServers", {})
-
-    # 获取服务器健康状态
-    server_status_map: Dict[str, str] = {}
-    health_info_map: Dict[str, Any] = {}
-
-    if LANGCHAIN_MCP_AVAILABLE and servers_config:
-        try:
-            factory = get_mcp_loader_factory()
-            # 不再检查 _initialized，因为连接在应用启动时已建立
-            all_status = factory.get_all_server_status()
-            server_status_map = {name: info.get("status", "unknown") for name, info in all_status.items()}
-
-            # 获取健康检查信息
-            for name in servers_config.keys():
-                try:
-                    health_data = factory._health_monitor.get_server_health_info(name)
-                    if health_data:
-                        health_info_map[name] = health_data.to_dict()
-                except Exception as e:
-                    logger.debug(f"获取 MCP 健康信息失败: {name}: {e}")
-        except Exception as exc:
-            logger.warning("获取 MCP 健康状态失败: %s", exc)
+    all_status = mcp_service.all_server_status()
 
     data = []
     for name, config in servers_config.items():
-        # Check if enabled, default to True if not specified
-        enabled = config.get("_enabled", True)
-        server_type = config.get("type", "stdio")
+        raw = config.model_dump() if hasattr(config, "model_dump") else dict(config)
+        enabled = bool(getattr(config, "enabled", raw.get("_enabled", True)))
+        server_type = raw.get("type", "stdio")
 
-        # Create a clean config copy for display
-        display_config = config.copy()
-        if "_enabled" in display_config:
-            del display_config["_enabled"]
+        # 展示用配置副本（去掉内部启用标记）
+        display_config = {k: v for k, v in raw.items() if k not in ("_enabled", "enabled")}
 
-        # 确定状态
         if not enabled:
             status = "stopped"
-        elif not LANGCHAIN_MCP_AVAILABLE:
-            status = "unavailable"
         else:
-            status = server_status_map.get(name, "unknown")
+            status = all_status.get(name, {}).get("status", "unknown")
 
         data.append({
             "id": name,
@@ -93,7 +66,6 @@ async def list_connectors(user: dict = Depends(get_current_user)) -> Dict[str, A
             "config": display_config,
             "enabled": enabled,
             "status": status,
-            "healthInfo": health_info_map.get(name),
         })
 
     return {"success": True, "data": data}
@@ -107,7 +79,7 @@ async def update_connectors(
     """
     更新 MCP 连接器配置
 
-    访问控制由 require_admin 守门；命令执行通过 langchain-mcp 客户端隔离。
+    访问控制由 require_admin 守门；命令执行通过官方 mcp SDK 客户端隔离。
     用户（管理员）自行对自己配置的 MCP 服务器负责。
     配置更新后需要手动重载才能生效。
     """
@@ -143,17 +115,11 @@ async def toggle_connector(
         config["mcpServers"][name]["_enabled"] = enabled
         write_mcp_config(config, CONFIG_FILE)
 
-        # 通知加载器切换服务器状态（实时连接/断开）
-        if LANGCHAIN_MCP_AVAILABLE:
-            factory = get_mcp_loader_factory()
-            await factory.toggle_server(name, enabled)
-
-        # 获取实际状态
-        actual_status = "stopped"
-        if enabled and LANGCHAIN_MCP_AVAILABLE:
-            factory = get_mcp_loader_factory()
-            actual_status_obj = factory.get_server_status(name)
-            actual_status = actual_status_obj.value if hasattr(actual_status_obj, 'value') else str(actual_status_obj)
+        # 启用时立即探活建立连接；禁用时仅标记状态（会话懒加载不会再使用它）
+        if enabled:
+            actual_status = await mcp_service.ping_server(name)
+        else:
+            actual_status = "stopped"
 
         return {
             "success": True,
@@ -193,25 +159,12 @@ async def delete_connector(
 async def list_all_mcp_tools(user: dict = Depends(get_current_user)) -> Dict[str, Any]:
     """
     列出所有已启用 MCP 服务器的可用工具
-
-    返回的工具列表包含：
-    - 工具名称、描述和输入模式
-    - 所属服务器名称和 ID
-    - 服务器健康状态
-    - 工具是否可用
     """
-    if not LANGCHAIN_MCP_AVAILABLE:
-        return {"success": False, "message": "langchain-mcp 未安装", "data": []}
-
     if not CONFIG_FILE.exists():
         return {"success": True, "message": "未找到 MCP 配置文件", "data": []}
 
-    factory = get_mcp_loader_factory()
-
-    # 不再检查 _initialized，因为连接在应用启动时已建立
-
     try:
-        tools = await asyncio.to_thread(factory.list_available_tools)
+        tools = await mcp_service.list_tools()
 
         # 按服务器分组统计
         server_stats: Dict[str, Dict[str, Any]] = {}
