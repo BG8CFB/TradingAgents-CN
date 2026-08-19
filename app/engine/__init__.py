@@ -15,7 +15,7 @@ LLM 调用统一走新层 app/llm（双协议直连官方 SDK，工具注册/压
     原路径 'tradingagents.*' 已迁移至 'app.engine.*'
     例如:
         - tradingagents.config → app.engine.config
-        - tradingagents.tools.mcp → app.engine.tools.mcp
+        - tradingagents.tools.mcp → app.llm.mcp（运行时+管理面唯一家）
 
 使用示例:
     from app.engine.config import ModelConfig

@@ -1102,7 +1102,7 @@ class AnalysisService:
         try:
             from app.utils.logging_init import setup_logging
             from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
-            from app.engine.tools.mcp.task_manager import (
+            from app.llm.mcp.task_manager import (
                 get_task_mcp_manager,
                 remove_task_mcp_manager,
             )
@@ -1512,7 +1512,7 @@ class AnalysisService:
                     # 但 on_evict 内部 get_running_loop 也会抛 RuntimeError 被吞掉，
                     # 此时只能依赖 OS 回收进程资源
                     try:
-                        from app.engine.tools.mcp.task_manager import _task_managers
+                        from app.llm.mcp.task_manager import _task_managers
 
                         _task_managers.invalidate(task_id)
                         logger.info(

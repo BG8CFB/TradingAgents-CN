@@ -1,7 +1,7 @@
 """
 MCP 应用服务层（新 MCPManager 之上）— 供 routers/mcp、main 启动生命周期使用
 
-- 配置源沿用 config/mcp.json（app.engine.tools.mcp.config_utils，前端管理界面读写）
+- 配置源沿用 config/mcp.json（.management.config_store，前端管理界面读写）
 - 连接执行走新层 MCPManager（官方 mcp SDK，按 cache_key 复用、断线懒重连）
 - startup 预热连接；shutdown 统一关闭；工具/状态查询基于会话列举
 """
@@ -35,7 +35,7 @@ def get_shared_manager() -> MCPManager:
 
 def _load_old_config() -> Dict[str, Any]:
     """读取 config/mcp.json（旧格式：mcpServers → pydantic MCPServerConfig）"""
-    from app.engine.tools.mcp.config_utils import load_mcp_config
+    from .management.config_store import load_mcp_config
 
     return load_mcp_config()
 
@@ -143,3 +143,17 @@ async def ping_server(name: str) -> str:
 def all_server_status() -> Dict[str, Dict[str, Any]]:
     """全部 server 状态摘要"""
     return {name: {"status": s} for name, s in _server_status.items()}
+
+
+# ── 任务级 MCP 管理门面（由 app/engine/tools/mcp/task_manager 合并迁入）──
+from .task_manager import (  # noqa: E402,F401
+    TaskLevelMCPManager,
+    get_task_mcp_manager,
+    remove_task_mcp_manager,
+    cleanup_all_managers,
+    CircuitBreaker,
+    RetryMechanism,
+    CircuitState,
+    CircuitBreakerConfig,
+    RetryConfig,
+)

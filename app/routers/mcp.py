@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.llm.mcp import service as mcp_service
 from app.routers.auth_db import get_current_user, require_admin
-from app.engine.tools.mcp.config_utils import (
+from app.llm.mcp.management.config_store import (
     MCPServerConfig,
     get_config_path,
     load_mcp_config,
