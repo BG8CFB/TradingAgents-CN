@@ -249,6 +249,10 @@ def create_summary_agent(llm):
                     llm,
                     [Message(role=Role.USER, content=user_prompt)],
                     system=SYSTEM_PROMPT,
+                    task_id=state.get("task_id") or "",
+                    agent_key="summary",
+                    phase="summary",
+                    user_id=state.get("user_id") or "",
                 )
             ).strip()
             

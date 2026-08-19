@@ -243,7 +243,14 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             messages.append(Message(role=Role.USER, content=trigger_msg))
 
             # ── 7. 执行推理（新层客户端，带重试） ──────────────────────
-            content = await llm_chat(llm, messages, system=system)
+            content = await llm_chat(
+                llm, messages,
+                system=system,
+                task_id=state.get("task_id") or "",
+                agent_key=f"researcher_{side}",
+                phase="research",
+                user_id=state.get("user_id") or "",
+            )
 
             # H-2: 空响应降级 — LLM 返回空内容时使用占位文本
             if not content.strip():

@@ -21,6 +21,28 @@
       <!-- 统计概览 -->
       <el-row :gutter="20" class="stats-overview">
         <el-col :span="6">
+          <el-statistic title="缓存命中 Token" :value="statistics.total_cache_read_tokens || 0">
+            <template #prefix>
+              <el-icon><Coin /></el-icon>
+            </template>
+          </el-statistic>
+        </el-col>
+        <el-col :span="6">
+          <el-statistic title="缓存写入 Token" :value="statistics.total_cache_creation_tokens || 0">
+            <template #prefix>
+              <el-icon><FolderOpened /></el-icon>
+            </template>
+          </el-statistic>
+        </el-col>
+        <el-col :span="6">
+          <el-statistic title="缓存命中率" :value="cacheHitRate" suffix="%" />
+        </el-col>
+        <el-col :span="6">
+          <el-statistic title="任务数（期内）" :value="Object.keys(statistics.by_task || {}).length" />
+        </el-col>
+      </el-row>
+      <el-row :gutter="20" class="stats-overview">
+        <el-col :span="6">
           <el-statistic title="总请求数" :value="statistics.total_requests">
             <template #prefix>
               <el-icon><Document /></el-icon>
@@ -98,9 +120,20 @@
       <template #header>
         <div class="card-header">
           <span>使用记录</span>
-          <el-button type="danger" size="small" @click="handleDeleteOldRecords">
-            清理旧记录
-          </el-button>
+          <div class="header-actions">
+            <el-input
+              v-model="taskFilter"
+              placeholder="按任务ID筛选"
+              clearable
+              style="width: 240px; margin-right: 10px;"
+              @clear="loadRecords"
+              @keyup.enter="loadRecords"
+            />
+            <el-button type="primary" size="small" @click="loadRecords">筛选</el-button>
+            <el-button type="danger" size="small" @click="handleDeleteOldRecords">
+              清理旧记录
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -110,17 +143,35 @@
             {{ formatTimestamp(row.timestamp) }}
           </template>
         </el-table-column>
-        <el-table-column prop="provider" label="供应商" width="120" />
-        <el-table-column prop="model_name" label="模型" width="180" />
-        <el-table-column prop="input_tokens" label="输入 Token" width="120" align="right" />
-        <el-table-column prop="output_tokens" label="输出 Token" width="120" align="right" />
-        <el-table-column prop="cost" label="成本" width="140" align="right">
+        <el-table-column prop="provider" label="供应商" width="110" />
+        <el-table-column prop="model_name" label="模型" width="170" show-overflow-tooltip />
+        <el-table-column prop="input_tokens" label="输入" width="100" align="right" />
+        <el-table-column prop="output_tokens" label="输出" width="100" align="right" />
+        <el-table-column prop="cache_read_input_tokens" label="缓存命中" width="100" align="right">
+          <template #default="{ row }">
+            {{ row.cache_read_input_tokens || 0 }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="agent_key" label="智能体" width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.agent_key || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="phase" label="阶段" width="110">
+          <template #default="{ row }">
+            {{ row.phase || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="task_id" label="任务ID" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.task_id || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="cost" label="成本" width="130" align="right">
           <template #default="{ row }">
             {{ (Number(row.cost) || 0).toFixed(4) }} {{ getCurrencySymbol(row.currency || 'CNY') }}
           </template>
         </el-table-column>
-        <el-table-column prop="analysis_type" label="分析类型" width="150" />
-        <el-table-column prop="session_id" label="会话ID" show-overflow-tooltip />
       </el-table>
 
       <el-pagination
@@ -138,9 +189,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DataAnalysis, Refresh, Document, Upload, Download, Money } from '@element-plus/icons-vue'
+import { DataAnalysis, Refresh, Document, Upload, Download, Money, Coin, FolderOpened } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import {
   getUsageRecords,
@@ -167,6 +218,15 @@ const records = ref<UsageRecord[]>([])
 const currentPage = ref(1)
 const pageSize = ref(20)
 const totalRecords = ref(0)
+const taskFilter = ref('')
+
+// 缓存命中率：cache_read / input（cache_read 是 input 的子集）
+const cacheHitRate = computed(() => {
+  const cacheRead = Number(statistics.value.total_cache_read_tokens) || 0
+  const input = Number(statistics.value.total_input_tokens) || 0
+  if (input <= 0) return 0
+  return Math.round((cacheRead / input) * 1000) / 10
+})
 
 // 图表引用
 const providerChartRef = ref<HTMLElement>()
@@ -215,7 +275,8 @@ const loadRecords = async () => {
   try {
     loading.value = true
     const res = await getUsageRecords({
-      limit: pageSize.value
+      limit: pageSize.value,
+      task_id: taskFilter.value || undefined
     })
     if (res.success) {
       records.value = res.data.records

@@ -11,6 +11,7 @@ def create_initial_state(
     company_name: str,
     trade_date: str,
     task_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """创建流水线初始状态"""
     from app.llm.core.types import Message, Role
@@ -22,6 +23,7 @@ def create_initial_state(
         "company_of_interest": company_name,
         "trade_date": str(trade_date),
         "task_id": task_id,
+        "user_id": user_id or "",  # 任务发起者（token 用量统计归属）
         "investment_debate_state": {
             "history": "",
             "current_response": "",

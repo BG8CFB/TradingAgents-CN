@@ -33,6 +33,10 @@
                   <el-tag type="info" style="cursor: help;">{{ report.model_info }}</el-tag>
                 </el-tooltip>
               </span>
+              <span v-if="report.tokens_used" class="meta-item">
+                <el-icon><Coin /></el-icon>
+                Token 用量 {{ formatTokenUsage(report) }}
+              </span>
             </div>
           </div>
           
@@ -331,6 +335,7 @@ import {
   List,
   Check,
   Cpu,
+  Coin,
   QuestionFilled,
   ArrowDown
 } from '@element-plus/icons-vue'
@@ -532,6 +537,16 @@ const getStatusText = (status: string | undefined) => {
     failed: '失败'
   }
   return statusMap[status] || status
+}
+
+// Token 用量展示：优先明细（输入/输出/缓存命中），缺省只显示总数
+const formatTokenUsage = (r: ReportData) => {
+  const d = r.token_usage_detail
+  if (d && (d.input_tokens || d.output_tokens)) {
+    const cache = d.cache_read_tokens ? `，缓存命中 ${Number(d.cache_read_tokens).toLocaleString()}` : ''
+    return `输入 ${Number(d.input_tokens).toLocaleString()} / 输出 ${Number(d.output_tokens).toLocaleString()}${cache}`
+  }
+  return Number(r.tokens_used || 0).toLocaleString()
 }
 
 const formatTime = (time: string | undefined) => {

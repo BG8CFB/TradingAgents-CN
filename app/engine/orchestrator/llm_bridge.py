@@ -30,10 +30,15 @@ async def llm_chat(
     system: Optional[str] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    task_id: str = "",
+    agent_key: str = "",
+    phase: str = "",
+    user_id: str = "",
 ) -> str:
     """带重试的单轮对话，返回文本内容（空响应返回空串，由调用方降级）。
 
     llm 可为裸 BaseLLMClient 或 EngineClientBundle（推荐，携带每模型参数与 fallback）。
+    task_id / agent_key / phase / user_id: token 用量统计上下文（可选）。
     """
     bundle = llm if _is_bundle(llm) else None
     primary: BaseLLMClient = bundle.primary if bundle else llm  # type: ignore[assignment]
@@ -41,6 +46,20 @@ async def llm_chat(
     eff_max_tokens = max_tokens or (bundle.max_tokens if bundle else None) or DEFAULT_NODE_MAX_TOKENS
     eff_temperature = temperature if temperature is not None else (bundle.temperature if bundle else None)
     retries = bundle.retry_times if bundle and bundle.retry_times is not None else DEFAULT_MAX_RETRIES
+
+    def _record_usage(c: BaseLLMClient, resp) -> None:
+        """token 用量落库（fire-and-forget，recorder 自吞错）"""
+        from app.services.token_usage_recorder import token_usage_recorder
+
+        token_usage_recorder.record(
+            provider=getattr(c, "protocol", "unknown"),
+            model_name=getattr(resp, "model", "") or getattr(c, "model", ""),
+            usage=resp.usage,
+            task_id=task_id,
+            user_id=user_id,
+            agent_key=agent_key,
+            phase=phase,
+        )
 
     async def _call(client: BaseLLMClient) -> str:
         resp = await with_retry(
@@ -52,6 +71,7 @@ async def llm_chat(
             ),
             max_retries=retries,
         )
+        _record_usage(client, resp)
         return resp.text() or ""
 
     try:
@@ -68,7 +88,16 @@ async def llm_chat(
         raise
 
 
-def sync_chat(llm: object, user_prompt: str, *, system: Optional[str] = None) -> str:
+def sync_chat(
+    llm: object,
+    user_prompt: str,
+    *,
+    system: Optional[str] = None,
+    task_id: str = "",
+    agent_key: str = "",
+    phase: str = "",
+    user_id: str = "",
+) -> str:
     """同步环境调用新客户端（Reflector / SignalProcessor 等同步代码路径）。
 
     已在事件循环线程中时降级到新线程隔离运行，避免嵌套 asyncio.run 报错。
@@ -78,7 +107,13 @@ def sync_chat(llm: object, user_prompt: str, *, system: Optional[str] = None) ->
 
     async def _run() -> str:
         return await llm_chat(
-            llm, [Message(role=Role.USER, content=user_prompt)], system=system
+            llm,
+            [Message(role=Role.USER, content=user_prompt)],
+            system=system,
+            task_id=task_id,
+            agent_key=agent_key,
+            phase=phase,
+            user_id=user_id,
         )
 
     try:

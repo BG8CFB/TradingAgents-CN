@@ -137,7 +137,14 @@ def create_trader(llm, memory):
 
             logger.debug(f"💰 [DEBUG] 准备调用LLM，系统提示包含货币: {currency}")
 
-            trader_content = await llm_chat(llm, messages, system=full_system_prompt)
+            trader_content = await llm_chat(
+                llm, messages,
+                system=full_system_prompt,
+                task_id=state.get("task_id") or "",
+                agent_key="trader",
+                phase="trader",
+                user_id=state.get("user_id") or "",
+            )
 
             # H-2: 空响应降级 — LLM 返回空内容时使用占位文本
             if not trader_content.strip():

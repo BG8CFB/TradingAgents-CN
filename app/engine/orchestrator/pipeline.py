@@ -69,6 +69,7 @@ async def run_pipeline(
     task_id: Optional[str] = None,
     progress_callback: Optional[Callable[[str], None]] = None,
     event_sink: Optional[Any] = None,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """执行完整分析流水线，返回最终 state（字段形状与旧 final_state 一致）"""
     config = deps.config or {}
@@ -150,7 +151,7 @@ async def run_pipeline(
         _merge_state_update(st, update or {})
         _notify_progress(progress_callback, node_name)
 
-    state = create_initial_state(company_name, trade_date, task_id=task_id)
+    state = create_initial_state(company_name, trade_date, task_id=task_id, user_id=user_id)
 
     try:
         try:
@@ -175,6 +176,8 @@ async def run_pipeline(
             # ── Phase 2：公平辩论（Bull 先发言，交替各 rounds+1 次）+ 裁决
             if phase2_enabled:
                 state["_phase"] = "research"
+                # 与实际循环次数同步（state 初始值为硬编码默认，用于日志分母与 prompt 文案）
+                state["investment_debate_state"]["max_rounds"] = max_debate_rounds + 1
                 from app.engine.agents.stage_2.research_manager import create_research_manager
                 from app.engine.agents.stage_2.researcher_factory import create_researcher
 
@@ -198,6 +201,8 @@ async def run_pipeline(
             # ── Phase 3：风险辩论（固定 Risky→Safe→Neutral 循环）+ 裁决
             if phase3_enabled:
                 state["_phase"] = "risk"
+                # 同 Phase 2：分母与实际循环次数保持一致
+                state["risk_debate_state"]["max_rounds"] = max_risk_rounds + 1
                 from app.engine.agents.stage_3.debator_factory import create_debator
                 from app.engine.agents.stage_3.risk_manager import create_risk_manager
 

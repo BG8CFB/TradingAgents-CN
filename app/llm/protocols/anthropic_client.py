@@ -120,6 +120,8 @@ class AnthropicLLMClient(BaseLLMClient):
         usage = Usage(
             input_tokens=getattr(resp.usage, "input_tokens", 0) or 0,
             output_tokens=getattr(resp.usage, "output_tokens", 0) or 0,
+            cache_creation_input_tokens=getattr(resp.usage, "cache_creation_input_tokens", 0) or 0,
+            cache_read_input_tokens=getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
         )
         return ChatResponse(
             message=Message(role=Role.ASSISTANT, content=blocks),
@@ -217,6 +219,11 @@ class AnthropicLLMClient(BaseLLMClient):
                         u = getattr(event.message, "usage", None)
                         if u:
                             usage.input_tokens = getattr(u, "input_tokens", 0) or 0
+                            # 缓存 token 只在 message_start 的 usage 中回传（message_delta 仅有 output）
+                            usage.cache_creation_input_tokens = (
+                                getattr(u, "cache_creation_input_tokens", 0) or 0
+                            )
+                            usage.cache_read_input_tokens = getattr(u, "cache_read_input_tokens", 0) or 0
                         model_name = getattr(event.message, "model", model_name)
         except Exception as e:  # noqa: BLE001
             raise _translate_error(e) from e

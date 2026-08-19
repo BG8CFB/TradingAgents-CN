@@ -15,17 +15,44 @@ export interface UsageRecord {
   currency?: string
   session_id: string
   analysis_type: string
+  task_id?: string
+  user_id?: string
+  agent_key?: string
+  phase?: string
+  cache_creation_input_tokens?: number
+  cache_read_input_tokens?: number
 }
 
 export interface UsageStatistics {
   total_requests: number
   total_input_tokens: number
   total_output_tokens: number
+  total_cache_read_tokens?: number
+  total_cache_creation_tokens?: number
   total_cost: number
   cost_by_currency: Record<string, number>
   by_provider: Record<string, any>
   by_model: Record<string, any>
   by_date: Record<string, any>
+  by_task?: Record<string, any>
+  by_agent?: Record<string, any>
+}
+
+export interface TaskUsageTotals {
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  cost: number
+}
+
+export interface TaskUsage {
+  task_id: string
+  owner_user_id: string
+  totals: Partial<TaskUsageTotals>
+  by_agent: Array<Partial<TaskUsageTotals> & { agent_key: string }>
+  by_phase: Array<Partial<TaskUsageTotals> & { phase: string }>
 }
 
 /**
@@ -36,12 +63,20 @@ export function getUsageRecords(params?: {
   model_name?: string
   start_date?: string
   end_date?: string
+  task_id?: string
   limit?: number
 }): Promise<ApiResponse<{ records: UsageRecord[]; total: number }>> {
   return ApiClient.get<{ records: UsageRecord[]; total: number }>(
     '/api/usage-statistics/records',
     params
   )
+}
+
+/**
+ * 获取单任务 token 用量明细（总览 + 按 agent/phase 分摊）
+ */
+export function getTaskUsage(taskId: string): Promise<ApiResponse<TaskUsage>> {
+  return ApiClient.get<TaskUsage>(`/api/usage-statistics/tasks/${taskId}`)
 }
 
 /**

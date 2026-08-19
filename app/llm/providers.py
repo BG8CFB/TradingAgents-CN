@@ -311,6 +311,74 @@ async def _resolve_role_bundle(
     )
 
 
+async def resolve_task_override_bundle(
+    model: str,
+    *,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> Optional[EngineClientBundle]:
+    """任务级模型覆盖 → bundle；从数据库同 model_name 配置继承每模型参数。
+
+    背景：覆盖路径此前只传 model/api_key/base_url，导致 DB 配置的
+    max_tokens（如 128000）丢失、回落 .env 默认 4096——推理模型输出
+    全部耗在思考阶段即截断，正文为空（2026-08-19 000001 分析事故）。
+    """
+    configs: List[Dict[str, Any]] = []
+    provider_defaults: Dict[str, Dict[str, Any]] = {}
+    context_index: Dict[str, int] = {}
+    try:
+        from app.services.config import config_service
+
+        system_config = await config_service.get_system_config()
+        configs = _normalize_llm_configs(
+            [c.model_dump() for c in (system_config.llm_configs or [])]
+        )
+        if configs:
+            provider_defaults = await _load_provider_defaults_async()
+    except Exception as e:  # noqa: BLE001 - 数据库不可用时仅用入参
+        logger.info(f"[providers] 任务覆盖读取数据库配置失败: {e}")
+    if not configs:
+        configs, provider_defaults, context_index = _load_all_sync()
+
+    # 同名模型配置继承每模型参数（覆盖路径不应丢失 DB 参数）
+    inherit = next((c for c in configs if c.get("model_name") == model), None) or {}
+    prov = provider or inherit.get("provider") or "openai"
+    defaults = provider_defaults.get(prov.strip().lower()) or {}
+    resolved = ResolvedProvider(
+        protocol=infer_protocol(prov, defaults.get("protocol")),
+        model=model,
+        api_key=api_key or inherit.get("api_key") or defaults.get("api_key") or "",
+        base_url=base_url or inherit.get("api_base") or defaults.get("default_base_url") or None,
+        source="engine-config",
+        max_tokens=inherit.get("max_tokens"),
+        temperature=inherit.get("temperature"),
+        timeout=inherit.get("timeout"),
+        retry_times=inherit.get("retry_times"),
+        context_window=None,
+    )
+    provider_l = prov.strip().lower()
+    resolved.context_window = inherit.get("context_window") or context_index.get(
+        f"{provider_l}|{model}"
+    )
+    if not resolved.api_key:
+        return None
+    bundle = EngineClientBundle(
+        primary=build_client(resolved),
+        fallback=None,
+        retry_times=resolved.retry_times,
+        max_tokens=resolved.max_tokens,
+        temperature=resolved.temperature,
+        context_window=resolved.context_window,
+    )
+    logger.info(
+        f"[providers] 任务覆盖 → {resolved.protocol}:{model} "
+        f"(max_tokens={resolved.max_tokens or '默认'}, "
+        f"context_window={resolved.context_window or '未知'})"
+    )
+    return bundle
+
+
 async def get_engine_clients() -> Dict[str, EngineClientBundle]:
     """引擎入口：数据库配置优先，.env 回退。返回 {"analyst": bundle, "debate": bundle}。
 

@@ -165,9 +165,12 @@ class OpenAILLMClient(BaseLLMClient):
                 finish = StopReason.TOOL_USE
         usage = Usage()
         if resp.usage:
+            # 部分网关不回传 prompt_tokens_details，getattr 链兜底
+            details = getattr(resp.usage, "prompt_tokens_details", None)
             usage = Usage(
                 input_tokens=getattr(resp.usage, "prompt_tokens", 0) or 0,
                 output_tokens=getattr(resp.usage, "completion_tokens", 0) or 0,
+                cache_read_input_tokens=getattr(details, "cached_tokens", 0) or 0 if details else 0,
             )
         return ChatResponse(
             message=Message(role=Role.ASSISTANT, content=blocks),
@@ -240,9 +243,11 @@ class OpenAILLMClient(BaseLLMClient):
             stream = await self._client.chat.completions.create(**params)
             async for chunk in stream:
                 if chunk.usage:
+                    details = getattr(chunk.usage, "prompt_tokens_details", None)
                     usage = Usage(
                         input_tokens=chunk.usage.prompt_tokens or 0,
                         output_tokens=chunk.usage.completion_tokens or 0,
+                        cache_read_input_tokens=getattr(details, "cached_tokens", 0) or 0 if details else 0,
                     )
                 for choice in chunk.choices or []:
                     if choice.finish_reason:

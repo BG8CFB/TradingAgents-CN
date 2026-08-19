@@ -82,17 +82,11 @@ class TradingAgentsGraph:
     async def _resolve_clients(self) -> Dict[str, Any]:
         """数据库模型配置优先（providers.get_engine_clients），
         任务级 config 显式指定 provider/model/api_key 时覆盖。"""
-        from app.llm.providers import (
-            EngineClientBundle,
-            ResolvedProvider,
-            build_client,
-            get_engine_clients,
-            infer_protocol,
-        )
+        from app.llm.providers import get_engine_clients, resolve_task_override_bundle
 
         clients = await get_engine_clients()
 
-        def _override(role: str):
+        async def _override(role: str):
             model = self.config.get(f"{role}_llm")
             if not model or model == "default":
                 return
@@ -102,26 +96,23 @@ class TradingAgentsGraph:
                 self.config.get(f"{role}_backend_url")
                 or self.config.get("backend_url")
             )
-            if not api_key:
-                return  # 无凭据时沿用数据库配置
-            resolved = ResolvedProvider(
-                protocol=infer_protocol(provider),
-                model=model,
-                api_key=api_key,
-                base_url=base_url or None,
-                source="engine-config",
+            # 经 providers 解析：从数据库同模型配置继承 max_tokens 等每模型参数，
+            # 避免覆盖路径丢失 DB 参数回落 .env 默认 4096（推理模型截断空响应）
+            bundle = await resolve_task_override_bundle(
+                model, provider=provider, api_key=api_key or None, base_url=base_url or None
             )
-            # 包成 bundle 保持与其他角色同构（引擎侧按 bundle 消费参数与 fallback）
-            clients[role] = EngineClientBundle.from_client(build_client(resolved))
-            logger.info(f"[LLM初始化] {role}: {resolved.protocol}:{model} (任务配置覆盖)")
+            if bundle is None:
+                return  # 无凭据时沿用数据库配置
+            clients[role] = bundle
+            logger.info(f"[LLM初始化] {role}: {getattr(bundle, 'protocol', 'unknown')}:{model} (任务配置覆盖)")
 
-        _override("analyst")
-        _override("debate")
+        await _override("analyst")
+        await _override("debate")
         return clients
 
     # ── 主入口 ────────────────────────────────────────────────────────
 
-    def propagate(self, company_name, trade_date, progress_callback=None, task_id=None, event_sink=None):
+    def propagate(self, company_name, trade_date, progress_callback=None, task_id=None, event_sink=None, user_id=None):
         """Run the analysis pipeline for a company on a specific date."""
         from app.engine.agents.analysts.dynamic_analyst import ProgressManager
 
@@ -160,6 +151,7 @@ class TradingAgentsGraph:
                 task_id=task_id,
                 progress_callback=progress_callback,
                 event_sink=event_sink,
+                user_id=user_id,
             )
 
         try:
@@ -336,7 +328,11 @@ class TradingAgentsGraph:
             reflector = None
             try:
                 clients = asyncio.run(self._resolve_clients())
-                reflector = Reflector(clients["debate"])
+                reflector = Reflector(
+                    clients["debate"],
+                    task_id=self.curr_state.get("task_id") or "",
+                    user_id=self.curr_state.get("user_id") or "",
+                )
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"⚠️ 反思客户端初始化失败: {e}")
                 return
@@ -363,7 +359,11 @@ class TradingAgentsGraph:
         if not hasattr(self, "_signal_processor"):
             try:
                 clients = asyncio.run(self._resolve_clients())
-                self._signal_processor = SignalProcessor(clients["debate"])
+                self._signal_processor = SignalProcessor(
+                    clients["debate"],
+                    task_id=(self.curr_state or {}).get("task_id") or "",
+                    user_id=(self.curr_state or {}).get("user_id") or "",
+                )
             except Exception as e:  # noqa: BLE001
                 logger.error(f"❌ 信号处理客户端初始化失败: {e}")
                 return {

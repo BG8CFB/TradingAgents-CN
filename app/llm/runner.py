@@ -71,6 +71,7 @@ async def run_conversation(
     task_id: str = "",
     agent_key: str = "",
     phase: str = "",
+    user_id: str = "",
     event_sink: Optional[Any] = None,
     inbox: Optional[Any] = None,
 ) -> RunResult:
@@ -87,6 +88,7 @@ async def run_conversation(
         enable_skill_listing: 注入 skill 清单（渐进式披露，需 registry 中有 `skill` 工具）
         skill_dirs: skill 扫描目录（缺省 config/skills/）
         task_id / agent_key / phase / event_sink: 事件流标识与汇聚点（events.py）
+        user_id: 任务发起者（token 用量统计归属，由调用侧从 state 透传）
         inbox: AgentMessageInbox（message_queue.py）——运行中接收用户消息
         fallback_client: 限流 fallback 客户端（连续 3 次 429 触发切换，对齐
             claude-code query.ts：清本轮消息后用备模型重放整个请求；仅切换一次）
@@ -104,6 +106,20 @@ async def run_conversation(
         if event_sink is not None:
             await event_sink.emit(event_type, agent_key=agent_key, phase=phase, **payload)
 
+    def record_usage(c: BaseLLMClient, resp: ChatResponse) -> None:
+        """token 用量落库（fire-and-forget，recorder 自吞错）"""
+        from app.services.token_usage_recorder import token_usage_recorder
+
+        token_usage_recorder.record(
+            provider=getattr(c, "protocol", "unknown"),
+            model_name=getattr(resp, "model", "") or getattr(c, "model", ""),
+            usage=resp.usage,
+            task_id=task_id,
+            user_id=user_id,
+            agent_key=agent_key,
+            phase=phase,
+        )
+
     messages = history if history is not None else []
     messages.append(Message(role=Role.USER, content=user_message))
 
@@ -119,6 +135,7 @@ async def run_conversation(
     result = RunResult(messages=messages)
     turns = 0
     output_recovery_count = 0  # 截断恢复计数
+    truncated_text_parts: List[str] = []  # 各截断轮已生成文本（耗尽时拼接降级输出）
     escalated_max_tokens: Optional[int] = None  # 截断恢复时升级的输出上限
     reacted_too_long = False  # reactive compact 已触发标记
     active_client = client  # 限流 fallback 时切换（仅一次）
@@ -201,11 +218,15 @@ async def run_conversation(
 
         messages.append(resp.message)
         result.total_tokens += resp.usage.total
+        record_usage(active_client, resp)
         await emit(
             "llm_response",
             stop_reason=resp.stop_reason.value,
             input_tokens=resp.usage.input_tokens,
             output_tokens=resp.usage.output_tokens,
+            cache_creation_input_tokens=resp.usage.cache_creation_input_tokens,
+            cache_read_input_tokens=resp.usage.cache_read_input_tokens,
+            model=getattr(resp, "model", ""),
         )
 
         # usage 校准 token 计数
@@ -213,8 +234,13 @@ async def run_conversation(
 
         # ── max_output_tokens 截断恢复（对齐 claude-code 两级恢复）──
         if resp.stop_reason.value == "max_tokens":
-            if escalated_max_tokens is None and (max_tokens or 0) and (max_tokens or 0) <= 8_192:
-                escalated_max_tokens = ESCALATED_MAX_TOKENS  # ① 升级输出上限重发
+            truncated_text_parts.append(resp.text())
+            # ① 升级输出上限重发（max_tokens 未配置时同样适用——
+            #    否则回落客户端默认上限且永远无法升级，推理模型必然耗尽）
+            if escalated_max_tokens is None and (
+                max_tokens is None or (max_tokens or 0) <= 8_192
+            ):
+                escalated_max_tokens = ESCALATED_MAX_TOKENS
                 logger.warning(f"⚠️ [runner] 输出截断，升级 max_tokens → {ESCALATED_MAX_TOKENS} 重发")
                 messages.pop()  # 本轮截断响应不保留
                 continue
@@ -226,7 +252,8 @@ async def run_conversation(
                 messages.append(Message(role=Role.USER, content=RECOVERY_INSTRUCTION))
                 continue
             logger.error("❌ [runner] 截断恢复耗尽，保留截断结果继续")
-            result.final_text = resp.text()
+            # 拼接各截断轮已生成文本（此前只取最后一轮，前几轮内容被整体丢弃）
+            result.final_text = "".join(truncated_text_parts).strip() or resp.text()
             result.stop_reason = resp.stop_reason.value
             break
 

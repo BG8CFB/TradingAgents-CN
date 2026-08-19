@@ -12,9 +12,11 @@ logger = get_logger("default")
 class Reflector:
     """Handles reflection on decisions and updating memory."""
 
-    def __init__(self, llm):
-        """Initialize the reflector with an LLM."""
+    def __init__(self, llm, task_id: str = "", user_id: str = ""):
+        """Initialize the reflector with an LLM (task 上下文用于 token 用量归属)."""
         self.llm = llm
+        self.task_id = task_id
+        self.user_id = user_id
         self.reflection_system_prompt = self._get_reflection_prompt()
         self._cached_situation = ""
         self._situation_hash = None
@@ -73,7 +75,14 @@ class Reflector:
         )
 
         try:
-            return sync_chat(self.llm, user_prompt, system=self.reflection_system_prompt)
+            return sync_chat(
+                self.llm, user_prompt,
+                system=self.reflection_system_prompt,
+                agent_key=f"reflection_{component_type}",
+                phase="reflection",
+                task_id=self.task_id,
+                user_id=self.user_id,
+            )
         except Exception as e:
             logger.error(f"反思组件 [{component_type}] 失败: {e}")
             return ""

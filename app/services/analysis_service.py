@@ -1424,6 +1424,7 @@ class AnalysisService:
                     progress_callback=graph_progress_callback,
                     task_id=task_id,
                     event_sink=event_sink,
+                    user_id=user_id,
                 )
             finally:
                 release_event_sink(task_id, server_loop=server_loop)
@@ -2169,6 +2170,39 @@ class AnalysisService:
             tokens_used = result.get("tokens_used") or result.get(
                 "token_usage", {}
             ).get("total_tokens", 0)
+            # token 用量回填：从 token_usage 集合按任务聚合（per-call 记录的权威汇总）
+            token_usage_detail = {}
+            try:
+                usage_rows = await db.token_usage.aggregate(
+                    [
+                        {"$match": {"task_id": task_id}},
+                        {
+                            "$group": {
+                                "_id": None,
+                                "input_tokens": {"$sum": {"$ifNull": ["$input_tokens", 0]}},
+                                "output_tokens": {"$sum": {"$ifNull": ["$output_tokens", 0]}},
+                                "cache_read_tokens": {"$sum": {"$ifNull": ["$cache_read_input_tokens", 0]}},
+                                "cache_creation_tokens": {"$sum": {"$ifNull": ["$cache_creation_input_tokens", 0]}},
+                                "cost": {"$sum": {"$ifNull": ["$cost", 0.0]}},
+                            }
+                        },
+                    ]
+                ).to_list(length=1)
+                if usage_rows:
+                    row = usage_rows[0]
+                    token_usage_detail = {
+                        "input_tokens": row.get("input_tokens", 0),
+                        "output_tokens": row.get("output_tokens", 0),
+                        "cache_read_tokens": row.get("cache_read_tokens", 0),
+                        "cache_creation_tokens": row.get("cache_creation_tokens", 0),
+                        "cost": row.get("cost", 0.0),
+                    }
+                    tokens_used = (
+                        token_usage_detail["input_tokens"]
+                        + token_usage_detail["output_tokens"]
+                    )
+            except Exception as usage_err:  # noqa: BLE001 - 统计回填失败不阻断保存
+                logger.warning(f"⚠️ token 用量回填失败 task={task_id}: {usage_err}")
             execution_time = result.get("execution_time", 0)
             structured_summary = result.get("structured_summary") or {}
             market_type = (
@@ -2198,6 +2232,7 @@ class AnalysisService:
                 "analysts": analysts,
                 "model_info": model_info,
                 "tokens_used": tokens_used,
+                "token_usage_detail": token_usage_detail,
                 "execution_time": execution_time,
                 "source": result.get("source", "analysis_service"),
             }

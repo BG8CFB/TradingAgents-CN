@@ -46,6 +46,10 @@ def make_dispatch_agent_tool(
     registry: ToolRegistry,
     *,
     max_turns: int = 12,
+    task_id: str = "",
+    agent_key: str = "",
+    phase: str = "",
+    user_id: str = "",
 ) -> ToolDef:
     """构造 dispatch_agent 工具。
 
@@ -53,6 +57,8 @@ def make_dispatch_agent_tool(
         client: 父对话使用的协议客户端（子代理复用同一客户端/模型）
         registry: 父对话的工具注册表，子代理按 tools 参数从中取子集
         max_turns: 子代理默认轮数上限
+        task_id / agent_key / phase / user_id: token 用量统计上下文（透传给
+            run_conversation；agent_key 会带上 .sub.{agent_id} 后缀区分父子）
     """
 
     async def _dispatch(
@@ -80,6 +86,10 @@ def make_dispatch_agent_tool(
             registry=sub_registry,
             tools=subset_defs,
             max_turns=max_turns_ or max_turns,
+            task_id=task_id,
+            agent_key=f"{agent_key}.sub.{agent_id}" if agent_key else agent_id,
+            phase=phase,
+            user_id=user_id,
         )
         duration_ms = int((time.monotonic() - start) * 1000)
         total_tokens = result.total_tokens

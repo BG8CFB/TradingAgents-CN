@@ -65,9 +65,11 @@ _PRICE_PATTERNS = [
 class SignalProcessor:
     """Processes trading signals to extract actionable decisions."""
 
-    def __init__(self, llm):
-        """Initialize with an LLM for processing."""
+    def __init__(self, llm, task_id: str = "", user_id: str = ""):
+        """Initialize with an LLM (task 上下文用于 token 用量归属)."""
         self.llm = llm
+        self.task_id = task_id
+        self.user_id = user_id
 
     @log_graph_module("signal_processing")
     def process_signal(self, full_signal: str, stock_symbol: str = None) -> dict:
@@ -149,7 +151,14 @@ class SignalProcessor:
         logger.debug(f"🔍 [SignalProcessor] 准备调用LLM，信号长度: {len(full_signal)}")
 
         try:
-            response = sync_chat(self.llm, human_content, system=system_prompt)
+            response = sync_chat(
+                self.llm, human_content,
+                system=system_prompt,
+                agent_key="signal_processor",
+                phase="signal_processing",
+                task_id=self.task_id,
+                user_id=self.user_id,
+            )
             logger.debug(f"🔍 [SignalProcessor] LLM响应: {response[:200]}...")
 
             # 提取JSON部分

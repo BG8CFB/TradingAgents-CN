@@ -235,7 +235,7 @@ class TestResolveApiAgainstDataApiMagic:
                 self.called = ("hk_basic", kwargs)
                 return pd.DataFrame([{"ts_code": "00700.HK"}])
 
-        from app.data.sources.tushare_common.caller import _resolve_api, call_tushare
+        from app.data.sources.tushare_common.caller import call_tushare
 
         api = _RecordingApi()
         df = await call_tushare(api, "hk_basic", "tushare_hk", "basic_info", "test")

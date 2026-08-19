@@ -4,7 +4,7 @@
 
 主要组件:
     - agents: AI Agent 实现，包括各种专业分析角色
-    - config: 配置管理模块（数据模型 + token_tracker）
+    - config: 配置管理模块（数据模型）
     - orchestrator: 手写保序编排（替代 LangGraph）
     - tools: 工具集（builtin 工具 + MCP 配置管理面）
     - utils: 引擎内部工具函数
@@ -18,7 +18,7 @@ LLM 调用统一走新层 app/llm（双协议直连官方 SDK，工具注册/压
         - tradingagents.tools.mcp → app.engine.tools.mcp
 
 使用示例:
-    from app.engine.config import token_tracker, ModelConfig
+    from app.engine.config import ModelConfig
 
 版本: 2.0.0
 """

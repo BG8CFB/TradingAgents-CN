@@ -213,6 +213,7 @@ async def run_analyst(
             task_id=task_id,
             agent_key=agent_key,
             phase="analysts",
+            user_id=state.get("user_id") or "",
             event_sink=event_sink,
             inbox=AgentMessageInbox(task_id, agent_key),
             enable_skill_listing=spec.enable_skill_listing,

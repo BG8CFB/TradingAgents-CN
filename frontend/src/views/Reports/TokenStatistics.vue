@@ -202,9 +202,12 @@
           </template>
         </el-table-column>
         <el-table-column prop="model" label="模型" width="150" />
-        <el-table-column prop="stock_symbol" label="股票代码" width="100" />
+        <el-table-column prop="agent_key" label="智能体" width="150" show-overflow-tooltip />
+        <el-table-column prop="phase" label="阶段" width="100" />
+        <el-table-column prop="task_id" label="任务ID" min-width="160" show-overflow-tooltip />
         <el-table-column prop="prompt_tokens" label="输入Token" width="100" sortable />
         <el-table-column prop="completion_tokens" label="输出Token" width="100" sortable />
+        <el-table-column prop="cache_read" label="缓存命中" width="100" sortable />
         <el-table-column prop="total_tokens" label="总Token" width="100" sortable />
         <el-table-column prop="cost" label="成本(¥)" width="100" sortable>
           <template #default="{ row }">
@@ -431,9 +434,12 @@ const loadRecords = async () => {
         timestamp: r.timestamp ?? r.created_at,
         provider: r.provider,
         model: r.model_name ?? r.model,
-        stock_symbol: r.session_id ?? r.analysis_type ?? '-',
+        agent_key: r.agent_key ?? '-',
+        phase: r.phase ?? '-',
+        task_id: r.task_id ?? '',
         prompt_tokens: r.input_tokens ?? 0,
         completion_tokens: r.output_tokens ?? 0,
+        cache_read: r.cache_read_input_tokens ?? 0,
         total_tokens: (r.input_tokens ?? 0) + (r.output_tokens ?? 0),
         cost: r.cost ?? 0,
         duration: r.duration_ms ?? r.duration ?? 0
@@ -563,7 +569,8 @@ const filterRecords = () => {
   } else {
     const keyword = searchKeyword.value.toLowerCase()
     filteredRecords.value = records.value.filter(record =>
-      (record.stock_symbol ?? '').toLowerCase().includes(keyword) ||
+      (record.task_id ?? '').toLowerCase().includes(keyword) ||
+      (record.agent_key ?? '').toLowerCase().includes(keyword) ||
       (record.model ?? '').toLowerCase().includes(keyword)
     )
   }

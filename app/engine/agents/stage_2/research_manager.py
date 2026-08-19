@@ -113,7 +113,14 @@ def create_research_manager(llm, memory):
             logger.info("👔 [Research Manager] 开始生成最终裁决报告...")
 
             # 4. 执行推理（新层客户端，带重试）
-            final_content = await llm_chat(llm, messages, system=system)
+            final_content = await llm_chat(
+                llm, messages,
+                system=system,
+                task_id=state.get("task_id") or "",
+                agent_key="research_manager",
+                phase="research",
+                user_id=state.get("user_id") or "",
+            )
 
             # H-2: 空响应降级 — LLM 返回空内容时使用占位文本
             if not final_content.strip():

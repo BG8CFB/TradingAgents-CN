@@ -22,6 +22,7 @@ async def get_usage_records(
     model_name: Optional[str] = Query(None, description="模型名称"),
     start_date: Optional[str] = Query(None, description="开始日期(ISO格式)"),
     end_date: Optional[str] = Query(None, description="结束日期(ISO格式)"),
+    task_id: Optional[str] = Query(None, description="按任务ID过滤"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     current_user: dict = Depends(get_current_user)
 ) -> Dict[str, Any]:
@@ -42,6 +43,7 @@ async def get_usage_records(
             end_date=end_dt,
             limit=limit,
             user_id=user_id_filter,
+            task_id=task_id,
         )
 
         return {
@@ -137,6 +139,36 @@ async def get_daily_cost(
     except Exception as e:
         logger.error(f"获取每日成本失败: {e}")
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取每日成本失败"))
+
+
+@router.get("/tasks/{task_id}", summary="获取单任务 token 用量明细")
+async def get_task_usage(
+    task_id: str,
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """按任务聚合 token 用量（总览 + 按 agent/phase 分摊明细）。
+
+    admin 可查任意任务；普通用户仅可查自己的任务（越权返回 403）。
+    """
+    try:
+        usage = await usage_statistics_service.get_task_usage(task_id)
+
+        # 越权校验：默认拒绝——owner 为空（任务不存在/无归属/查询降级）时同样仅 admin 可查
+        owner_user_id = usage.get("owner_user_id", "")
+        is_admin = bool(current_user.get("is_admin"))
+        if not is_admin and owner_user_id != str(current_user.get("id", "")):
+            raise HTTPException(status_code=403, detail="无权访问该任务的用量数据")
+
+        return {
+            "success": True,
+            "message": "获取任务用量成功",
+            "data": usage
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取任务用量失败: {e}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务用量失败"))
 
 
 @router.delete("/records/old", summary="删除旧记录")

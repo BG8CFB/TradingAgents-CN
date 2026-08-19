@@ -87,6 +87,11 @@ class Usage:
 
     input_tokens: int = 0
     output_tokens: int = 0
+    # 缓存 token（API 回传，网关不回传时为 0）：
+    # - Anthropic: cache_creation_input_tokens（写缓存）/ cache_read_input_tokens（读缓存）
+    # - OpenAI: prompt_tokens_details.cached_tokens → 映射到 cache_read_input_tokens
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
     @property
     def total(self) -> int:

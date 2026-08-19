@@ -6,7 +6,7 @@
 
 import logging
 from datetime import datetime, timedelta
-from app.utils.timezone import now_utc, now_config_tz
+from app.utils.timezone import now_utc
 from typing import List, Dict, Optional
 
 from app.core.database import get_mongo_db
@@ -45,11 +45,13 @@ class UsageStatisticsService:
         end_date: Optional[datetime] = None,
         limit: int = 100,
         user_id: Optional[str] = None,
+        task_id: Optional[str] = None,
     ) -> List[UsageRecord]:
         """获取使用记录。
 
         当 user_id 提供时，仅返回该用户的记录（普通用户访问）。
         当 user_id 为 None 时，返回所有记录（admin 访问）。
+        task_id 可选：按任务过滤。
         """
         try:
             db = get_mongo_db()
@@ -63,6 +65,8 @@ class UsageStatisticsService:
                 query["model_name"] = model_name
             if user_id:
                 query["user_id"] = user_id
+            if task_id:
+                query["task_id"] = task_id
             if start_date or end_date:
                 query["timestamp"] = {}
                 if start_date:
@@ -126,6 +130,12 @@ class UsageStatisticsService:
                                     },
                                     "output_tokens": {
                                         "$sum": {"$ifNull": ["$output_tokens", 0]}
+                                    },
+                                    "cache_read_input_tokens": {
+                                        "$sum": {"$ifNull": ["$cache_read_input_tokens", 0]}
+                                    },
+                                    "cache_creation_input_tokens": {
+                                        "$sum": {"$ifNull": ["$cache_creation_input_tokens", 0]}
                                     },
                                     "cost": {"$sum": {"$ifNull": ["$cost", 0.0]}},
                                 }
@@ -198,6 +208,53 @@ class UsageStatisticsService:
                                 }
                             },
                         ],
+                        "by_task": [
+                            {
+                                "$match": {"task_id": {"$nin": ["", None]}}
+                            },
+                            {
+                                "$group": {
+                                    "_id": {
+                                        "task_id": "$task_id",
+                                        "currency": {"$ifNull": ["$currency", "CNY"]},
+                                    },
+                                    "requests": {"$sum": 1},
+                                    "input_tokens": {"$sum": {"$ifNull": ["$input_tokens", 0]}},
+                                    "output_tokens": {"$sum": {"$ifNull": ["$output_tokens", 0]}},
+                                    "cache_read_input_tokens": {
+                                        "$sum": {"$ifNull": ["$cache_read_input_tokens", 0]}
+                                    },
+                                    "cost": {"$sum": {"$ifNull": ["$cost", 0.0]}},
+                                    "last_ts": {"$max": {"$ifNull": ["$timestamp", ""]}},
+                                }
+                            },
+                            {"$sort": {"last_ts": -1}},
+                            {"$limit": 200},
+                        ],
+                        "by_agent": [
+                            {
+                                "$group": {
+                                    "_id": {
+                                        # 空/缺失 agent_key 归为 (unattributed)
+                                        "agent_key": {
+                                            "$cond": [
+                                                {"$in": [{"$ifNull": ["$agent_key", ""]}, ["", None]]},
+                                                "(unattributed)",
+                                                "$agent_key",
+                                            ]
+                                        },
+                                        "currency": {"$ifNull": ["$currency", "CNY"]},
+                                    },
+                                    "requests": {"$sum": 1},
+                                    "input_tokens": {"$sum": {"$ifNull": ["$input_tokens", 0]}},
+                                    "output_tokens": {"$sum": {"$ifNull": ["$output_tokens", 0]}},
+                                    "cache_read_input_tokens": {
+                                        "$sum": {"$ifNull": ["$cache_read_input_tokens", 0]}
+                                    },
+                                    "cost": {"$sum": {"$ifNull": ["$cost", 0.0]}},
+                                }
+                            },
+                        ],
                     }
                 },
             ]
@@ -215,6 +272,12 @@ class UsageStatisticsService:
             )
             stats.total_output_tokens = sum(
                 doc.get("output_tokens", 0) for doc in facet.get("overall", [])
+            )
+            stats.total_cache_read_tokens = sum(
+                doc.get("cache_read_input_tokens", 0) for doc in facet.get("overall", [])
+            )
+            stats.total_cache_creation_tokens = sum(
+                doc.get("cache_creation_input_tokens", 0) for doc in facet.get("overall", [])
             )
             stats.total_cost = sum(
                 doc.get("cost", 0.0) for doc in facet.get("overall", [])
@@ -302,11 +365,130 @@ class UsageStatisticsService:
                 )
             stats.by_date = by_date
 
+            # 按任务聚合（top 200，按最近活动排序）
+            by_task: Dict[str, Dict] = {}
+            for doc in facet.get("by_task", []):
+                key = doc["_id"]["task_id"]
+                currency = doc["_id"].get("currency", "CNY")
+                entry = by_task.setdefault(
+                    key,
+                    {
+                        "requests": 0,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "cache_read_tokens": 0,
+                        "cost": 0.0,
+                        "cost_by_currency": {},
+                        "last_timestamp": doc.get("last_ts", ""),
+                    },
+                )
+                entry["requests"] += doc.get("requests", 0)
+                entry["input_tokens"] += doc.get("input_tokens", 0)
+                entry["output_tokens"] += doc.get("output_tokens", 0)
+                entry["cache_read_tokens"] += doc.get("cache_read_input_tokens", 0)
+                cost = doc.get("cost", 0.0)
+                entry["cost"] += cost
+                entry["cost_by_currency"][currency] = (
+                    entry["cost_by_currency"].get(currency, 0.0) + cost
+                )
+            stats.by_task = by_task
+
+            # 按智能体聚合
+            by_agent: Dict[str, Dict] = {}
+            for doc in facet.get("by_agent", []):
+                key = doc["_id"]["agent_key"]
+                currency = doc["_id"].get("currency", "CNY")
+                entry = by_agent.setdefault(
+                    key,
+                    {
+                        "requests": 0,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "cache_read_tokens": 0,
+                        "cost": 0.0,
+                        "cost_by_currency": {},
+                    },
+                )
+                entry["requests"] += doc.get("requests", 0)
+                entry["input_tokens"] += doc.get("input_tokens", 0)
+                entry["output_tokens"] += doc.get("output_tokens", 0)
+                entry["cache_read_tokens"] += doc.get("cache_read_input_tokens", 0)
+                cost = doc.get("cost", 0.0)
+                entry["cost"] += cost
+                entry["cost_by_currency"][currency] = (
+                    entry["cost_by_currency"].get(currency, 0.0) + cost
+                )
+            stats.by_agent = by_agent
+
             logger.info(f"✅ 获取使用统计成功: {stats.total_requests} 条记录")
             return stats
         except Exception as e:
             logger.error(f"❌ 获取使用统计失败: {e}")
             return UsageStatistics()
+
+    async def get_task_usage(self, task_id: str) -> Dict:
+        """按任务聚合 token 用量（总览 + 按 agent_key/phase 分摊明细）。
+
+        Returns:
+            Dict: {task_id, owner_user_id, totals: {...}, by_agent: [...], by_phase: [...]}
+        """
+        result: Dict = {"task_id": task_id, "owner_user_id": "", "totals": {}, "by_agent": [], "by_phase": []}
+        try:
+            db = get_mongo_db()
+            collection = db[self.collection_name]
+
+            # 任务归属（analysis_tasks 存有 user_id，供路由层做越权校验）
+            task_doc = await db["analysis_tasks"].find_one(
+                {"task_id": task_id}, {"user_id": 1}
+            )
+            if task_doc:
+                result["owner_user_id"] = str(task_doc.get("user_id") or "")
+
+            group_fields = {
+                "requests": {"$sum": 1},
+                "input_tokens": {"$sum": {"$ifNull": ["$input_tokens", 0]}},
+                "output_tokens": {"$sum": {"$ifNull": ["$output_tokens", 0]}},
+                "cache_read_tokens": {"$sum": {"$ifNull": ["$cache_read_input_tokens", 0]}},
+                "cache_creation_tokens": {"$sum": {"$ifNull": ["$cache_creation_input_tokens", 0]}},
+                "cost": {"$sum": {"$ifNull": ["$cost", 0.0]}},
+            }
+            pipeline = [
+                {"$match": {"task_id": task_id}},
+                {
+                    "$facet": {
+                        "totals": [{"$group": {"_id": None, **group_fields}}],
+                        "by_agent": [
+                            {"$group": {"_id": "$agent_key", **group_fields}},
+                            {"$sort": {"input_tokens": -1}},
+                        ],
+                        "by_phase": [
+                            {"$group": {"_id": "$phase", **group_fields}},
+                            {"$sort": {"input_tokens": -1}},
+                        ],
+                    }
+                },
+            ]
+            facet_result = await collection.aggregate(pipeline).to_list(length=1)
+            facet = facet_result[0] if facet_result else {}
+
+            totals = (facet.get("totals") or [{}])[0]
+            totals.pop("_id", None)
+            result["totals"] = totals
+
+            def _rows(facet_rows, key_name: str):
+                out = []
+                for r in facet_rows or []:
+                    r = dict(r)
+                    r[key_name] = r.pop("_id", "")
+                    out.append(r)
+                return out
+
+            result["by_agent"] = _rows(facet.get("by_agent"), "agent_key")
+            result["by_phase"] = _rows(facet.get("by_phase"), "phase")
+            return result
+        except Exception as e:
+            logger.error(f"❌ 获取任务用量失败: {e}")
+            return result
 
     async def get_cost_by_provider(self, days: int = 7) -> Dict[str, float]:
         """获取按供应商的成本统计"""
@@ -348,172 +530,3 @@ class UsageStatisticsService:
 # 创建全局实例
 usage_statistics_service = UsageStatisticsService()
 
-
-# ==================== 同步 Token 跟踪器 ====================
-# 供 LLM 适配器使用的同步 token 跟踪器
-# 从 app.engine.config.config_manager.TokenTracker 迁移而来
-
-import json  # noqa: E402 (intentional late import)
-from pathlib import Path  # noqa: E402 (intentional late import)
-from dataclasses import asdict  # noqa: E402 (intentional late import)
-
-
-class SyncTokenTracker:
-    """同步 Token 使用跟踪器（供 LLM 适配器使用）"""
-
-    def __init__(self):
-        self._pricing_cache: list = []
-        self._pricing_loaded = False
-
-    def _load_pricing(self) -> list:
-        """加载定价配置"""
-        if self._pricing_loaded:
-            return self._pricing_cache
-        try:
-            pricing_file = Path("config/pricing.json")
-            if pricing_file.exists():
-                with open(pricing_file, "r", encoding="utf-8") as f:
-                    self._pricing_cache = json.load(f)
-            self._pricing_loaded = True
-        except Exception as e:
-            logger.warning(f"加载定价配置失败: {e}")
-        return self._pricing_cache
-
-    def calculate_cost(
-        self, provider: str, model_name: str, input_tokens: int, output_tokens: int
-    ) -> tuple:
-        """
-        计算使用成本
-
-        Returns:
-            tuple[float, str]: (成本, 货币单位)
-        """
-        pricing_configs = self._load_pricing()
-
-        for pricing in pricing_configs:
-            p = (
-                pricing.get("provider", "")
-                if isinstance(pricing, dict)
-                else getattr(pricing, "provider", "")
-            )
-            m = (
-                pricing.get("model_name", "")
-                if isinstance(pricing, dict)
-                else getattr(pricing, "model_name", "")
-            )
-            if p == provider and m == model_name:
-                inp = (
-                    pricing.get("input_price_per_1k", 0)
-                    if isinstance(pricing, dict)
-                    else getattr(pricing, "input_price_per_1k", 0)
-                )
-                out = (
-                    pricing.get("output_price_per_1k", 0)
-                    if isinstance(pricing, dict)
-                    else getattr(pricing, "output_price_per_1k", 0)
-                )
-                cur = (
-                    pricing.get("currency", "CNY")
-                    if isinstance(pricing, dict)
-                    else getattr(pricing, "currency", "CNY")
-                )
-                total = (input_tokens / 1000) * inp + (output_tokens / 1000) * out
-                return round(total, 6), cur
-
-        return 0.0, "CNY"
-
-    def track_usage(
-        self,
-        provider: str,
-        model_name: str,
-        input_tokens: int,
-        output_tokens: int,
-        session_id: str = None,
-        analysis_type: str = "stock_analysis",
-    ):
-        """
-        跟踪 Token 使用量并保存到 MongoDB
-
-        Returns:
-            UsageRecord or dict: 使用记录
-        """
-        if session_id is None:
-            session_id = f"session_{now_config_tz().strftime('%Y%m%d_%H%M%S')}"
-
-        # 计算成本
-        cost, currency = self.calculate_cost(
-            provider, model_name, input_tokens, output_tokens
-        )
-
-        # 尝试同步写入 MongoDB
-        try:
-            from app.core.database import get_mongo_db_sync
-
-            db = get_mongo_db_sync()
-            if db is not None:
-                record_doc = {
-                    "timestamp": now_config_tz().isoformat(),
-                    "provider": provider,
-                    "model_name": model_name,
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "cost": cost,
-                    "currency": currency,
-                    "session_id": session_id,
-                    "analysis_type": analysis_type,
-                }
-                result = db["token_usage"].insert_one(record_doc)
-                # 确认 result 不是 coroutine（PyMongo 同步客户端应返回 InsertOneResult）
-                if hasattr(result, "__await__"):
-                    logger.warning(
-                        "get_mongo_db_sync() 返回了 Motor 异步数据库，跳过同步写入"
-                    )
-                logger.info(
-                    f"💾 [Token记录] MongoDB保存成功: {provider}/{model_name}, 成本={cost:.6f}"
-                )
-                # 返回一个简单的类 dict 对象兼容旧的 UsageRecord 接口
-                record_doc["cost"] = cost
-                return _SimpleRecord(**record_doc)
-        except Exception as e:
-            logger.warning(f"⚠️ [Token记录] MongoDB保存失败，回退到JSON: {e}")
-
-        # 回退到 JSON 文件存储
-        try:
-            from app.engine.config.usage_models import UsageRecord
-
-            record = UsageRecord(
-                timestamp=now_config_tz().isoformat(),
-                provider=provider,
-                model_name=model_name,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cost=cost,
-                currency=currency,
-                session_id=session_id,
-                analysis_type=analysis_type,
-            )
-            usage_file = Path("config/usage.json")
-            records = []
-            if usage_file.exists():
-                with open(usage_file, "r", encoding="utf-8") as f:
-                    records = json.load(f)
-            records.append(asdict(record))
-            with open(usage_file, "w", encoding="utf-8") as f:
-                json.dump(records[-10000:], f, ensure_ascii=False, indent=2)
-            logger.info(f"💾 [Token记录] JSON文件保存成功: {provider}/{model_name}")
-            return record
-        except Exception as e:
-            logger.error(f"❌ [Token记录] 保存失败: {e}")
-            return None
-
-
-class _SimpleRecord:
-    """简单的记录对象，兼容旧 UsageRecord 的属性访问"""
-
-    def __init__(self, **kwargs):
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-
-
-# 全局同步 token_tracker 实例
-token_tracker = SyncTokenTracker()
