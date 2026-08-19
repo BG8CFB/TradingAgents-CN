@@ -45,9 +45,11 @@ def create_research_manager(llm, memory):
             except Exception as e:
                 logger.warning(f"⚠️ 无法从配置文件加载报告显示名称: {e}")
 
-            # 2. 获取累积的辩论报告 (Markdown)
-            bull_report = investment_debate_state.get("bull_report_content", "（无看涨报告）")
-            bear_report = investment_debate_state.get("bear_report_content", "（无看跌报告）")
+            # 2. 获取累积的辩论报告（rounds 单一数据源，派生视图读取）
+            from app.engine.orchestrator.state import investment_report_content
+
+            bull_report = investment_report_content(investment_debate_state, "bull") or "（无看涨报告）"
+            bear_report = investment_report_content(investment_debate_state, "bear") or "（无看跌报告）"
 
             # 3. 获取股票信息
             ticker = state.get('company_of_interest', 'Unknown')
@@ -145,16 +147,10 @@ def create_research_manager(llm, memory):
             except Exception as e:
                 logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")
 
-            # 6. 更新状态
+            # 6. 更新状态（canonical：仅裁决结论，其余键由 export_legacy_state 派生）
             new_investment_debate_state = dict(investment_debate_state)
             new_investment_debate_state.update({
                 "judge_decision": final_content,
-                "current_response": final_content,
-                "count": investment_debate_state.get("count", 0),
-                "rounds": investment_debate_state.get("rounds", []),
-                "bull_report_content": bull_report,
-                "bear_report_content": bear_report,
-                "current_round_index": investment_debate_state.get("current_round_index", 0),
             })
 
             return {
@@ -178,7 +174,6 @@ def create_research_manager(llm, memory):
             new_investment_debate_state = dict(investment_debate_state)
             new_investment_debate_state.update({
                 "judge_decision": fallback_content,
-                "current_response": fallback_content,
             })
             return {
                 "investment_debate_state": new_investment_debate_state,

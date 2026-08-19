@@ -162,8 +162,10 @@ def create_summary_agent(llm):
         trader_plan = state.get("trader_investment_plan", "")
         final_decision = state.get("final_trade_decision", "")
 
-        # 辩论历史
-        risk_debate_history = state.get("risk_debate_state", {}).get("history", "")
+        # 辩论历史（canonical state 无 history 存储，经派生视图读取；旧形状透传）
+        from app.engine.orchestrator.state import risk_history
+
+        risk_debate_history = risk_history(state.get("risk_debate_state"))
 
         # 其他动态报告（剔除核心 4 个避免重复）
         other_reports = {

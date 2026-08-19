@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from app.utils.logging_init import get_logger
 
-from .state import create_initial_state
+from .state import create_initial_state, export_legacy_state
 
 logger = get_logger("orchestrator.pipeline")
 
@@ -46,7 +46,7 @@ def _format_analyst_node(internal_key: str) -> str:
 
 
 def _merge_state_update(target: Dict[str, Any], update: Dict[str, Any]) -> None:
-    """顺序合并节点增量（reports 字典合并、messages 追加，其余覆盖）"""
+    """顺序合并节点增量（reports 字典合并、messages 追加、errors 追加，其余覆盖）"""
     if not update:
         return
     if "reports" in update and isinstance(update["reports"], dict):
@@ -58,6 +58,18 @@ def _merge_state_update(target: Dict[str, Any], update: Dict[str, Any]) -> None:
         if k in ("reports", "messages"):
             continue
         target[k] = v
+
+
+def _record_error(st: Dict[str, Any], node_name: str, error: str, start: float, *, retried: bool) -> None:
+    """节点失败落 state["errors"]（不静默吞掉，供前端/回放展示）"""
+    st.setdefault("errors", []).append({
+        "node": node_name,
+        "phase": st.get("_phase", ""),
+        "error": error,
+        "ts": time.time(),
+        "duration_ms": int((time.time() - start) * 1000),
+        "retried": retried,
+    })
 
 
 async def run_pipeline(
@@ -118,13 +130,16 @@ async def run_pipeline(
     node_timings: Dict[str, float] = {}
 
     async def _run_node(
-        node_name: str, node_fn, st: Dict[str, Any], event_key: str = "", display_name: str = ""
+        node_name: str, node_fn, st: Dict[str, Any], event_key: str = "", display_name: str = "",
+        critical: bool = False,
     ) -> None:
-        """执行单个节点：计时 + 事件 + 增量合并
+        """执行单个节点：计时 + 事件 + 失败记录/重试 + 增量合并
 
         event_key：事件流的 agent_key（用户消息门禁/面板 tab 依据）。
         分析师必须传 internal_key（与 run_conversation 内事件同键），其余阶段默认用 node_name。
         display_name：面板展示名（缺省用 node_name）。
+        critical：关键节点（Trader/Judge/Manager/Summary）失败自动重试 1 次；
+        重试仍失败则记录 errors 并上抛（不再静默吞掉，Summary 终败即整体失败）。
         """
         key = event_key or node_name
         start = time.time()
@@ -135,10 +150,20 @@ async def run_pipeline(
                 name=display_name or node_name,
             )
         try:
-            update = await node_fn(st)
-        except Exception as e:  # noqa: BLE001 - 节点异常降级（节点内部已有降级，此处兜底）
-            logger.error(f"❌ [orchestrator] 节点 {node_name} 异常: {e}", exc_info=True)
-            update = {}
+            try:
+                update = await node_fn(st)
+            except Exception as e:  # noqa: BLE001 - 节点异常：先记录再决定重试/上抛
+                logger.error(f"❌ [orchestrator] 节点 {node_name} 异常: {e}", exc_info=True)
+                if not critical:
+                    _record_error(st, node_name, str(e), start, retried=False)
+                    update = {}
+                else:
+                    logger.warning(f"🔁 [orchestrator] 关键节点 {node_name} 失败，重试 1 次")
+                    try:
+                        update = await node_fn(st)
+                    except Exception as e2:  # 重试仍失败 → 记录后上抛（不再静默吞掉）
+                        _record_error(st, node_name, str(e2), start, retried=True)
+                        raise
         finally:
             elapsed = time.time() - start
             node_timings[node_name] = elapsed
@@ -191,14 +216,14 @@ async def run_pipeline(
                 for _round in range(max_debate_rounds + 1):
                     await _run_node("Bull Researcher", bull_node, state)
                     await _run_node("Bear Researcher", bear_node, state)
-                await _run_node("Research Manager", research_manager, state)
+                await _run_node("Research Manager", research_manager, state, critical=True)
 
             # ── Trader（恒执行）──────────────────────────────────────
             state["_phase"] = "trader"
             from app.engine.agents.stage_2.trader import create_trader
 
             trader_node = create_trader(deps.debate_client, deps.trader_memory)
-            await _run_node("Trader", trader_node, state)
+            await _run_node("Trader", trader_node, state, critical=True)
 
             # ── Phase 3：风险辩论（固定 Risky→Safe→Neutral 循环）+ 裁决
             if phase3_enabled:
@@ -219,14 +244,15 @@ async def run_pipeline(
                 for _round in range(max_risk_rounds + 1):
                     for node_name in ("Risky Analyst", "Safe Analyst", "Neutral Analyst"):
                         await _run_node(node_name, debators[node_name], state)
-                await _run_node("Risk Judge", risk_manager, state)
+                await _run_node("Risk Judge", risk_manager, state, critical=True)
 
             # ── Summary（恒执行）─────────────────────────────────────
             state["_phase"] = "summary"
             from app.engine.agents.stage_4.summary_agent import create_summary_agent
 
             summary_node = create_summary_agent(deps.debate_client)
-            await _run_node("Summary Agent", summary_node, state)
+            # Summary 为终端节点：重试后仍失败则整体失败（不再产出假成功报告）
+            await _run_node("Summary Agent", summary_node, state, critical=True)
             if progress_callback:
                 progress_callback("📊 生成报告")
 
@@ -238,13 +264,14 @@ async def run_pipeline(
             state.pop("_phase", None)
             state.pop("_event_sink", None)
             state["node_timings"] = dict(node_timings)
-            return state
+            # 出口重建旧键形状（外部契约不变；内部 rounds 单一数据源）
+            return export_legacy_state(state)
         except Exception as e:
             # partial_state 异常语义保留：携带已完成节点的部分结果
             state.pop("_phase", None)
             state.pop("_event_sink", None)
             state["node_timings"] = dict(node_timings)
-            e.partial_state = state  # type: ignore[attr-defined]
+            e.partial_state = export_legacy_state(state)  # type: ignore[attr-defined]
             raise
     finally:
         if mcp_manager is not None:

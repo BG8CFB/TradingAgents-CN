@@ -123,11 +123,15 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
         investment_debate_state = state.get("investment_debate_state", {})
 
         try:
-            # 初始化多轮状态
-            rounds = investment_debate_state.get("rounds", [])
-            current_round_index = investment_debate_state.get("current_round_index", 0)
+            # 初始化多轮状态（rounds 单一数据源，轮次/报告经派生视图读取）
+            from app.engine.orchestrator.state import (
+                current_round_index as calc_round_index,
+                investment_report_content as view_report,
+            )
+
+            current_round_index = calc_round_index(investment_debate_state, 2)
             max_rounds = investment_debate_state.get("max_rounds", 2)
-            report_content = investment_debate_state.get(cfg["report_state_key"], "")
+            rounds = investment_debate_state.get("rounds", [])
 
             # ── 1. 获取所有第一阶段基础报告 ──────────────────────────────
             all_reports = {}
@@ -267,24 +271,12 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             ]
             content = "\n".join(cleaned_lines).strip()
 
-            # ── 8. 更新状态 ────────────────────────────────────────────
-            if current_round_index >= len(rounds):
-                rounds.append({})
+            # ── 8. 更新状态（rounds 单一数据源，报告内容派生）─────────
+            from app.engine.orchestrator.state import append_round
 
-            rounds[current_round_index][cfg["round_key"]] = content
-
-            # 累积到最终报告
-            if current_round_index == 0:
-                section_title = cfg["section_initial"]
-            else:
-                section_title = cfg["section_debate"].format(round=current_round_index)
-
-            if section_title in report_content:
-                logger.warning(
-                    f"{emoji} [WARNING] 报告中已包含 Round {current_round_index} 内容，跳过追加。"
-                )
-            else:
-                report_content += f"\n\n{section_title}\n\n{content}"
+            new_investment_debate_state = dict(investment_debate_state)
+            append_round(new_investment_debate_state, cfg["round_key"], content, 2)
+            report_content = view_report(new_investment_debate_state, side)
 
             # ── 9. 保存报告文件 ────────────────────────────────────────
             try:
@@ -312,36 +304,7 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             except Exception as e:
                 logger.error(f"{emoji} [ERROR] 保存报告文件失败: {e}")
 
-            # ── 10. 构造 argument / history ────────────────────────────
-            if current_round_index == 0:
-                argument_prefix = f"# 【{cfg['argument_tag']} - 初始报告】"
-            else:
-                argument_prefix = f"# 【{cfg['argument_tag']} - 第 {current_round_index} 轮辩论】"
-
-            argument = f"{argument_prefix}\n{content}"
-
-            history = investment_debate_state.get("history", "")
-            self_history = investment_debate_state.get(cfg["history_key"], "")
-
-            if argument_prefix in self_history:
-                logger.warning(
-                    f"{emoji} [WARNING] 历史记录中已包含 Round {current_round_index}，跳过追加。"
-                )
-            else:
-                history = history + "\n" + argument
-                self_history = self_history + "\n" + argument
-
-            new_investment_debate_state = dict(investment_debate_state)
-            new_investment_debate_state.update({
-                "history": history,
-                cfg["history_key"]: self_history,
-                "current_response": argument,
-                "count": investment_debate_state.get("count", 0) + 1,
-                "latest_speaker": cfg["speaker"],
-                "rounds": rounds,
-                cfg["report_state_key"]: report_content,
-                "current_round_index": (investment_debate_state.get("count", 0) + 1) // 2,
-            })
+            # ── 10. 状态返回（history/current_response 等由 export_legacy_state 派生）──
 
             return {
                 "investment_debate_state": new_investment_debate_state,

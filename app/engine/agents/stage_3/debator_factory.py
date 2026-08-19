@@ -150,14 +150,18 @@ def create_debator(llm, side: Literal["risky", "safe", "neutral"] = "risky"):
 
         risk_debate_state = state.get("risk_debate_state", {})
         # 预取降级返回所需的基础值（在 try 外部，确保 except 也能安全使用）
-        current_round_index = risk_debate_state.get("current_round_index", 0)
-        prev_count = risk_debate_state.get("count", 0)
+        from app.engine.orchestrator.state import (
+            append_round,
+            current_round_index as calc_round_index,
+            risk_report_content as view_report,
+        )
+
+        current_round_index = calc_round_index(risk_debate_state, 3)
 
         try:
-            # 初始化多轮状态
-            rounds = risk_debate_state.get("rounds", [])
+            # 初始化多轮状态（rounds 单一数据源，报告经派生视图读取）
             max_rounds = risk_debate_state.get("max_rounds", 3)
-            report_content = risk_debate_state.get(cfg["report_state_key"], "")
+            rounds = risk_debate_state.get("rounds", [])
 
             # ── 1. 获取所有基础报告 ──────────────────────────────────
             all_reports = {}
@@ -295,20 +299,10 @@ def create_debator(llm, side: Literal["risky", "safe", "neutral"] = "risky"):
             ]
             content = "\n".join(cleaned_lines).strip()
 
-            # ── 8. 更新状态 ─────────────────────────────────────────
-            if current_round_index >= len(rounds):
-                rounds.append({})
-
-            rounds[current_round_index][cfg["round_key"]] = content
-
-            # 累积报告
-            if current_round_index == 0:
-                section_title = cfg["section_initial"]
-            else:
-                section_title = cfg["section_debate"].format(round=current_round_index)
-
-            if section_title not in report_content:
-                report_content += f"\n\n{section_title}\n\n{content}"
+            # ── 8. 更新状态（rounds 单一数据源，报告内容派生）─────────
+            new_risk_debate_state = dict(risk_debate_state)
+            append_round(new_risk_debate_state, cfg["round_key"], content, 3)
+            report_content = view_report(new_risk_debate_state, side)
 
             # ── 9. 保存文件 ─────────────────────────────────────────
             try:
@@ -332,27 +326,8 @@ def create_debator(llm, side: Literal["risky", "safe", "neutral"] = "risky"):
             except Exception as e:
                 logger.error(f"{emoji} [ERROR] 保存报告文件失败: {e}")
 
-            # ── 10. 构造返回状态 ────────────────────────────────────
-            if current_round_index == 0:
-                argument_prefix = f"# 【{cfg['tag']} - 初始观点】"
-            else:
-                argument_prefix = f"# 【{cfg['tag']} - 第 {current_round_index} 轮辩论】"
-
-            argument = f"{argument_prefix}\n{content}"
-
-            new_risk_debate_state = dict(risk_debate_state)
-            new_risk_debate_state.update({
-                "rounds": rounds,
-                cfg["report_state_key"]: report_content,
-                cfg["history_key"]: (
-                    risk_debate_state.get(cfg["history_key"], "") + f"\n{argument}"
-                ),
-                "history": risk_debate_state.get("history", "") + f"\n{argument}",
-                cfg["current_response_key"]: content,
-                "count": risk_debate_state.get("count", 0) + 1,
-                "current_round_index": (risk_debate_state.get("count", 0) + 1) // 3,
-                "latest_speaker": cfg["speaker"],
-            })
+            # ── 10. 构造返回状态（history/current_* 等由 export_legacy_state 派生）──
+            new_risk_debate_state["latest_speaker"] = cfg["speaker"]
 
             return {
                 "risk_debate_state": new_risk_debate_state,
@@ -364,30 +339,14 @@ def create_debator(llm, side: Literal["risky", "safe", "neutral"] = "risky"):
                 f"{emoji} [{label}] 节点执行异常，降级返回以保持流程继续",
                 exc_info=True,
             )
-            # 降级状态：count 仍递增，避免 conditional_logic 卡在固定轮次
-            new_count = prev_count + 1
+            # 降级状态：count 仍递增（append_round 内完成），降级内容也入 rounds，
+            # 报告/历史由派生视图统一重建
             fallback_content = (
                 f"⚠️ {label}节点本轮执行异常，未能生成有效辩论内容。"
             )
             new_risk_debate_state = dict(risk_debate_state)
-            new_risk_debate_state.update({
-                "count": new_count,
-                "current_round_index": new_count // 3,
-                "latest_speaker": cfg["speaker"],
-                cfg["current_response_key"]: fallback_content,
-                cfg["history_key"]: (
-                    risk_debate_state.get(cfg["history_key"], "")
-                    + f"\n# 【{cfg['tag']} - 降级输出】\n{fallback_content}"
-                ),
-                "history": (
-                    risk_debate_state.get("history", "")
-                    + f"\n# 【{cfg['tag']} - 降级输出】\n{fallback_content}"
-                ),
-                cfg["report_state_key"]: (
-                    risk_debate_state.get(cfg["report_state_key"], "")
-                    + f"\n\n## 降级输出\n\n{fallback_content}"
-                ),
-            })
+            append_round(new_risk_debate_state, cfg["round_key"], fallback_content, 3)
+            new_risk_debate_state["latest_speaker"] = cfg["speaker"]
             return {
                 "risk_debate_state": new_risk_debate_state,
                 "reports": {cfg["report_key"]: fallback_content},

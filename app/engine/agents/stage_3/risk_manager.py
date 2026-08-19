@@ -32,10 +32,12 @@ def create_risk_manager(llm, memory):
                 if key.endswith("_report") and value and key not in all_reports:
                     all_reports[key] = value
 
-            # 2. 获取累积的辩论报告 (Markdown)
-            risky_report = risk_debate_state.get("risky_report_content", "（无激进报告）")
-            safe_report = risk_debate_state.get("safe_report_content", "（无保守报告）")
-            neutral_report = risk_debate_state.get("neutral_report_content", "（无中性报告）")
+            # 2. 获取累积的辩论报告（rounds 单一数据源，派生视图读取）
+            from app.engine.orchestrator.state import risk_report_content
+
+            risky_report = risk_report_content(risk_debate_state, "risky") or "（无激进报告）"
+            safe_report = risk_report_content(risk_debate_state, "safe") or "（无保守报告）"
+            neutral_report = risk_report_content(risk_debate_state, "neutral") or "（无中性报告）"
 
             # 获取交易员计划 (Target)
             trader_plan = state.get("trader_investment_plan")
@@ -155,15 +157,10 @@ def create_risk_manager(llm, memory):
             except Exception as e:
                 logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")
 
-            # 7. 更新状态（保留原有所有字段，避免丢失上游数据）
+            # 7. 更新状态（canonical：仅裁决结论，其余键由 export_legacy_state 派生）
             new_risk_debate_state = dict(risk_debate_state)
             new_risk_debate_state.update({
                 "judge_decision": final_content,
-                "current_response": final_content,
-                "count": risk_debate_state.get("count", 0),
-                "risky_report_content": risky_report,
-                "safe_report_content": safe_report,
-                "neutral_report_content": neutral_report,
             })
 
             return {
@@ -186,7 +183,6 @@ def create_risk_manager(llm, memory):
             new_risk_debate_state = dict(risk_debate_state)
             new_risk_debate_state.update({
                 "judge_decision": fallback_content,
-                "current_response": fallback_content,
             })
             return {
                 "risk_debate_state": new_risk_debate_state,

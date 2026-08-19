@@ -34,9 +34,11 @@ class TestInitialStateShape:
         assert state["trade_date"] == "2024-12-31"
         assert isinstance(state["messages"], list) and len(state["messages"]) == 1
         assert state["investment_debate_state"]["count"] == 0
-        assert state["investment_debate_state"]["current_round_index"] == 0
         assert state["risk_debate_state"]["count"] == 0
-        assert state["risk_debate_state"]["current_round_index"] == 0
+        # 轮次经派生视图计算（count//2、count//3，与旧 current_round_index 语义一致）
+        from app.engine.orchestrator.state import current_round_index
+        assert current_round_index(state["investment_debate_state"], 2) == 0
+        assert current_round_index(state["risk_debate_state"], 3) == 0
         assert state["risk_debate_state"]["latest_speaker"] == ""
         assert "trader_investment_plan" in state
         assert "investment_plan" in state
