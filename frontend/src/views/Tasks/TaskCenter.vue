@@ -105,6 +105,7 @@
         </el-table-column>
         <el-table-column label="操作" width="350" fixed="right">
           <template #default="{ row }">
+            <el-button link size="small" type="primary" @click="openTaskDetail(row)">任务详情</el-button>
             <el-button v-if="row.status==='completed'" link size="small" @click="openResult(row)">查看结果</el-button>
             <el-button v-if="row.status==='completed'" link size="small" @click="openReport(row)">报告详情</el-button>
             <el-button v-if="row.status==='failed'" link size="small" @click="showErrorDetail(row)">查看错误</el-button>
@@ -378,6 +379,14 @@ const openReport = (row: AnalysisTask): void => {
   if (!id) { ElMessage.warning('未找到报告ID'); return }
   currentRow.value = row
   router.push({ name: 'ReportDetail', params: { id } })
+}
+
+/** 跳转分析任务详情页（实时过程/报告/配置，全状态可进，二次进入入口） */
+const openTaskDetail = (row: AnalysisTask): void => {
+  const id = row?.task_id
+  if (!id) { ElMessage.warning('未找到任务ID'); return }
+  currentRow.value = row
+  router.push({ name: 'AnalysisTaskDetail', params: { taskId: id } })
 }
 
 const retryTask = (_row: AnalysisTask) => { ElMessage.info('重试功能待实现') }
