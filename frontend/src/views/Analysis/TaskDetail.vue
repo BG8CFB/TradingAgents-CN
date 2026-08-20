@@ -7,7 +7,9 @@
       <div class="task-title">
         <span class="symbol" :title="symbolText">{{ symbolText }}</span>
         <span v-if="stockName" class="stock-name" :title="stockName">{{ stockName }}</span>
-        <el-tag :type="statusTagType" size="small">{{ statusLabel }}</el-tag>
+        <!-- 状态未加载完成时显示占位，避免闪现"未知" -->
+        <el-skeleton-item v-if="!taskStatus" variant="text" class="status-skeleton" />
+        <el-tag v-else :type="statusTagType" size="small">{{ statusLabel }}</el-tag>
       </div>
 
       <span class="elapsed" :title="'起算时间：' + startedAtText">已耗时 {{ elapsedText }}</span>
@@ -108,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { analysisApi, type TaskOverview } from '@/api/analysis'
@@ -157,11 +159,19 @@ const stockName = computed(() => overview.value?.stock_info?.name || '')
 
 function parseTs(v?: string | null): number | null {
   if (!v) return null
-  const t = Date.parse(v)
+  // 兼容 "YYYY-MM-DD HH:mm:ss"（空格分隔无时区）：统一成 ISO 的 "T" 分隔，规避各浏览器 Date.parse 差异
+  const t = Date.parse(v.replace(' ', 'T'))
   return Number.isNaN(t) ? null : t
 }
 const startedAtMs = computed(() => parseTs(overview.value?.task.started_at))
 const completedAtMs = computed(() => parseTs(overview.value?.task.completed_at))
+// 后端可能不带 completed_at（如 failed/cancelled），进入终态时本地补记时间戳用于耗时定格
+const finalizedAtMs = ref<number | null>(null)
+watch(taskStatus, (s) => {
+  if (s && !ACTIVE_STATUSES.includes(s) && finalizedAtMs.value === null) {
+    finalizedAtMs.value = Date.now()
+  }
+})
 const startedAtText = computed(() =>
   startedAtMs.value ? new Date(startedAtMs.value).toLocaleString() : '未开始'
 )
@@ -169,8 +179,10 @@ const startedAtText = computed(() =>
 const elapsedText = computed(() => {
   const start = startedAtMs.value
   if (start === null) return '—'
-  // 终态定格在完成时刻；进行中随 tick 响应更新
-  const end = isActive.value ? nowMs.value : (completedAtMs.value ?? nowMs.value)
+  // 终态定格在完成时刻（缺 completed_at 时用本地补记的终态时间兜底）；进行中随 tick 响应更新
+  const end = isActive.value
+    ? nowMs.value
+    : (completedAtMs.value ?? finalizedAtMs.value ?? nowMs.value)
   const sec = Math.max(0, Math.floor((end - start) / 1000))
   const h = Math.floor(sec / 3600)
   const m = Math.floor((sec % 3600) / 60)
@@ -193,6 +205,8 @@ const defaultStepName = computed(() => {
 })
 
 function stopTimers() {
+  // 递增序号使在途的 getTaskStatus 回包作废，防止取消/终止后旧响应把状态翻回 processing
+  pollSeq++
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null
@@ -239,8 +253,9 @@ function startPolling() {
       taskStatus.value = data.status
       const pct = Number(data.progress_percentage ?? data.progress ?? 0)
       progressPercentage.value = Math.min(100, Math.max(0, pct || 0))
-      if (data.current_step_name) currentStepName.value = data.current_step_name
-      if (data.message) statusMessage.value = data.message
+      // 以最新回包整体覆盖，避免上一轮残留的步骤名/状态文案在字段缺失时悬挂
+      currentStepName.value = data.current_step_name || ''
+      statusMessage.value = data.message || ''
 
       if (data.status === 'completed') {
         progressPercentage.value = 100
@@ -354,6 +369,11 @@ onBeforeUnmount(stopTimers)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.status-skeleton {
+  width: 48px;
+  height: 22px;
 }
 
 .elapsed {
