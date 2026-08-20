@@ -95,8 +95,20 @@ class TestEventSinkProgressChannel:
         )
         progress_texts = []
         sink._on_progress = progress_texts.append
-        await sink.emit("progress", agent_key="bull", phase="stage2", text=" Bull 研究员正在发言 ")
-        assert progress_texts == [" Bull 研究员正在发言 "]
+        await sink.emit(
+            "progress",
+            agent_key="bull",
+            phase="stage2",
+            completed=3,
+            total=9,
+            percent=33,
+            step_text=" Bull 研究员正在发言 ",
+        )
+        # on_progress 通道传结构化 payload dict（消费方 graph_progress_callback
+        # 按 payload.get("percent") 等键读取，对齐 commit 77bece61 计数式进度）
+        assert progress_texts == [
+            {"completed": 3, "total": 9, "percent": 33, "step_text": " Bull 研究员正在发言 "}
+        ]
         # progress 不落库
         await sink.flush()
         assert persisted == []
