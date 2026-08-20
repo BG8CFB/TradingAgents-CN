@@ -20,6 +20,38 @@ import logging
 
 from .state import create_initial_state, export_legacy_state
 
+# 节点名 → 配置 slug 映射：事件 payload.name 用 YAML 中的中文名（agent_key 仍为英文节点名，
+# 保证历史事件兼容与用户消息门禁稳定）。Summary Agent 无 slug 配置，用固定中文名。
+_NODE_SLUG_MAP: Dict[str, str] = {
+    "Bull Researcher": "bull-researcher",
+    "Bear Researcher": "bear-researcher",
+    "Research Manager": "research-manager",
+    "Trader": "trader",
+    "Risky Analyst": "risky-analyst",
+    "Safe Analyst": "safe-analyst",
+    "Neutral Analyst": "neutral-analyst",
+    "Risk Judge": "risk-manager",
+}
+_NODE_DISPLAY_FALLBACK: Dict[str, str] = {
+    "Summary Agent": "报告总结",
+}
+# 模块级缓存：配置文件在运行期不变化，进程内解析一次即可
+_NODE_DISPLAY_NAMES: Optional[Dict[str, str]] = None
+
+
+def _resolve_display_names() -> Dict[str, str]:
+    global _NODE_DISPLAY_NAMES
+    if _NODE_DISPLAY_NAMES is None:
+        from app.engine.agents.utils.agent_config import load_agent_display_name
+        names = {}
+        for node_name, slug in _NODE_SLUG_MAP.items():
+            name = load_agent_display_name(slug)
+            if name:
+                names[node_name] = name
+        names.update(_NODE_DISPLAY_FALLBACK)
+        _NODE_DISPLAY_NAMES = names
+    return _NODE_DISPLAY_NAMES
+
 logger = logging.getLogger("orchestrator.pipeline")
 
 # 辩论轮次安全上限（与旧 ConditionalLogic.MAX_ROUNDS 一致）
@@ -179,7 +211,7 @@ async def run_pipeline(
             event_sink.mark_running(key)
             await event_sink.emit(
                 "agent_start", agent_key=key, phase=st.get("_phase", ""),
-                name=display_name or node_name,
+                name=display_name or _resolve_display_names().get(node_name) or node_name,
             )
             await _emit_progress(node_name, phase=st.get("_phase", ""))
         try:
