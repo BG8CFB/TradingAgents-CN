@@ -4,17 +4,72 @@
 为所有工具调用添加统一的日志记录
 """
 
+import logging
 import time
 import functools
 from typing import Optional, Callable
 from app.utils.time_utils import now_config_tz
 
-# 导入日志模块（统一使用 logging_manager 作为唯一来源）
-from app.utils.logging_manager import get_logger, get_logger_manager
-logger = get_logger('agents')
+logger = logging.getLogger('agents')
 
 # 工具调用日志器
-tool_logger = get_logger("tools")
+tool_logger = logging.getLogger("tools")
+
+
+def log_module_start(logger: logging.Logger, module_name: str, stock_symbol: str,
+                     session_id: str, **extra_data):
+    """记录模块开始分析"""
+    logger.info(
+        f"📊 [模块开始] {module_name} - 股票: {stock_symbol}",
+        extra={
+            'module_name': module_name,
+            'stock_symbol': stock_symbol,
+            'session_id': session_id,
+            'event_type': 'module_start',
+            'timestamp': now_config_tz().isoformat(),
+            **extra_data
+        }
+    )
+
+
+def log_module_complete(logger: logging.Logger, module_name: str, stock_symbol: str,
+                        session_id: str, duration: float, success: bool = True,
+                        result_length: int = 0, **extra_data):
+    """记录模块完成分析"""
+    status = "✅ 成功" if success else "❌ 失败"
+    logger.info(
+        f"📊 [模块完成] {module_name} - {status} - 股票: {stock_symbol}, 耗时: {duration:.2f}s",
+        extra={
+            'module_name': module_name,
+            'stock_symbol': stock_symbol,
+            'session_id': session_id,
+            'duration': duration,
+            'success': success,
+            'result_length': result_length,
+            'event_type': 'module_complete',
+            'timestamp': now_config_tz().isoformat(),
+            **extra_data
+        }
+    )
+
+
+def log_module_error(logger: logging.Logger, module_name: str, stock_symbol: str,
+                     session_id: str, duration: float, error: str, **extra_data):
+    """记录模块分析错误"""
+    logger.error(
+        f"❌ [模块错误] {module_name} - 股票: {stock_symbol}, 耗时: {duration:.2f}s, 错误: {error}",
+        extra={
+            'module_name': module_name,
+            'stock_symbol': stock_symbol,
+            'session_id': session_id,
+            'duration': duration,
+            'error': error,
+            'event_type': 'module_error',
+            'timestamp': now_config_tz().isoformat(),
+            **extra_data
+        },
+        exc_info=True
+    )
 
 
 def log_tool_call(tool_name: Optional[str] = None, log_args: bool = True, log_result: bool = False):
@@ -354,12 +409,9 @@ def log_analysis_module(module_name: str, session_id: str = None):
             # 生成会话ID
             actual_session_id = session_id or f"session_{int(time.time())}"
 
-            # 记录模块开始
-            logger_manager = get_logger_manager()
-
             start_time = time.time()
 
-            logger_manager.log_module_start(
+            log_module_start(
                 tool_logger, module_name, symbol, actual_session_id,
                 function_name=func.__name__,
                 args_count=len(args),
@@ -375,7 +427,7 @@ def log_analysis_module(module_name: str, session_id: str = None):
 
                 # 记录模块完成
                 result_length = len(str(result)) if result else 0
-                logger_manager.log_module_complete(
+                log_module_complete(
                     tool_logger, module_name, symbol, actual_session_id,
                     duration, success=True, result_length=result_length,
                     function_name=func.__name__
@@ -388,7 +440,7 @@ def log_analysis_module(module_name: str, session_id: str = None):
                 duration = time.time() - start_time
 
                 # 记录模块错误
-                logger_manager.log_module_error(
+                log_module_error(
                     tool_logger, module_name, symbol, actual_session_id,
                     duration, str(e),
                     function_name=func.__name__

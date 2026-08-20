@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict, field_serial
 from enum import Enum
 
 # 导入日志模块
-from app.utils.logging_manager import get_logger
-logger = get_logger('agents')
+import logging
+logger = logging.getLogger('agents')
 
 
 class MarketType(str, Enum):

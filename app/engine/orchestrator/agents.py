@@ -19,9 +19,9 @@ from typing import Any, Dict, List, Optional
 from app.llm.core.types import Message, Role, ToolDef
 from app.llm.message_queue import AgentMessageInbox
 from app.llm.runner import run_conversation
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("orchestrator.agents")
+logger = logging.getLogger("orchestrator.agents")
 
 
 @dataclass

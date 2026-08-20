@@ -8,10 +8,10 @@ import re
 import threading
 from typing import Optional
 
-from app.utils.logging_init import get_logger
+import logging
 from app.utils.runtime_paths import ensure_subdir
 
-logger = get_logger("app.llm.tools.result_budget")
+logger = logging.getLogger("app.llm.tools.result_budget")
 
 # 默认阈值：超过则落盘（MCP 等场景可各自覆盖）
 DEFAULT_MAX_RESULT_CHARS = 30_000

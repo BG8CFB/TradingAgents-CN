@@ -12,9 +12,9 @@
 
 from typing import Any, Dict, List, Optional, TypedDict
 
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("orchestrator.state")
+logger = logging.getLogger("orchestrator.state")
 
 # ── Schema 定义 ─────────────────────────────────────────────────────────────
 

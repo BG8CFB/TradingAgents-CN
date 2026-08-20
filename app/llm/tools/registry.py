@@ -19,11 +19,11 @@ handler 签名：同步或异步，参数名与 params_schema 的 properties 对
 import inspect
 from typing import Any, Callable, Dict, List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from ..core.types import ToolDef
 
-logger = get_logger("app.llm.tools")
+logger = logging.getLogger("app.llm.tools")
 
 
 class ToolRegistry:

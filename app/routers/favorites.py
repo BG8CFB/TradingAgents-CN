@@ -11,7 +11,7 @@ from app.routers.auth_db import get_current_user
 from app.services.favorites_service import favorites_service
 from app.core.response import ok, safe_error_message
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/favorites", tags=["Favorites"])
 

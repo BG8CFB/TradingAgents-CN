@@ -37,7 +37,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 # safe methods per RFC 7231
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})

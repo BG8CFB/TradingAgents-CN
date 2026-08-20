@@ -11,7 +11,7 @@ from bson import ObjectId
 from app.core.database import get_mongo_db
 from app.utils.timezone import now_utc
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 
 class FavoritesService:

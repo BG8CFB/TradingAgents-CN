@@ -1,8 +1,8 @@
 import json
-from app.utils.logging_init import get_logger
+import logging
 from app.engine.orchestrator.invoker import run_agent_turn
 
-logger = get_logger("default")
+logger = logging.getLogger("default")
 
 
 # System prompt 常量收敛至 prompts/parts.py（唯一来源，注入安全约束见该文件注释）

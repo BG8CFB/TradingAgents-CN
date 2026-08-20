@@ -18,16 +18,9 @@ from app.services.operation_log_service import log_operation
 from app.models.operation_log import ActionType
 from app.utils.secret_masking import mask_username, token_fingerprint
 
-# 尝试导入日志管理器
-try:
-    from app.utils.logging_manager import get_logger
-except ImportError:
-    # 如果导入失败，使用标准日志
-    import logging
-    def get_logger(name: str) -> logging.Logger:
-        return logging.getLogger(name)
+import logging
 
-logger = get_logger('auth_db')
+logger = logging.getLogger(__name__)
 
 
 def validate_password_strength(password: str) -> None:

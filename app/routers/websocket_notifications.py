@@ -13,7 +13,7 @@ from app.services.user_service import user_service
 from app.utils.time_utils import now_utc, format_iso
 
 router = APIRouter(prefix="/api/ws", tags=["WebSocket"])
-logger = logging.getLogger("webapi.websocket")
+logger = logging.getLogger(__name__)
 
 
 async def _resolve_authenticated_user_id(token: str) -> str | None:

@@ -82,7 +82,7 @@ async def fetch_news(
         logger.warning(f"AKShare 个股新闻: symbol={symbol} 所有策略链均无结果")
         raise DataNotFoundError("akshare", _DOMAIN, f"symbol={symbol} 无相关新闻")
 
-    logger.info(f"AKShare 个股新闻 ({symbol}): 共 {len(all_news)} 条")
+    logger.debug(f"AKShare 个股新闻 ({symbol}): 共 {len(all_news)} 条")
     return all_news
 
 
@@ -128,7 +128,7 @@ async def fetch_market_news(limit: int = 100) -> List[Dict[str, Any]]:
         logger.warning("AKShare 市场级新闻: 无数据")
         raise DataNotFoundError("akshare", _DOMAIN, "市场级新闻无数据")
 
-    logger.info(f"AKShare 市场级新闻: 共 {len(results)} 条")
+    logger.debug(f"AKShare 市场级新闻: 共 {len(results)} 条")
     return results
 
 

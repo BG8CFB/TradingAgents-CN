@@ -14,11 +14,11 @@ from typing import Dict, Optional, Tuple
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from app.utils.logging_init import get_logger
+import logging
 
 from .config import MCPServerConfig
 
-logger = get_logger("app.llm.mcp")
+logger = logging.getLogger("app.llm.mcp")
 
 CONNECT_TIMEOUT = 30.0  # 秒，参考 claude-code
 LOCAL_CONNECT_CONCURRENCY = 3

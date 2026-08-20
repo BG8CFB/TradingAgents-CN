@@ -11,9 +11,9 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("app.services.analysis_events")
+logger = logging.getLogger("app.services.analysis_events")
 
 EVENTS_COLLECTION = "analysis_events"
 
@@ -134,18 +134,28 @@ async def load_events(
     event_type: Optional[str] = None,
     after_seq: int = 0,
     limit: int = 500,
+    before_seq: Optional[int] = None,
+    order: str = "asc",
 ) -> List[Dict[str, Any]]:
-    """按 seq 升序读取任务事件（回放）；after_seq 支持增量拉取"""
+    """读取任务事件（回放）；asc 升序 + after_seq 增量拉取（默认，行为不变），
+    desc 降序 + before_seq 支持详情页『最近优先 + 向前翻页』"""
     from app.core.database import get_mongo_db
 
     db = get_mongo_db()
-    query: Dict[str, Any] = {"task_id": task_id, "seq": {"$gt": after_seq}}
+    if order == "desc":
+        # desc：取 seq 小于 before_seq 的（未给则全部），最新在前
+        seq_cond = {"$lt": before_seq} if before_seq is not None else {"$gt": -1}
+        sort_dir = -1
+    else:
+        seq_cond = {"$gt": after_seq}
+        sort_dir = 1
+    query: Dict[str, Any] = {"task_id": task_id, "seq": seq_cond}
     if agent_key:
         query["agent_key"] = agent_key
     if event_type:
         query["event_type"] = event_type
 
-    cursor = db[EVENTS_COLLECTION].find(query).sort("seq", 1).limit(max(1, min(limit, 5000)))
+    cursor = db[EVENTS_COLLECTION].find(query).sort("seq", sort_dir).limit(max(1, min(limit, 5000)))
     out: List[Dict[str, Any]] = []
     async for doc in cursor:
         doc.pop("_id", None)

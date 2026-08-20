@@ -7,8 +7,8 @@ import asyncio
 import logging
 import signal
 import sys
+import time
 import uuid
-import traceback
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -26,6 +26,9 @@ from app.services.config_provider import provider as config_provider  # noqa: E4
 from app.utils.timezone import now_utc, format_iso  # noqa: E402 (intentional late import)
 
 logger = logging.getLogger(__name__)
+
+# 工作循环异常告警节流：[上次全量告警时间戳]
+_last_loop_error_ts = [0.0]
 
 
 class AnalysisWorker:
@@ -147,7 +150,11 @@ class AnalysisWorker:
                     await asyncio.sleep(self.poll_interval)
 
             except Exception as e:
-                logger.error(f"工作循环异常: {e}")
+                # 节流：循环异常首次全量记录，之后 60 秒内只记一条，避免持续故障刷屏
+                now = time.time()
+                if now - _last_loop_error_ts[0] >= 60:
+                    _last_loop_error_ts[0] = now
+                    logger.error(f"工作循环异常: {e}", exc_info=True)
                 await asyncio.sleep(5)  # 异常后等待5秒再继续
 
         logger.info(f"🔄 Worker {self.worker_id} 工作循环结束")
@@ -213,8 +220,7 @@ class AnalysisWorker:
             # 超时已在上层记录日志，此处标记为失败即可
             success = False
         except Exception as e:
-            logger.error(f"❌ 任务执行失败: {task_id} - {e}")
-            logger.error(traceback.format_exc())
+            logger.error(f"❌ 任务执行失败: {task_id} - {e}", exc_info=True)
 
         finally:
             # 确认任务完成
@@ -294,11 +300,9 @@ class AnalysisWorker:
 
 async def main():
     """主函数"""
-    # 设置日志
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    # 统一日志入口：独立 worker 进程也走 logging_config（日志落 worker.log）
+    from app.core.logging_config import setup_logging
+    setup_logging()
 
     # 创建并启动Worker
     worker = AnalysisWorker()

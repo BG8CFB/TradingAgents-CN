@@ -13,11 +13,11 @@ import asyncio
 from dataclasses import dataclass
 from typing import Awaitable, Callable, List, Sequence, TypeVar
 
-from app.utils.logging_init import get_logger
+import logging
 
 from ..core.types import ToolUseBlock
 
-logger = get_logger("app.llm.orchestration")
+logger = logging.getLogger("app.llm.orchestration")
 
 MAX_TOOL_CONCURRENCY = 10  # 参考 claude-code CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY 默认值
 

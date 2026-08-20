@@ -18,7 +18,7 @@ from typing import Literal
 
 from app.llm.core.types import Message, Role
 
-from app.utils.logging_init import get_logger
+import logging
 from app.engine.orchestrator.invoker import run_agent_turn
 from app.engine.agents.utils.agent_config import (
     build_stage3_report_path,
@@ -26,7 +26,7 @@ from app.engine.agents.utils.agent_config import (
     resolve_company_name,
 )
 
-logger = get_logger("default")
+logger = logging.getLogger("default")
 
 # Stage 3 内部报告 key — 防止同轮泄漏
 _STAGE3_REPORT_KEYS = frozenset({"risky_analyst", "safe_analyst", "neutral_analyst"})

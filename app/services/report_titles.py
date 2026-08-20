@@ -12,9 +12,9 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("services.report_titles")
+logger = logging.getLogger("services.report_titles")
 
 # 报告 key → agent 配置 slug 的别名（纯键名对应关系；中文名一律来自配置）
 _REPORT_KEY_SLUG_ALIAS = {

@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from .compact.auto_compactor import AutoCompactor, CompactConfig
 from .compact.token_counter import TokenCounter
@@ -27,7 +27,7 @@ from .limits import resolve_output_limits
 from .orchestration.concurrency import partition_tool_calls, run_batches
 from .retry import DEFAULT_MAX_RETRIES, FallbackTriggeredError, with_retry
 
-logger = get_logger("app.llm.runner")
+logger = logging.getLogger("app.llm.runner")
 
 DEFAULT_MAX_TURNS = 16
 MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3  # 恢复消息注入次数上限
@@ -318,7 +318,7 @@ async def _execute_partitioned(
     """按并发分区执行同轮工具调用；未注册进 registry 的 ad-hoc 工具直接调 handler"""
 
     async def _exec(tu: ToolUseBlock) -> str:
-        logger.info(f"🔧 [runner] 工具调用: {tu.name}({tu.input})")
+        logger.info(f"🔧 [runner] 工具调用: {tu.name}({str(tu.input)[:500]}{'...' if len(str(tu.input)) > 500 else ''})")
         start = time.time()
         if emit is not None:
             await emit("tool_call", tool=tu.name, input=tu.input)

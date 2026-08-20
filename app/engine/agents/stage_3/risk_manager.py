@@ -3,8 +3,8 @@ import os
 import time
 
 # 导入统一日志系统
-from app.utils.logging_init import get_logger
-logger = get_logger("default")
+import logging
+logger = logging.getLogger("default")
 
 from app.llm.core.types import Message, Role  # noqa: E402 (intentional late import)
 from app.engine.agents.utils.agent_config import (  # noqa: E402 (intentional late import)

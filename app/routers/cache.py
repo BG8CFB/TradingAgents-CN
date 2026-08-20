@@ -6,10 +6,10 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 
 from app.routers.auth_db import get_current_user, require_admin
 from app.core.response import ok, safe_error_message
-from app.utils.logging_manager import get_logger
+import logging
 from app.services.cache_service import CacheService
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/cache", tags=["Cache"])
 

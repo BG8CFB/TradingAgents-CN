@@ -277,8 +277,8 @@ class LLMService:
                 else str(llm_config.provider)
             )
 
-            logger.info(f"🧪 测试大模型配置: {provider_str} - {llm_config.model_name}")
-            logger.info(f"📍 API基础URL (模型配置): {llm_config.api_base}")
+            logger.debug(f"🧪 测试大模型配置: {provider_str} - {llm_config.model_name}")
+            logger.debug(f"📍 API基础URL (模型配置): {llm_config.api_base}")
 
             # 获取厂家配置（用于获取 API Key 和 default_base_url）
             db = await self._get_db()
@@ -291,7 +291,7 @@ class LLMService:
                 # 如果模型配置没有 api_base，从厂家配置获取 default_base_url
                 if provider_data and provider_data.get("default_base_url"):
                     api_base = provider_data["default_base_url"]
-                    logger.info(f"✅ 从厂家配置获取 API 基础 URL: {api_base}")
+                    logger.debug(f"✅ 从厂家配置获取 API 基础 URL: {api_base}")
                 else:
                     return {
                         "success": False,
@@ -308,7 +308,7 @@ class LLMService:
                 # 从厂家配置获取 API Key
                 if provider_data and provider_data.get("api_key"):
                     api_key = provider_data["api_key"]
-                    logger.info("✅ 从厂家配置获取到API密钥")
+                    logger.debug("✅ 从厂家配置获取到API密钥")
 
             if not api_key:
                 return {
@@ -322,7 +322,7 @@ class LLMService:
             loop = asyncio.get_running_loop()
             if provider_str == "google":
                 # Google AI 使用专门的测试方法
-                logger.info("🔍 使用 Google AI 专用测试方法")
+                logger.debug("🔍 使用 Google AI 专用测试方法")
                 result = await loop.run_in_executor(
                     None,
                     self._test_google_api,
@@ -335,7 +335,7 @@ class LLMService:
                 return result
             elif provider_str == "deepseek":
                 # DeepSeek 使用专门的测试方法
-                logger.info("🔍 使用 DeepSeek 专用测试方法")
+                logger.debug("🔍 使用 DeepSeek 专用测试方法")
                 result = await loop.run_in_executor(
                     None,
                     self._test_deepseek_api,
@@ -348,7 +348,7 @@ class LLMService:
                 return result
             elif provider_str == "dashscope":
                 # DashScope 使用专门的测试方法
-                logger.info("🔍 使用 DashScope 专用测试方法")
+                logger.debug("🔍 使用 DashScope 专用测试方法")
                 result = await loop.run_in_executor(
                     None,
                     self._test_dashscope_api,
@@ -360,7 +360,7 @@ class LLMService:
                 return result
             else:
                 # 其他厂家使用 OpenAI 兼容的测试方法（通过线程池避免阻塞事件循环）
-                logger.info("使用 OpenAI 兼容测试方法")
+                logger.debug("使用 OpenAI 兼容测试方法")
                 result = await asyncio.get_running_loop().run_in_executor(
                     None,
                     self._test_openai_compatible_config,
@@ -437,7 +437,7 @@ class LLMService:
                 "temperature": 0.1,
             }
 
-            logger.info(f"发送测试请求到: {url}, 模型: {model_name}")
+            logger.debug(f"发送测试请求到: {url}, 模型: {model_name}")
             response = requests.post(url, json=data, headers=headers, timeout=15)
             response_time = time.time() - start_time
 
@@ -1199,13 +1199,13 @@ class LLMService:
             # 如果没有指定模型，使用默认模型
             if not model_name:
                 model_name = "gemini-2.0-flash-exp"
-                logger.info(f"⚠️ 未指定模型，使用默认模型: {model_name}")
+                logger.debug(f"⚠️ 未指定模型，使用默认模型: {model_name}")
 
-            logger.info("🔍 [Google AI 测试] 开始测试")
-            logger.info(f"   display_name: {display_name}")
-            logger.info(f"   model_name: {model_name}")
-            logger.info(f"   base_url (原始): {base_url}")
-            logger.info(f"   api_key 长度: {len(api_key) if api_key else 0}")
+            logger.debug("🔍 [Google AI 测试] 开始测试")
+            logger.debug(f"   display_name: {display_name}")
+            logger.debug(f"   model_name: {model_name}")
+            logger.debug(f"   base_url (原始): {base_url}")
+            logger.debug(f"   api_key 长度: {len(api_key) if api_key else 0}")
 
             # 使用配置的 base_url 或默认值
             if not base_url:

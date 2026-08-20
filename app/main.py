@@ -250,9 +250,9 @@ async def _apply_dynamic_settings(logger):
             from app.middleware.operation_log_middleware import set_operation_log_enabled
             set_operation_log_enabled(bool(eff.get("enable_monitoring", True)))
         except Exception as e:
-            logging.getLogger("webapi").debug(f"设置操作日志开关失败: {e}")
+            logging.getLogger(__name__).debug(f"设置操作日志开关失败: {e}")
     except Exception as e:
-        logging.getLogger("webapi").warning(f"Failed to apply dynamic settings: {e}")
+        logging.getLogger(__name__).warning(f"Failed to apply dynamic settings: {e}")
 
 
 async def _init_scheduler(logger):
@@ -732,6 +732,7 @@ if __name__ == "__main__":
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG,
+        log_config=None,  # 禁用 uvicorn 默认 log config，由 app.core.logging_config 统一接管
         log_level="info",
         reload_dirs=["app"] if settings.DEBUG else None,
         reload_excludes=[

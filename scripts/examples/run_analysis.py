@@ -2,9 +2,9 @@ def main():
     from app.engine.runtime import AnalysisRuntime
     from app.engine.default_config import DEFAULT_CONFIG
     from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
-    from app.utils.logging_manager import get_logger
+    import logging
 
-    get_logger('default')  # 初始化根日志器
+    logging.getLogger('default')  # 初始化根日志器
 
     # Create a custom config
     config = DEFAULT_CONFIG.copy()

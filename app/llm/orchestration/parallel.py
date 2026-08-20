@@ -9,13 +9,13 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from ..core.base import BaseLLMClient
 from ..core.types import Message
 from ..runner import RunResult, run_conversation
 
-logger = get_logger("app.llm.orchestration.parallel")
+logger = logging.getLogger("app.llm.orchestration.parallel")
 
 
 @dataclass

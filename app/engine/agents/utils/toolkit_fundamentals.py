@@ -4,13 +4,13 @@ from typing import Annotated
 
 
 
-from app.utils.logging_init import get_logger
+import logging
 from app.utils.tool_logging import log_tool_call
 from app.utils.time_utils import now_utc, get_current_date
 
 from .toolkit_helpers import _run_async, _get_stock_data_sync, _get_stock_info_sync
 
-logger = get_logger("agents")
+logger = logging.getLogger("agents")
 
 
 

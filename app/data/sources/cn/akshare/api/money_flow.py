@@ -54,5 +54,5 @@ async def fetch_money_flow_by_symbol(
         logger.warning(f"AKShare 资金流向返回空: symbol={symbol}")
         raise DataNotFoundError("akshare", _DOMAIN, f"symbol={symbol} 无资金流向数据")
 
-    logger.info(f"AKShare 资金流向: {symbol} {len(df)} 条")
+    logger.debug(f"AKShare 资金流向: {symbol} {len(df)} 条")
     return df

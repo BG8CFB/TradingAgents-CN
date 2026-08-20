@@ -5,9 +5,9 @@ import yaml
 from typing import List, Dict, Any, Optional
 
 from app.core.env import get_env
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("analysts.dynamic")
+logger = logging.getLogger("analysts.dynamic")
 
 
 class DynamicAnalystFactory:

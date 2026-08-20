@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 import re
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 # 日志统计默认值常量
 DEFAULT_LOG_STATISTICS = {
@@ -37,11 +37,11 @@ class LogExportService:
             log_dir: 日志文件目录
         """
         self.log_dir = Path(log_dir)
-        logger.info("🔍 [LogExportService] 初始化日志导出服务")
-        logger.info(f"🔍 [LogExportService] 配置的日志目录: {log_dir}")
-        logger.info(f"🔍 [LogExportService] 解析后的日志目录: {self.log_dir}")
-        logger.info(f"🔍 [LogExportService] 绝对路径: {self.log_dir.absolute()}")
-        logger.info(f"🔍 [LogExportService] 目录是否存在: {self.log_dir.exists()}")
+        logger.debug("🔍 [LogExportService] 初始化日志导出服务")
+        logger.debug(f"🔍 [LogExportService] 配置的日志目录: {log_dir}")
+        logger.debug(f"🔍 [LogExportService] 解析后的日志目录: {self.log_dir}")
+        logger.debug(f"🔍 [LogExportService] 绝对路径: {self.log_dir.absolute()}")
+        logger.debug(f"🔍 [LogExportService] 目录是否存在: {self.log_dir.exists()}")
 
         if not self.log_dir.exists():
             logger.warning(f"⚠️ [LogExportService] 日志目录不存在: {self.log_dir}")
@@ -63,11 +63,11 @@ class LogExportService:
         log_files = []
 
         try:
-            logger.info("🔍 [list_log_files] 开始列出日志文件")
-            logger.info(f"🔍 [list_log_files] 搜索目录: {self.log_dir}")
-            logger.info(f"🔍 [list_log_files] 绝对路径: {self.log_dir.absolute()}")
-            logger.info(f"🔍 [list_log_files] 目录是否存在: {self.log_dir.exists()}")
-            logger.info(f"🔍 [list_log_files] 是否为目录: {self.log_dir.is_dir()}")
+            logger.debug("🔍 [list_log_files] 开始列出日志文件")
+            logger.debug(f"🔍 [list_log_files] 搜索目录: {self.log_dir}")
+            logger.debug(f"🔍 [list_log_files] 绝对路径: {self.log_dir.absolute()}")
+            logger.debug(f"🔍 [list_log_files] 目录是否存在: {self.log_dir.exists()}")
+            logger.debug(f"🔍 [list_log_files] 是否为目录: {self.log_dir.is_dir()}")
 
             if not self.log_dir.exists():
                 logger.error(f"❌ [list_log_files] 日志目录不存在: {self.log_dir}")
@@ -80,16 +80,16 @@ class LogExportService:
             # 列出目录中的所有文件（调试用）
             try:
                 all_items = list(self.log_dir.iterdir())
-                logger.info(f"🔍 [list_log_files] 目录中共有 {len(all_items)} 个项目")
+                logger.debug(f"🔍 [list_log_files] 目录中共有 {len(all_items)} 个项目")
                 for item in all_items[:10]:  # 只显示前10个
-                    logger.info(f"🔍 [list_log_files]   - {item.name} (is_file: {item.is_file()})")
+                    logger.debug(f"🔍 [list_log_files]   - {item.name} (is_file: {item.is_file()})")
             except Exception as e:
                 logger.error(f"❌ [list_log_files] 列出目录内容失败: {e}")
 
             # 搜索日志文件
-            logger.info("🔍 [list_log_files] 搜索模式: *.log*")
+            logger.debug("🔍 [list_log_files] 搜索模式: *.log*")
             for file_path in self.log_dir.glob("*.log*"):
-                logger.info(f"🔍 [list_log_files] 找到文件: {file_path.name}")
+                logger.debug(f"🔍 [list_log_files] 找到文件: {file_path.name}")
                 if file_path.is_file():
                     stat = file_path.stat()
                     log_file_info = {
@@ -101,7 +101,7 @@ class LogExportService:
                         "type": self._get_log_type(file_path.name)
                     }
                     log_files.append(log_file_info)
-                    logger.info(f"✅ [list_log_files] 添加日志文件: {file_path.name} ({log_file_info['size_mb']} MB)")
+                    logger.debug(f"✅ [list_log_files] 添加日志文件: {file_path.name} ({log_file_info['size_mb']} MB)")
                 else:
                     logger.warning(f"⚠️ [list_log_files] 跳过非文件项: {file_path.name}")
 
@@ -427,25 +427,25 @@ def _get_log_directory() -> str:
     from pathlib import Path
 
     try:
-        logger.info("🔍 [_get_log_directory] 开始获取日志目录")
+        logger.debug("🔍 [_get_log_directory] 开始获取日志目录")
 
         # 检查是否是Docker环境
         docker_env = get_env("DOCKER", "")
         dockerenv_exists = Path("/.dockerenv").exists()
         is_docker = docker_env.lower() in {"1", "true", "yes"} or dockerenv_exists
 
-        logger.info(f"🔍 [_get_log_directory] DOCKER环境变量: {docker_env}")
-        logger.info(f"🔍 [_get_log_directory] /.dockerenv存在: {dockerenv_exists}")
-        logger.info(f"🔍 [_get_log_directory] 判定为Docker环境: {is_docker}")
+        logger.debug(f"🔍 [_get_log_directory] DOCKER环境变量: {docker_env}")
+        logger.debug(f"🔍 [_get_log_directory] /.dockerenv存在: {dockerenv_exists}")
+        logger.debug(f"🔍 [_get_log_directory] 判定为Docker环境: {is_docker}")
 
         # 尝试从日志配置文件读取
         try:
             import tomllib as toml_loader
-            logger.info("🔍 [_get_log_directory] 使用 tomllib 加载TOML")
+            logger.debug("🔍 [_get_log_directory] 使用 tomllib 加载TOML")
         except ImportError:
             try:
                 import tomli as toml_loader
-                logger.info("🔍 [_get_log_directory] 使用 tomli 加载TOML")
+                logger.debug("🔍 [_get_log_directory] 使用 tomli 加载TOML")
             except ImportError:
                 toml_loader = None
                 logger.warning("⚠️ [_get_log_directory] 无法导入TOML加载器")
@@ -453,25 +453,25 @@ def _get_log_directory() -> str:
         if toml_loader:
             # 根据环境选择配置文件
             profile = get_env("LOGGING_PROFILE", "")
-            logger.info(f"🔍 [_get_log_directory] LOGGING_PROFILE: {profile}")
+            logger.debug(f"🔍 [_get_log_directory] LOGGING_PROFILE: {profile}")
 
             cfg_path = Path("config/logging_docker.toml") if profile.lower() == "docker" or is_docker else Path("config/logging.toml")
-            logger.info(f"🔍 [_get_log_directory] 选择配置文件: {cfg_path}")
-            logger.info(f"🔍 [_get_log_directory] 配置文件存在: {cfg_path.exists()}")
+            logger.debug(f"🔍 [_get_log_directory] 选择配置文件: {cfg_path}")
+            logger.debug(f"🔍 [_get_log_directory] 配置文件存在: {cfg_path.exists()}")
 
             if cfg_path.exists():
                 try:
                     with cfg_path.open("rb") as f:
                         toml_data = toml_loader.load(f)
 
-                    logger.info("🔍 [_get_log_directory] 成功加载配置文件")
+                    logger.debug("🔍 [_get_log_directory] 成功加载配置文件")
 
                     # 从配置文件读取日志目录
                     handlers_cfg = toml_data.get("logging", {}).get("handlers", {})
                     file_handler_cfg = handlers_cfg.get("file", {})
                     log_dir = file_handler_cfg.get("directory")
 
-                    logger.info(f"🔍 [_get_log_directory] 配置文件中的日志目录: {log_dir}")
+                    logger.debug(f"🔍 [_get_log_directory] 配置文件中的日志目录: {log_dir}")
 
                     if log_dir:
                         logger.info(f"✅ [_get_log_directory] 从日志配置文件读取日志目录: {log_dir}")
@@ -483,7 +483,7 @@ def _get_log_directory() -> str:
         try:
             from app.core.config import settings
             log_dir = settings.log_dir
-            logger.info(f"🔍 [_get_log_directory] settings.log_dir: {log_dir}")
+            logger.debug(f"🔍 [_get_log_directory] settings.log_dir: {log_dir}")
             if log_dir:
                 logger.info(f"✅ [_get_log_directory] 从settings读取日志目录: {log_dir}")
                 return log_dir

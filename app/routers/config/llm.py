@@ -28,7 +28,7 @@ from app.utils.api_key_utils import should_skip_api_key_update
 from app.services.operation_log_service import log_operation
 from app.models.operation_log import ActionType
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Config"])
 

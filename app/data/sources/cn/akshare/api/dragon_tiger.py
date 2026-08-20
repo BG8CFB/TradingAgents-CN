@@ -67,5 +67,5 @@ async def fetch_dragon_tiger(
             f"start_date={start_date}, end_date={end_date} 无龙虎榜数据",
         )
 
-    logger.info(f"AKShare 龙虎榜: {start_date}-{end_date} {len(df)} 条")
+    logger.debug(f"AKShare 龙虎榜: {start_date}-{end_date} {len(df)} 条")
     return df

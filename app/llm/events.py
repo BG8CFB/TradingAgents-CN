@@ -17,9 +17,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("app.llm.events")
+logger = logging.getLogger("app.llm.events")
 
 # 不落库、仅实时下发的事件（高频）
 REALTIME_ONLY = {"text_delta"}

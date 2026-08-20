@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from app.data.core.interface import DataInterface
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 
 class UnifiedStockService:

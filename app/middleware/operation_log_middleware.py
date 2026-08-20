@@ -22,7 +22,7 @@ from app.models.operation_log import ActionType
 from app.utils.secret_masking import mask_query_params, mask_uri_password
 from app.utils.request_utils import get_client_ip
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 # 全局开关：是否启用操作日志记录（可由系统设置动态控制）
 OPLOG_ENABLED: bool = True

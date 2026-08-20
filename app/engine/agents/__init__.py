@@ -16,8 +16,8 @@ from .stage_3.risk_manager import create_risk_manager
 # Stage 4
 
 # 导入统一日志系统
-from app.utils.logging_init import get_logger
-logger = get_logger("default")
+import logging
+logger = logging.getLogger("default")
 
 __all__ = [
     "FinancialSituationMemory",

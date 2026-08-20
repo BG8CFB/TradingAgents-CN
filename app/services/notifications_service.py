@@ -13,7 +13,7 @@ from app.models.notification import (
 )
 from app.utils.timezone import now_tz
 
-logger = logging.getLogger("webapi.notifications")
+logger = logging.getLogger(__name__)
 
 
 class NotificationsService:

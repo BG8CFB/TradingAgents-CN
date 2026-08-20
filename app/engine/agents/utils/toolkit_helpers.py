@@ -6,9 +6,9 @@ import concurrent.futures
 import pandas as pd
 
 from app.data.core.interface import DataInterface
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("agents")
+logger = logging.getLogger("agents")
 
 
 def _run_async(coro):

@@ -67,5 +67,5 @@ async def fetch_block_trade(
             f"start_date={start_date}, end_date={end_date} 无大宗交易数据",
         )
 
-    logger.info(f"AKShare 大宗交易: {start_date}-{end_date} {len(df)} 条")
+    logger.debug(f"AKShare 大宗交易: {start_date}-{end_date} {len(df)} 条")
     return df

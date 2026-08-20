@@ -11,10 +11,10 @@ import yaml
 from typing import Optional
 
 from app.core.env import get_env
-from app.utils.logging_init import get_logger
+import logging
 from app.utils.stock_utils import StockUtils
 
-logger = get_logger("agents.config")
+logger = logging.getLogger("agents.config")
 
 
 async def resolve_company_name(ticker: str, market_info: dict) -> str:

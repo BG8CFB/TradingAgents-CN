@@ -12,10 +12,10 @@ from app.engine.agents.utils.agent_utils import Toolkit
 from app.engine.agents.utils.memory import FinancialSituationMemory
 from app.engine.default_config import DEFAULT_CONFIG
 from app.engine.orchestrator.pipeline import PipelineDeps, run_pipeline
-from app.utils.logging_init import get_logger
+import logging
 from app.utils.runtime_paths import get_eval_results_dir
 
-logger = get_logger("agents")
+logger = logging.getLogger("agents")
 
 
 def _classify_node(node_name: str) -> str:

@@ -30,10 +30,10 @@ max_size = "10MB"
 backup_count = 5
 directory = "./runtime/logs"
 
-# 错误日志处理器（只记录WARNING及以上级别）
+# 错误日志处理器（只记录ERROR及以上级别）
 [logging.handlers.error]
 enabled = true
-level = "WARNING"  # 只记录WARNING, ERROR, CRITICAL
+level = "ERROR"  # 只记录ERROR, CRITICAL；WARNING 属日常运行日志
 max_size = "10MB"
 backup_count = 5
 directory = "./runtime/logs"

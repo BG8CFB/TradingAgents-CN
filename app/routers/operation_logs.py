@@ -19,7 +19,7 @@ from app.models.operation_log import (
 )
 
 router = APIRouter(prefix="/api/operation-logs", tags=["Operation Logs"])
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 
 @router.get("/list", response_model=OperationLogListResponse)

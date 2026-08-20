@@ -37,6 +37,8 @@ class SchedulerMonitor:
             return
         self._initialized = True
         self._running_tasks: Dict[str, Dict] = {}
+        # 任务超时告警节流表：task_id -> 上次告警时间戳
+        self._timeout_warned_at: Dict[str, float] = {}
         self._task_stats: Dict[str, Dict] = defaultdict(
             lambda: {
                 "total_runs": 0,
@@ -103,6 +105,7 @@ class SchedulerMonitor:
         task_id = f"{market}:{domain}"
         with self._dict_lock:
             self._running_tasks.pop(task_id, None)
+            self._timeout_warned_at.pop(task_id, None)
 
             stats = self._task_stats[task_id]
             stats["total_runs"] += 1
@@ -240,7 +243,11 @@ class SchedulerMonitor:
         for task_id, info in snapshot:
             elapsed = now - info["started_at"]
             if elapsed > self._timeout_threshold_seconds:
-                logger.warning(f"任务超时: {task_id}, 已运行 {int(elapsed / 60)} 分钟")
+                # 节流：同一任务 10 分钟内只告警一次，避免监控循环刷屏
+                last_warn = self._timeout_warned_at.get(task_id, 0.0)
+                if now - last_warn >= 600:
+                    self._timeout_warned_at[task_id] = now
+                    logger.warning(f"任务超时: {task_id}, 已运行 {int(elapsed / 60)} 分钟")
                 # 记录到 sync_events
                 self._record_timeout_event(info, elapsed)
 

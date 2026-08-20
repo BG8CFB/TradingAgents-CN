@@ -15,7 +15,7 @@ from app.services.database_service import DatabaseService
 from app.core.response import safe_error_message
 
 router = APIRouter(prefix="/api/database", tags=["Database"])
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 # 导入文件限制
 MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024  # 50MB
@@ -253,9 +253,7 @@ async def import_data(
             "data": result
         }
     except Exception as e:
-        logger.error(f"❌ 导入数据失败: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ 导入数据失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "导入数据失败")

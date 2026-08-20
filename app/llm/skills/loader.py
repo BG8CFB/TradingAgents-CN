@@ -9,11 +9,11 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from .discovery import SkillMeta, discover_skills
 
-logger = get_logger("app.llm.skills")
+logger = logging.getLogger("app.llm.skills")
 
 # 预算参数（参考 claude-code：上下文 1%，约 8000 字符；单条描述 1536）
 LISTING_CHAR_BUDGET = 8000

@@ -163,7 +163,8 @@ def setup_logging(log_level: str = "INFO"):
                 file_dir,
             )
             error_enabled = error_handler_cfg.get("enabled", True)
-            error_level = error_handler_cfg.get("level", "WARNING")
+            # 错误日志只收 ERROR+（WARNING 属日常运行日志，避免 error.log 膨胀）
+            error_level = error_handler_cfg.get("level", "ERROR")
             error_max_bytes = _parse_size(error_handler_cfg.get("max_size", "100MB"))
             error_backup_count = int(error_handler_cfg.get("backup_count", 5))
 
@@ -318,9 +319,33 @@ def setup_logging(log_level: str = "INFO"):
                         "handlers": main_handlers,
                         "propagate": False
                     },
+                    # Web 层（routers/middleware）日志归入 webapi.log，保持按职责分文件
+                    "app.routers": {
+                        "level": "INFO",
+                        "handlers": webapi_handlers,
+                        "propagate": False
+                    },
+                    "app.middleware": {
+                        "level": "INFO",
+                        "handlers": webapi_handlers,
+                        "propagate": False
+                    },
                 },
                 "root": {"level": level, "handlers": main_handlers},
             }
+
+            # 应用 toml [logging.loggers] 段：
+            # - 内置 logger（tradingagents/webapi/worker/uvicorn/fastapi/app）仅覆盖 level；
+            # - 第三方库 logger（httpx/apscheduler/motor 等）设置降噪级别后向上传播到 root handlers
+            toml_loggers = logging_root.get("loggers", {})
+            for lg_name, lg_cfg in toml_loggers.items():
+                lg_level = lg_cfg.get("level")
+                if not lg_level:
+                    continue
+                if lg_name in logging_config["loggers"]:
+                    logging_config["loggers"][lg_name]["level"] = lg_level
+                else:
+                    logging_config["loggers"][lg_name] = {"level": lg_level}
 
             logging.config.dictConfig(logging_config)
             logging.getLogger("webapi").info(f"Logging configured from {cfg_path}")
@@ -380,7 +405,7 @@ def setup_logging(log_level: str = "INFO"):
             "error_file": {
                 "class": handler_class,
                 "formatter": "detailed",
-                "level": "WARNING",
+                "level": "ERROR",
                 "filters": ["request_context"],
                 "filename": str(log_dir / "error.log"),
                 "maxBytes": 10485760,
@@ -389,7 +414,9 @@ def setup_logging(log_level: str = "INFO"):
             },
         },
         "loggers": {
-            "webapi": {"level": "INFO", "handlers": ["console", "file", "error_file"], "propagate": True},
+            "webapi": {"level": "INFO", "handlers": ["console", "file", "error_file"], "propagate": False},
+            "app.routers": {"level": "INFO", "handlers": ["console", "file", "error_file"], "propagate": False},
+            "app.middleware": {"level": "INFO", "handlers": ["console", "file", "error_file"], "propagate": False},
             "worker": {"level": "DEBUG", "handlers": ["console", "worker_file", "error_file"], "propagate": False},
             "uvicorn": {"level": "INFO", "handlers": ["console", "file", "error_file"], "propagate": False},
             "fastapi": {"level": "INFO", "handlers": ["console", "file", "error_file"], "propagate": False},

@@ -14,7 +14,7 @@ from ..utils.timezone import now_config_tz, format_date_short
 from ..core.response import safe_error_message
 import logging
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/reports", tags=["Reports"])
 

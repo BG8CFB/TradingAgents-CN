@@ -9,11 +9,11 @@ Annotated[T, "描述"] 会转成 JSON Schema property description。
 import inspect
 from typing import Any, Callable, List, Optional, get_args, get_origin, get_type_hints
 
-from app.utils.logging_init import get_logger
+import logging
 
 from ..core.types import ToolDef
 
-logger = get_logger("app.llm.tools")
+logger = logging.getLogger("app.llm.tools")
 
 _TYPE_MAP = {
     "int": "integer",

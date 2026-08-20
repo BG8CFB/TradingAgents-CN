@@ -421,7 +421,7 @@ class QuotesIngestionService:
 
             volume = q.get("volume")
             if symbol6 in ["300750", "000001", "600000"]:
-                logger.info(f"📊 [写入market_quotes] {symbol6} - volume={volume}, amount={q.get('amount')}, source={source}")
+                logger.debug(f"📊 [写入market_quotes] {symbol6} - volume={volume}, amount={q.get('amount')}, source={source}")
 
             # 仅写入非 None 的字段，避免覆盖已有值
             set_doc = {
@@ -557,7 +557,7 @@ class QuotesIngestionService:
                 data_source = doc.get("data_source", "")
 
                 if symbol6 in ["300750", "000001", "600000"]:
-                    logger.info(f"📊 [回填] {symbol6} - volume={doc.get('volume')}, vol={doc.get('vol')}, data_source={data_source}")
+                    logger.debug(f"📊 [回填] {symbol6} - volume={doc.get('volume')}, vol={doc.get('vol')}, data_source={data_source}")
 
                 quotes_map[symbol6] = {
                     "close": doc.get("close"),

@@ -9,13 +9,13 @@ MCP 应用服务层（新 MCPManager 之上）— 供 routers/mcp、main 启动�
 import threading
 from typing import Any, Dict, List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from .client import MCPManager
 from .config import MCPServerConfig as NewServerConfig
 from .tools import mcp_tool_name
 
-logger = logging = get_logger("app.llm.mcp.service")
+logger = logging = logging.getLogger("app.llm.mcp.service")
 
 _manager: Optional[MCPManager] = None
 _lock = threading.Lock()

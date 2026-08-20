@@ -40,10 +40,10 @@ def _extract_json(text: str) -> str:
 
 from app.engine.orchestrator.invoker import run_agent_turn  # noqa: E402 (intentional late import)
 
-from app.utils.logging_init import get_logger  # noqa: E402 (intentional late import)
+import logging  # noqa: E402 (intentional late import)
 from app.utils.tool_logging import log_graph_module  # noqa: E402 (intentional late import)
 
-logger = get_logger("engine.postprocess.signal_processing")
+logger = logging.getLogger("engine.postprocess.signal_processing")
 
 # 共享的价格提取正则模式
 _PRICE_PATTERNS = [

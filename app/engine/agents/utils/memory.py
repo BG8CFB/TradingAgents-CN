@@ -5,8 +5,8 @@ from typing import Any, Dict
 
 from app.core.env import get_env
 # 导入统一日志系统
-from app.utils.logging_init import get_logger
-logger = get_logger("agents.utils.memory")
+import logging
+logger = logging.getLogger("agents.utils.memory")
 
 
 class ChromaDBManager:
@@ -66,7 +66,7 @@ class ChromaDBManager:
         """线程安全地获取或创建集合"""
         with self._lock:
             if name in self._collections:
-                logger.info(f"📚 [ChromaDB] 使用缓存集合: {name}")
+                logger.debug(f"📚 [ChromaDB] 使用缓存集合: {name}")
                 return self._collections[name]
 
             try:

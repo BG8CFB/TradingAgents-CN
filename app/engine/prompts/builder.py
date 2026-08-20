@@ -9,9 +9,9 @@
 from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from app.llm.core.types import Message, Role
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("engine.prompts.builder")
+logger = logging.getLogger("engine.prompts.builder")
 
 # <report> 边界符的抗注入说明（四处工厂原样重复的文案，收敛为单一来源）
 REPORT_CAUTION = (

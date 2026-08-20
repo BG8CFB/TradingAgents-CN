@@ -11,10 +11,10 @@ from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date, parse_date_aware
 
 # 导入日志模块
-from app.utils.logging_manager import get_logger
+import logging
 
 
-logger = get_logger('stock_validator')
+logger = logging.getLogger('stock_validator')
 
 
 # ── 新架构同步辅助函数 ──────────────────────────────────────────────

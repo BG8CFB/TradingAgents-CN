@@ -74,18 +74,18 @@ class SystemService:
             )
 
             if config_data:
-                print(f"📊 从数据库获取配置，版本: {config_data.get('version', 0)}, LLM配置数量: {len(config_data.get('llm_configs', []))}")
+                logger.info(f"📊 从数据库获取配置，版本: {config_data.get('version', 0)}, LLM配置数量: {len(config_data.get('llm_configs', []))}")
                 # 补充必填字段默认值，防止旧版本文档缺失导致 ValidationError
                 config_data.setdefault('config_name', config_data.get('config_name', 'bridged'))
                 config_data.setdefault('config_type', config_data.get('config_type', 'system'))
                 return SystemConfig(**config_data)
 
             # 如果没有配置，创建默认配置
-            print("⚠️ 数据库中没有配置，创建默认配置")
+            logger.warning("⚠️ 数据库中没有配置，创建默认配置")
             return await self._create_default_config()
 
         except Exception as e:
-            print(f"❌ 从数据库获取配置失败: {e}")
+            logger.error(f"❌ 从数据库获取配置失败: {e}")
             return None
 
     async def _create_default_config(self) -> SystemConfig:
@@ -260,7 +260,7 @@ class SystemService:
             return await self.save_system_config(config)
 
         except Exception as e:
-            print(f"设置默认数据源失败: {e}")
+            logger.error(f"设置默认数据源失败: {e}")
             return False
 
     async def update_system_settings(self, settings: Dict[str, Any]) -> bool:
@@ -271,32 +271,32 @@ class SystemService:
                 return False
 
             # 打印更新前的系统设置
-            print(f"📝 更新前 system_settings 包含 {len(config.system_settings)} 项")
+            logger.debug(f"📝 更新前 system_settings 包含 {len(config.system_settings)} 项")
             if 'analyst_model' in config.system_settings:
-                print(f"  ✓ 更新前包含 analyst_model: {config.system_settings['analyst_model']}")
+                logger.debug(f"  ✓ 更新前包含 analyst_model: {config.system_settings['analyst_model']}")
             else:
-                print("  ⚠️  更新前不包含 analyst_model")
+                logger.debug("  ⚠️  更新前不包含 analyst_model")
 
             # 更新系统设置
             config.system_settings.update(settings)
 
             # 打印更新后的系统设置
-            print(f"📝 更新后 system_settings 包含 {len(config.system_settings)} 项")
+            logger.debug(f"📝 更新后 system_settings 包含 {len(config.system_settings)} 项")
             if 'analyst_model' in config.system_settings:
-                print(f"  ✓ 更新后包含 analyst_model: {config.system_settings['analyst_model']}")
+                logger.debug(f"  ✓ 更新后包含 analyst_model: {config.system_settings['analyst_model']}")
             else:
-                print("  ⚠️  更新后不包含 analyst_model")
+                logger.debug("  ⚠️  更新后不包含 analyst_model")
             if 'debate_model' in config.system_settings:
-                print(f"  ✓ 更新后包含 debate_model: {config.system_settings['debate_model']}")
+                logger.debug(f"  ✓ 更新后包含 debate_model: {config.system_settings['debate_model']}")
             else:
-                print("  ⚠️  更新后不包含 debate_model")
+                logger.debug("  ⚠️  更新后不包含 debate_model")
 
             result = await self.save_system_config(config)
 
             return result
 
         except Exception as e:
-            print(f"更新系统设置失败: {e}")
+            logger.error(f"更新系统设置失败: {e}")
             return False
 
     async def get_system_settings(self) -> Dict[str, Any]:
@@ -307,7 +307,7 @@ class SystemService:
                 return {}
             return config.system_settings
         except Exception as e:
-            print(f"获取系统设置失败: {e}")
+            logger.error(f"获取系统设置失败: {e}")
             return {}
 
     # ==================== 配置导入导出 ====================
@@ -588,7 +588,7 @@ class SystemService:
                 # v2.0 格式：system_configs 为必填
                 sc = config_data.get("system_configs", {})
                 if not sc and not config_data.get("llm_configs"):
-                    print("配置数据缺少 system_configs 或 llm_configs")
+                    logger.warning("配置数据缺少 system_configs 或 llm_configs")
                     return False
                 return True
 
@@ -596,12 +596,12 @@ class SystemService:
             required_fields = ["llm_configs", "data_source_configs", "database_configs", "system_settings"]
             for field in required_fields:
                 if field not in config_data:
-                    print(f"配置数据缺少必需字段: {field}")
+                    logger.warning(f"配置数据缺少必需字段: {field}")
                     return False
             return True
 
         except Exception as e:
-            print(f"验证配置数据失败: {e}")
+            logger.error(f"验证配置数据失败: {e}")
             return False
 
     # ---------- 传统配置迁移 ----------

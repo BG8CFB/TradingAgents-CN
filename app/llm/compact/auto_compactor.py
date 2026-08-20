@@ -13,14 +13,14 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from app.constants.llm_defaults import DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS
-from app.utils.logging_init import get_logger
+import logging
 
 from ..core.base import BaseLLMClient
 from ..core.types import Message, Role, TextBlock, ToolResultBlock, ToolUseBlock
 from .prompts import COMPACT_INSTRUCTIONS, COMPACT_SYSTEM_PROMPT, CONTINUATION_HEADER
 from .token_counter import TokenCounter, estimate_messages_tokens
 
-logger = get_logger("app.llm.compact")
+logger = logging.getLogger("app.llm.compact")
 
 # 占位符对齐 claude-code TIME_BASED_MC_CLEARED_MESSAGE
 _OLD_RESULT_PLACEHOLDER = "[Old tool result content cleared]"

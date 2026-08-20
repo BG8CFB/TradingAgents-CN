@@ -1100,14 +1100,11 @@ class AnalysisService:
         task_mcp_manager = None
 
         try:
-            from app.utils.logging_init import setup_logging
             from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
             from app.llm.mcp.task_manager import (
                 get_task_mcp_manager,
                 remove_task_mcp_manager,
             )
-
-            setup_logging()
 
             # 创建任务级 MCP 管理器
             task_mcp_manager = get_task_mcp_manager(task_id)

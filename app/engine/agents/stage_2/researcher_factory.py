@@ -15,11 +15,11 @@ import time
 from typing import Literal
 
 from app.llm.core.types import Message, Role
-from app.utils.logging_init import get_logger
+import logging
 from app.engine.agents.utils.agent_config import load_agent_config, resolve_company_name
 from app.engine.orchestrator.invoker import run_agent_turn
 
-logger = get_logger("default")
+logger = logging.getLogger("default")
 
 # Stage 2 内部报告 key — 防止同轮泄漏
 _STAGE2_REPORT_KEYS = frozenset({"bull_researcher", "bear_researcher"})

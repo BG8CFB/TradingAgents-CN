@@ -75,7 +75,7 @@ async def fetch_margin_trading(
         col = "证券代码" if "证券代码" in df.columns else "代码"
         df = df[df[col].astype(str).str.zfill(6) == symbol.zfill(6)]
 
-    logger.info(f"AKShare 融资融券: {symbol} {len(df)} 条")
+    logger.debug(f"AKShare 融资融券: {symbol} {len(df)} 条")
     return df
 
 

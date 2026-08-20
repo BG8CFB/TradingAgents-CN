@@ -2,7 +2,7 @@
 
 
 from app.engine.default_config import DEFAULT_CONFIG
-from app.utils.logging_init import get_logger
+import logging
 
 # 从子模块导入所有工具函数
 from .toolkit_news import (
@@ -15,7 +15,7 @@ from .toolkit_market import get_china_market_overview, get_stock_market_data_uni
 from .toolkit_fundamentals import get_stock_fundamentals_unified
 from .toolkit_sentiment import get_stock_sentiment_unified
 
-logger = get_logger("agents")
+logger = logging.getLogger("agents")
 
 
 class Toolkit:

@@ -293,6 +293,14 @@ Note: Several `.json` files are auto-generated and may contain sensitive stats �
 
 ## Key Patterns
 
+### Logging 规范（2026-08 标准化，强制）
+
+- **唯一初始化点**：`app/core/logging_config.setup_logging()`，只在进程入口调用（`app/__main__.py`、`app/main.py` lifespan、`app/worker/analysis_worker.py` main）。业务代码禁止调用任何 setup_logging / basicConfig / 重配 root handler。旧的 `app/utils/logging_manager.py` / `logging_init.py` 已删除，禁止复活。
+- **统一获取方式**：所有模块 `logger = logging.getLogger(__name__)`。禁止 print、禁止硬编码 logger 名（如 "webapi"）。web 层日志由 dictConfig 的 `app.routers` / `app.middleware` logger 路由到 webapi.log。
+- **分级契约**：ERROR=需人介入的故障，必带 `exc_info=True`（禁止 `traceback.format_exc()` 单独打一条）；WARNING=可自愈需关注（熔断/降级/重试）；INFO=一个业务动作一条（事件级汇总）；DEBUG=逐条目过程细节。循环体内逐条目输出一律 DEBUG。
+- **降噪**：大对象（LLM 入参/响应、DataFrame）打日志必须截断（~500 字符）；第三方库级别由 `config/logging.toml` `[logging.loggers]` 段统一控制（httpx/apscheduler/motor/pymongo 等压 WARNING）。
+- **落盘**：error.log 只收 ERROR+；WARNING 属日常运行日志。worker 进程必须走 `setup_logging()` 使 worker.log 落盘。
+
 ### Adding a New Analyst Agent
 
 1. Define in `config/agents/phase1_agents_config.yaml`:

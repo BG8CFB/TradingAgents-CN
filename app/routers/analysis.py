@@ -19,7 +19,7 @@ from app.utils.runtime_paths import get_analysis_results_dir, resolve_path
 from app.utils.secret_masking import token_fingerprint
 
 router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 # 保存后台任务的引用，防止 GC 提前回收
 _background_tasks: set = set()
@@ -968,14 +968,21 @@ async def get_task_events(
     event_type: Optional[str] = None,
     after_seq: int = 0,
     limit: int = 500,
+    before_seq: Optional[int] = None,
+    order: str = "asc",
     user: dict = Depends(get_current_user),
 ):
-    """获取任务分析过程事件（回放）：按 seq 升序，支持按 agent/类型过滤与增量拉取。
+    """获取任务分析过程事件（回放）：默认按 seq 升序 + after_seq 增量拉取；
+    order=desc + before_seq 支持"最近优先 + 向前翻页"（分析详情页）。
+    支持按 agent/类型过滤。
 
     管理员可查任意任务；普通用户仅能查自己的。
     """
     from app.services.analysis_events import load_events
     from app.services.analysis_service import get_analysis_service
+
+    if order not in ("asc", "desc"):
+        raise HTTPException(status_code=400, detail="order 仅支持 asc/desc")
 
     try:
         task = await get_analysis_service().get_task_with_status_fallback(
@@ -994,6 +1001,8 @@ async def get_task_events(
         event_type=event_type,
         after_seq=after_seq,
         limit=limit,
+        before_seq=before_seq,
+        order=order,
     )
     return {"success": True, "data": events, "count": len(events)}
 

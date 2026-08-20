@@ -27,7 +27,7 @@ from app.services.operation_log_service import log_operation
 from app.models.operation_log import ActionType
 from app.routers.config.llm import SetDefaultRequest
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Config"])
 

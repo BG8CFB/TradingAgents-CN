@@ -343,9 +343,7 @@ class NewsDataService:
             return success_count
 
         except Exception as e:
-            self.logger.error(f"❌ 保存新闻数据失败: {e}")
-            import traceback
-            self.logger.error(traceback.format_exc())
+            self.logger.error(f"❌ 保存新闻数据失败: {e}", exc_info=True)
             return 0
 
     def _standardize_news_data(

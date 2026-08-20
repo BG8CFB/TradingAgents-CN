@@ -16,11 +16,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from .state import create_initial_state, export_legacy_state
 
-logger = get_logger("orchestrator.pipeline")
+logger = logging.getLogger("orchestrator.pipeline")
 
 # 辩论轮次安全上限（与旧 ConditionalLogic.MAX_ROUNDS 一致）
 MAX_ROUNDS = 10

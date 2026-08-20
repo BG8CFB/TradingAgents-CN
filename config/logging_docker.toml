@@ -53,7 +53,7 @@ filename = "/app/runtime/logs/worker.log"
 # 错误日志文件
 [logging.handlers.error]
 enabled = true
-level = "WARNING"
+level = "ERROR"
 max_size = "100MB"
 backup_count = 5
 filename = "/app/runtime/logs/error.log"

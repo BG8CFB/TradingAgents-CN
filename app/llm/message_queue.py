@@ -10,11 +10,11 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from .core.types import Message, Role
 
-logger = get_logger("app.llm.queue")
+logger = logging.getLogger("app.llm.queue")
 
 # 对齐 claude-code wrapCommandText 的人类消息模板
 USER_MESSAGE_TEMPLATE = (

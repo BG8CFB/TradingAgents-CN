@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.constants.llm_defaults import DEFAULT_MAX_TOKENS, MAX_TOKENS_MAX
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("app.llm.config")
+logger = logging.getLogger("app.llm.config")
 
 
 def project_root() -> Path:

@@ -14,7 +14,7 @@ from app.services.news_data_service import get_news_data_service, NewsQueryParam
 from app.utils.timezone import now_utc
 
 router = APIRouter(prefix="/api/news", tags=["News"])
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 
 class NewsSyncRequest(BaseModel):

@@ -19,12 +19,12 @@ from apscheduler.events import (
 )
 
 from app.core.database import get_mongo_db, get_mongo_db_sync
-from app.utils.logging_manager import get_logger
+import logging
 from app.utils.timezone import now_tz
 from app.engine.config.runtime_settings import get_zoneinfo
 from app.utils.time_utils import now_utc
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 def get_config_zoneinfo():
     """获取配置的时区 ZoneInfo 对象"""
@@ -219,9 +219,7 @@ class SchedulerService:
 
             return True
         except Exception as e:
-            logger.error(f"❌ 触发任务 {job_id} 失败: {e}")
-            import traceback
-            logger.error(f"详细错误: {traceback.format_exc()}")
+            logger.error(f"❌ 触发任务 {job_id} 失败: {e}", exc_info=True)
             await self._record_job_action(job_id, "trigger", "failed", str(e))
             return False
     

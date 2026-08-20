@@ -5,7 +5,7 @@ from app.routers.auth_db import get_current_user
 from app.core.response import safe_error_message
 
 router = APIRouter(prefix="/api/system", tags=["System"])
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 
 @router.get("/config/validate", summary="验证配置完整性")

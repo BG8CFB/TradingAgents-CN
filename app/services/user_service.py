@@ -21,15 +21,9 @@ from pymongo.errors import (
     AutoReconnect,
 )
 
-# 尝试导入日志管理器
-try:
-    from app.utils.logging_manager import get_logger
-except ImportError:
-    import logging
-    def get_logger(name: str) -> logging.Logger:
-        return logging.getLogger(name)
+import logging
 
-logger = get_logger('user_service')
+logger = logging.getLogger(__name__)
 
 
 def _is_system_error(exc: Exception) -> bool:

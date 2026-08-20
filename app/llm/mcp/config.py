@@ -25,11 +25,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from ..config import project_root
 
-logger = get_logger("app.llm.mcp")
+logger = logging.getLogger("app.llm.mcp")
 
 DEFAULT_MCP_CONFIG = "config/llm_mcp.json"
 

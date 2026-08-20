@@ -14,7 +14,7 @@ from app.routers.auth_db import get_current_user, require_admin
 from app.services.log_export_service import get_log_export_service
 
 router = APIRouter(prefix="/api/logs", tags=["Logs"])
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 
 def _validate_log_filename(filename: str) -> str:

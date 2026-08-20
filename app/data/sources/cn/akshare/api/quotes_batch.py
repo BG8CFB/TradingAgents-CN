@@ -27,7 +27,7 @@ async def fetch_batch_quotes(codes: List[str]) -> Dict[str, Dict[str, Any]]:
         try:
             result = await strategy_fn(codes)
             if result:
-                logger.info(f"AKShare 批量行情: {strategy_name} 返回 {len(result)} 只")
+                logger.debug(f"AKShare 批量行情: {strategy_name} 返回 {len(result)} 只")
                 return result
         except Exception as e:
             logger.debug(f"AKShare 批量行情 {strategy_name} 失败: {e}")

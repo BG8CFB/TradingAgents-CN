@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from typing import Optional, Any
 
 from app.core.env import get_env
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("agents.utils.embedding_resolver")
+logger = logging.getLogger("agents.utils.embedding_resolver")
 
 
 @dataclass

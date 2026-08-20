@@ -111,5 +111,5 @@ async def fetch_adj_factors(
     if merged.empty:
         raise DataNotFoundError("akshare", _DOMAIN, f"symbol={symbol} 合并后无数据")
 
-    logger.info(f"AKShare 复权因子: {symbol} {len(merged)} 条")
+    logger.debug(f"AKShare 复权因子: {symbol} {len(merged)} 条")
     return merged[["symbol", "trade_date", "adj_factor", "qfq_factor", "hfq_factor"]]

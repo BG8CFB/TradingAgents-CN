@@ -6,8 +6,8 @@
 from datetime import datetime, timedelta
 from app.utils.time_utils import now_utc
 
-from app.utils.logging_manager import get_logger
-logger = get_logger('agents')
+import logging
+logger = logging.getLogger('agents')
 
 
 def get_trading_date_range(target_date=None, lookback_days=10):

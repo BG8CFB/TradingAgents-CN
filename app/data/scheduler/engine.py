@@ -167,7 +167,7 @@ class SchedulerEngine:
             # 避免手动触发时依赖域跳过非交易日检查。
             await self._run_job_with_dependencies(market, dep, visited, force=False)
 
-        logger.info("执行调度: %s/%s", market, domain)
+        logger.debug("执行调度: %s/%s", market, domain)
         job_entry = self._registry.get_job(domain, market)
         if not job_entry or not job_entry.get("class"):
             logger.warning("未注册任务: %s/%s", market, domain)
@@ -186,7 +186,7 @@ class SchedulerEngine:
             job_instance.dependencies = list(job_conf.get("depends_on", []) or [])
             job_instance.force_sync = force
             result = await job_instance.execute()
-            logger.info("调度完成 %s/%s: %s", market, domain, result)
+            logger.debug("调度完成 %s/%s: %s", market, domain, result)
         except Exception as e:
             logger.error("调度执行失败 %s/%s: %s", market, domain, e)
             # M14 修复：监控回调用独立 try-except 包裹，避免回调异常

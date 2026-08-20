@@ -17,7 +17,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.core.database import get_mongo_db, get_mongo_db_sync
 from app.utils.timezone import now_utc, to_config_tz
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

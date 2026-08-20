@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from ..core.types import ToolDef
 from ..tools.registry import ToolRegistry
@@ -21,7 +21,7 @@ from ..tools.registry import ToolRegistry
 if TYPE_CHECKING:
     from ..core.base import BaseLLMClient
 
-logger = get_logger("app.llm.orchestration.subagent")
+logger = logging.getLogger("app.llm.orchestration.subagent")
 
 SUBAGENT_SYSTEM_PROMPT = (
     "你是一个被派发来完成特定任务的子代理。根据给定的任务描述，使用可用的工具独立完成任务，"

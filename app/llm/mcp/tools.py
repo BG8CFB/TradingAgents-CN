@@ -13,13 +13,13 @@ from typing import Dict, List, Optional
 
 from mcp import ClientSession
 
-from app.utils.logging_init import get_logger
+import logging
 
 from ..core.types import ToolDef
 from .client import MCPManager
 from .config import MCPServerConfig, load_mcp_config
 
-logger = get_logger("app.llm.mcp")
+logger = logging.getLogger("app.llm.mcp")
 
 TOOL_NAME_PREFIX = "mcp__"
 MAX_DESCRIPTION_CHARS = 2048

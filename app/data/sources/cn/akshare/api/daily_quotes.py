@@ -97,5 +97,5 @@ async def fetch_daily_quotes(
     df = df.copy()
     df["symbol"] = code
 
-    logger.info(f"AKShare 行情: {code} {len(df)} 条")
+    logger.debug(f"AKShare 行情: {code} {len(df)} 条")
     return df

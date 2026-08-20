@@ -78,5 +78,5 @@ async def fetch_intraday_quotes(
         logger.warning(f"AKShare 分钟线返回空: code={code}")
         raise DataNotFoundError("akshare", _DOMAIN, f"code={code} 无分钟线数据")
 
-    logger.info(f"AKShare 分钟线: {code} freq={period} {len(df)} 条")
+    logger.debug(f"AKShare 分钟线: {code} freq={period} {len(df)} 条")
     return df

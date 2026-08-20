@@ -13,9 +13,9 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("app.llm.skills")
+logger = logging.getLogger("app.llm.skills")
 
 DEFAULT_SKILL_DIRS = ["config/skills"]  # 相对项目根
 

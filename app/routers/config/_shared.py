@@ -6,7 +6,7 @@
 
 import logging
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 
 def sanitize_llm_configs(items):

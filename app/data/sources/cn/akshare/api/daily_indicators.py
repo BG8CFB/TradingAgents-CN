@@ -113,7 +113,7 @@ async def fetch_daily_indicators_by_symbol(
         end_clean = end_date.replace("-", "")
         merged = merged[merged["date"].str.replace("-", "") <= end_clean]
 
-    logger.info(f"AKShare 每日指标: {code} {len(merged)} 条")
+    logger.debug(f"AKShare 每日指标: {code} {len(merged)} 条")
     return merged.reset_index(drop=True)
 
 

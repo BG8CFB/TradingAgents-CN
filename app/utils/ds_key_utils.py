@@ -16,9 +16,9 @@ Tushare 三市场 Token 设计（与 docs/全市场股票数据架构设计文�
 from typing import Optional
 
 from app.core.env import get_env
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("app.ds_key_utils")
+logger = logging.getLogger("app.ds_key_utils")
 
 # 数据源类型到环境变量名的映射
 # 顺序即 fallback 链：列表中靠前的优先，为空时尝试后续

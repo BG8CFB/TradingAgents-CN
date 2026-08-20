@@ -3,10 +3,10 @@ import time
 from app.llm.core.types import Message, Role
 
 # 导入统一日志系统
-from app.utils.logging_init import get_logger
+import logging
 from app.engine.orchestrator.invoker import run_agent_turn
 
-logger = get_logger("default")
+logger = logging.getLogger("default")
 
 
 def create_trader(llm, memory):

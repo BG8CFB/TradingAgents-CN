@@ -14,13 +14,13 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from .config import load_config
 from .core.base import BaseLLMClient
 from .core.factory import create_client
 
-logger = get_logger("app.llm.providers")
+logger = logging.getLogger("app.llm.providers")
 
 # provider → 默认协议推断（仅 anthropic 原生走 anthropic 协议，其余全部 openai 兼容）
 _PROVIDER_PROTOCOL = {
@@ -251,7 +251,7 @@ async def _load_catalog_index_async() -> Dict[str, Dict[str, Optional[int]]]:
         docs = await cursor.to_list(200)
         return _build_catalog_index(docs)
     except Exception as e:  # noqa: BLE001 - catalog 不可用不阻断，limits 常量兜底
-        logger.info(f"[providers] 异步读取 model_catalog 失败: {e}")
+        logger.warning(f"[providers] 异步读取 model_catalog 失败: {e}")
         return {}
 
 
@@ -266,7 +266,7 @@ async def _load_provider_defaults_async() -> Dict[str, Dict[str, Any]]:
         ).to_list(200)
         return _normalize_provider_defaults(docs)
     except Exception as e:  # noqa: BLE001
-        logger.info(f"[providers] 异步读取厂家配置失败: {e}")
+        logger.warning(f"[providers] 异步读取厂家配置失败: {e}")
         return {}
 
 
@@ -286,7 +286,7 @@ def _load_all_sync() -> tuple:
         catalog_docs = list(db.model_catalog.find({}, {"provider": 1, "models": 1}).limit(200))
         return configs, _normalize_provider_defaults(provider_docs), _build_catalog_index(catalog_docs)
     except Exception as e:  # noqa: BLE001 - 数据库不可用（独立测试场景）
-        logger.info(f"[providers] 同步读取数据库配置失败: {e}")
+        logger.warning(f"[providers] 同步读取数据库配置失败: {e}")
         return [], {}, {}
 
 
@@ -379,7 +379,7 @@ async def resolve_task_override_bundle(
             provider_defaults = await _load_provider_defaults_async()
             catalog_index = await _load_catalog_index_async()
     except Exception as e:  # noqa: BLE001 - 数据库不可用时仅用入参
-        logger.info(f"[providers] 任务覆盖读取数据库配置失败: {e}")
+        logger.warning(f"[providers] 任务覆盖读取数据库配置失败: {e}")
     if not configs:
         configs, provider_defaults, catalog_index = _load_all_sync()
 

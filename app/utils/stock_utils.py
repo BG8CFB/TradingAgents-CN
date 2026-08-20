@@ -8,8 +8,8 @@ from typing import Dict, Tuple
 from enum import Enum
 
 # 导入统一日志系统
-from app.utils.logging_init import get_logger
-logger = get_logger("default")
+import logging
+logger = logging.getLogger("default")
 
 
 class StockMarket(Enum):

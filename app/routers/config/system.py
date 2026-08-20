@@ -31,7 +31,7 @@ from app.services.operation_log_service import log_operation
 from app.models.operation_log import ActionType
 from app.services.config_provider import provider as config_provider
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Config"])
 

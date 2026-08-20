@@ -8,12 +8,12 @@ Skill 触发工具（参考 claude-code SkillTool）
 
 from typing import List, Optional
 
-from app.utils.logging_init import get_logger
+import logging
 
 from ..core.types import ToolDef
 from .loader import SkillStore
 
-logger = get_logger("app.llm.skills")
+logger = logging.getLogger("app.llm.skills")
 
 SKILL_TOOL_NAME = "skill"
 

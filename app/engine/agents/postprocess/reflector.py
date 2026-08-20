@@ -3,9 +3,9 @@
 from typing import Any, Dict
 
 from app.engine.orchestrator.invoker import run_agent_turn
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("engine.postprocess.reflector")
+logger = logging.getLogger("engine.postprocess.reflector")
 
 from app.engine.prompts.parts import REFLECTION_SYSTEM_PROMPT  # noqa: E402
 

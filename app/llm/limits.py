@@ -25,9 +25,9 @@ from app.constants.llm_defaults import (
     ESCALATED_MAX_TOKENS,
     MAX_TOKENS_MAX,
 )
-from app.utils.logging_init import get_logger
+import logging
 
-logger = get_logger("app.llm")
+logger = logging.getLogger("app.llm")
 
 # catalog 索引：{(provider|model): {"context_length": int, "max_tokens": int|None}}
 # 由 providers.py 在客户端解析时注入（惰性，避免循环 import；进程内缓存）

@@ -10,7 +10,7 @@ from app.core.response import ok
 from app.services.notifications_service import get_notifications_service
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
-logger = logging.getLogger("webapi.notifications")
+logger = logging.getLogger(__name__)
 
 
 @router.get("")

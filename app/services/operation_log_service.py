@@ -20,7 +20,7 @@ from app.models.operation_log import (
 from app.utils.timezone import now_tz, now_config_tz
 from app.utils.secret_masking import mask_username
 
-logger = logging.getLogger("webapi")
+logger = logging.getLogger(__name__)
 
 
 class OperationLogService:
