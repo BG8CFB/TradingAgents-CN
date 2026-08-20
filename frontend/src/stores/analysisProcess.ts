@@ -45,6 +45,14 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
   const lastError = ref('')
   const loadingReplay = ref(false)
 
+  // ── 渲染窗口 state（Task 5）──
+  /** 渲染窗口大小：store.events 全量保存，visibleEvents 只暴露最近 RENDER_WINDOW 条 */
+  const RENDER_WINDOW = 500
+  /** agent_key → 实时流式文本（live 模式 text_delta 累积，收到 llm_response 清空） */
+  const streamingText = ref<Record<string, string>>({})
+  /** 是否还有更早的事件可加载（loadEarlier 拉取，Task 6 实现真实逻辑） */
+  const hasMoreEarlier = ref(false)
+
   // ── WS 内部状态 ──
   let ws: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -72,6 +80,18 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
   const anyRunning = computed(() =>
     agentOrder.value.some(key => (agentStatus.value[key] ?? 'running') === 'running'),
   )
+
+  /** 渲染窗口：events 已按 seq 升序，取最近 RENDER_WINDOW 条（本地乐观 seq<0 消息天然保留在窗口内） */
+  const visibleEvents = computed(() => {
+    const evs = events.value
+    return evs.length > RENDER_WINDOW ? evs.slice(evs.length - RENDER_WINDOW) : [...evs]
+  })
+
+  /** 基于 visibleEvents 的 agent 执行顺序（只渲染窗口内出现过的 agent） */
+  const visibleAgentOrder = computed(() => {
+    const seen = new Set(visibleEvents.value.map(e => e.agent_key))
+    return agentOrder.value.filter(key => seen.has(key))
+  })
 
   // ── 内部工具 ──
   function ensureAgent(key: string) {
@@ -120,6 +140,12 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
         break
       case 'agent_event': {
         if (!msg.agent_key || typeof msg.seq !== 'number') return
+        // text_delta 不落库也不入 events，仅累积到 streamingText 供实时渲染
+        if (msg.event_type === 'text_delta') {
+          const delta = String((msg.payload as Record<string, unknown> | undefined)?.text ?? '')
+          if (delta) streamingText.value[msg.agent_key] = (streamingText.value[msg.agent_key] ?? '') + delta
+          return
+        }
         applyAgentEvent({
           task_id: typeof msg.task_id === 'string' ? msg.task_id : taskId.value,
           seq: msg.seq,
@@ -129,6 +155,10 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
           event_type: msg.event_type ?? '',
           payload: msg.payload,
         })
+        // llm_response 到达后流式文本已固化，清空实时气泡
+        if (msg.event_type === 'llm_response') {
+          delete streamingText.value[msg.agent_key]
+        }
         break
       }
       case 'user_message_injected': {
@@ -295,12 +325,20 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
       }
       // 回放时所有 agent 均已结束
       for (const key of agentOrder.value) agentStatus.value[key] = 'completed'
+      // 回放拉全量：总数超出渲染窗口即可"加载更早"
+      hasMoreEarlier.value = events.value.length > RENDER_WINDOW
     } catch (error) {
       console.error('[AnalysisProcess] 加载回放事件失败:', error)
       lastError.value = '加载分析过程失败'
     } finally {
       loadingReplay.value = false
     }
+  }
+
+  /** 加载更早的事件（拉取窗口之前的分页；真实拉取逻辑 Task 6 实现） */
+  async function loadEarlier() {
+    // Task 6: getTaskEvents(id, { order: 'desc', before_seq: visibleEvents 最小 seq, limit: 500 })
+    return
   }
 
   /** 重置全部状态 */
@@ -314,6 +352,8 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     agentLabels.value = {}
     lastError.value = ''
     localSeq = -1
+    streamingText.value = {}
+    hasMoreEarlier.value = false
     pendingReceipts.clear()
   }
 
@@ -327,12 +367,17 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     agentLabels,
     lastError,
     loadingReplay,
+    streamingText,
+    hasMoreEarlier,
     agents,
     anyRunning,
+    visibleEvents,
+    visibleAgentOrder,
     start,
     stop,
     sendAgentMessage,
     loadReplay,
+    loadEarlier,
     reset,
   }
 })
