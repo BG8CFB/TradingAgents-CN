@@ -293,7 +293,11 @@ const agentNames = ref<Record<string, string>>({})
 watch(
   loaded,
   (v) => {
-    if (!v || Object.keys(result.value?.report_titles ?? {}).length) return
+    if (!v) return
+    // report_titles 未覆盖全部 key 时也要兜底（部分覆盖场景按 key 缺失加载）
+    const reportsData = (result.value?.reports ?? result.value?.state ?? {}) as Record<string, unknown>
+    const uncovered = Object.keys(reportsData).some(k => !result.value?.report_titles?.[k])
+    if (!uncovered) return
     loadAgentDisplayNames()
       .then((m) => {
         agentNames.value = m
@@ -395,7 +399,8 @@ async function extractErrorMessage(err: unknown): Promise<string> {
 
 const downloading = ref(false)
 async function download(format: string = 'markdown') {
-  if (!result.value && !loaded.value) {
+  // 以 loaded 为准：接口成功但空对象也不应产出空报告文件
+  if (!loaded.value || !result.value) {
     ElMessage.error('报告尚未生成，无法下载')
     return
   }
