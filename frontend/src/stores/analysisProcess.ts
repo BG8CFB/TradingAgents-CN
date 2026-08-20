@@ -385,9 +385,9 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
    * WS 与回填并发到达时由 insertEvent/insertEvents 的 seenEventKeys 去重无缝拼接。
    */
   async function loadLatestAndConnect(id: string) {
+    lastError.value = '' // 必须在 start() 之前清空：start 连接失败会写入 WS 错误，不能被覆盖
     start(id) // 连 WS（此后 WS 增量事件正常进入）
     loadingReplay.value = true
-    lastError.value = ''
     try {
       // desc 首拉最近 500 条，reverse 为升序后入库（副作用需按时间正序应用）
       const res = await analysisApi.getTaskEvents(id, { order: 'desc', limit: 500 })
@@ -398,11 +398,11 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
         for (const ev of ordered) applyAgentEvent(ev, false)
       }
       hasMoreEarlier.value = list.length >= 500
-      // 补洞：首拉快照与 WS 实时增量之间可能有空洞（WS 事件 seq 跳跃），
-      // 统一以当前最大 seq 为锚升序补拉一次，重复事件由去重键吸收
-      const evs = events.value
-      const maxSeq = evs.length > 0 ? evs[evs.length - 1].seq : 0
-      const inc = await analysisApi.getTaskEvents(id, { after_seq: maxSeq, limit: 500 })
+      // 补洞：空洞在 desc 快照尾与 WS 首个增量之间，必须以快照自身的最大 seq
+      // （desc 首条）为锚升序补拉；用 events 末尾 seq 会跳过最需要补的区间。
+      // 与 WS 并发达到的重复事件由 seenEventKeys 去重吸收。
+      const snapshotMaxSeq = list.length > 0 ? list[0].seq : 0
+      const inc = await analysisApi.getTaskEvents(id, { after_seq: snapshotMaxSeq, limit: 500 })
       const incList: AgentEvent[] = inc?.data ?? []
       if (incList.length > 0) {
         insertEvents(incList)
