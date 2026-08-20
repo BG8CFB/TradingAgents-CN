@@ -32,6 +32,11 @@
 
       <!-- 运行中：text_delta 实时气泡（独立小组件，delta 只重渲该组件） -->
       <StreamingBubble v-if="isRunning" :agent-key="agentKey" />
+
+      <!-- 空态：该 agent 仅有生命周期事件（或旧事件无过程细节）时给出占位，避免空白窗口 -->
+      <div v-if="!messages.length && !isRunning" class="chat-empty">
+        {{ store.mode === 'replay' ? '该智能体无已录制的过程细节（早于过程录制增强或仅有生命周期事件）' : '暂无过程内容' }}
+      </div>
     </div>
 
     <!-- 回到底部悬浮按钮 -->
@@ -154,6 +159,13 @@ async function onLoadEarlier() {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.chat-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 
 /* 连续同名工具折叠组 */

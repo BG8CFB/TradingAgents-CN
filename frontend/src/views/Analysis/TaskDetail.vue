@@ -283,7 +283,11 @@ async function loadOverview() {
   try {
     const res = await analysisApi.getTaskOverview(taskId)
     overview.value = res.data
-    if (res.data.task.status) taskStatus.value = res.data.task.status
+    if (res.data.task.status) {
+      taskStatus.value = res.data.task.status
+      // 直接打开已完成任务（不经轮询分支）时补齐进度，避免完成态显示 0%
+      if (res.data.task.status === 'completed') progressPercentage.value = 100
+    }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     loadError.value = `任务信息加载失败：${msg}`
