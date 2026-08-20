@@ -706,24 +706,24 @@ const submitBatchAnalysis = async () => {
 
     const { batch_id, total_tasks } = response.data
 
-    // 显示成功提示并引导用户去任务中心
+    // 显示成功提示并引导用户去批次详情页
     ElMessageBox.confirm(
-      `✅ 批量分析任务已成功提交！\n\n📊 股票数量：${total_tasks}只\n📋 批次ID：${batch_id}\n\n任务正在后台执行中，最多同时执行3个任务，其他任务会自动排队等待。\n\n是否前往任务中心查看进度？`,
+      `✅ 批量分析任务已成功提交！\n\n📊 股票数量：${total_tasks}只\n📋 批次ID：${batch_id}\n\n任务正在后台执行中，最多同时执行3个任务，其他任务会自动排队等待。\n\n是否前往批次详情页查看进度？`,
       '提交成功',
       {
-        confirmButtonText: '前往任务中心',
+        confirmButtonText: '前往批次详情',
         cancelButtonText: '留在当前页面',
         type: 'success',
         distinguishCancelAndClose: true,
         closeOnClickModal: false
       }
     ).then(() => {
-      // 用户点击"前往任务中心"
-      router.push({ path: '/tasks', query: { batch_id } })
+      // 用户点击"前往批次详情"（AnalysisBatchDetail 路由由批量详情页任务注册）
+      router.push({ name: 'AnalysisBatchDetail', params: { batchId: batch_id } })
     }).catch((action) => {
       // 用户点击"留在当前页面"或关闭对话框
       if (action === 'cancel') {
-        ElMessage.info('任务正在后台执行，您可以随时前往任务中心查看进度')
+        ElMessage.info('任务正在后台执行，您可以随时前往任务中心查看批次进度')
       }
     })
 
