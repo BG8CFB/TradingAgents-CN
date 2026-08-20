@@ -74,7 +74,7 @@ async def load_events(
 
 ### 步骤
 
-- [ ] 1.1 写失败测试。新建 `tests/integration/test_analysis_events_paging.py`，完全参照 `tests/integration/test_analysis_events.py` 的模式（`_mk_event` 构造真实事件 → `persist_events` 落库 → 断言 → `delete_many` 清理；`_real_mongo` autouse fixture 每用例 `init_database()`/`close_database()`；`@pytest.mark.requires_db`）：
+- [x] 1.1 写失败测试。新建 `tests/integration/test_analysis_events_paging.py`，完全参照 `tests/integration/test_analysis_events.py` 的模式（`_mk_event` 构造真实事件 → `persist_events` 落库 → 断言 → `delete_many` 清理；`_real_mongo` autouse fixture 每用例 `init_database()`/`close_database()`；`@pytest.mark.requires_db`）：
 
 ```python
 """load_events desc/before_seq 分页集成测试（真实 MongoDB，无 mock）"""
@@ -123,7 +123,7 @@ class TestLoadEventsPaging:
 
   补全 `test_before_seq_pages_backwards` 与 `test_default_unchanged` 的完整断言（插入 seq 1..7，`load_events(task_id, order="desc", before_seq=5, limit=3)` 期望 `[4, 3, 2]`；`load_events(task_id, after_seq=2)` 期望 `[3,4,5,6,7]`）。
 
-- [ ] 1.2 跑测试确认失败（TypeError: unexpected keyword `order`）：
+- [x] 1.2 跑测试确认失败（TypeError: unexpected keyword `order`）：
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d mongodb redis
@@ -132,7 +132,7 @@ python -m pytest tests/integration/test_analysis_events_paging.py -q
 # 期望：3 failed（load_events 不认识 order/before_seq）
 ```
 
-- [ ] 1.3 实现 `load_events` 扩展（`app/services/analysis_events.py:130`）：
+- [x] 1.3 实现 `load_events` 扩展（`app/services/analysis_events.py:130`）：
 
 ```python
 async def load_events(
@@ -174,7 +174,7 @@ async def load_events(
     return out
 ```
 
-- [ ] 1.4 扩展路由参数（`app/routers/analysis.py:964-998`）：
+- [x] 1.4 扩展路由参数（`app/routers/analysis.py:964-998`）：
 
 ```python
 @router.get("/tasks/{task_id}/events")
@@ -192,7 +192,7 @@ async def get_task_events(
 
   `load_events(...)` 调用处（991-997 行）透传 `before_seq=before_seq, order=order`。对 `order` 做白名单校验：非 `asc`/`desc` 时返回 400（`raise HTTPException(status_code=400, detail="order 仅支持 asc/desc")`）。权限校验逻辑（980-989 行）不动。
 
-- [ ] 1.5 跑通过 + 回归既有测试：
+- [x] 1.5 跑通过 + 回归既有测试：
 
 ```bash
 python -m pytest tests/integration/test_analysis_events_paging.py tests/integration/test_analysis_events.py -q
@@ -201,7 +201,7 @@ ruff check app/services/analysis_events.py app/routers/analysis.py
 # 期望：All checks passed
 ```
 
-- [ ] 1.6 Commit: `✨ feat(api): events 接口支持 order=desc 与 before_seq 向前分页（详情页最近500条）`
+- [x] 1.6 Commit: `✨ feat(api): events 接口支持 order=desc 与 before_seq 向前分页（详情页最近500条）`
 
 ## Task 2: 后端 overview 聚合接口（TDD）
 
@@ -229,7 +229,7 @@ ruff check app/services/analysis_events.py app/routers/analysis.py
 
 ### 步骤
 
-- [ ] 2.1 写失败测试 `tests/integration/test_task_overview_api.py`。参照 `tests/features/test_analysis_tasks.py` 的 `authed_client`（`tests/conftest.py:324-336`，dependency_overrides + Bearer token）用法 + `test_analysis_events.py` 的真实 Mongo fixture。真实创建任务：
+- [x] 2.1 写失败测试 `tests/integration/test_task_overview_api.py`。参照 `tests/features/test_analysis_tasks.py` 的 `authed_client`（`tests/conftest.py:324-336`，dependency_overrides + Bearer token）用法 + `test_analysis_events.py` 的真实 Mongo fixture。真实创建任务：
 
 ```python
 @pytest.mark.requires_db
@@ -262,14 +262,14 @@ class TestTaskOverview:
 
   注：`TEST_USER_ID` 从 `admin_user_data` fixture 取（写测试时先读 `tests/conftest.py` 对应 fixture 确认真实字段名，以实际为准，禁止臆造）。若测试库中恰好有 000001 的 basic_info（CN 集合），可加断言 `stock_info["symbol"] == "000001"`；否则只断结构。
 
-- [ ] 2.2 跑失败：
+- [x] 2.2 跑失败：
 
 ```bash
 python -m pytest tests/integration/test_task_overview_api.py -q
 # 期望：404 failed（端点不存在）
 ```
 
-- [ ] 2.3 实现端点（插入 `app/routers/analysis.py` 约 999 行处）：
+- [x] 2.3 实现端点（插入 `app/routers/analysis.py` 约 999 行处）：
 
 ```python
 @router.get("/tasks/{task_id}/overview")
@@ -332,7 +332,7 @@ async def get_task_overview(
 
   注：`task` dict 的真实字段以 `get_task_with_status_fallback` 实际返回为准——实现前先读该方法确认字段名（`app/services/analysis_service.py` 内），若字段名不同按真实值调整，结构不变。
 
-- [ ] 2.4 跑通过 + 架构契约：
+- [x] 2.4 跑通过 + 架构契约：
 
 ```bash
 python -m pytest tests/integration/test_task_overview_api.py -q
@@ -342,7 +342,7 @@ python -m pytest tests/lint/ -q   # 路由约定 lint
 # 期望：全 passed / no contracts violated
 ```
 
-- [ ] 2.5 Commit: `✨ feat(api): 新增任务 overview 聚合接口（任务参数+股票基础信息，走 DataInterface）`
+- [x] 2.5 Commit: `✨ feat(api): 新增任务 overview 聚合接口（任务参数+股票基础信息，走 DataInterface）`
 
 ## Task 3: 前端 api/analysis.ts 增加类型与方法
 
@@ -352,7 +352,7 @@ python -m pytest tests/lint/ -q   # 路由约定 lint
 
 ### 步骤
 
-- [ ] 3.1 在 `AgentEvent`（111-128 行）的 `event_type` 联合中确认已含所需类型，并新增 `text_delta`（联合类型已用 `| string` 兜底，显式加 `'text_delta'` 以便类型提示）。新增 overview 响应类型：
+- [x] 3.1 在 `AgentEvent`（111-128 行）的 `event_type` 联合中确认已含所需类型，并新增 `text_delta`（联合类型已用 `| string` 兜底，显式加 `'text_delta'` 以便类型提示）。新增 overview 响应类型：
 
 ```ts
 /** 任务详情页聚合信息（GET /tasks/{id}/overview） */
@@ -377,7 +377,7 @@ export interface TaskOverview {
 }
 ```
 
-- [ ] 3.2 扩展 `getTaskEvents`（233-241 行）参数并新增方法：
+- [x] 3.2 扩展 `getTaskEvents`（233-241 行）参数并新增方法：
 
 ```ts
 getTaskEvents(taskId: string, params?: {
@@ -402,14 +402,14 @@ cancelTask(taskId: string): Promise<{ success: boolean; message: string }> {
 },
 ```
 
-- [ ] 3.3 验证：
+- [x] 3.3 验证：
 
 ```bash
 cd frontend && npm run type-check
 # 期望：无错误
 ```
 
-- [ ] 3.4 Commit: `📝 feat(front): analysis API 增加 overview/分页 events/cancel 方法与类型`
+- [x] 3.4 Commit: `📝 feat(front): analysis API 增加 overview/分页 events/cancel 方法与类型`
 
 ## Task 4: 路由注册 + 详情页骨架（三区布局 + 状态机）
 
@@ -429,7 +429,7 @@ cd frontend && npm run type-check
 
 ### 步骤
 
-- [ ] 4.1 注册路由（`router/index.ts` 73 行 `batch` 之后）：
+- [x] 4.1 注册路由（`router/index.ts` 73 行 `batch` 之后）：
 
 ```ts
 {
@@ -439,8 +439,8 @@ cd frontend && npm run type-check
 },
 ```
 
-- [ ] 4.2 创建 `TaskDetailSidebar.vue`：props `{ overview: TaskOverview | null, loading: boolean }`；两个 el-card；配置项从 `overview.task.parameters`（`selected_analysts`/`debate_rounds` 类字段按真实 parameters 键渲染，用 `loadAgentDisplayNames()` 转中文）；stock_info 为 null 时显示 el-skeleton。emit 无（纯展示）。
-- [ ] 4.3 创建 `TaskDetail.vue` 骨架（此任务只做布局 + overview 加载 + 状态机 + 轮询，事件流与报告 tab 分别由 Task 6/7 填充）：
+- [x] 4.2 创建 `TaskDetailSidebar.vue`：props `{ overview: TaskOverview | null, loading: boolean }`；两个 el-card；配置项从 `overview.task.parameters`（`selected_analysts`/`debate_rounds` 类字段按真实 parameters 键渲染，用 `loadAgentDisplayNames()` 转中文）；stock_info 为 null 时显示 el-skeleton。emit 无（纯展示）。
+- [x] 4.3 创建 `TaskDetail.vue` 骨架（此任务只做布局 + overview 加载 + 状态机 + 轮询，事件流与报告 tab 分别由 Task 6/7 填充）：
 
 ```vue
 <script setup lang="ts">
@@ -488,8 +488,8 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer) })
 ```
 
   模板：`el-page-header`/返回 `router.back()`；`el-container`（`el-aside width="280px"` + `el-main`）；状态徽标 `el-tag :type="statusTagType"`；耗时用 started_at 起算的响应式计时。失败态顶部 `el-alert :title="errorMessage" type="error"`；cancelled 态 `el-alert type="info" title="任务已取消"`。
-- [ ] 4.4 验证：`npm run type-check && npm run lint`（期望通过）；`npm run dev` 后浏览器打开 `/analysis/tasks/<任一真实任务ID>`（从任务中心取），检查三区布局、窄屏（DevTools 1000px 宽）左栏折叠、四种状态徽标样式（可临时改 taskStatus 验证后还原）。
-- [ ] 4.5 Commit: `✨ feat(front): 分析任务详情页路由与三区布局骨架（状态机+overview 加载）`
+- [x] 4.4 验证：`npm run type-check && npm run lint`（期望通过）；`npm run dev` 后浏览器打开 `/analysis/tasks/<任一真实任务ID>`（从任务中心取），检查三区布局、窄屏（DevTools 1000px 宽）左栏折叠、四种状态徽标样式（可临时改 taskStatus 验证后还原）。
+- [x] 4.5 Commit: `✨ feat(front): 分析任务详情页路由与三区布局骨架（状态机+overview 加载）`
 
 ## Task 5: ProcessPanel 改造为单一纵向事件流
 
@@ -510,10 +510,10 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer) })
 
 ### 步骤
 
-- [ ] 5.1 store 改造（`analysisProcess.ts`）：新增 `streamingText = ref<Record<string, string>>({})`、`visibleEvents` computed、`hasMoreEarlier = ref(false)`、`loadEarlier()`（Task 6 实现，先留空壳返回）；`handleWSMessage` 的 `agent_event` 分支加 `text_delta` 累积与 `llm_response` 清空。
-- [ ] 5.2 ProcessPanel 模板重写：单一纵向流 + agent 折叠段落 + 滚动控制 + 回到底部按钮 + 底部输入区。样式沿用现有 `.timeline/.bubble/.tool-item/.compact-bar` 类（457-578 行），新增段落头样式（`.agent-section-head`）。
-- [ ] 5.3 验证：`npm run type-check && npm run lint`；浏览器验证——发起一次真实分析（或回放已完成任务，`<ProcessPanel replay task-id="..."/>`），检查：agent 段落折叠/展开动画、运行中自动展开、工具行展开参数/结果、markdown 气泡、上滚暂停自动滚底、回到底部按钮、消息输入框禁用态。
-- [ ] 5.4 Commit: `♻️ refactor(front): ProcessPanel 改造为 Claude Code 式单一纵向事件流（折叠段落+500条窗口+滚动策略）`
+- [x] 5.1 store 改造（`analysisProcess.ts`）：新增 `streamingText = ref<Record<string, string>>({})`、`visibleEvents` computed、`hasMoreEarlier = ref(false)`、`loadEarlier()`（Task 6 实现，先留空壳返回）；`handleWSMessage` 的 `agent_event` 分支加 `text_delta` 累积与 `llm_response` 清空。
+- [x] 5.2 ProcessPanel 模板重写：单一纵向流 + agent 折叠段落 + 滚动控制 + 回到底部按钮 + 底部输入区。样式沿用现有 `.timeline/.bubble/.tool-item/.compact-bar` 类（457-578 行），新增段落头样式（`.agent-section-head`）。
+- [x] 5.3 验证：`npm run type-check && npm run lint`；浏览器验证——发起一次真实分析（或回放已完成任务，`<ProcessPanel replay task-id="..."/>`），检查：agent 段落折叠/展开动画、运行中自动展开、工具行展开参数/结果、markdown 气泡、上滚暂停自动滚底、回到底部按钮、消息输入框禁用态。
+- [x] 5.4 Commit: `♻️ refactor(front): ProcessPanel 改造为 Claude Code 式单一纵向事件流（折叠段落+500条窗口+滚动策略）`
 
 ## Task 6: 详情页接入事件流（live + 回放续接 + 失败/取消态）
 
@@ -535,10 +535,10 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer) })
 
 ### 步骤
 
-- [ ] 6.1 store 实现 `loadLatestAndConnect` / `loadEarlier` / `loadReplay` 改造（含 `hasMoreEarlier` 维护）。
-- [ ] 6.2 TaskDetail process tab 集成 + 终态联动（completed 自动切 tab、failed/cancelled 呈现）。
-- [ ] 6.3 验证：`npm run type-check && npm run lint`；浏览器四态验证（spec 验证计划要求）：running（发起新分析跳详情页，观察 live 流 + text_delta + 消息注入）、completed（刷新页面纯回放 + 自动切报告 tab）、failed、cancelled（取消一个运行中任务，事件流定格）。
-- [ ] 6.4 Commit: `✨ feat(front): 详情页接入事件流（live+回放desc分页续接、text_delta 流式、终态联动）`
+- [x] 6.1 store 实现 `loadLatestAndConnect` / `loadEarlier` / `loadReplay` 改造（含 `hasMoreEarlier` 维护）。
+- [x] 6.2 TaskDetail process tab 集成 + 终态联动（completed 自动切 tab、failed/cancelled 呈现）。
+- [x] 6.3 验证：`npm run type-check && npm run lint`；浏览器四态验证（spec 验证计划要求）：running（发起新分析跳详情页，观察 live 流 + text_delta + 消息注入）、completed（刷新页面纯回放 + 自动切报告 tab）、failed、cancelled（取消一个运行中任务，事件流定格）。
+- [x] 6.4 Commit: `✨ feat(front): 详情页接入事件流（live+回放desc分页续接、text_delta 流式、终态联动）`
 
 ## Task 7: 结果报告 tab + 下载迁移 + report_titles 驱动
 
@@ -558,10 +558,10 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer) })
 
 ### 步骤
 
-- [ ] 7.1 创建 TaskReportPanel（结构迁移 + report_titles 驱动）。
-- [ ] 7.2 TaskDetail 顶栏下载按钮 + completed 自动切 tab 联动（Task 4/6 状态机已具备，此处补下载调用）。
-- [ ] 7.3 验证：type-check/lint；浏览器打开一个 completed 任务详情页，检查报告子 tab 中文标题（来自 report_titles）、markdown 正文、决策卡、四种格式下载（pandoc 缺失时的错误提示也要验证）。
-- [ ] 7.4 Commit: `✨ feat(front): 详情页分析报告 tab（report_titles 驱动标题+决策卡+下载迁移）`
+- [x] 7.1 创建 TaskReportPanel（结构迁移 + report_titles 驱动）。
+- [x] 7.2 TaskDetail 顶栏下载按钮 + completed 自动切 tab 联动（Task 4/6 状态机已具备，此处补下载调用）。
+- [x] 7.3 验证：type-check/lint；浏览器打开一个 completed 任务详情页，检查报告子 tab 中文标题（来自 report_titles）、markdown 正文、决策卡、四种格式下载（pandoc 缺失时的错误提示也要验证）。
+- [x] 7.4 Commit: `✨ feat(front): 详情页分析报告 tab（report_titles 驱动标题+决策卡+下载迁移）`
 
 ## Task 8: SingleAnalysis.vue 瘦身（提交跳转 + localStorage 用户隔离）
 
@@ -578,10 +578,10 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer) })
 
 ### 步骤
 
-- [ ] 8.1 改 `submitAnalysis` 为提交即跳转 + 缓存 key 用户隔离。
-- [ ] 8.2 删除进度/结果/ProcessPanel/下载代码（先全局搜索被删函数引用，确保无残留 import；`analysisProcessStore` 等 import 一并清理）。
-- [ ] 8.3 验证：type-check/lint（会暴露残留引用）；浏览器：提交一次分析 → 自动跳详情页；同浏览器切换另一账号 → 不出现前一账号任务恢复提示；刷新 `/analysis/single` 只有表单。
-- [ ] 8.4 Commit: `♻️ refactor(front): SingleAnalysis 瘦身为纯提交表单（提交跳转详情页+缓存按用户隔离）`
+- [x] 8.1 改 `submitAnalysis` 为提交即跳转 + 缓存 key 用户隔离。
+- [x] 8.2 删除进度/结果/ProcessPanel/下载代码（先全局搜索被删函数引用，确保无残留 import；`analysisProcessStore` 等 import 一并清理）。
+- [x] 8.3 验证：type-check/lint（会暴露残留引用）；浏览器：提交一次分析 → 自动跳详情页；同浏览器切换另一账号 → 不出现前一账号任务恢复提示；刷新 `/analysis/single` 只有表单。
+- [x] 8.4 Commit: `♻️ refactor(front): SingleAnalysis 瘦身为纯提交表单（提交跳转详情页+缓存按用户隔离）`
 
 ## Task 9: 批量详情页 /analysis/batches/:batchId
 
@@ -599,10 +599,10 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer) })
 
 ### 步骤
 
-- [ ] 9.1 注册路由 + 创建 BatchDetail.vue（汇总卡 + 网格 + 轮询）。
-- [ ] 9.2 BatchAnalysis.vue 提交跳转改指本页（若 Task 8 未改，此处改 722 行）。
-- [ ] 9.3 验证：type-check/lint；浏览器提交一次 2-3 只股票的批量分析 → 跳转批量页，观察卡片随轮询更新状态、全部完成后轮询停止（Network 面板确认无后续 `/batches/` 请求）、卡片按钮跳详情正确、窄屏网格换行正常。
-- [ ] 9.4 Commit: `✨ feat(front): 批量分析聚合详情页（汇总卡+卡片网格+5s轮询终态停止）`
+- [x] 9.1 注册路由 + 创建 BatchDetail.vue（汇总卡 + 网格 + 轮询）。
+- [x] 9.2 BatchAnalysis.vue 提交跳转改指本页（若 Task 8 未改，此处改 722 行）。
+- [x] 9.3 验证：type-check/lint；浏览器提交一次 2-3 只股票的批量分析 → 跳转批量页，观察卡片随轮询更新状态、全部完成后轮询停止（Network 面板确认无后续 `/batches/` 请求）、卡片按钮跳详情正确、窄屏网格换行正常。
+- [x] 9.4 Commit: `✨ feat(front): 批量分析聚合详情页（汇总卡+卡片网格+5s轮询终态停止）`
 
 ## Task 10: 全量验证与收尾
 
@@ -612,7 +612,7 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer) })
 
 ### 步骤
 
-- [ ] 10.1 后端静态检查与契约：
+- [x] 10.1 后端静态检查与契约：
 
 ```bash
 conda activate tradingagents
@@ -621,7 +621,7 @@ lint-imports
 # 期望：All checks passed / no contracts violated
 ```
 
-- [ ] 10.2 后端测试（容器基础设施先起）：
+- [x] 10.2 后端测试（容器基础设施先起）：
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d mongodb redis
@@ -631,16 +631,16 @@ python -m pytest tests/ -m "not integration and not slow and not ai" -q
 ```
 
   注：若环境相关失败，按 memory 加 `DOCKER_CONTAINER=true` 前缀重跑；不设 PYTHONIOENCODING。
-- [ ] 10.3 前端：
+- [x] 10.3 前端：
 
 ```bash
 cd frontend && npm run type-check && npm run lint && npm run build
 # 期望：全部通过
 ```
 
-- [ ] 10.4 浏览器端到端走查（spec 验证计划）：详情页四态（running live/完成回放/failed/cancelled）+ 批量页轮询停止 + 桌面/窄屏视口 + 长文本（超长工具 output、超长报告）不溢出。
-- [ ] 10.5 回查硬性约束：全局搜索新前端代码无硬编码智能体中文（`grep -rn "分析师\|研究员\|交易员" frontend/src/views/Analysis/ frontend/src/components/Analysis/`，命中处确认来自后端数据或 agentDisplayNames 而非字面量）；无 `v-html` 直插未消毒内容；新代码 `symbol` 命名。
-- [ ] 10.6 收尾 commit: `✅ test: 分析详情页全量验证通过（ruff/lint-imports/pytest integration/前端 type-check+lint+build）`
+- [x] 10.4 浏览器端到端走查（spec 验证计划）：详情页四态（running live/完成回放/failed/cancelled）+ 批量页轮询停止 + 桌面/窄屏视口 + 长文本（超长工具 output、超长报告）不溢出。
+- [x] 10.5 回查硬性约束：全局搜索新前端代码无硬编码智能体中文（`grep -rn "分析师\|研究员\|交易员" frontend/src/views/Analysis/ frontend/src/components/Analysis/`，命中处确认来自后端数据或 agentDisplayNames 而非字面量）；无 `v-html` 直插未消毒内容；新代码 `symbol` 命名。
+- [x] 10.6 收尾 commit: `✅ test: 分析详情页全量验证通过（ruff/lint-imports/pytest integration/前端 type-check+lint+build）`
 
 ---
 
