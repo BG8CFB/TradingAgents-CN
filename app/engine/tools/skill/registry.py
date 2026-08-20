@@ -10,6 +10,7 @@ Skill 注册表
 启动时自动发现；运行时支持 reload、enable/disable、ensure_dependencies。
 启停状态通过 SkillStateStore 持久化到 MongoDB，避免重启后丢失。
 """
+
 import logging
 import threading
 from pathlib import Path
@@ -199,10 +200,7 @@ class SkillRegistry:
         # 清除内容缓存（目录可能已变化）
         self._content_cache.clear()
 
-        logger.info(
-            f"技能发现完成: 共发现 {len(discovered)} 个技能"
-            f"（含 manifest={len(self._manifests)}）"
-        )
+        logger.info(f"技能发现完成: 共发现 {len(discovered)} 个技能（含 manifest={len(self._manifests)}）")
         return self._skills
 
     def _classify_source_dir(self, base_dir: str) -> str:

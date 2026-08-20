@@ -1320,15 +1320,15 @@ class AnalysisService:
 
             # 预计算内置工具可用性（基于数据域状态）
             try:
-                from app.engine.tools.builtin.domain_checker import AvailabilityCache
-                from app.engine.tools.builtin.registry import BUILTIN_TOOL_REGISTRY
+                from app.engine.tools.datasources.domain_checker import AvailabilityCache
+                from app.engine.tools.datasources.registry import DATASOURCE_REGISTRY
 
                 _market_map = {"A股": "CN", "港股": "HK", "美股": "US"}
                 _market = _market_map.get(market_type, "CN")
                 _cache = AvailabilityCache.get_instance()
                 from app.core.async_utils import run_async
 
-                run_async(_cache.compute(_market, BUILTIN_TOOL_REGISTRY))
+                run_async(_cache.compute(_market, DATASOURCE_REGISTRY))
                 logger.info(
                     f"📊 [工具可用性] 市场={_market}, 结果={_cache.all_results}"
                 )
@@ -1343,7 +1343,7 @@ class AnalysisService:
                 )
                 logger.info(f"📊 [数据预拉取] 结果: {prefetch_result}")
                 # 预拉取后重新计算工具可用性
-                run_async(_cache.compute(_market, BUILTIN_TOOL_REGISTRY))
+                run_async(_cache.compute(_market, DATASOURCE_REGISTRY))
                 logger.info(f"📊 [工具可用性] 预拉取后重新计算: {_cache.all_results}")
             except Exception as _prefetch_err:
                 logger.warning(

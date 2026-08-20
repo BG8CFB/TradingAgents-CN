@@ -4,6 +4,7 @@
 基于数据源状态动态检测工具是否可用。
 工具可用 ⟺ 其 DATA_SOURCE_MAP 中至少一个数据源可用。
 """
+
 import logging
 from typing import Dict, List, Set
 
@@ -31,14 +32,14 @@ def get_available_data_sources() -> Set[str]:
                     continue
                 for source_name in source_map.keys():
                     name = source_name.lower()
-                    if 'tushare' in name:
-                        sources.add('tushare')
-                    elif 'akshare' in name or 'ak' in name:
-                        sources.add('akshare')
-                    elif 'baostock' in name or 'bst' in name:
-                        sources.add('baostock')
-                    elif 'finnhub' in name:
-                        sources.add('finnhub')
+                    if "tushare" in name:
+                        sources.add("tushare")
+                    elif "akshare" in name or "ak" in name:
+                        sources.add("akshare")
+                    elif "baostock" in name or "bst" in name:
+                        sources.add("baostock")
+                    elif "finnhub" in name:
+                        sources.add("finnhub")
                     else:
                         sources.add(name)
 
@@ -48,10 +49,7 @@ def get_available_data_sources() -> Set[str]:
         return set()
 
 
-def check_tool_availability(
-    tool_name: str,
-    data_source_map: Dict[str, List[str]]
-) -> bool:
+def check_tool_availability(tool_name: str, data_source_map: Dict[str, List[str]]) -> bool:
     """
     检查单个工具是否可用
 
@@ -76,9 +74,7 @@ def check_tool_availability(
     return False
 
 
-def check_all_tools_availability(
-    data_source_map: Dict[str, List[str]]
-) -> Dict[str, bool]:
+def check_all_tools_availability(data_source_map: Dict[str, List[str]]) -> Dict[str, bool]:
     """
     批量检查所有工具的可用性
 
@@ -96,18 +92,13 @@ def check_all_tools_availability(
             result[tool_name] = True
             continue
 
-        is_available = any(
-            source.lower() in available
-            for source in required_sources
-        )
+        is_available = any(source.lower() in available for source in required_sources)
         result[tool_name] = is_available
 
     return result
 
 
-def get_availability_summary(
-    data_source_map: Dict[str, List[str]]
-) -> dict:
+def get_availability_summary(data_source_map: Dict[str, List[str]]) -> dict:
     """
     获取工具可用性摘要信息
 

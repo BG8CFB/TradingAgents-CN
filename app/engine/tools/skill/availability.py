@@ -7,6 +7,7 @@ Skill 依赖可用性检查
 
 不执行安装（安装由 dependency_installer 负责）。
 """
+
 import importlib.util
 import logging
 import os
@@ -64,9 +65,7 @@ def check_python_package(package: str) -> tuple:
         # 尝试读取 __version__
         try:
             mod = importlib.import_module(module_name)
-            version = getattr(mod, "__version__", "") or getattr(
-                mod, "VERSION", ""
-            )
+            version = getattr(mod, "__version__", "") or getattr(mod, "VERSION", "")
             return (True, str(version))
         except Exception:
             # 能找到 spec 但 import 失败（如 ta-lib 缺 C 库），视为未满足
@@ -182,12 +181,9 @@ def check_skill_dependencies_raw(name: str) -> Dict:
     """
     try:
         availability = check_skill_dependencies(name)
-        missing = [
-            d.package for d in availability.dependencies if not d.satisfied
-        ]
+        missing = [d.package for d in availability.dependencies if not d.satisfied]
         return {
-            "satisfied": availability.dependencies_satisfied
-            and availability.env_satisfied,
+            "satisfied": availability.dependencies_satisfied and availability.env_satisfied,
             "missing": missing + availability.missing_env,
             "warnings": availability.warnings,
             "availability": availability.model_dump(),

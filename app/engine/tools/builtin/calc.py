@@ -214,9 +214,7 @@ def risk_reward(entry: float, target: float, stop: float) -> str:
     return f"盈亏比 = |{target_d} - {entry_d}| / |{entry_d} - {stop_d}| = {_q4(rr)}"
 
 
-def calc_pnl(
-    entry_price: float, exit_price: float, qty: float, fee_rate: float = 0.0003
-) -> str:
+def calc_pnl(entry_price: float, exit_price: float, qty: float, fee_rate: float = 0.0003) -> str:
     """计算交易盈亏（含双边手续费）：(exit - entry) * qty - (entry + exit) * qty * fee_rate。fee_rate 为单边费率，默认万三。"""
     entry_d, exit_d, qty_d = _to_decimal(entry_price), _to_decimal(exit_price), _to_decimal(qty)
     fee_d = _to_decimal(fee_rate)
@@ -250,9 +248,7 @@ def compound(principal: float, rate: float, periods: float, per_year: float = 1)
     if not math.isfinite(growth):
         return "错误：结果溢出"
     result = p_d * _to_decimal(growth)
-    return (
-        f"{p_d} * (1 + {r_d}%/{m_d})^({n_d}*{m_d}) = {_q4(_to_decimal(result))} 元"
-    )
+    return f"{p_d} * (1 + {r_d}%/{m_d})^({n_d}*{m_d}) = {_q4(_to_decimal(result))} 元"
 
 
 def _parse_series(values: str) -> List[Decimal]:
@@ -304,6 +300,129 @@ def var_95(returns: str, initial: float) -> str:
     )
 
 
+def moving_average(prices: str, window: int) -> str:
+    """计算简单移动平均线（SMA）：取序列最后 window 个值的算术平均，常用于 MA5/MA10/MA20 等均线。prices 为逗号分隔的价格序列（时间正序）。"""
+    try:
+        series = _parse_series(prices)
+    except ValueError as e:
+        return f"错误：{e}"
+    if window <= 0:
+        return "错误：window 必须为正整数"
+    if len(series) < window:
+        return f"错误：样本不足（{len(series)} 个 < window={window}）"
+    tail = series[-window:]
+    ma = sum(tail) / Decimal(window)
+    return f"SMA({window}) = 最近 {window} 个值之和 / {window} = {_q4(ma)}"
+
+
+def ema(prices: str, window: int) -> str:
+    """计算指数移动平均线（EMA）：alpha = 2/(window+1)，首值用前 window 个值的 SMA 种子，对全序列递推后返回最新 EMA。"""
+    try:
+        series = _parse_series(prices)
+    except ValueError as e:
+        return f"错误：{e}"
+    if window <= 0:
+        return "错误：window 必须为正整数"
+    if len(series) < window:
+        return f"错误：样本不足（{len(series)} 个 < window={window}）"
+    alpha = Decimal(2) / (Decimal(window) + Decimal(1))
+    value = sum(series[:window]) / Decimal(window)
+    for price in series[window:]:
+        value = alpha * price + (Decimal(1) - alpha) * value
+    return f"EMA({window}) = {_q4(value)}（alpha = 2/({window}+1) = {_q4(alpha)}）"
+
+
+def _pct_returns(series: List[Decimal]) -> List[Decimal]:
+    """相邻日收益率（百分数）"""
+    returns = []
+    for prev, cur in zip(series, series[1:]):
+        if prev == 0:
+            raise ValueError("序列包含 0 值，收益率无定义")
+        returns.append((cur - prev) / prev * Decimal(100))
+    return returns
+
+
+def volatility(prices: str, periods_per_year: float = 252) -> str:
+    """计算年化波动率：日收益率标准差 * sqrt(periods_per_year)。prices 为逗号分隔的价格序列（时间正序），A 股日频默认 252。"""
+    try:
+        series = _parse_series(prices)
+        returns = _pct_returns(series)
+    except ValueError as e:
+        return f"错误：{e}"
+    m_d = _to_decimal(periods_per_year)
+    if m_d <= 0:
+        return "错误：periods_per_year 必须为正数"
+    n = Decimal(len(returns))
+    mean = sum(returns) / n
+    var = sum((r - mean) ** 2 for r in returns) / n
+    daily_std = _to_decimal(math.sqrt(float(var)))
+    annualized = daily_std * _to_decimal(math.sqrt(float(m_d)))
+    return (
+        f"日收益率标准差 = {_q4(daily_std)}%，年化波动率 = "
+        f"{_q4(daily_std)}% * sqrt({m_d}) = {_q4(annualized)}%（{int(n)} 个收益样本）"
+    )
+
+
+def sharpe_ratio(prices: str, risk_free_rate: float = 0, periods_per_year: float = 252) -> str:
+    """计算夏普比率：(年化收益 - 无风险利率) / 年化波动率。prices 为逗号分隔价格序列；risk_free_rate 为年化无风险利率百分数（如 2 表示 2%）。"""
+    try:
+        series = _parse_series(prices)
+        returns = _pct_returns(series)
+    except ValueError as e:
+        return f"错误：{e}"
+    m_d = _to_decimal(periods_per_year)
+    if m_d <= 0:
+        return "错误：periods_per_year 必须为正数"
+    n = Decimal(len(returns))
+    mean_daily = sum(returns) / n
+    var = sum((r - mean_daily) ** 2 for r in returns) / n
+    daily_std = _to_decimal(math.sqrt(float(var)))
+    if daily_std == 0:
+        return "错误：收益率标准差为 0，夏普比率无定义"
+    annual_ret = mean_daily * m_d
+    rf = _to_decimal(risk_free_rate)
+    sharpe = (annual_ret - rf) / daily_std
+    return (
+        f"年化收益 = 日均 {_q4(mean_daily)}% * {m_d} = {_q4(annual_ret)}%，"
+        f"夏普比率 = ({_q4(annual_ret)}% - {rf}%) / 日标准差 {_q4(daily_std)}% = {_q4(sharpe)}"
+    )
+
+
+def cagr(start_value: float, end_value: float, years: float) -> str:
+    """计算年化复合增长率（CAGR）：(end/start)^(1/years) - 1。"""
+    start_d, end_d, y_d = _to_decimal(start_value), _to_decimal(end_value), _to_decimal(years)
+    if start_d <= 0 or end_d <= 0:
+        return "错误：期初/期末值必须为正数"
+    if y_d <= 0:
+        return "错误：年数必须为正数"
+    growth = (float(end_d) / float(start_d)) ** (1 / float(y_d))
+    result = (_to_decimal(growth) - Decimal(1)) * Decimal(100)
+    return f"CAGR = ({end_d}/{start_d})^(1/{y_d}) - 1 = {_q4(result)}%"
+
+
+def bollinger(prices: str, window: int = 20, num_std: float = 2) -> str:
+    """计算布林带（BOLL）：中轨 = SMA(window)，上/下轨 = 中轨 ± num_std 倍标准差，返回最新一期值。"""
+    try:
+        series = _parse_series(prices)
+    except ValueError as e:
+        return f"错误：{e}"
+    if window <= 0:
+        return "错误：window 必须为正整数"
+    if len(series) < window:
+        return f"错误：样本不足（{len(series)} 个 < window={window}）"
+    k_d = _to_decimal(num_std)
+    tail = series[-window:]
+    mid = sum(tail) / Decimal(window)
+    var = sum((p - mid) ** 2 for p in tail) / Decimal(window)
+    std = _to_decimal(math.sqrt(float(var)))
+    upper = mid + k_d * std
+    lower = mid - k_d * std
+    return (
+        f"布林带({window}, {_q4(k_d)})：中轨 = {_q4(mid)}，"
+        f"上轨 = {_q4(upper)}，下轨 = {_q4(lower)}（标准差 {_q4(std)}）"
+    )
+
+
 _TOOL_FUNCS = [
     calc_expression,
     pct_change,
@@ -313,11 +432,37 @@ _TOOL_FUNCS = [
     compound,
     max_drawdown,
     var_95,
+    moving_average,
+    ema,
+    volatility,
+    sharpe_ratio,
+    cagr,
+    bollinger,
 ]
+
+# 强制走计算工具的 prompt 硬规则（build_analyst_specs 追加到每个分析师 system_prompt）
+CALC_ENFORCEMENT_PROMPT = """
+【数值计算强制规则（必须遵守）】
+1. 你输出的每一个衍生数值——涨跌幅、均线/均值、占比、评分加总、盈亏比、仓位、成本、回撤、波动率等——必须先调用计算工具取得结果，再写入思考或正文。
+2. 禁止心算：即使最简单的加减乘除（如 50 - 15 - 10）也必须调用 calc_expression。
+3. 反例：直接写出 "50 - 15 - 10 = 25" ❌。正例：调用 calc_expression("50 - 15 - 10") 并引用其输出 ✓。
+4. 关键数值保留计算工具回显的公式便于溯源；未走计算工具的数值视为无效结论，会被质疑。
+可用工具与用法：
+- calc_expression("50 - 15 - 10") / calc_expression("(1291.5-1250)/1250*100") —— 通用四则/百分比/幂/开方表达式
+- pct_change(old=1250, new=1291.5) —— 涨跌幅百分比
+- 序列型工具（价格/收益率序列用逗号分隔字符串，时间正序，如 "1290,1301,1315"）：
+  moving_average(prices, window=20) —— MA5/MA10/MA20 等均线
+  ema(prices, window=12) —— 指数移动平均
+  bollinger(prices, window=20, num_std=2) —— 布林带上/中/下轨
+  volatility(prices) —— 年化波动率；sharpe_ratio(prices, risk_free_rate=2) —— 夏普比率
+  max_drawdown(prices) —— 最大回撤；var_95(returns, initial=100000) —— 95% VaR（returns 为日收益率百分数序列）
+- cagr(start_value, end_value, years) —— 年化复合增长率
+- compound(principal, rate, periods) —— 复利终值
+- position_size(capital, entry, stop, risk_pct) —— 风险定额仓位（A 股按手取整）
+- risk_reward(entry, target, stop) —— 盈亏比；calc_pnl(entry, exit, qty) —— 含手续费交易盈亏
+"""
 
 
 def calc_tool_defs() -> List:
     """全部计算工具的 ToolDef 列表（build_analyst_specs 注入 callable_tools）"""
-    return [
-        func_to_tooldef(f, is_concurrency_safe=True) for f in _TOOL_FUNCS
-    ]
+    return [func_to_tooldef(f, is_concurrency_safe=True) for f in _TOOL_FUNCS]

@@ -9,6 +9,7 @@ Skill Git URL 安装器
 - 克隆后立即删除 .git 目录（防止 git hook 执行）
 - 不自动执行 skill 内的任何脚本（只做文件拉取与 manifest 校验）
 """
+
 import logging
 import re
 import shutil
@@ -165,9 +166,7 @@ def install_from_git(url: str, trusted_hosts_override: Optional[list] = None) ->
     # 合并 trusted_hosts（仅用于本次校验，不修改全局配置）
     merged_hosts = _get_trusted_hosts()
     if trusted_hosts_override:
-        merged_hosts = merged_hosts.union(
-            {h.strip().lower() for h in trusted_hosts_override if h}
-        )
+        merged_hosts = merged_hosts.union({h.strip().lower() for h in trusted_hosts_override if h})
 
     return _do_install(url, merged_hosts)
 
@@ -208,6 +207,7 @@ def _do_install(url: str, trusted_hosts: Optional[set] = None) -> dict:
 
     # 解析 skill_name
     from app.engine.tools.skill.loader import parse_skill_metadata
+
     meta = parse_skill_metadata(str(skill_md))
     skill_name = meta.get("name") or cache_path.name
 
@@ -215,9 +215,7 @@ def _do_install(url: str, trusted_hosts: Optional[set] = None) -> dict:
     # skill_name 来源于远程 Git 仓库的 SKILL.md（仅 .strip() 处理），
     # 若含 ../ 等路径片段可写入项目任意目录。
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$", skill_name):
-        logger.error(
-            f"[SkillGitInstaller] skill_name 含非法字符，拒绝安装: {skill_name!r}"
-        )
+        logger.error(f"[SkillGitInstaller] skill_name 含非法字符，拒绝安装: {skill_name!r}")
         shutil.rmtree(cache_path, ignore_errors=True)
         return {
             "success": False,
@@ -261,6 +259,7 @@ def _do_install(url: str, trusted_hosts: Optional[set] = None) -> dict:
     # 触发重新发现
     try:
         from app.engine.tools.skill.registry import SkillRegistry
+
         registry = SkillRegistry.get_instance()
         registry.reload()
     except Exception as e:
@@ -321,6 +320,7 @@ def uninstall_skill(skill_name: str, force: bool = False) -> dict:
     # 卸载 builtin 工具入口
     try:
         from app.engine.tools.skill.entrypoint_loader import unload_skill_entrypoints
+
         unload_skill_entrypoints(skill_name)
     except Exception as e:
         logger.warning(f"卸载 skill 入口失败 {skill_name}: {e}")
@@ -343,8 +343,10 @@ def uninstall_skill(skill_name: str, force: bool = False) -> dict:
     # 改用显式事件循环检测 + ensure_future，确保同线程场景 state 被清理。
     try:
         from app.engine.tools.skill.state_store import SkillStateStore
+
         store = SkillStateStore()
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:

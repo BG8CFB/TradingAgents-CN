@@ -1,5 +1,10 @@
 """
-按阶段读写智能体 YAML 配置 (phase1-4)
+按阶段读写智能体 YAML 配置 (phase1-3)
+
+配置模型（2026-08 工具体系拆分后）：
+- data_tools: 预注入数据源 id 列表（代码控制，启动时预取注入上下文）
+- mcp_tools / skills: 可调用工具限制集合；缺省/空 = 默认全部可用
+- 内置工具（calc）全员默认，不经配置
 """
 
 import logging
@@ -40,11 +45,12 @@ def _get_config_dir() -> Path:
         path = Path(env_dir)
         if path.exists():
             return path
-            
+
     # 2. 默认使用项目根目录下的 config/agents (用户自定义配置)
     project_root = Path(__file__).resolve().parents[2]
     config_agents_dir = project_root / "config" / "agents"
     return config_agents_dir
+
 
 CONFIG_DIR = _get_config_dir()
 MAX_MODES = 200
@@ -52,12 +58,12 @@ MAX_MODES = 200
 # 如需更严格控制，可改为从配置文件读取或按环境变量覆盖
 MAX_TEXT_LEN = 20000
 MAX_TITLE_LEN = 128
-# 可选文本字段（description / whenToUse / source）在现有配置中也可能较长，提升上限以兼容
 MAX_DESC_LEN = 20000
-MAX_GROUPS = 50
-MAX_GROUP_LEN = 128
 MAX_TOOLS = 200
 MAX_TOOL_NAME_LEN = 128
+
+# 迁移期已知的历史冗余键：保存时剥离，不落盘（引擎零消费）
+LEGACY_MODE_KEYS = ("whenToUse", "groups", "source", "initial_task", "tools")
 
 
 class AgentMode(BaseModel):
@@ -67,16 +73,17 @@ class AgentMode(BaseModel):
     description: Optional[str] = Field(
         default=None, description="简要描述（默认使用 slug）"
     )
-    whenToUse: Optional[str] = Field(default=None, description="可选的使用提示")
-    groups: List[str] = Field(default_factory=list, description="可选权限分组")
-    source: Optional[str] = Field(default=None, description="来源标记")
-    tools: Optional[List[str]] = Field(
+    data_tools: Optional[List[str]] = Field(
         default=None,
-        description="允许使用的工具名称列表；为空或缺省表示全量可用",
+        description="预注入数据源 id 列表（缺省/空 = 不注入任何数据源）",
     )
-    initial_task: Optional[str] = Field(
+    mcp_tools: Optional[List[str]] = Field(
         default=None,
-        description="初始任务描述（1阶段专用，系统会自动拼接股票信息）",
+        description="MCP 工具限制集合；缺省/空 = 默认全部可用",
+    )
+    skills: Optional[List[str]] = Field(
+        default=None,
+        description="Skill 入口限制集合；缺省/空 = 默认全部可用",
     )
 
     @field_validator("slug", "name", "roleDefinition")
@@ -100,7 +107,7 @@ class AgentMode(BaseModel):
             raise ValueError(f"roleDefinition 过长（最多 {MAX_TEXT_LEN} 字符）")
         return v
 
-    @field_validator("description", "whenToUse", "source")
+    @field_validator("description")
     @classmethod
     def _limit_optional_fields(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
@@ -110,42 +117,27 @@ class AgentMode(BaseModel):
             raise ValueError(f"文本过长（最多 {MAX_DESC_LEN} 字符）")
         return v or None
 
-    @field_validator("groups")
+    @field_validator("data_tools", "mcp_tools", "skills")
     @classmethod
-    def _validate_groups(cls, v: List[str]) -> List[str]:
-        cleaned: List[str] = []
-        for item in v:
-            if not isinstance(item, str) or not item.strip():
-                raise ValueError("分组名称不能为空")
-            item = item.strip()
-            if len(item) > MAX_GROUP_LEN:
-                raise ValueError(f"分组名称过长（最多 {MAX_GROUP_LEN} 字符）")
-            cleaned.append(item)
-        return cleaned
-
-    @field_validator("tools")
-    @classmethod
-    def _validate_tools(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+    def _validate_tool_lists(cls, v: Optional[List[str]]) -> Optional[List[str]]:
         if v is None:
             return v
         cleaned: List[str] = []
+        seen: set = set()
         for item in v:
             if not isinstance(item, str) or not item.strip():
-                raise ValueError("工具名称不能为空")
+                continue  # 空白项（UI 残留）直接跳过
             item = item.strip()
             if len(item) > MAX_TOOL_NAME_LEN:
                 raise ValueError(f"工具名称过长（最多 {MAX_TOOL_NAME_LEN} 字符）")
-            cleaned.append(item)
-        unique: List[str] = []
-        seen: set = set()
-        for item in cleaned:
             if item in seen:
                 continue
             seen.add(item)
-            unique.append(item)
-        if len(unique) > MAX_TOOLS:
+            cleaned.append(item)
+        if len(cleaned) > MAX_TOOLS:
             raise ValueError(f"工具数量超过限制（最多 {MAX_TOOLS} 个）")
-        return unique
+        # 空列表与缺省语义相同（全部可用/不注入），统一存缺省
+        return cleaned or None
 
 
 class AgentConfigPayload(BaseModel):
@@ -217,12 +209,22 @@ async def get_agent_config(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=safe_error_message(exc, "读取配置失败"))
 
+    # 迁移容错：剥离历史冗余键，旧 tools 归一化到 data_tools/skills
+    normalized: List[dict] = []
+    for mode in modes:
+        if not isinstance(mode, dict):
+            continue
+        for key in LEGACY_MODE_KEYS:
+            mode.pop(key, None)
+        mode.setdefault("data_tools", [])
+        normalized.append(mode)
+
     return {
         "success": True,
         "data": {
             "phase": phase,
             "exists": True,
-            "customModes": modes,
+            "customModes": normalized,
             "path": str(config_path),
         },
         "message": "ok",
@@ -239,6 +241,7 @@ async def save_agent_config(
     保存/覆盖指定阶段的配置。
     - 校验 slug 唯一
     - 允许缺失文件，写入时自动创建
+    - data_tools 中未知 id 仅告警不阻断（数据源注册表可能尚未初始化）
     """
     slugs = [mode.slug for mode in payload.customModes]
     if len(set(slugs)) != len(slugs):
@@ -246,28 +249,26 @@ async def save_agent_config(
     if len(payload.customModes) > MAX_MODES:
         raise HTTPException(status_code=400, detail=f"智能体数量超过限制（最多 {MAX_MODES} 个）")
 
-    # 规范化：可选字段填充默认值
+    # 已注册数据源 id 集合（用于未知 id 告警）
+    try:
+        from app.engine.tools.datasources.registry import DATASOURCE_REGISTRY
+
+        known_datasource_ids = {s.tool_id for s in DATASOURCE_REGISTRY}
+    except Exception:  # noqa: BLE001 - 注册表不可用时不阻断保存
+        known_datasource_ids = set()
+
     normalized_modes: List[dict] = []
     for mode in payload.customModes:
         data = mode.model_dump(exclude_none=True)
-        if "description" not in data or not data["description"]:
+        if not data.get("description"):
             data["description"] = mode.slug
-        if "groups" not in data or data["groups"] is None:
-            data["groups"] = []
-        # tools 缺省或空表示全量工具；保留去重后的显式选择
-        if "tools" in data:
-            tools = data.get("tools") or []
-            if tools:
-                deduped_tools = []
-                seen_tools = set()
-                for tool_name in tools:
-                    if tool_name in seen_tools:
-                        continue
-                    seen_tools.add(tool_name)
-                    deduped_tools.append(tool_name)
-                data["tools"] = deduped_tools
-            else:
-                data.pop("tools", None)
+        # model_dump 已剔除冗余键；此处再兜底剥离（防扩展/旧客户端字段）
+        for key in LEGACY_MODE_KEYS:
+            data.pop(key, None)
+        data.setdefault("data_tools", [])
+        unknown = [tid for tid in data["data_tools"] if tid not in known_datasource_ids]
+        if unknown:
+            logger.warning(f"⚠️ [agent-configs] 未知数据源 id（已保存但不会注入）: {unknown}")
         normalized_modes.append(data)
 
     config_path = _config_path(phase)

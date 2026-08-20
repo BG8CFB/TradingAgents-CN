@@ -1,22 +1,25 @@
 """测试 builtin/loader 工具加载器
 
-调用真实的 load_builtin_tools 和 get_builtin_tool_specs 函数，
+调用真实的 load_datasource_tools 和 get_datasource_tool_specs 函数，
 验证内置工具模块的加载行为。
 """
 
 
-from app.engine.tools.builtin.loader import load_builtin_tools, get_builtin_tool_specs
-from app.engine.tools.builtin.registry import BUILTIN_TOOL_REGISTRY
+from app.engine.tools.datasources.loader import (
+    load_datasource_tools,
+    get_datasource_tool_specs,
+)
+from app.engine.tools.datasources.registry import DATASOURCE_REGISTRY
 
 
 class TestBuiltinToolRegistry:
     def test_registry_not_empty(self):
         """注册表不应为空"""
-        assert len(BUILTIN_TOOL_REGISTRY) > 0
+        assert len(DATASOURCE_REGISTRY) > 0
 
     def test_expected_tool_ids_present(self):
         """应包含所有预期的工具 ID"""
-        tool_ids = {spec.tool_id for spec in BUILTIN_TOOL_REGISTRY}
+        tool_ids = {spec.tool_id for spec in DATASOURCE_REGISTRY}
         expected = [
             "daily_quotes", "intraday_quotes", "market_quotes",
             "financial_data", "fundamentals", "news", "sentiment",
@@ -28,7 +31,7 @@ class TestBuiltinToolRegistry:
 
     def test_each_spec_has_required_fields(self):
         """每个 BuiltinToolSpec 应有必填字段"""
-        for spec in BUILTIN_TOOL_REGISTRY:
+        for spec in DATASOURCE_REGISTRY:
             assert spec.tool_id, "tool_id 不应为空"
             assert spec.display_name, "display_name 不应为空"
             assert isinstance(spec.domains, list), "domains 应为列表"
@@ -40,13 +43,13 @@ class TestBuiltinToolRegistry:
 
 class TestLoadBuiltinTools:
     def test_returns_list(self):
-        """load_builtin_tools 应返回列表"""
-        result = load_builtin_tools()
+        """load_datasource_tools 应返回列表"""
+        result = load_datasource_tools()
         assert isinstance(result, list)
 
     def test_tool_items_have_name(self):
         """加载的工具对象应具有 name 属性"""
-        result = load_builtin_tools()
+        result = load_datasource_tools()
         for tool in result:
             assert hasattr(tool, "name")
             assert isinstance(tool.name, str)
@@ -54,11 +57,11 @@ class TestLoadBuiltinTools:
 
 class TestGetBuiltinToolSpecs:
     def test_returns_list(self):
-        """get_builtin_tool_specs 应返回列表"""
-        specs = get_builtin_tool_specs()
+        """get_datasource_tool_specs 应返回列表"""
+        specs = get_datasource_tool_specs()
         assert isinstance(specs, list)
 
     def test_specs_match_registry(self):
         """返回的规格应与注册表一致"""
-        specs = get_builtin_tool_specs()
-        assert len(specs) == len(BUILTIN_TOOL_REGISTRY)
+        specs = get_datasource_tool_specs()
+        assert len(specs) == len(DATASOURCE_REGISTRY)

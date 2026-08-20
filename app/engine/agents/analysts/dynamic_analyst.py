@@ -21,6 +21,31 @@ class DynamicAnalystFactory:
     _config_mtime = {}
     _config_lock = threading.Lock()
 
+    # 迁移期剥离的冗余键（引擎零消费）
+    _LEGACY_KEYS = ("whenToUse", "groups", "source", "initial_task")
+
+    @classmethod
+    def _normalize_mode(cls, agent: Any) -> Any:
+        """归一化单个智能体配置（迁移 shim，幂等）
+
+        - 旧 `tools` 键拆分：含 `.` 的视为 skill 入口 → skills，其余 → data_tools
+        - 剥离冗余键 whenToUse/groups/source/initial_task
+        """
+        if not isinstance(agent, dict):
+            return agent
+        if "tools" in agent and "data_tools" not in agent:
+            data_tools: List[str] = []
+            skills: List[str] = []
+            for tid in agent.get("tools") or []:
+                (skills if "." in str(tid) else data_tools).append(tid)
+            agent["data_tools"] = data_tools
+            if skills:
+                agent.setdefault("skills", skills)
+            agent.pop("tools", None)
+        for key in cls._LEGACY_KEYS:
+            agent.pop(key, None)
+        return agent
+
     @classmethod
     def load_config(cls, config_path: str = None) -> Dict[str, Any]:
         """加载智能体配置文件"""
@@ -105,11 +130,11 @@ class DynamicAnalystFactory:
 
             # 支持三种查找方式
             if slug == slug_or_name:
-                return agent
+                return cls._normalize_mode(agent)
             if internal_key == slug_or_name:
-                return agent
+                return cls._normalize_mode(agent)
             if name == slug_or_name:
-                return agent
+                return cls._normalize_mode(agent)
 
         return None
 
@@ -154,10 +179,10 @@ class DynamicAnalystFactory:
         agents = []
 
         # 从 customModes 获取
-        agents.extend(config.get('customModes', []))
+        agents.extend(cls._normalize_mode(a) for a in config.get('customModes', []))
 
         # 从 agents 获取（如果配置结构不同）
-        agents.extend(config.get('agents', []))
+        agents.extend(cls._normalize_mode(a) for a in config.get('agents', []))
 
         return agents
 

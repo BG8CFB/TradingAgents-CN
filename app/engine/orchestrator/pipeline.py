@@ -112,14 +112,29 @@ def _report_display_title(report_key: str, display_name: str = "") -> str:
     """report_key → 展示标题。
 
     解析链：去掉 _report 后缀 → slug 化（bull_researcher_report → bull-researcher）
-    → load_agent_display_name(YAML 中文名) → 节点 display_name → report_key 原样。
+    → load_agent_display_name(YAML 中文名，依次尝试原 slug 与 +\"-analyst\" 后缀——
+    Stage 1 报告键不带后缀而 YAML slug 带，如 social_media_report → social-media-analyst）
+    → 节点 display_name → report_key 原样。
     """
     base = report_key[: -len("_report")] if report_key.endswith("_report") else report_key
+    # 非派生命名的报告键 → agent slug 别名（与前端 agentDisplayNames.ts REPORT_KEY_SLUG_ALIAS 对齐）
+    _SLUG_ALIAS = {
+        "trader_investment_plan": "trader",
+        "investment_plan": "trader",
+        "final_trade_decision": "trader",
+        "research_team_decision": "research-manager",
+        "risk_management_decision": "risk-manager",
+        "risk_manager_decision": "risk-manager",
+    }
     title = ""
     try:
         from app.engine.agents.utils.agent_config import load_agent_display_name
 
-        title = load_agent_display_name(base.replace("_", "-"))
+        slug = _SLUG_ALIAS.get(base, base.replace("_", "-"))
+        for candidate in (slug, f"{slug}-analyst"):
+            title = load_agent_display_name(candidate)
+            if title:
+                break
     except Exception:  # noqa: BLE001 - 标题解析失败回退，不影响事件发射
         title = ""
     return title or display_name or report_key

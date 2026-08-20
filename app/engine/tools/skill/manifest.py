@@ -4,6 +4,7 @@ manifest.yaml 解析与校验
 读取 skill 包内的 manifest.yaml，校验为 SkillManifest 模型。
 manifest.yaml 是可选文件——纯 prompt skill 无需 manifest。
 """
+
 import logging
 from pathlib import Path
 from typing import Optional
@@ -66,10 +67,7 @@ def load_manifest(skill_dir: str) -> Optional[SkillManifest]:
     # 校验 skill_name 与目录名一致
     dir_name = Path(skill_dir).name
     if manifest.skill_name != dir_name:
-        logger.warning(
-            f"manifest.skill_name ({manifest.skill_name}) 与目录名 ({dir_name}) 不一致，"
-            f"将以目录名为准"
-        )
+        logger.warning(f"manifest.skill_name ({manifest.skill_name}) 与目录名 ({dir_name}) 不一致，将以目录名为准")
         manifest.skill_name = dir_name
 
     return manifest
@@ -77,6 +75,4 @@ def load_manifest(skill_dir: str) -> Optional[SkillManifest]:
 
 def has_manifest(skill_dir: str) -> bool:
     """快速判断 skill 目录是否包含 manifest.yaml"""
-    return (Path(skill_dir) / "manifest.yaml").exists() or (
-        Path(skill_dir) / "manifest.yml"
-    ).exists()
+    return (Path(skill_dir) / "manifest.yaml").exists() or (Path(skill_dir) / "manifest.yml").exists()

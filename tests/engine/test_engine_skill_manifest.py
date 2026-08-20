@@ -428,19 +428,19 @@ class TestEntrypointLoader:
 
 
 class TestBuiltinRegistrySkillEntrypoints:
-    """skill 入口注册到 BUILTIN_TOOL_REGISTRY"""
+    """skill 入口注册到可调用注册表"""
 
     def test_register_skill_entrypoint_appends(self):
         """register_skill_entrypoint 应追加到 registry"""
         from app.engine.tools.builtin.registry import (
-            BUILTIN_TOOL_REGISTRY,
+            CALLABLE_TOOL_REGISTRY,
             BuiltinToolSpec,
             register_skill_entrypoint,
             unregister_skill_entrypoints,
             _TOOL_ID_INDEX,
         )
 
-        initial_count = len(BUILTIN_TOOL_REGISTRY)
+        initial_count = len(CALLABLE_TOOL_REGISTRY)
         test_id = "test-skill.test-entry"
 
         # 构造一个测试 spec
@@ -459,11 +459,11 @@ class TestBuiltinRegistrySkillEntrypoints:
 
         try:
             assert register_skill_entrypoint(spec) is True
-            assert len(BUILTIN_TOOL_REGISTRY) == initial_count + 1
+            assert len(CALLABLE_TOOL_REGISTRY) == initial_count + 1
             assert test_id in _TOOL_ID_INDEX
         finally:
             unregister_skill_entrypoints("test-skill")
-        assert len(BUILTIN_TOOL_REGISTRY) == initial_count
+        assert len(CALLABLE_TOOL_REGISTRY) == initial_count
 
     def test_register_duplicate_returns_false(self):
         """重复注册同名 tool_id 应被拒绝"""

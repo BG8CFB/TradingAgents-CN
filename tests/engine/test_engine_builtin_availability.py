@@ -5,7 +5,7 @@ get_availability_summary 函数，验证可用性检测逻辑。
 """
 
 
-from app.engine.tools.builtin.availability import (
+from app.engine.tools.datasources.availability import (
     check_tool_availability,
     check_all_tools_availability,
     get_availability_summary,

@@ -5,6 +5,9 @@
 // ── 工具类型枚举（三类） ──
 export type ToolType = 'builtin' | 'mcp' | 'skill'
 
+// ── 细分类别（datasource=预注入数据源 / builtin=可调用内置 / skill / mcp） ──
+export type ToolKind = 'datasource' | 'builtin' | 'skill' | 'mcp'
+
 // ── 可用性状态枚举 ──
 export type AvailabilityStatus = 'available' | 'no_data' | 'unavailable' | 'unknown'
 
@@ -13,6 +16,7 @@ export interface UnifiedTool {
   name: string
   description: string
   tool_type: ToolType
+  kind?: ToolKind
   display_name: string
   source: string
   availability: {

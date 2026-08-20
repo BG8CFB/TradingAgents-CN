@@ -1,15 +1,19 @@
 import { request, type ApiResponse } from './request'
 
+/**
+ * 智能体配置模型（2026-08 工具体系四路拆分后）：
+ * - data_tools: 预注入数据源 id（代码控制，分析师启动时预取注入上下文）
+ * - mcp_tools / skills: 可调用工具限制集合；缺省/空 = 默认全部可用
+ * - 内置工具（calc）全员默认，不经配置
+ */
 export interface PhaseAgentMode {
   slug: string
   name: string
   roleDefinition: string
   description?: string
-  whenToUse?: string
-  groups?: string[]
-  source?: string
-  tools?: string[]
-  initial_task?: string  // 初始任务描述（1阶段专用，系统会自动拼接股票信息）
+  data_tools?: string[]
+  mcp_tools?: string[]
+  skills?: string[]
 }
 
 export interface PhaseAgentConfig {

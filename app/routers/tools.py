@@ -42,8 +42,9 @@ def _get_disabled_tools() -> Set[str]:
     try:
         if _DISABLED_TOOLS_FILE.exists():
             import json
-            data = json.loads(_DISABLED_TOOLS_FILE.read_text(encoding='utf-8'))
-            return set(data.get('disabled', []))
+
+            data = json.loads(_DISABLED_TOOLS_FILE.read_text(encoding="utf-8"))
+            return set(data.get("disabled", []))
     except Exception as e:
         logger.error(f"读取禁用工具列表失败: {e}")
     return set()
@@ -58,10 +59,36 @@ def _classify_tool(name: str, registry: ToolRegistry) -> str:
     return TOOL_TYPE_MCP
 
 
+def _get_tool_kind(name: str, registry: ToolRegistry) -> str:
+    """细分工具类别（供配置页按类分 tab）：
+    datasource = 预注入数据源；skill = skill 入口；builtin = 可调用内置；mcp = MCP。
+    """
+    try:
+        from app.engine.tools.datasources.registry import get_spec_by_id
+
+        if get_spec_by_id(name) is not None:
+            return "datasource"
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"数据源注册表查询失败: {e}")
+
+    try:
+        from app.engine.tools.builtin.registry import is_skill_tool
+
+        if name == "load_skill" or is_skill_tool(name):
+            return "skill"
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"内置注册表查询失败: {e}")
+
+    if name in registry.get_builtin_tool_metas():
+        return "builtin"
+    return "mcp"
+
+
 async def _get_builtin_availability(registry: ToolRegistry) -> Dict[str, bool]:
     """获取内置工具的可用性状态（基于 MongoDB 数据检测）。"""
     try:
-        from app.engine.tools.builtin.domain_checker import AvailabilityCache
+        from app.engine.tools.datasources.domain_checker import AvailabilityCache
+
         cache = AvailabilityCache.get_instance()
         return dict(cache.all_results)
     except Exception as e:
@@ -90,6 +117,7 @@ async def list_available_tools(
     - name: 工具标识
     - description: 工具描述
     - tool_type: builtin | mcp | skill
+    - kind: datasource | builtin | skill | mcp（细分类，供配置页按类分 tab）
     - display_name: 中文显示名
     - source: 来源标识（向后兼容）
     - availability: { status, detail } (当 with_availability=True)
@@ -106,10 +134,8 @@ async def list_available_tools(
             logger.warning(f"获取 MCP 工具列表失败: {e}")
 
     from app.engine.tools.registry import get_all_tools
-    tools = get_all_tools(
-        toolkit=toolkit,
-        enable_mcp=False,
-    )
+
+    tools = get_all_tools(toolkit=toolkit)
 
     # 获取可用性数据（仅在内置工具时有效）
     builtin_availability = {}
@@ -171,18 +197,19 @@ async def list_available_tools(
         # 构建可用性信息
         availability = {"status": "unknown", "detail": ""}
         if with_availability:
-            availability = _build_availability(
-                name, tool_type, builtin_availability, tushare_available
-            )
+            availability = _build_availability(name, tool_type, builtin_availability, tushare_available)
 
-        items.append({
-            "name": name,
-            "description": description,
-            "tool_type": tool_type,
-            "display_name": _get_tool_display_name(name, tool_registry),
-            "source": tool_source,
-            "availability": availability,
-        })
+        items.append(
+            {
+                "name": name,
+                "description": description,
+                "tool_type": tool_type,
+                "kind": _get_tool_kind(name, tool_registry),
+                "display_name": _get_tool_display_name(name, tool_registry),
+                "source": tool_source,
+                "availability": availability,
+            }
+        )
 
     # 添加外部 MCP 服务器的工具（非 local 的）
     if include_mcp:
@@ -191,14 +218,17 @@ async def list_available_tools(
             server_name = ti.get("serverName", "mcp")
             if tool_name and tool_name not in seen and server_name != "local":
                 seen.add(tool_name)
-                items.append({
-                    "name": tool_name,
-                    "description": ti.get("description", ""),
-                    "tool_type": TOOL_TYPE_MCP,
-                    "display_name": tool_name,
-                    "source": server_name,
-                    "availability": {"status": "unknown", "detail": ""},
-                })
+                items.append(
+                    {
+                        "name": tool_name,
+                        "description": ti.get("description", ""),
+                        "tool_type": TOOL_TYPE_MCP,
+                        "kind": "mcp",
+                        "display_name": tool_name,
+                        "source": server_name,
+                        "availability": {"status": "unknown", "detail": ""},
+                    }
+                )
 
     return {"success": True, "data": items, "count": len(items)}
 

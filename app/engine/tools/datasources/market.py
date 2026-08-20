@@ -3,6 +3,7 @@
 
 所有数据通过 DataInterface 统一获取，走 FallbackRouter 自动降级。
 """
+
 import json
 import logging
 from typing import Optional
@@ -20,18 +21,25 @@ logger = logging.getLogger(__name__)
 def _to_json_str(data) -> str:
     """将 DataFrame 或其他类型转为 JSON 字符串"""
     import pandas as pd
+
     if isinstance(data, pd.DataFrame):
-        return json.dumps(data.to_dict(orient='records'), ensure_ascii=False, default=str)
+        return json.dumps(data.to_dict(orient="records"), ensure_ascii=False, default=str)
     return str(data)
 
 
 def _normalize_symbol(symbol: str, market: str) -> str:
     """清洗 symbol，去掉交易所后缀以匹配数据库存储格式"""
     if market == "CN":
-        return symbol.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
-                      .replace('.sz', '').replace('.sh', '').replace('.bj', '')
+        return (
+            symbol.replace(".SZ", "")
+            .replace(".SH", "")
+            .replace(".BJ", "")
+            .replace(".sz", "")
+            .replace(".sh", "")
+            .replace(".bj", "")
+        )
     elif market == "HK":
-        return symbol.replace('.HK', '').replace('.hk', '').zfill(5)
+        return symbol.replace(".HK", "").replace(".hk", "").zfill(5)
     return symbol.upper()
 
 
@@ -39,12 +47,12 @@ def _read_daily_quotes(market: str, symbol: str, start_date: str, end_date: str)
     """统一读取日 K 线数据（CN/HK/US 共用）"""
     clean_symbol = _normalize_symbol(symbol, market)
     di = DataInterface.get_instance()
-    result = run_async(di.read(market, "daily_quotes", symbol=clean_symbol,
-                                  start_date=start_date, end_date=end_date))
+    result = run_async(di.read(market, "daily_quotes", symbol=clean_symbol, start_date=start_date, end_date=end_date))
     raw = result.get("data")
     if not raw:
         return None
     import pandas as pd
+
     return pd.DataFrame(raw) if isinstance(raw, list) and raw else raw
 
 
@@ -95,7 +103,7 @@ def get_stock_data(
                 market_key = "CN"
 
         if not start_date:
-            start_date = (now_utc() - timedelta(days=30)).strftime('%Y-%m-%d')
+            start_date = (now_utc() - timedelta(days=30)).strftime("%Y-%m-%d")
         if not end_date:
             end_date = get_current_date()
 
@@ -104,18 +112,17 @@ def get_stock_data(
         if data is not None:
             return format_tool_result(success_result(_to_json_str(data)))
         else:
-            return format_tool_result(error_result(
-                ErrorCodes.UNKNOWN_MARKET,
-                f"无法获取 {stock_code} 的行情数据（请先同步 daily_quotes 数据）",
-                suggestion="请使用标准格式的股票代码，如 000001.SZ、00700.HK、AAPL"
-            ))
+            return format_tool_result(
+                error_result(
+                    ErrorCodes.UNKNOWN_MARKET,
+                    f"无法获取 {stock_code} 的行情数据（请先同步 daily_quotes 数据）",
+                    suggestion="请使用标准格式的股票代码，如 000001.SZ、00700.HK、AAPL",
+                )
+            )
 
     except Exception as e:
         logger.error(f"get_stock_data failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            f"获取股票数据失败: {str(e)}"
-        ))
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, f"获取股票数据失败: {str(e)}"))
 
 
 def get_stock_data_minutes(
@@ -123,7 +130,7 @@ def get_stock_data_minutes(
     stock_code: str,
     start_datetime: Optional[str] = None,
     end_datetime: Optional[str] = None,
-    freq: str = "30min"
+    freq: str = "30min",
 ) -> str:
     """
     获取分钟级 K 线数据。
@@ -140,41 +147,43 @@ def get_stock_data_minutes(
     """
     try:
         if not end_datetime:
-            end_datetime = now_utc().strftime('%Y-%m-%d %H:%M:%S')
+            end_datetime = now_utc().strftime("%Y-%m-%d %H:%M:%S")
         if not start_datetime:
-            start_datetime = (now_utc() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+            start_datetime = (now_utc() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
 
         freq_map = {"1min": "1", "5min": "5", "15min": "15", "30min": "30", "60min": "60"}
         freq_short = freq_map.get(freq, "30")
 
         di = DataInterface.get_instance()
         clean_symbol = _normalize_symbol(stock_code, "CN")
-        result = run_async(di.read("CN", "intraday_quotes", symbol=clean_symbol,
-                                     start_date=start_datetime, end_date=end_datetime,
-                                     filters={"freq": freq_short}))
+        result = run_async(
+            di.read(
+                "CN",
+                "intraday_quotes",
+                symbol=clean_symbol,
+                start_date=start_datetime,
+                end_date=end_datetime,
+                filters={"freq": freq_short},
+            )
+        )
         intraday_data = result.get("data")
         if intraday_data:
             import pandas as pd
+
             data = pd.DataFrame(intraday_data) if isinstance(intraday_data, list) else intraday_data
             return format_tool_result(success_result(format_result(data, f"{stock_code} {freq} Data")))
 
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            f"无法获取分钟级行情数据: {stock_code}（请先同步 intraday_quotes 数据）"
-        ))
+        return format_tool_result(
+            error_result(
+                ErrorCodes.DATA_FETCH_ERROR, f"无法获取分钟级行情数据: {stock_code}（请先同步 intraday_quotes 数据）"
+            )
+        )
     except Exception as e:
         logger.error(f"get_stock_data_minutes failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            str(e)
-        ))
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
-def get_index_data(
-    stock_code: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None
-) -> str:
+def get_index_data(stock_code: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> str:
     """
     获取指数日线行情。
 
@@ -192,7 +201,7 @@ def get_index_data(
         if not end_date:
             end_date = get_current_date_compact()
         if not start_date:
-            start_date = (now_utc() - timedelta(days=90)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=90)).strftime("%Y%m%d")
 
         # 动态推导市场
         market_info = StockUtils.get_market_info(stock_code)
@@ -204,24 +213,24 @@ def get_index_data(
 
         di = DataInterface.get_instance()
         clean_symbol = _normalize_symbol(stock_code, market)
-        result = run_async(di.read(market, "market_quotes", symbol=clean_symbol,
-                                     start_date=start_date, end_date=end_date))
+        result = run_async(
+            di.read(market, "market_quotes", symbol=clean_symbol, start_date=start_date, end_date=end_date)
+        )
         index_data = result.get("data")
         if index_data:
             import pandas as pd
+
             data = pd.DataFrame(index_data) if isinstance(index_data, list) else index_data
             return format_tool_result(success_result(format_result(data, f"Index: {stock_code}")))
 
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            f"指数行情数据暂不可用: {stock_code}（请先同步 market_quotes 数据）"
-        ))
+        return format_tool_result(
+            error_result(
+                ErrorCodes.DATA_FETCH_ERROR, f"指数行情数据暂不可用: {stock_code}（请先同步 market_quotes 数据）"
+            )
+        )
     except Exception as e:
         logger.error(f"get_index_data failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            str(e)
-        ))
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
 def get_stock_indicators(
@@ -264,29 +273,30 @@ def get_stock_indicators(
                 market_key = "CN"
 
         if not start_date:
-            start_date = (now_utc() - timedelta(days=30)).strftime('%Y-%m-%d')
+            start_date = (now_utc() - timedelta(days=30)).strftime("%Y-%m-%d")
         if not end_date:
             end_date = get_current_date()
 
         clean_symbol = _normalize_symbol(stock_code, market_key)
         di = DataInterface.get_instance()
-        result = run_async(di.read(market_key, "daily_indicators", symbol=clean_symbol,
-                                    start_date=start_date, end_date=end_date))
+        result = run_async(
+            di.read(market_key, "daily_indicators", symbol=clean_symbol, start_date=start_date, end_date=end_date)
+        )
         raw = result.get("data")
 
         if raw:
             import pandas as pd
+
             data = pd.DataFrame(raw) if isinstance(raw, list) and raw else raw
             return format_tool_result(success_result(format_result(data, f"{stock_code} Indicators")))
 
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            f"无法获取 {stock_code} 的估值指标数据（请先同步 daily_indicators 数据）",
-        ))
+        return format_tool_result(
+            error_result(
+                ErrorCodes.DATA_FETCH_ERROR,
+                f"无法获取 {stock_code} 的估值指标数据（请先同步 daily_indicators 数据）",
+            )
+        )
 
     except Exception as e:
         logger.error(f"get_stock_indicators failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            str(e)
-        ))
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

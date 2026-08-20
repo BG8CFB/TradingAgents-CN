@@ -12,7 +12,7 @@
  *
  * 降级契约（存量旧事件，新字段缺失）：
  * - llm_request 无 messages / messages_full → count 摘要行；无 count → 记录缺失
- * - llm_response 无 text → text='' 且 missing=true，渲染层显示占位
+ * - llm_response 无 text/summary 字段 → 旧事件占位；text 为空串（纯工具轮）→ 不产生 assistant 消息
  * - 无 tool_use_id → 顺序+名配对（与旧 ProcessPanel 行为一致）
  */
 import type { AgentEvent } from '@/api/analysis'
@@ -210,14 +210,15 @@ export function buildChatMessages(evs: AgentEvent[]): ChatMessage[] {
         break
       }
       case 'llm_response': {
-        const text = typeof p.text === 'string' ? p.text : (typeof p.summary === 'string' ? p.summary : '')
-        messages.push({
-          kind: 'assistant',
-          id: `e${ev.seq}`,
-          text,
-          // 旧事件 text/summary 均无（纯工具轮落库时可能只有 token 数）→ 占位
-          missing: !text,
-        })
+        // 新事件 text 字段恒存在（runner 发射时带 text=resp.text()）；旧事件无 text/summary。
+        // 纯工具轮 text 为空串属正常（本轮无正文，工具调用有自己的气泡），不产生 assistant 消息
+        const text = typeof p.text === 'string' ? p.text : (typeof p.summary === 'string' ? p.summary : null)
+        if (text === null) {
+          // 旧事件降级：text/summary 字段均缺失 → 占位提示
+          messages.push({ kind: 'assistant', id: `e${ev.seq}`, text: '', missing: true })
+        } else if (text) {
+          messages.push({ kind: 'assistant', id: `e${ev.seq}`, text, missing: false })
+        }
         break
       }
       case 'user_message_injected': {

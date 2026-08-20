@@ -1,45 +1,37 @@
 """
-统一工具注册中心
+统一工具注册中心（管理面）
 
-管理三类工具：内置工具（Builtin）、外部 MCP 工具、Skill 工具。
-提供统一的工具获取、按名称查询、可用性管理、类型分类接口。
+聚合内置数据源工具（builtin/）与 skill 脚本入口的元数据，
+供工具管理路由（routers/tools.py）做清单展示与可用性查询。
+引擎运行时的工具装配在 orchestrator/agents（预注入 + callable_tools），
+MCP 运行时在 app/llm/mcp，均不经本注册中心。
 """
+
 import logging
 import threading
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# 工具类型枚举（三类）
-TOOL_TYPE_BUILTIN = "builtin"       # 项目内置工具（LangGraph 工具）
-TOOL_TYPE_MCP = "mcp"              # 外部 MCP 连接器工具
-TOOL_TYPE_SKILL = "skill"          # Skill 渐进式披露工具
-
-# 全局单例
-_registry = None
-_registry_lock = threading.Lock()
+# 工具类型枚举（三类，供路由分类展示）
+TOOL_TYPE_BUILTIN = "builtin"  # 项目内置工具（预注入数据源 + 可调用 builtin）
+TOOL_TYPE_MCP = "mcp"  # 外部 MCP 连接器工具
+TOOL_TYPE_SKILL = "skill"  # Skill 渐进式披露工具
 
 
 class ToolRegistry:
     """
-    统一工具注册中心 — 管理内置工具、外部 MCP、Skill
+    统一工具注册中心 — 管理内置数据源与 skill 入口
 
     使用方式：
         registry = ToolRegistry.get_instance()
-        tools = registry.get_all_tools()
+        metas = registry.get_builtin_tool_metas()
     """
 
     def __init__(self):
-        # 四类工具缓存
+        # 内置工具（预注入数据源 + 可调用 skill 入口）
         self._builtin_tools: List = []
-        self._mcp_tools: List = []          # 外部 MCP 连接器工具
-        self._skill_tools: List = []
-
-        # 内置工具元数据（从 builtin/loader 获取）
         self._builtin_metas: Dict[str, Dict] = {}
-
-        # 手动禁用的工具名称集合
-        self._disabled_tools: set = set()
 
         # 是否已初始化
         self._initialized = False
@@ -78,21 +70,11 @@ class ToolRegistry:
         # 1. 加载内置工具
         self._load_builtin_tools(toolkit_config)
 
-        # 2. 加载 Skill 的 load_skill Meta-Tool
-        self._load_skill_meta_tool()
-
-        # 3. 注册 Skill 脚本入口为 builtin 工具
+        # 2. 注册 Skill 脚本入口为 builtin 工具
         self._load_skill_entrypoints()
 
         self._initialized = True
-        total = len(self._builtin_tools) + len(self._mcp_tools) + len(self._skill_tools)
-        logger.info(
-            f"[ToolRegistry] 初始化完成: "
-            f"内置={len(self._builtin_tools)}, "
-            f"MCP={len(self._mcp_tools)}, "
-            f"Skill={len(self._skill_tools)}, "
-            f"总计={total}"
-        )
+        logger.info(f"[ToolRegistry] 初始化完成: 内置={len(self._builtin_tools)}")
 
     @property
     def is_initialized(self) -> bool:
@@ -119,20 +101,37 @@ class ToolRegistry:
                 install_callback=install_skill_dependencies_sync,
             )
             logger.debug("[ToolRegistry] SkillRegistry 依赖回调已注入")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - skill 子系统初始化失败不阻断工具清单
             logger.warning(f"[ToolRegistry] SkillRegistry 初始化失败（可忽略）: {e}")
 
     def _load_builtin_tools(self, toolkit_config: Optional[Dict] = None):
-        """加载内置工具"""
+        """加载内置工具（预注入数据源 + 可调用 skill 入口）"""
         try:
-            from app.engine.tools.builtin import load_builtin_tools
-            from app.engine.tools.builtin.registry import BUILTIN_TOOL_REGISTRY
+            from app.engine.tools.builtin.registry import CALLABLE_TOOL_REGISTRY
+            from app.engine.tools.datasources import load_datasource_tools
+            from app.engine.tools.datasources.loader import ToolInfo
+            from app.engine.tools.datasources.registry import DATASOURCE_REGISTRY
 
-            self._builtin_tools = load_builtin_tools(toolkit_config)
+            self._builtin_tools = load_datasource_tools(toolkit_config)
 
-            # 从 spec 构建 metas（兼容旧接口）
+            # 可调用的 skill 入口同样进工具清单（管理面展示）
+            self._builtin_tools.extend(
+                ToolInfo(
+                    name=spec.tool_id,
+                    description=spec.description,
+                    func=spec.fn,
+                    metadata={
+                        "tool_category": "builtin",
+                        "tool_id": spec.tool_id,
+                        "builtin_domains": spec.domains,
+                    },
+                )
+                for spec in CALLABLE_TOOL_REGISTRY
+            )
+
+            # 从 spec 构建 metas（数据源 + 可调用入口，兼容旧接口）
             self._builtin_metas = {}
-            for spec in BUILTIN_TOOL_REGISTRY:
+            for spec in [*DATASOURCE_REGISTRY, *CALLABLE_TOOL_REGISTRY]:
                 self._builtin_metas[spec.tool_id] = {
                     "tool_id": spec.tool_id,
                     "display_name": spec.display_name,
@@ -142,27 +141,10 @@ class ToolRegistry:
                 }
 
             logger.info(f"[ToolRegistry] 内置工具加载完成: {len(self._builtin_tools)} 个")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[ToolRegistry] 内置工具加载失败: {e}")
             self._builtin_tools = []
             self._builtin_metas = {}
-
-    def _load_skill_meta_tool(self):
-        """Skill 渐进式披露工具（load_skill）
-
-        引擎运行时的 skill 列表工具已由新层 app/llm/skills 提供
-        （orchestrator 的 enable_skill_listing + skill_listing_tool），
-        注册面不再注册旧 Meta-Tool。此处保留方法以维持初始化流程稳定。
-        """
-        self._skill_tools = []
-        try:
-            from app.engine.tools.skill import SkillRegistry
-
-            skill_registry = SkillRegistry.get_instance()
-            if not skill_registry.list_skills():
-                logger.info("[ToolRegistry] 无已安装技能，跳过 skill 工具注册")
-        except Exception as e:
-            logger.debug(f"[ToolRegistry] Skill 注册检查失败（可忽略）: {e}")
 
     def _load_skill_entrypoints(self):
         """把 skill 的脚本入口注册为 builtin 工具"""
@@ -174,75 +156,16 @@ class ToolRegistry:
             result = load_all_skill_entrypoints()
             registered_count = sum(len(v) for v in result["registered"].values())
             if registered_count > 0:
-                # 入口已经追加到 BUILTIN_TOOL_REGISTRY，
-                # 但本实例的 _builtin_tools 已在 _load_builtin_tools 时快照过，
-                # 这里重新调用一次 builtin loader 把新增入口拉进来
+                # 入口已注册进 builtin.registry（可调用注册表），
+                # 重新执行一次加载把新增入口的 metas 拉进来
                 self._load_builtin_tools()
-                logger.info(
-                    f"[ToolRegistry] Skill 脚本入口已注册: {registered_count} 个"
-                )
-        except Exception as e:
+                logger.info(f"[ToolRegistry] Skill 脚本入口已注册: {registered_count} 个")
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"[ToolRegistry] Skill 入口注册失败（可忽略）: {e}")
 
-    def set_mcp_tools(self, tools: List):
-        """
-        设置 MCP 工具列表（由外部 MCP 连接管理器在连接建立后调用）
-
-        Args:
-            tools: 从外部 MCP 服务器加载的工具列表
-        """
-        self._mcp_tools = tools or []
-        logger.info(f"[ToolRegistry] MCP 工具已更新: {len(self._mcp_tools)} 个")
-
     def get_all_tools(self) -> List:
-        """
-        获取所有可用工具（内置 + MCP + Skill），过滤已禁用的工具
-
-        Returns:
-            工具列表
-        """
-        all_tools = []
-
-        # 内置工具（过滤禁用和不可用的）
-        for tool in self._builtin_tools:
-            name = getattr(tool, "name", None)
-            if name and name not in self._disabled_tools:
-                all_tools.append(tool)
-
-        # MCP 工具
-        for tool in self._mcp_tools:
-            name = getattr(tool, "name", None)
-            if name and name not in self._disabled_tools:
-                all_tools.append(tool)
-
-        # Skill 工具
-        for tool in self._skill_tools:
-            name = getattr(tool, "name", None)
-            if name and name not in self._disabled_tools:
-                all_tools.append(tool)
-
-        return all_tools
-
-    def get_tools_by_names(self, names: List[str]) -> List:
-        """
-        按名称获取工具，自动过滤禁用的
-
-        Args:
-            names: 工具名称列表
-
-        Returns:
-            匹配的工具列表
-        """
-        if not names:
-            return self.get_all_tools()
-
-        name_set = set(names)
-        filtered = [
-            tool for tool in self.get_all_tools()
-            if getattr(tool, "name", None) in name_set
-        ]
-
-        return filtered
+        """获取所有工具（内置数据源 + skill 入口）"""
+        return list(self._builtin_tools)
 
     def get_builtin_tools(self) -> List:
         """获取所有内置工具（不过滤）"""
@@ -252,170 +175,18 @@ class ToolRegistry:
         """获取所有内置工具的元数据"""
         return dict(self._builtin_metas)
 
-    def get_tools_grouped_by_type(self) -> Dict[str, List]:
-        """按类型分组返回工具名称和元数据（三类：builtin / mcp / skill）。
 
-        Returns:
-            {
-                "builtin": [{"name": ..., "display_name": ..., ...}],
-                "mcp": [{"name": ..., "source": ..., ...}],
-                "skill": [{"name": ..., ...}],
-            }
-        """
-        result = {
-            TOOL_TYPE_BUILTIN: [],
-            TOOL_TYPE_MCP: [],
-            TOOL_TYPE_SKILL: [],
-        }
-
-        # 1. 内置工具（LangGraph 分析工具）
-        for name, meta in self._builtin_metas.items():
-            result[TOOL_TYPE_BUILTIN].append({
-                "name": name,
-                "display_name": meta.get("display_name", name),
-                "description": "",
-                **meta,
-            })
-
-        # 2. 外部 MCP 工具
-        for tool in self._mcp_tools:
-            name = getattr(tool, "name", None)
-            if name and name not in self._disabled_tools:
-                meta = getattr(tool, "metadata", {}) or {}
-                description = getattr(tool, "description", "") or ""
-                source = meta.get("server_name", "mcp")
-                result[TOOL_TYPE_MCP].append({
-                    "name": name,
-                    "description": description,
-                    "source": source,
-                })
-
-        # 3. Skill 工具
-        for tool in self._skill_tools:
-            name = getattr(tool, "name", None)
-            if name and name not in self._disabled_tools:
-                description = getattr(tool, "description", "") or ""
-                result[TOOL_TYPE_SKILL].append({
-                    "name": name,
-                    "description": description,
-                })
-
-        return result
-
-    def classify_tool(self, tool_name: str) -> str:
-        """根据工具名判断其类型（三类：builtin / mcp / skill）。
-
-        Args:
-            tool_name: 工具名称
-
-        Returns:
-            工具类型字符串: builtin | mcp | skill | unknown
-        """
-        # 1. 内置 LangGraph 工具
-        if tool_name in self._builtin_metas:
-            return TOOL_TYPE_BUILTIN
-
-        # 2. Skill 工具
-        for tool in self._skill_tools:
-            if getattr(tool, "name", None) == tool_name:
-                return TOOL_TYPE_SKILL
-
-        # 3. 外部 MCP 工具
-        for tool in self._mcp_tools:
-            if getattr(tool, "name", None) == tool_name:
-                return TOOL_TYPE_MCP
-
-        return "unknown"
-
-    def get_tool_display_name(self, tool_name: str) -> str:
-        """获取工具的中文显示名。"""
-        if tool_name in self._builtin_metas:
-            return self._builtin_metas[tool_name].get("display_name", tool_name)
-        return tool_name
-
-    @staticmethod
-    def is_builtin_tool(tool) -> bool:
-        """判断工具是否为内置工具"""
-        meta = getattr(tool, "metadata", None) or {}
-        return meta.get("tool_category") == "builtin"
-
-    @staticmethod
-    def is_builtin_tool_by_name(name: str) -> bool:
-        """根据工具名判断是否为内置工具"""
-        registry = ToolRegistry.get_instance()
-        return name in registry._builtin_metas
-
-    def toggle_tool(self, name: str, enabled: bool):
-        """
-        手动启用/禁用工具
-
-        Args:
-            name: 工具名称
-            enabled: 是否启用
-        """
-        if enabled:
-            self._disabled_tools.discard(name)
-            logger.info(f"[ToolRegistry] 启用工具: {name}")
-        else:
-            self._disabled_tools.add(name)
-            logger.info(f"[ToolRegistry] 禁用工具: {name}")
-
-    def get_availability_summary(self) -> dict:
-        """
-        获取工具可用性摘要
-
-        Returns:
-            {
-                "builtin": {"total": N, "available": N, "unavailable": N, ...},
-                "mcp": {"total": N},
-                "skill": {"total": N},
-                "disabled": ["tool_name", ...]
-            }
-        """
-        try:
-            from app.engine.tools.builtin.domain_checker import AvailabilityCache
-
-            cache = AvailabilityCache.get_instance()
-            results = cache.all_results
-            available = sum(1 for v in results.values() if v)
-            builtin_summary = {
-                "total": len(results),
-                "available": available,
-                "unavailable": len(results) - available,
-                "market": cache.market,
-            }
-        except Exception as e:
-            logger.warning(f"[ToolRegistry] 获取可用性摘要失败: {e}")
-            builtin_summary = {}
-
-        return {
-            "builtin": builtin_summary,
-            "mcp": {"total": len(self._mcp_tools)},
-            "skill": {"total": len(self._skill_tools)},
-            "disabled": sorted(self._disabled_tools),
-        }
+# 全局单例
+_registry = None
+_registry_lock = threading.Lock()
 
 
-# ========================================================================
-# 向后兼容的入口函数（供 simple_agent_factory, tools.py 等调用）
-# ========================================================================
-
-def get_all_tools(
-    toolkit=None,
-    enable_mcp: bool = False,
-    mcp_tool_loader: Optional[Callable] = None,
-    **kwargs,
-) -> List:
+def get_all_tools(toolkit=None) -> List:
     """
-    获取所有工具（向后兼容接口）
-
-    此函数保留旧签名，内部委托给 ToolRegistry。
+    获取所有工具（routers/tools.py 入口）
 
     Args:
         toolkit: 工具配置（传递给内置工具加载器）
-        enable_mcp: 是否包含 MCP 工具
-        mcp_tool_loader: MCP 工具加载器（Callable）
-        **kwargs: 忽略的其他参数（向后兼容）
 
     Returns:
         工具列表
@@ -424,26 +195,12 @@ def get_all_tools(
 
     # 首次调用时自动初始化
     if not registry.is_initialized:
-        # 将 toolkit 转为字典格式
         toolkit_config = {}
         if toolkit:
             if isinstance(toolkit, dict):
                 toolkit_config = toolkit
-            elif hasattr(toolkit, 'config'):
+            elif hasattr(toolkit, "config"):
                 toolkit_config = toolkit.config
         registry.initialize(toolkit_config)
-
-    # 如果需要 MCP 工具
-    if enable_mcp and mcp_tool_loader:
-        try:
-            mcp_tools = list(mcp_tool_loader())
-            # 过滤已禁用的
-            mcp_tools = [
-                t for t in mcp_tools
-                if getattr(t, "name", None) not in registry._disabled_tools
-            ]
-            registry.set_mcp_tools(mcp_tools)
-        except Exception as e:
-            logger.warning(f"[ToolRegistry] MCP 工具加载失败: {e}")
 
     return registry.get_all_tools()

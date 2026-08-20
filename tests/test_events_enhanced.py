@@ -308,6 +308,29 @@ def test_report_display_title_chain():
     assert _report_display_title("unknown_report_key") == "unknown_report_key"
 
 
+@pytest.mark.parametrize("report_key", [
+    "social_media_report",
+    "short_term_capital_report",
+    "fundamentals_report",
+])
+def test_report_display_title_stage1_analyst_suffix(report_key):
+    """Stage 1 报告键不带 -analyst 后缀，但 YAML slug 带：应补试 <base>-analyst 命中中文名"""
+    title = _report_display_title(report_key)
+    assert title and title != report_key, f"{report_key} 应命中 YAML 中文名，实际: {title!r}"
+
+
+@pytest.mark.parametrize("report_key", [
+    "trader_investment_plan",
+    "investment_plan",
+    "research_team_decision",
+    "risk_management_decision",
+])
+def test_report_display_title_slug_alias(report_key):
+    """非派生命名的报告键经别名映射命中中文名（与前端 REPORT_KEY_SLUG_ALIAS 对齐）"""
+    title = _report_display_title(report_key)
+    assert title and title != report_key, f"{report_key} 应经别名命中中文名，实际: {title!r}"
+
+
 @pytest.mark.ai
 @pytest.mark.skipif(not load_config().api_key, reason="未配置 API key（.env ARK_API_KEY）")
 async def test_enhanced_events_with_real_llm():

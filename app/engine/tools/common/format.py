@@ -1,6 +1,7 @@
 """
 工具通用格式化函数
 """
+
 import logging
 from typing import Any
 
@@ -24,11 +25,7 @@ def format_result(data: Any, title: str, max_rows: int = 2000) -> str:
             content = lines[2:]
             if len(content) > max_rows:
                 truncated_content = content[:max_rows]
-                return "\n".join(
-                    header
-                    + truncated_content
-                    + [f"\n... (剩余 {len(content) - max_rows} 行已隐藏)"]
-                )
+                return "\n".join(header + truncated_content + [f"\n... (剩余 {len(content) - max_rows} 行已隐藏)"])
         # L-4 修复：非表格字符串独立上限，避免过长消耗 LLM 上下文窗口
         max_chars = 8000
         if len(data) > max_chars:

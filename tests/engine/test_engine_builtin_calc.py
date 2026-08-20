@@ -8,18 +8,25 @@ from decimal import Decimal
 
 import pytest
 
-from app.engine.tools.builtin.tools.calc import (
+from app.engine.tools.builtin.calc import (
+    CALC_ENFORCEMENT_PROMPT,
     _eval_expression,
     _q4,
+    bollinger,
     calc_expression,
     calc_pnl,
     calc_tool_defs,
+    cagr,
     compound,
+    ema,
     max_drawdown,
+    moving_average,
     pct_change,
     position_size,
     risk_reward,
+    sharpe_ratio,
     var_95,
+    volatility,
 )
 from app.llm.tools.wrappers import func_to_tooldef
 
@@ -197,6 +204,66 @@ class TestFinancialFunctions:
     def test_var_95_bad_input(self):
         assert "错误" in var_95("1", 100)
 
+    def test_moving_average(self):
+        # (10+11+12)/3 = 11，取最后 3 个值
+        result = moving_average("1, 2, 10, 11, 12", 3)
+        assert "SMA(3)" in result and "= 11.0000" in result
+
+    def test_moving_average_insufficient(self):
+        assert "错误" in moving_average("1, 2", 5)
+
+    def test_ema_known_answer(self):
+        # 种子 SMA(2) = (10+12)/2 = 11；alpha = 2/3；再推一个 14 → 2/3*14 + 1/3*11 = 13
+        result = ema("10, 12, 14", 2)
+        assert "EMA(2) = 13.0000" in result
+
+    def test_ema_insufficient(self):
+        assert "错误" in ema("1", 3)
+
+    def test_volatility_flat_series(self):
+        # 价格不变 → 收益率全 0 → 波动率 0
+        result = volatility("100, 100, 100, 100")
+        assert "年化波动率" in result and "0.0000%" in result
+
+    def test_volatility_annualized_scaling(self):
+        # 年化缩放关系：annualized(252) / daily_std = sqrt(252)
+        import re as _re
+
+        prices = ",".join(str(100 + (1 if i % 2 == 0 else 0)) for i in range(10))
+        result = volatility(prices)
+        daily = float(_re.search(r"标准差 = ([\d.]+)%", result).group(1))
+        annual = float(_re.search(r"= ([\d.]+)%（\d+ 个收益样本", result).group(1))
+        assert annual / daily == pytest.approx(252**0.5, rel=1e-3)
+
+    def test_volatility_invalid_period(self):
+        assert "错误" in volatility("100, 101, 102", 0)
+
+    def test_sharpe_ratio_zero_vol(self):
+        assert "错误" in sharpe_ratio("100, 100, 100")
+
+    def test_sharpe_ratio_zero_rf(self):
+        # 单调上涨日收益恰为常数 → 标准差 0 → 无定义；改用交替序列验证可计算
+        prices = ",".join(str(100 + (1 if i % 2 == 0 else 0)) for i in range(10))
+        result = sharpe_ratio(prices, 0)
+        assert "夏普比率 =" in result
+
+    def test_cagr(self):
+        # 100 → 200，2 年 → 2^0.5 - 1 ≈ 41.4214%
+        result = cagr(100, 200, 2)
+        assert "41.4214%" in result
+
+    def test_cagr_invalid(self):
+        assert "错误" in cagr(0, 200, 2)
+        assert "错误" in cagr(100, 200, 0)
+
+    def test_bollinger(self):
+        # 序列 10,10,10,10 → 中轨 10，标准差 0，上下轨 = 10
+        result = bollinger("10, 10, 10, 10", 4, 2)
+        assert "中轨 = 10.0000" in result and "上轨 = 10.0000" in result
+
+    def test_bollinger_insufficient(self):
+        assert "错误" in bollinger("1, 2", 5)
+
 
 # ──────────────────────────────────────────────────────────────
 # ToolDef 生成
@@ -216,8 +283,21 @@ class TestToolDefs:
             "compound",
             "max_drawdown",
             "var_95",
+            "moving_average",
+            "ema",
+            "volatility",
+            "sharpe_ratio",
+            "cagr",
+            "bollinger",
         ]
         assert all(t.is_concurrency_safe for t in defs)
+
+    def test_enforcement_prompt_covers_all_tools(self):
+        # 强制 prompt 必须点到每个计算工具名（缺一个都会让 AI 不知道该工具存在）
+        for name in [t.name for t in calc_tool_defs()]:
+            assert name in CALC_ENFORCEMENT_PROMPT, f"prompt 缺少工具说明: {name}"
+        assert "禁止心算" in CALC_ENFORCEMENT_PROMPT
+        assert "必须" in CALC_ENFORCEMENT_PROMPT
 
     def test_schema_number_mapping(self):
         # func_to_tooldef 注解映射：float → number（风险点验证）

@@ -10,6 +10,7 @@ Skill 状态持久化层
 - 启动时读取全部状态，构造内存字典；运行中只读字典，不频繁访问 MongoDB
 - 状态变更后异步持久化（fire-and-forget），失败时仅记录日志
 """
+
 import logging
 from typing import Dict, List, Optional
 
@@ -175,9 +176,7 @@ class SkillStateStore:
         try:
             db = get_mongo_db()
             query = {"skill_name": skill_name} if skill_name else {}
-            cursor = db[_SKILL_INSTALL_LOG_COLLECTION].find(query).sort(
-                "installed_at", -1
-            ).limit(limit)
+            cursor = db[_SKILL_INSTALL_LOG_COLLECTION].find(query).sort("installed_at", -1).limit(limit)
             result: List[SkillInstallLog] = []
             async for doc in cursor:
                 try:

@@ -88,9 +88,7 @@ class MCPToolValidators:
             elif MCPToolValidators.STOCK_CODE_US.match(code):
                 return ValidationResult(True)
             else:
-                return ValidationResult(
-                    False, f"股票代码格式错误：{code}，无法识别市场类型"
-                )
+                return ValidationResult(False, f"股票代码格式错误：{code}，无法识别市场类型")
 
         return ValidationResult(True)
 
@@ -118,9 +116,7 @@ class MCPToolValidators:
 
         # 验证范围 (1900-01-01 到 2100-12-31)
         if parsed_date.year < 1900 or parsed_date.year > 2100:
-            return ValidationResult(
-                False, f"日期超出范围：{date_str}，应在 1900-2100 之间"
-            )
+            return ValidationResult(False, f"日期超出范围：{date_str}，应在 1900-2100 之间")
 
         return ValidationResult(True)
 
@@ -150,23 +146,17 @@ class MCPToolValidators:
         end = datetime.strptime(end_date.strip(), "%Y-%m-%d")
 
         if start > end:
-            return ValidationResult(
-                False, f"开始日期不能晚于结束日期：{start_date} > {end_date}"
-            )
+            return ValidationResult(False, f"开始日期不能晚于结束日期：{start_date} > {end_date}")
 
         # 验证间隔 (不超过1年)
         delta = end - start
         if delta.days > 365:
-            return ValidationResult(
-                False, f"日期范围过大：{delta.days} 天，不应超过 365 天"
-            )
+            return ValidationResult(False, f"日期范围过大：{delta.days} 天，不应超过 365 天")
 
         return ValidationResult(True)
 
     @staticmethod
-    def validate_limit(
-        limit: int, min_val: int = 1, max_val: int = 1000
-    ) -> ValidationResult:
+    def validate_limit(limit: int, min_val: int = 1, max_val: int = 1000) -> ValidationResult:
         """
         验证数量限制
 
@@ -185,16 +175,12 @@ class MCPToolValidators:
                 return ValidationResult(False, f"限制值必须为整数：{limit}")
 
         if limit < min_val or limit > max_val:
-            return ValidationResult(
-                False, f"限制值超出范围：{limit}，应在 {min_val}-{max_val} 之间"
-            )
+            return ValidationResult(False, f"限制值超出范围：{limit}，应在 {min_val}-{max_val} 之间")
 
         return ValidationResult(True)
 
     @staticmethod
-    def validate_string_length(
-        value: str, max_length: int = 100, field_name: str = "字段"
-    ) -> ValidationResult:
+    def validate_string_length(value: str, max_length: int = 100, field_name: str = "字段") -> ValidationResult:
         """
         验证字符串长度
 
@@ -210,9 +196,7 @@ class MCPToolValidators:
             return ValidationResult(False, f"{field_name}必须为字符串")
 
         if len(value) > max_length:
-            return ValidationResult(
-                False, f"{field_name}长度超出限制：{len(value)} > {max_length}"
-            )
+            return ValidationResult(False, f"{field_name}长度超出限制：{len(value)} > {max_length}")
 
         return ValidationResult(True)
 
@@ -262,9 +246,7 @@ class MCPToolValidators:
         period = period_map.get(period, period)
 
         if period not in valid_periods:
-            return ValidationResult(
-                False, f"无效的周期：{period}，支持：{', '.join(valid_periods)}"
-            )
+            return ValidationResult(False, f"无效的周期：{period}，支持：{', '.join(valid_periods)}")
 
         return ValidationResult(True)
 
@@ -316,9 +298,7 @@ def validate_date(date_str: str) -> Tuple[bool, str]:
     return result.is_valid, result.error_message
 
 
-def validate_limit(
-    limit: int, min_val: int = 1, max_val: int = 1000
-) -> Tuple[bool, str]:
+def validate_limit(limit: int, min_val: int = 1, max_val: int = 1000) -> Tuple[bool, str]:
     """验证限制值，返回 (is_valid, error_message)"""
     result = MCPToolValidators.validate_limit(limit, min_val, max_val)
     return result.is_valid, result.error_message

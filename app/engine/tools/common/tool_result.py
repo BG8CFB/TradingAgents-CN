@@ -4,6 +4,7 @@
 定义所有 AI 智能体调用的工具必须遵循的返回格式和规范。
 避免 AI 循环调用工具，确保返回格式标准化。
 """
+
 import json
 from typing import Optional, Literal, TypedDict, Union
 

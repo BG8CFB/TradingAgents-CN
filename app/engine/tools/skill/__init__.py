@@ -18,6 +18,7 @@ Skill 是可分发的能力包，包含：
 - 未满足 + SKILL_AUTO_INSTALL=true 时自动 pip install 到当前容器环境
 - 所有安装记录写入 MongoDB skill_install_logs 集合审计
 """
+
 from .registry import SkillRegistry
 from .loader import parse_skill_metadata, load_skill_content
 from .manifest import load_manifest, has_manifest

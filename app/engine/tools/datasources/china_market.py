@@ -4,6 +4,7 @@
 主要数据通过 DataInterface 统一获取，走 FallbackRouter 自动降级。
 板块行情属于高频实时快照，通过东方财富 API 直接获取（不经过 DataInterface）。
 """
+
 import json
 import logging
 from typing import Optional
@@ -13,14 +14,11 @@ from app.utils.time_utils import now_utc, get_current_date, get_current_date_com
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.data.core.interface import DataInterface
 from app.core.async_utils import run_async
+
 logger = logging.getLogger(__name__)
 
 
-def get_china_market_overview(
-    date: str = None,
-    include_indices: bool = True,
-    include_sectors: bool = True
-) -> str:
+def get_china_market_overview(date: str = None, include_indices: bool = True, include_sectors: bool = True) -> str:
     """
     获取中国A股市场整体概览。
 
@@ -44,9 +42,9 @@ def get_china_market_overview(
 
     if include_indices:
         indices_to_fetch = [
-            ('000001', '上证指数'),
-            ('399001', '深证成指'),
-            ('399006', '创业板指'),
+            ("000001", "上证指数"),
+            ("399001", "深证成指"),
+            ("399006", "创业板指"),
         ]
 
         indices_data = []
@@ -76,16 +74,17 @@ def get_china_market_overview(
 
     if include_sectors:
         try:
-
             sector_df = None
 
             # 板块行情是高频实时快照数据，无法通过"同步→缓存→读取"模式管理
             # 因此直接调用东方财富 API 获取，不经过 DataInterface
             try:
                 from app.utils.anti_scraping import fetch_em_board_direct
+
                 board_data = fetch_em_board_direct()
                 if board_data:
                     import pandas as pd
+
                     sector_df = pd.DataFrame(board_data)
                     sector_df = sector_df.rename(columns={"f14": "板块名称", "f3": "涨跌幅", "f2": "最新价"})
                     sector_df = sector_df.sort_values("涨跌幅", ascending=False)
@@ -100,14 +99,14 @@ def get_china_market_overview(
                 sector_info = "## 板块表现\n\n"
                 sector_info += "### 涨幅前5\n"
                 for _, row in top_sectors.iterrows():
-                    name = row.get('板块名称', 'N/A')
-                    change = row.get('涨跌幅', 'N/A')
+                    name = row.get("板块名称", "N/A")
+                    change = row.get("涨跌幅", "N/A")
                     sector_info += f"- {name}: {change}%\n"
 
                 sector_info += "\n### 跌幅前5\n"
                 for _, row in bottom_sectors.iterrows():
-                    name = row.get('板块名称', 'N/A')
-                    change = row.get('涨跌幅', 'N/A')
+                    name = row.get("板块名称", "N/A")
+                    change = row.get("涨跌幅", "N/A")
                     sector_info += f"- {name}: {change}%\n"
 
                 result_sections.append(sector_info)
@@ -134,10 +133,7 @@ def get_china_market_overview(
     return format_tool_result(success_result(combined_result))
 
 
-def get_dragon_tiger_inst(
-    trade_date: Optional[str] = None,
-    ts_code: Optional[str] = None
-) -> str:
+def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[str] = None) -> str:
     """
     获取龙虎榜机构明细。
 
@@ -159,7 +155,7 @@ def get_dragon_tiger_inst(
         filters = {"limit": 100}
         symbol = None
         if ts_code:
-            symbol = ts_code.replace('.SH', '').replace('.SZ', '').replace('.sh', '').replace('.sz', '').zfill(6)
+            symbol = ts_code.replace(".SH", "").replace(".SZ", "").replace(".sh", "").replace(".sz", "").zfill(6)
 
         if symbol:
             result = run_async(di.read("CN", "dragon_tiger", symbol=symbol, filters=filters))
@@ -177,22 +173,16 @@ def get_dragon_tiger_inst(
             json_data = json.dumps(records, ensure_ascii=False, default=str)
             return format_tool_result(success_result(data=json_data))
 
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            f"无法获取龙虎榜数据: {trade_date}（请先同步 dragon_tiger 数据）"
-        ))
+        return format_tool_result(
+            error_result(ErrorCodes.DATA_FETCH_ERROR, f"无法获取龙虎榜数据: {trade_date}（请先同步 dragon_tiger 数据）")
+        )
     except Exception as e:
         logger.error(f"get_dragon_tiger_inst failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            str(e)
-        ))
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
 def get_block_trade(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    code: Optional[str] = None
+    start_date: Optional[str] = None, end_date: Optional[str] = None, code: Optional[str] = None
 ) -> str:
     """
     获取大宗交易数据。
@@ -209,14 +199,14 @@ def get_block_trade(
         if not end_date:
             end_date = get_current_date_compact()
         if not start_date:
-            start_date = (now_utc() - timedelta(days=7)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=7)).strftime("%Y%m%d")
 
         logger.info(f"获取大宗交易数据: 日期范围 {start_date}-{end_date}, 股票{code}")
 
         di = DataInterface.get_instance()
 
         if code:
-            symbol = code.replace('.SH', '').replace('.SZ', '').replace('.sh', '').replace('.sz', '').zfill(6)
+            symbol = code.replace(".SH", "").replace(".SZ", "").replace(".sh", "").replace(".sz", "").zfill(6)
             result = run_async(di.read("CN", "block_trade", symbol=symbol))
         else:
             result = run_async(di.read("CN", "block_trade", start_date=start_date, end_date=end_date))
@@ -232,13 +222,9 @@ def get_block_trade(
             json_data = json.dumps(records, ensure_ascii=False, default=str)
             return format_tool_result(success_result(data=json_data))
 
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            "无法获取大宗交易数据（请先同步 block_trade 数据）"
-        ))
+        return format_tool_result(
+            error_result(ErrorCodes.DATA_FETCH_ERROR, "无法获取大宗交易数据（请先同步 block_trade 数据）")
+        )
     except Exception as e:
         logger.error(f"get_block_trade failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            str(e)
-        ))
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

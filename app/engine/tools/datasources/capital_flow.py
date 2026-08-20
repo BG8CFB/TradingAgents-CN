@@ -1,6 +1,7 @@
 """
 资金流向工具 - 资金流向数据、融资融券数据
 """
+
 import logging
 from typing import Optional
 from datetime import timedelta
@@ -21,7 +22,7 @@ def get_money_flow(
     query_type: Optional[str] = None,
     ts_code: Optional[str] = None,
     content_type: Optional[str] = None,
-    trade_date: Optional[str] = None
+    trade_date: Optional[str] = None,
 ) -> str:
     """
     获取资金流向数据。
@@ -42,16 +43,22 @@ def get_money_flow(
             if not end_date:
                 end_date = get_current_date_compact()
             if not start_date:
-                start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
+                start_date = (now_utc() - timedelta(days=30)).strftime("%Y%m%d")
 
         symbol = ts_code or "market"
         if ts_code:
-            symbol = ts_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
-                             .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
+            symbol = (
+                ts_code.replace(".SZ", "")
+                .replace(".SH", "")
+                .replace(".BJ", "")
+                .replace(".sz", "")
+                .replace(".sh", "")
+                .replace(".bj", "")
+                .zfill(6)
+            )
         try:
             di = DataInterface.get_instance()
-            result = run_async(di.read("CN", "money_flow", symbol=symbol,
-                                         start_date=start_date, end_date=end_date))
+            result = run_async(di.read("CN", "money_flow", symbol=symbol, start_date=start_date, end_date=end_date))
             data = result.get("data")
             if data:
                 df = pd.DataFrame(data) if isinstance(data, list) else data
@@ -60,17 +67,16 @@ def get_money_flow(
             logger.debug(f"资金流向数据获取失败: {e}")
             pass
 
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            f"资金流向数据暂不可用: {ts_code or query_type}",
-            suggestion="请先通过同步任务获取资金流向数据，或确认数据源已配置"
-        ))
+        return format_tool_result(
+            error_result(
+                ErrorCodes.DATA_FETCH_ERROR,
+                f"资金流向数据暂不可用: {ts_code or query_type}",
+                suggestion="请先通过同步任务获取资金流向数据，或确认数据源已配置",
+            )
+        )
     except Exception as e:
         logger.error(f"get_money_flow failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            str(e)
-        ))
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
 def get_margin_trade(
@@ -78,7 +84,7 @@ def get_margin_trade(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     ts_code: Optional[str] = None,
-    exchange: Optional[str] = None
+    exchange: Optional[str] = None,
 ) -> str:
     """
     获取融资融券数据。
@@ -97,16 +103,22 @@ def get_margin_trade(
         if not end_date:
             end_date = get_current_date_compact()
         if not start_date:
-            start_date = (now_utc() - timedelta(days=30)).strftime('%Y%m%d')
+            start_date = (now_utc() - timedelta(days=30)).strftime("%Y%m%d")
 
         symbol = ts_code or "market"
         if ts_code:
-            symbol = ts_code.replace('.SZ', '').replace('.SH', '').replace('.BJ', '') \
-                             .replace('.sz', '').replace('.sh', '').replace('.bj', '').zfill(6)
+            symbol = (
+                ts_code.replace(".SZ", "")
+                .replace(".SH", "")
+                .replace(".BJ", "")
+                .replace(".sz", "")
+                .replace(".sh", "")
+                .replace(".bj", "")
+                .zfill(6)
+            )
         try:
             di = DataInterface.get_instance()
-            result = run_async(di.read("CN", "margin_trading", symbol=symbol,
-                                         start_date=start_date, end_date=end_date))
+            result = run_async(di.read("CN", "margin_trading", symbol=symbol, start_date=start_date, end_date=end_date))
             data = result.get("data")
             if data:
                 df = pd.DataFrame(data) if isinstance(data, list) else data
@@ -115,14 +127,13 @@ def get_margin_trade(
             logger.debug(f"融资融券数据获取失败: {e}")
             pass
 
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            f"融资融券数据暂不可用: {data_type}",
-            suggestion="请先通过同步任务获取融资融券数据，或确认数据源已配置"
-        ))
+        return format_tool_result(
+            error_result(
+                ErrorCodes.DATA_FETCH_ERROR,
+                f"融资融券数据暂不可用: {data_type}",
+                suggestion="请先通过同步任务获取融资融券数据，或确认数据源已配置",
+            )
+        )
     except Exception as e:
         logger.error(f"get_margin_trade failed: {e}")
-        return format_tool_result(error_result(
-            ErrorCodes.DATA_FETCH_ERROR,
-            str(e)
-        ))
+        return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

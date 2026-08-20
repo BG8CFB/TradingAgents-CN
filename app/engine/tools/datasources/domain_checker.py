@@ -6,6 +6,7 @@
 1. 标准域：查 MongoDB 集合记录数
 2. 非标准域：检测 AKShare 可导入性或自定义策略
 """
+
 import logging
 import time
 import threading
@@ -24,6 +25,7 @@ class DomainAvailabilityChecker:
         """加载标准域名称集合"""
         try:
             from app.data.storage.mongo.collections import get_all_domains
+
             return set(get_all_domains())
         except Exception as e:
             logger.debug(f"加载标准域名称失败: {e}")
@@ -33,6 +35,7 @@ class DomainAvailabilityChecker:
         """检查单个域是否有数据"""
         try:
             from app.data.core.interface import DataInterface
+
             di = DataInterface.get_instance()
             stats = await di.get_domain_stats(market, [domain])
             count = stats.get(domain, {}).get("records", 0)
@@ -41,28 +44,22 @@ class DomainAvailabilityChecker:
             logger.debug(f"域可用性检查失败: {domain}: {e}")
             return False
 
-    async def batch_check_domains(
-        self, market: str, domains: List[str]
-    ) -> Dict[str, bool]:
+    async def batch_check_domains(self, market: str, domains: List[str]) -> Dict[str, bool]:
         """批量检测域状态，返回 {domain: has_data}"""
         if not domains:
             return {}
 
         try:
             from app.data.core.interface import DataInterface
+
             di = DataInterface.get_instance()
             stats = await di.get_domain_stats(market, domains)
-            return {
-                d: stats.get(d, {}).get("records", 0) > 0
-                for d in domains
-            }
+            return {d: stats.get(d, {}).get("records", 0) > 0 for d in domains}
         except Exception as e:
             logger.warning(f"批量域检测失败: {e}")
             return {d: False for d in domains}
 
-    async def check_tool(
-        self, spec, market: str, domain_status: Dict[str, bool]
-    ) -> bool:
+    async def check_tool(self, spec, market: str, domain_status: Dict[str, bool]) -> bool:
         """检查单个工具是否可用"""
         if market not in spec.markets:
             return False
@@ -75,9 +72,7 @@ class DomainAvailabilityChecker:
 
         return all(domain_status.get(d, False) for d in spec.domains)
 
-    async def batch_check(
-        self, specs: list, market: str
-    ) -> Dict[str, bool]:
+    async def batch_check(self, specs: list, market: str) -> Dict[str, bool]:
         """批量检测所有工具的可用性"""
         # 收集所有标准域
         standard_domains = set()
@@ -94,11 +89,7 @@ class DomainAvailabilityChecker:
             results[spec.tool_id] = await self.check_tool(spec, market, domain_status)
 
         available_count = sum(1 for v in results.values() if v)
-        logger.info(
-            f"[DomainChecker] 市场={market}, "
-            f"可用={available_count}/{len(results)}, "
-            f"域状态={domain_status}"
-        )
+        logger.info(f"[DomainChecker] 市场={market}, 可用={available_count}/{len(results)}, 域状态={domain_status}")
         return results
 
     def _check_non_standard(self, spec) -> bool:
@@ -106,6 +97,7 @@ class DomainAvailabilityChecker:
         check = spec.availability_check
         if check == "akshare_alive":
             from importlib.util import find_spec
+
             return find_spec("akshare") is not None
         return True
 
@@ -149,9 +141,7 @@ class AvailabilityCache:
         available = sum(1 for v in self._tool_availability.values() if v)
         unavailable = len(self._tool_availability) - available
         logger.info(
-            f"[AvailabilityCache] 市场={market}, "
-            f"可用={available}, 不可用={unavailable}, "
-            f"详情={self._tool_availability}"
+            f"[AvailabilityCache] 市场={market}, 可用={available}, 不可用={unavailable}, 详情={self._tool_availability}"
         )
 
     def is_available(self, tool_id: str) -> bool:

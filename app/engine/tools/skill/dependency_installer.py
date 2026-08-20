@@ -15,6 +15,7 @@ Skill 依赖自动安装器
 注意：安装过程是同步阻塞的（pip install 本身是同步的），但本模块的入口
 ensure_skill_dependencies 是 async——因为 SkillStateStore 的写入是 async。
 """
+
 import asyncio
 import logging
 import re
@@ -126,21 +127,12 @@ def _write_requirements(
         version = dep.version
 
         if not _PACKAGE_RE.match(package):
-            logger.error(
-                f"[SkillInstaller] 包名含非法字符，拒绝安装: {package!r}"
-            )
-            raise ValueError(
-                f"包名含非法字符（仅允许字母、数字、下划线、连字符、点）: {package}"
-            )
+            logger.error(f"[SkillInstaller] 包名含非法字符，拒绝安装: {package!r}")
+            raise ValueError(f"包名含非法字符（仅允许字母、数字、下划线、连字符、点）: {package}")
 
         if version and not _VERSION_RE.match(version):
-            logger.error(
-                f"[SkillInstaller] 版本约束含非法字符，拒绝安装: "
-                f"{package}{version!r}"
-            )
-            raise ValueError(
-                f"版本约束含非法字符（禁止换行、空格、-- 选项）: {package}{version}"
-            )
+            logger.error(f"[SkillInstaller] 版本约束含非法字符，拒绝安装: {package}{version!r}")
+            raise ValueError(f"版本约束含非法字符（禁止换行、空格、-- 选项）: {package}{version}")
 
         if dep.hash:
             lines.append(f"{package}{version} --hash={dep.hash}")
@@ -298,18 +290,13 @@ async def install_skill_dependencies(
 
     # 5. 执行安装
     deps_to_install = manifest.python_dependencies
-    logger.info(
-        f"[SkillInstaller] 开始安装 {name} 的依赖: "
-        f"{[d.package for d in deps_to_install]}"
-    )
+    logger.info(f"[SkillInstaller] 开始安装 {name} 的依赖: {[d.package for d in deps_to_install]}")
 
     # H-2 修复：将临时文件创建与 _write_requirements 均纳入 try/finally，
     # 确保 _write_requirements 抛出 ValueError 时临时文件也能被清理
     requirements_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False, encoding="utf-8"
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as tmp:
             requirements_path = Path(tmp.name)
         _write_requirements(deps_to_install, requirements_path)
 
@@ -326,12 +313,8 @@ async def install_skill_dependencies(
     # 6. 后置检查与审计
     post_check = check_skill_dependencies_raw(name)
     availability_dict = post_check.get("availability") or {}
-    deps_list = availability_dict.get("dependencies", []) if isinstance(
-        availability_dict, dict
-    ) else []
-    satisfied_packages = [
-        d["package"] for d in deps_list if isinstance(d, dict) and d.get("satisfied")
-    ]
+    deps_list = availability_dict.get("dependencies", []) if isinstance(availability_dict, dict) else []
+    satisfied_packages = [d["package"] for d in deps_list if isinstance(d, dict) and d.get("satisfied")]
 
     status = "success" if result["success"] and post_check["satisfied"] else "failed"
     if result["success"] and not post_check["satisfied"]:
@@ -342,10 +325,7 @@ async def install_skill_dependencies(
             skill_name=name,
             source_url=manifest.source.url,
             source_commit=manifest.source.commit,
-            packages=[
-                {"package": d.package, "version": d.version, "hash": d.hash}
-                for d in deps_to_install
-            ],
+            packages=[{"package": d.package, "version": d.version, "hash": d.hash} for d in deps_to_install],
             status=status,
             error=result["stderr_tail"][-500:] if not result["success"] else "",
             duration_seconds=result["duration_seconds"],
@@ -355,14 +335,10 @@ async def install_skill_dependencies(
 
     if post_check["satisfied"]:
         await store.record_installed_dependencies(name, satisfied_packages)
-        logger.info(
-            f"[SkillInstaller] {name} 安装成功: {satisfied_packages}"
-            f" ({result['duration_seconds']}s)"
-        )
+        logger.info(f"[SkillInstaller] {name} 安装成功: {satisfied_packages} ({result['duration_seconds']}s)")
     else:
         logger.warning(
-            f"[SkillInstaller] {name} 安装未完全成功: status={status}, "
-            f"stderr_tail={result['stderr_tail'][-200:]}"
+            f"[SkillInstaller] {name} 安装未完全成功: status={status}, stderr_tail={result['stderr_tail'][-200:]}"
         )
 
     return {
@@ -388,9 +364,7 @@ def install_skill_dependencies_sync(
 
     if loop is not None:
         # 已在事件循环中（如 FastAPI 请求处理），创建 task 并等待
-        future = asyncio.run_coroutine_threadsafe(
-            install_skill_dependencies(name, installed_by), loop
-        )
+        future = asyncio.run_coroutine_threadsafe(install_skill_dependencies(name, installed_by), loop)
         return future.result(timeout=_get_install_timeout() + 30)
 
     # 无事件循环，直接运行

@@ -8,6 +8,7 @@ Skill 文件加载器
 
 frontmatter 使用 yaml.safe_load 解析（取代旧版正则），支持完整 YAML 语法。
 """
+
 import logging
 import re
 from pathlib import Path
@@ -24,9 +25,7 @@ _FRONTMATTER_PATTERN = re.compile(
 )
 
 # 用户本地 skill 目录：项目根目录/config/skills
-_DEFAULT_USER_SKILLS_DIR = str(
-    Path(__file__).parent.parent.parent.parent.parent / "config" / "skills"
-)
+_DEFAULT_USER_SKILLS_DIR = str(Path(__file__).parent.parent.parent.parent.parent / "config" / "skills")
 
 # 内置示例 skill 目录：随代码发布
 _BUILTIN_SKILLS_DIR = str(Path(__file__).parent / "builtin")
@@ -116,9 +115,7 @@ def parse_skill_metadata(file_path: str) -> dict:
 
     # 若 frontmatter 未指定 name，从文件名/目录名推断
     if metadata["name"] is None:
-        metadata["name"] = (
-            path.parent.name if path.name == "SKILL.md" else path.stem
-        )
+        metadata["name"] = path.parent.name if path.name == "SKILL.md" else path.stem
 
     return metadata
 

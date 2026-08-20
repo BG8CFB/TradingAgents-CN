@@ -6,11 +6,12 @@ Skill 脚本入口加载器
 
 实现要点：
 - 将每个 skill 的根目录加入 sys.path（仅一次），让 scripts.entry 这样的模块路径可导入
-- 通过 BuiltinToolSpec.register_skill_entrypoint 追加到 BUILTIN_TOOL_REGISTRY
+- 通过 register_skill_entrypoint 追加到 builtin 可调用注册表（CALLABLE_TOOL_REGISTRY）
 - tool_id 约定为 {skill_name}.{entrypoint_name}（kebab-case）
-- 使用 _lazy_import 避免循环依赖，与现有 builtin 工具一致
+- 使用 _lazy_import 避免循环依赖
 - 依赖未满足的入口不注册（避免运行时崩溃）
 """
+
 import importlib
 import logging
 import os
@@ -30,10 +31,18 @@ logger = logging.getLogger(__name__)
 # 标准库/危险模块黑名单：skill 入口不得导入这些模块
 # 仅禁可直接执行系统命令/进程/FFI 的模块；asyncio 不在列（合法异步 skill 需用，
 # 且其 subprocess 子能力由 subprocess 黑名单 + skill_dir 路径校验间接约束）
-_FORBIDDEN_MODULES = frozenset({
-    "os", "sys", "subprocess", "shutil", "builtins",
-    "importlib", "ctypes", "multiprocessing",
-})
+_FORBIDDEN_MODULES = frozenset(
+    {
+        "os",
+        "sys",
+        "subprocess",
+        "shutil",
+        "builtins",
+        "importlib",
+        "ctypes",
+        "multiprocessing",
+    }
+)
 
 
 def _validate_module_path(module: str, skill_dir: str) -> None:
@@ -58,9 +67,7 @@ def _validate_module_path(module: str, skill_dir: str) -> None:
         real_origin = os.path.realpath(spec.origin)
         real_skill_dir = os.path.realpath(skill_dir)
         if not real_origin.startswith(real_skill_dir + os.sep):
-            raise ValueError(
-                f"模块 {module} 文件路径 {real_origin} 不在 skill 目录 {real_skill_dir} 内"
-            )
+            raise ValueError(f"模块 {module} 文件路径 {real_origin} 不在 skill 目录 {real_skill_dir} 内")
 
 
 def _ensure_skill_on_path(skill_dir: str) -> None:
