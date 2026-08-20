@@ -1007,6 +1007,69 @@ async def get_task_events(
     return {"success": True, "data": events, "count": len(events)}
 
 
+@router.get("/tasks/{task_id}/overview", response_model=Dict[str, Any])
+async def get_task_overview(
+    task_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """获取任务概览聚合：任务参数档案 + 股票基础信息（分析详情页头部）。
+
+    管理员可查任意任务；普通用户仅能查自己的。
+    股票信息统一走 DataInterface（basic_info + daily_quotes 最新收盘价），
+    读取失败或无数据时 stock_info=null，不影响任务信息返回。
+    """
+    from app.services.analysis_service import get_analysis_service
+
+    try:
+        user_id = None if user.get("is_admin") else user["id"]
+        task = await get_analysis_service().get_task_overview(task_id, user_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"任务校验失败: {e}")
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在或无权访问")
+
+    stock_info = None
+    try:
+        from app.data.core.interface import DataInterface
+
+        market_map = {"A股": "CN", "港股": "HK", "美股": "US"}
+        market = market_map.get(task.get("market_type"), "CN")
+        symbol = task.get("symbol")
+        if market == "CN" and symbol:
+            symbol = str(symbol).zfill(6)
+
+        if symbol:
+            di = DataInterface.get_instance()
+            b_result = await di.read(market, "basic_info", symbol=symbol)
+            b = b_result.get("data")
+            if isinstance(b, list):
+                b = b[0] if b else None
+
+            latest = await di.read_latest(
+                market, "daily_quotes", symbol, projection={"close": 1}
+            )
+
+            if b or latest:
+                stock_info = {
+                    "symbol": (b or {}).get("symbol") or symbol,
+                    "name": (b or {}).get("name"),
+                    "market": (b or {}).get("market") or task.get("market_type"),
+                    "industry": (b or {}).get("industry"),
+                    "latest_price": (latest or {}).get("close"),
+                }
+    except Exception as e:
+        logger.warning(f"⚠️ [OVERVIEW] 读取股票基础信息失败 task={task_id}: {e}")
+
+    return {
+        "success": True,
+        "data": {"task": task, "stock_info": stock_info},
+        "message": "任务概览获取成功",
+    }
+
+
 @router.get("/tasks/{task_id}/details")
 async def get_task_details(
     task_id: str,

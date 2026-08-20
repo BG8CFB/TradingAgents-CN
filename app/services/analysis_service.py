@@ -2358,6 +2358,63 @@ class AnalysisService:
 
         return None
 
+    async def get_task_overview(
+        self,
+        task_id: str,
+        user_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """获取任务概览档案（供 /tasks/{id}/overview 聚合端点）。
+
+        权限语义与 get_task_with_status_fallback 一致（user_id=None 管理员直通），
+        在其基础上补全 analysis_tasks 档案字段（parameters/market_type/时间戳）。
+        新建任务的 parameters 仅落在内存任务上（MongoDB $setOnInsert 不含参数），
+        故缺失时从内存任务兜底。
+
+        Returns:
+            任务概览 dict；不存在或无权访问时返回 None。
+        """
+        status_info = await self.get_task_with_status_fallback(task_id, user_id)
+        if not status_info:
+            return None
+
+        record: Dict[str, Any] = {}
+        try:
+            db = get_mongo_db()
+            filter_doc: Dict[str, Any] = {"task_id": task_id}
+            if user_id is not None:
+                # 老数据兼容：与 get_task_with_status_fallback 保持一致
+                filter_doc["$or"] = [
+                    {"user_id": user_id},
+                    {"user_id": {"$exists": False}},
+                    {"user_id": None},
+                ]
+            record = await db.analysis_tasks.find_one(filter_doc) or {}
+        except Exception as e:
+            logger.warning(f"⚠️ get_task_overview 查询 analysis_tasks 失败: {e}")
+
+        parameters = record.get("parameters")
+        if not isinstance(parameters, dict):
+            mem_task = await self.memory_manager.get_task_dict(task_id)
+            parameters = (mem_task or {}).get("parameters")
+        if not isinstance(parameters, dict):
+            parameters = {}
+        market_type = (
+            parameters.get("market_type") or record.get("market_type") or "A股"
+        )
+
+        return {
+            "task_id": task_id,
+            "status": record.get("status") or status_info.get("status"),
+            "symbol": record.get("symbol")
+            or record.get("stock_code")
+            or status_info.get("symbol"),
+            "market_type": market_type,
+            "parameters": parameters,
+            "created_at": record.get("created_at"),
+            "started_at": record.get("started_at") or status_info.get("start_time"),
+            "completed_at": record.get("completed_at") or status_info.get("end_time"),
+        }
+
     async def _find_report_by_task_id(
         self,
         task_id: str,
