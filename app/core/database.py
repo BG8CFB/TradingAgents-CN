@@ -393,6 +393,14 @@ async def create_database_indexes(db):
         except Exception as e:
             logger.warning(f"⚠️ 创建 analysis_tasks 索引失败: {e}")
 
+        # === 分析事件集合索引（事件回放按 task_id + seq 排序查询） ===
+        try:
+            events = db["analysis_events"]
+            await events.create_index([("task_id", 1), ("seq", 1)])
+            logger.info("✅ analysis_events 集合索引创建完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 analysis_events 索引失败: {e}")
+
         # === 分析报告集合索引 ===
         try:
             reports = db["analysis_reports"]

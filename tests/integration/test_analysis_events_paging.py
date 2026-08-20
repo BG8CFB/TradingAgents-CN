@@ -73,3 +73,12 @@ class TestLoadEventsPaging:
             assert [e["seq"] for e in events] == [3, 4, 5, 6, 7]
         finally:
             await db[EVENTS_COLLECTION].delete_many({"task_id": task_id})
+
+    async def test_compound_index_exists(self):
+        """(task_id, seq) 复合索引必须存在（init_database 建索引路径覆盖 analysis_events）"""
+        from app.core.database import get_mongo_db
+
+        db = get_mongo_db()
+        indexes = await db[EVENTS_COLLECTION].list_indexes().to_list(None)
+        key_sets = [tuple(idx.get("key", {}).items()) for idx in indexes]
+        assert (("task_id", 1), ("seq", 1)) in key_sets

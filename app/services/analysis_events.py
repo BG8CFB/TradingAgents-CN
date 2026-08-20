@@ -142,9 +142,9 @@ async def load_events(
     from app.core.database import get_mongo_db
 
     db = get_mongo_db()
-    if order == "desc":
+    if order.lower() == "desc":
         # desc：取 seq 小于 before_seq 的（未给则全部），最新在前
-        seq_cond = {"$lt": before_seq} if before_seq is not None else {"$gt": -1}
+        seq_cond = {"$lt": before_seq} if before_seq is not None else {"$gte": 0}
         sort_dir = -1
     else:
         seq_cond = {"$gt": after_seq}
