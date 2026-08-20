@@ -651,6 +651,8 @@ class AnalysisService:
             # 写入MongoDB
             code = stock_code
             name = self._resolve_stock_name(code)
+            # parameters 与内存任务保持一致：为空时也写空 dict（对齐批量链路 insert_many 行为）
+            parameters = request.parameters.model_dump() if request.parameters else {}
             try:
                 db = get_mongo_db()
                 await db.analysis_tasks.update_one(
@@ -665,6 +667,7 @@ class AnalysisService:
                             "status": "pending",
                             "progress": 0,
                             "created_at": now_utc(),
+                            "parameters": parameters,
                         }
                     },
                     upsert=True,
@@ -2315,8 +2318,8 @@ class AnalysisService:
 
         权限语义与 get_task_with_status_fallback 一致（user_id=None 管理员直通），
         在其基础上补全 analysis_tasks 档案字段（parameters/market_type/时间戳）。
-        新建任务的 parameters 仅落在内存任务上（MongoDB $setOnInsert 不含参数），
-        故缺失时从内存任务兜底。
+        parameters 已随 $setOnInsert 落库；旧数据（落库改造前）无该字段，
+        故缺失时仍从内存任务兜底。
 
         Returns:
             任务概览 dict；不存在或无权访问时返回 None。
