@@ -79,19 +79,6 @@ class TestAnalysisServiceWithSimDB:
             db_module.mongo_db = original
 
     @pytest.mark.asyncio
-    async def test_get_popular_stocks_returns_list(self, sim_db):
-        from app.services.analysis_service import AnalysisService
-
-        original = db_module.mongo_db
-        db_module.mongo_db = sim_db
-        try:
-            svc = AnalysisService.__new__(AnalysisService)
-            result = await svc.get_popular_stocks(limit=5)
-            assert isinstance(result, list)
-        finally:
-            db_module.mongo_db = original
-
-    @pytest.mark.asyncio
     async def test_mark_task_failed_returns_false_for_missing(self, sim_db):
         """标记不存在的任务应返回 False 或 True（取决于实现）"""
         from app.services.analysis_service import AnalysisService

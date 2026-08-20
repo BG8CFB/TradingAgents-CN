@@ -51,17 +51,6 @@ export interface DatabaseStats {
   }>
 }
 
-// 备份信息接口
-export interface BackupInfo {
-  id: string
-  name: string
-  filename: string
-  size: number
-  collections: string[]
-  created_at: string
-  created_by?: string
-}
-
 // 连接测试结果接口
 export interface ConnectionTestResult {
   mongodb: {
@@ -94,24 +83,6 @@ export const databaseApi = {
   // 测试数据库连接
   testConnections(): Promise<{ success: boolean; message: string; data: ConnectionTestResult }> {
     return ApiClient.post('/api/database/test')
-  },
-
-  // 创建备份
-  createBackup(data: {
-    name: string
-    collections?: string[]
-  }): Promise<{ success: boolean; message: string; data: BackupInfo }> {
-    return ApiClient.post('/api/database/backup', data)
-  },
-
-  // 获取备份列表
-  getBackups(): Promise<{ success: boolean; data: BackupInfo[] }> {
-    return ApiClient.get('/api/database/backups')
-  },
-
-  // 删除备份
-  deleteBackup(backupId: string): Promise<{ success: boolean; message: string }> {
-    return ApiClient.delete(`/api/database/backups/${backupId}`)
   },
 
   // 导入数据

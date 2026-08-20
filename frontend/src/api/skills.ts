@@ -85,10 +85,6 @@ export const skillsApi = {
     return request.get(`/api/skills/${name}`)
   },
 
-  getContent(name: string): Promise<ApiResponse<{ name: string; content: string }>> {
-    return request.get(`/api/skills/${name}/content`)
-  },
-
   toggle(name: string, enabled: boolean): Promise<ApiResponse<any>> {
     return request.post(`/api/skills/${name}/toggle`, { enabled })
   },
@@ -110,10 +106,6 @@ export const skillsApi = {
     trusted_hosts?: string[]
   ): Promise<ApiResponse<any>> {
     return request.post('/api/skills/install/git', { url, trusted_hosts })
-  },
-
-  installFromRegistry(name: string, version?: string): Promise<ApiResponse<any>> {
-    return request.post('/api/skills/install/registry', { name, version })
   },
 
   uninstall(name: string, force = false): Promise<ApiResponse<any>> {

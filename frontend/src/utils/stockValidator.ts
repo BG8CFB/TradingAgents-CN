@@ -193,22 +193,6 @@ export function getStockCodeFormatHelp(market: 'A股' | '美股' | '港股'): st
 }
 
 /**
- * 获取股票代码示例
- */
-export function getStockCodeExamples(market: 'A股' | '美股' | '港股'): string[] {
-  switch (market) {
-    case 'A股':
-      return ['000001', '600519', '000858', '300750']
-    case '美股':
-      return ['AAPL', 'MSFT', 'GOOGL', 'TSLA']
-    case '港股':
-      return ['00700', '09988', '01810', '03690']
-    default:
-      return []
-  }
-}
-
-/**
  * 格式化股票代码显示
  * @param code 原始代码
  * @param market 市场类型

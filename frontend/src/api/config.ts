@@ -199,25 +199,6 @@ export const configApi = {
     return ApiClient.post('/api/config/llm/providers/migrate-env')
   },
 
-  // 🆕 初始化聚合渠道厂家配置
-  initAggregatorProviders(): Promise<ApiResponse<{ success: boolean; message: string; data: { added_count: number; skipped_count: number } }>> {
-    return ApiClient.post('/api/config/llm/providers/init-aggregators')
-  },
-
-  // 测试厂家API
-  testProviderAPI(providerId: string): Promise<ApiResponse<{ success: boolean; message: string; data?: any }>> {
-    return ApiClient.post(`/api/config/llm/providers/${providerId}/test`)
-  },
-
-  // 获取可用的模型列表（按厂家分组）
-  getAvailableModels(): Promise<ApiResponse<Array<{
-    provider: string
-    provider_name: string
-    models: Array<{ name: string; display_name: string }>
-  }>>> {
-    return ApiClient.get('/api/config/models')
-  },
-
   // ========== 模型目录管理 ==========
 
   // 获取所有模型目录
@@ -241,27 +222,6 @@ export const configApi = {
     return ApiClient.get('/api/config/model-catalog')
   },
 
-  // 获取指定厂家的模型目录
-  getProviderModelCatalog(provider: string): Promise<ApiResponse<{
-    provider: string
-    provider_name: string
-    models: Array<{
-      name: string
-      display_name: string
-      description?: string
-      context_length?: number
-      max_tokens?: number
-      input_price_per_1k?: number
-      output_price_per_1k?: number
-      currency?: string
-      is_deprecated?: boolean
-      release_date?: string
-      capabilities?: string[]
-    }>
-  }>> {
-    return ApiClient.get(`/api/config/model-catalog/${provider}`)
-  },
-
   // 保存模型目录
   saveModelCatalog(catalog: {
     provider: string
@@ -274,11 +234,6 @@ export const configApi = {
   // 删除模型目录
   deleteModelCatalog(provider: string): Promise<ApiResponse<{ success: boolean; message: string }>> {
     return ApiClient.delete(`/api/config/model-catalog/${provider}`)
-  },
-
-  // 初始化默认模型目录
-  initModelCatalog(): Promise<ApiResponse<{ success: boolean; message: string }>> {
-    return ApiClient.post('/api/config/model-catalog/init')
   },
 
   // 从厂家 API 获取模型列表
@@ -461,115 +416,8 @@ export const configApi = {
   }
 }
 
-// 配置相关的常量
-export const CONFIG_PROVIDERS = {
-  OPENAI: 'openai',
-  QWEN: 'qwen',
-  GLM: 'glm',
-  GEMINI: 'gemini',
-  CLAUDE: 'claude'
-} as const
-
-/**
- * 数据源类型常量
- *
- * 注意：这些常量与后端 DataSourceType 枚举保持同步
- * 添加新数据源时，请先在后端 tradingagents/constants/data_sources.py 中注册
- */
-export const DATA_SOURCE_TYPES = {
-  // 缓存数据源
-  MONGODB: 'mongodb',
-
-  // 中国市场数据源
-  TUSHARE: 'tushare',
-  AKSHARE: 'akshare',
-  BAOSTOCK: 'baostock',
-
-  // 美股数据源
-  FINNHUB: 'finnhub',
-  YAHOO_FINANCE: 'yahoo_finance',
-  ALPHA_VANTAGE: 'alpha_vantage',
-  IEX_CLOUD: 'iex_cloud',
-
-  // 专业数据源
-  WIND: 'wind',
-  CHOICE: 'choice',
-
-  // 其他数据源
-  QUANDL: 'quandl',
-  LOCAL_FILE: 'local_file',
-  CUSTOM: 'custom'
-} as const
-
-export const DATABASE_TYPES = {
-  MONGODB: 'mongodb',
-  REDIS: 'redis',
-  MYSQL: 'mysql',
-  POSTGRESQL: 'postgresql'
-} as const
-
 // 默认 LLM 配置从单一源头导入
 export { DEFAULT_LLM_CONFIG } from '@/constants/llmDefaults'
-
-export const DEFAULT_DATA_SOURCE_CONFIG: Partial<DataSourceConfig> = {
-  timeout: 30,
-  rate_limit: 100,
-  enabled: true,
-  priority: 0,
-  config_params: {},
-  market_categories: []
-}
-
-// 默认市场分类
-export const DEFAULT_MARKET_CATEGORIES: Partial<MarketCategory>[] = [
-  {
-    id: 'a_shares',
-    name: 'a_shares',
-    display_name: 'A股',
-    description: '中国A股市场数据源',
-    enabled: true,
-    sort_order: 1
-  },
-  {
-    id: 'us_stocks',
-    name: 'us_stocks',
-    display_name: '美股',
-    description: '美国股票市场数据源',
-    enabled: true,
-    sort_order: 2
-  },
-  {
-    id: 'hk_stocks',
-    name: 'hk_stocks',
-    display_name: '港股',
-    description: '香港股票市场数据源',
-    enabled: true,
-    sort_order: 3
-  },
-  {
-    id: 'crypto',
-    name: 'crypto',
-    display_name: '数字货币',
-    description: '数字货币市场数据源',
-    enabled: true,
-    sort_order: 4
-  },
-  {
-    id: 'futures',
-    name: 'futures',
-    display_name: '期货',
-    description: '期货市场数据源',
-    enabled: true,
-    sort_order: 5
-  }
-]
-
-export const DEFAULT_DATABASE_CONFIG: Partial<DatabaseConfig> = {
-  pool_size: 10,
-  max_overflow: 20,
-  enabled: true,
-  connection_params: {}
-}
 
 // 配置验证函数
 export const validateLLMConfig = (config: Partial<LLMConfig>): string[] => {
@@ -586,25 +434,3 @@ export const validateLLMConfig = (config: Partial<LLMConfig>): string[] => {
   return errors
 }
 
-export const validateDataSourceConfig = (config: Partial<DataSourceConfig>): string[] => {
-  const errors: string[] = []
-
-  if (!config.name) errors.push('数据源名称不能为空')
-  if (!config.type) errors.push('数据源类型不能为空')
-  if (config.timeout && config.timeout <= 0) errors.push('超时时间必须大于0')
-  if (config.rate_limit && config.rate_limit <= 0) errors.push('速率限制必须大于0')
-
-  return errors
-}
-
-export const validateDatabaseConfig = (config: Partial<DatabaseConfig>): string[] => {
-  const errors: string[] = []
-
-  if (!config.name) errors.push('数据库名称不能为空')
-  if (!config.type) errors.push('数据库类型不能为空')
-  if (!config.host) errors.push('主机地址不能为空')
-  if (!config.port || config.port <= 0) errors.push('端口号必须大于0')
-  if (config.pool_size && config.pool_size <= 0) errors.push('连接池大小必须大于0')
-
-  return errors
-}

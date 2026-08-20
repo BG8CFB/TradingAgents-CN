@@ -103,25 +103,6 @@ async def get_cost_by_provider(
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取成本统计失败"))
 
 
-@router.get("/cost/by-model", summary="按模型统计成本")
-async def get_cost_by_model(
-    days: int = Query(7, ge=1, le=365, description="统计天数"),
-    current_user: dict = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """按模型统计成本"""
-    try:
-        cost_data = await usage_statistics_service.get_cost_by_model(days=days)
-
-        return {
-            "success": True,
-            "message": "获取成本统计成功",
-            "data": cost_data
-        }
-    except Exception as e:
-        logger.error(f"获取成本统计失败: {e}")
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取成本统计失败"))
-
-
 @router.get("/cost/daily", summary="每日成本统计")
 async def get_daily_cost(
     days: int = Query(7, ge=1, le=365, description="统计天数"),

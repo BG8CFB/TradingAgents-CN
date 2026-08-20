@@ -9,7 +9,7 @@ import logging
 import uuid
 import asyncio
 
-from app.routers.auth_db import get_current_user, require_admin
+from app.routers.auth_db import get_current_user
 from app.services.queue_service import get_queue_service, QueueService
 from app.services.websocket_manager import get_websocket_manager
 from app.models.analysis import SingleAnalysisRequest, BatchAnalysisRequest
@@ -522,39 +522,6 @@ async def get_task_result(
     except Exception as e:
         logger.error(f"❌ [RESULT] 获取任务结果失败: {e}")
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取分析结果时发生内部错误"))
-
-@router.get("/tasks/all", response_model=Dict[str, Any])
-async def list_all_tasks(
-    user: dict = Depends(require_admin),
-    status: Optional[str] = Query(None, description="任务状态过滤"),
-    limit: int = Query(20, ge=1, le=100, description="返回数量限制"),
-    offset: int = Query(0, ge=0, description="偏移量")
-):
-    """获取所有任务列表（不限用户）"""
-    try:
-        from app.services.analysis_service import get_analysis_service
-        logger.info("📋 查询所有任务列表")
-
-        tasks = await get_analysis_service().list_all_tasks(
-            status=status,
-            limit=limit,
-            offset=offset
-        )
-
-        return {
-            "success": True,
-            "data": {
-                "tasks": tasks,
-                "total": len(tasks),
-                "limit": limit,
-                "offset": offset
-            },
-            "message": "任务列表获取成功"
-        }
-
-    except Exception as e:
-        logger.error(f"❌ 获取任务列表失败: {e}")
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务列表失败"))
 
 @router.get("/tasks", response_model=Dict[str, Any])
 async def list_user_tasks(
@@ -1197,29 +1164,6 @@ async def get_analysis_stats(
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取分析统计失败"))
 
 
-@router.get("/stock-info", response_model=Dict[str, Any])
-async def get_stock_info(
-    symbol: str = Query(..., description="股票代码"),
-    market: str = Query("A股", description="市场类型"),
-    user: dict = Depends(get_current_user)
-):
-    """获取股票基础信息（用于分析前的预览）"""
-    try:
-        from app.services.analysis_service import get_analysis_service
-        svc = get_analysis_service()
-
-        data = await svc.get_stock_info_with_quote(symbol, market)
-        if not data:
-            raise HTTPException(status_code=404, detail=f"未找到股票 {symbol} 的信息")
-
-        return {"success": True, "data": data, "message": "股票信息获取成功"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ 获取股票信息失败: {e}")
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取股票信息失败"))
-
-
 @router.get("/search", response_model=Dict[str, Any])
 async def search_stocks(
     query: str = Query(..., description="搜索关键词"),
@@ -1238,22 +1182,3 @@ async def search_stocks(
     except Exception as e:
         logger.error(f"❌ 搜索股票失败: {e}")
         raise HTTPException(status_code=500, detail=safe_error_message(e, "搜索股票失败"))
-
-
-@router.get("/popular", response_model=Dict[str, Any])
-async def get_popular_stocks(
-    market: Optional[str] = Query(None, description="市场类型"),
-    limit: int = Query(10, ge=1, le=20),
-    user: dict = Depends(get_current_user)
-):
-    """获取热门股票（按分析次数排序）"""
-    try:
-        from app.services.analysis_service import get_analysis_service
-        svc = get_analysis_service()
-
-        results = await svc.get_popular_stocks(limit)
-
-        return {"success": True, "data": results, "message": f"热门股票获取成功，共 {len(results)} 只"}
-    except Exception as e:
-        logger.error(f"❌ 获取热门股票失败: {e}")
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取热门股票失败"))

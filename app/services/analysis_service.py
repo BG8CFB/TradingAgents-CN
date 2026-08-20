@@ -1652,74 +1652,6 @@ class AnalysisService:
                 )
         return result
 
-    async def list_all_tasks(
-        self, status: Optional[str] = None, limit: int = 20, offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """获取所有任务列表 (数据库 + 内存状态合并)"""
-        # 兼容性处理：processing/running 统一查询
-        if status in ("processing", "running"):
-            status = "running"
-
-        # 构建查询条件
-        query = {}
-        if status == "running":
-            query["status"] = {"$in": ["running", "pending", "processing"]}
-        elif status:
-            query["status"] = status
-
-        try:
-            db = get_mongo_db()
-            cursor = (
-                db.analysis_tasks.find(query)
-                .sort("created_at", -1)
-                .skip(offset)
-                .limit(limit)
-            )
-            db_tasks = await cursor.to_list(length=limit)
-
-            # 批量获取内存中的实时状态（一次加锁，替代逐条查询）
-            task_ids = [t.get("task_id") for t in db_tasks if t.get("task_id")]
-            memory_map = self.memory_manager.batch_get_task_dicts(task_ids)
-
-            results = []
-            for task in db_tasks:
-                if "_id" in task:
-                    task["_id"] = str(task["_id"])
-
-                task_id = task.get("task_id")
-                if task_id and task_id in memory_map:
-                    memory_task = memory_map[task_id]
-                    task["status"] = memory_task.get("status", task.get("status"))
-                    task["progress"] = memory_task.get(
-                        "progress", task.get("progress")
-                    )
-                    task["message"] = memory_task.get(
-                        "message", task.get("message")
-                    )
-                    task["current_step"] = memory_task.get(
-                        "current_step", task.get("current_step")
-                    )
-
-                results.append(task)
-
-            enriched = self._enrich_stock_names(results)
-            return self._serialize_for_response(enriched)
-
-        except Exception as e:
-            logger.error(f"❌ 获取所有任务列表失败 (DB): {e}")
-            status_enum = None
-            if status:
-                try:
-                    status_enum = TaskStatus(status)
-                except ValueError:
-                    logger.warning(f"⚠️ 无效的任务状态过滤: {status}")
-
-            tasks = await self.memory_manager.list_all_tasks(
-                status=status_enum, limit=limit, offset=offset
-            )
-            enriched = self._enrich_stock_names(tasks)
-            return self._serialize_for_response(enriched)
-
     async def list_user_tasks(
         self,
         user_id: str,
@@ -2771,50 +2703,6 @@ class AnalysisService:
             logger.error(f"❌ get_analysis_stats 失败: {e}")
             raise
 
-    async def get_stock_info_with_quote(
-        self, symbol: str, market: str = "A股"
-    ) -> Optional[Dict[str, Any]]:
-        """
-        获取股票基础信息 + 实时行情（用于分析前预览）。
-
-        按数据源优先级查询 stock_basic_info，并补充 market_quotes。
-        """
-        try:
-            from app.data.core.interface import DataInterface
-
-            di = DataInterface.get_instance()
-            code6 = str(symbol).zfill(6)
-
-            # 单版本覆盖语义下每 symbol 仅一份当前生效文档，直接经 DataInterface 读取
-            b_result = await di.read("CN", "basic_info", symbol=code6)
-            b = b_result.get("data")
-            if isinstance(b, list):
-                b = b[0] if b else None
-
-            if not b:
-                return None
-
-            q_result = await di.read("CN", "market_quotes", symbol=code6)
-            q = q_result.get("data")
-
-            return {
-                "symbol": b.get("symbol", code6),
-                "name": b.get("name", ""),
-                "market": b.get("market", market),
-                "industry": b.get("industry", ""),
-                "sector": b.get("sector", ""),
-                "market_cap": b.get("total_mv"),
-                "price": (q or {}).get("close") or b.get("close"),
-                "change_percent": (q or {}).get("pct_chg"),
-                "pe_ratio": b.get("pe"),
-                "pb_ratio": b.get("pb"),
-                "dividend_yield": b.get("dividend_yield"),
-                "volume": (q or {}).get("volume"),
-            }
-        except Exception as e:
-            logger.error(f"❌ get_stock_info_with_quote 失败: {e}")
-            raise
-
     async def search_stock_basic_info(
         self,
         query: str,
@@ -2847,56 +2735,6 @@ class AnalysisService:
             return results
         except Exception as e:
             logger.error(f"❌ search_stock_basic_info 失败: {e}")
-            raise
-
-    async def get_popular_stocks(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """
-        获取热门股票（按分析报告次数排序），并补充基础信息和行情。
-        """
-        try:
-            db = get_mongo_db()
-            pipeline = [
-                {"$group": {"_id": "$stock_symbol", "count": {"$sum": 1}}},
-                {"$sort": {"count": -1}},
-                {"$limit": limit},
-            ]
-
-            results = []
-            async for doc in db.analysis_reports.aggregate(pipeline):
-                symbol = doc["_id"]
-                if not symbol:
-                    continue
-                code6 = str(symbol).zfill(6)
-
-                from app.data.core.interface import DataInterface
-
-                di = DataInterface.get_instance()
-                b_result = await di.read("CN", "basic_info", symbol=code6)
-                b = b_result.get("data")
-                if isinstance(b, list):
-                    b = b[0] if b else None
-
-                # 从 daily_quotes 获取最新收盘价和涨跌幅
-                dq = await di.read_latest(
-                    "CN", "daily_quotes", code6,
-                    projection={"close": 1, "pct_chg": 1, "volume": 1},
-                )
-
-                results.append(
-                    {
-                        "symbol": symbol,
-                        "name": (b or {}).get("name", ""),
-                        "market": (b or {}).get("market", "A股"),
-                        "current_price": (dq or {}).get("close"),
-                        "change_percent": (dq or {}).get("pct_chg"),
-                        "volume": (dq or {}).get("volume"),
-                        "analysis_count": doc["count"],
-                    }
-                )
-
-            return results
-        except Exception as e:
-            logger.error(f"❌ get_popular_stocks 失败: {e}")
             raise
 
 

@@ -84,13 +84,6 @@ class ResetPasswordRequest(BaseModel):
     username: str
     new_password: str
 
-class CreateUserRequest(BaseModel):
-    username: str
-    email: str
-    password: str
-    is_admin: bool = False
-
-
 async def _add_token_to_blacklist(
     token: str, ttl_days: int = 7, *, ttl_seconds: Optional[int] = None
 ) -> bool:
@@ -724,74 +717,3 @@ async def register(payload: RegisterRequest, request: Request):
     except Exception as e:
         logger.error(f"❌ 注册异常: {e}")
         raise HTTPException(status_code=500, detail="注册过程中发生系统错误")
-
-
-@router.post("/create-user")
-async def create_user(
-    payload: CreateUserRequest,
-    request: Request,
-    user: dict = Depends(require_admin)
-):
-    """创建用户（管理员操作）"""
-    try:
-        # 密码强度验证
-        validate_password_strength(payload.password)
-
-        # 创建用户
-        user_create = UserCreate(
-            username=payload.username,
-            email=payload.email,
-            password=payload.password
-        )
-        
-        new_user = await user_service.create_user(user_create)
-        
-        if not new_user:
-            raise HTTPException(status_code=400, detail="用户名或邮箱已存在")
-
-        # 如果需要设置为管理员，复用现有异步用户服务，避免额外同步连接泄漏
-        if payload.is_admin:
-            admin_updated = await user_service.set_admin_status(payload.username, True)
-            if not admin_updated:
-                raise HTTPException(status_code=500, detail="用户已创建，但管理员权限设置失败")
-
-        return {
-            "success": True,
-            "data": {
-                "id": str(new_user.id),
-                "username": new_user.username,
-                "email": new_user.email,
-                "is_admin": payload.is_admin
-            },
-            "message": f"用户 {payload.username} 创建成功"
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"创建用户失败: {e}")
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "创建用户失败"))
-
-@router.get("/users")
-async def list_users(
-    skip: int = 0,
-    limit: int = 100,
-    user: dict = Depends(require_admin)
-):
-    """获取用户列表（管理员操作）"""
-    try:
-        users = await user_service.list_users(skip=skip, limit=limit)
-
-        return {
-            "success": True,
-            "data": {
-                # 安全：序列化用户对象时显式排除 hashed_password，避免凭证泄漏
-                "users": [user.model_dump(exclude={"hashed_password"}) for user in users],
-                "total": len(users)
-            },
-            "message": "获取用户列表成功"
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取用户列表失败: {e}")
-        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取用户列表失败"))

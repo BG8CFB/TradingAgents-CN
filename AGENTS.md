@@ -179,7 +179,7 @@ The historical `tradingagents/` package has been merged into `app/engine/`. All 
 | Python 风格 | ruff + ruff-format（pre-commit） |
 
 **os.getenv 白名单**（改动时须同步 `tests/lint/test_env_access_conventions.py`）：
-`core/config.py`、`core/env.py`、`core/config_bridge.py`、`core/config_initializer.py`、`core/startup_validator.py`、`engine/config/env_utils.py`、`engine/graph/trading_graph.py`、`llm/config.py`、`worker/scheduler_setup.py`
+`core/config.py`、`core/env.py`、`core/config_bridge.py`、`core/config_initializer.py`、`core/startup_validator.py`、`llm/config.py`、`worker/scheduler_setup.py`
 
 路由命名约定（API prefix `/api/<domain>`、英文 Title-Case tags）同样由 `tests/lint/test_router_conventions.py` 强制。
 
@@ -192,9 +192,9 @@ Hand-written ordered 4-stage pipeline (`app/engine/orchestrator/pipeline.py`, no
 3. **Stage 3 — Risk Management** (`app/engine/agents/stage_3/`): Risky→Safe→Neutral fixed order. Config: `phase3_agents_config.yaml`
 4. **Stage 4 — Trader** (`app/engine/agents/stage_4/`): Final trading decision
 
-**Key entry point**: `TradingAgentsGraph.propagate(company_name, trade_date, progress_callback=None, task_id=None, event_sink=None)` in `app/engine/graph/trading_graph.py`
+**Key entry point**: `TradingAgentsGraph.propagate(company_name, trade_date, progress_callback=None, task_id=None, event_sink=None)` in `app/engine/runtime.py`
 
-Orchestration: `orchestrator/pipeline.py` (ordering/fair-debate guarantees), `orchestrator/state.py` (plain-dict state, field shape identical to the legacy AgentState). Reflection/signal: `graph/reflection.py`, `graph/signal_processing.py`. LLM calls go through `app/engine/orchestrator/llm_bridge.py` → `app/llm/`.
+Orchestration: `orchestrator/pipeline.py` (ordering/fair-debate guarantees), `orchestrator/state.py` (plain-dict state, field shape identical to the legacy AgentState). Reflection/signal: `agents/postprocess/reflector.py`, `agents/postprocess/signal_processor.py`. LLM calls go through `app/engine/orchestrator/llm_bridge.py` → `app/llm/`.
 
 ### MCP Architecture
 
@@ -321,7 +321,7 @@ Automatic degradation when a source fails: user-configured priority (default Tus
 ### Running Analysis Programmatically
 
 ```python
-from app.engine.graph.trading_graph import TradingAgentsGraph
+from app.engine.runtime import TradingAgentsGraph
 from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
 
 selected_analysts = [a.get("slug") for a in DynamicAnalystFactory.get_all_agents() if a.get("slug")]
@@ -333,6 +333,6 @@ _, decision = ta.propagate("000001", "2024-12-31")
 
 - `app/` and `frontend/` are proprietary license; other code is Apache 2.0
 - Analysis requires data sync first — sync stock data via web UI or API before running analysis
-- Python deps: Miniconda + `pyproject.toml`; `uv.lock` for reference; legacy `requirements.txt` kept for historical installs
+- Python deps: Miniconda + `pyproject.toml`; `uv.lock` for reference
 - Frontend: Vue 3 + Element Plus + Pinia + Vue Router 4, built with Vite
 - Real-time updates: SSE, WebSocket, Redis PubSub (`app/routers/sse.py`, `app/routers/websocket_notifications.py`)

@@ -306,29 +306,6 @@ class MemoryStateManager:
                 if task:
                     result[tid] = task.to_dict()
             return result
-    
-    async def list_all_tasks(
-        self,
-        status: Optional[TaskStatus] = None,
-        limit: int = 20,
-        offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """获取所有任务列表（不限用户）"""
-        with self._lock:
-            tasks = []
-            for task in self._tasks.values():
-                if status is None or task.status == status:
-                    item = task.to_dict()
-                    # 兼容前端字段
-                    if 'stock_name' not in item or not item.get('stock_name'):
-                        item['stock_name'] = None
-                    tasks.append(item)
-
-            # 按开始时间倒序排列
-            tasks.sort(key=lambda x: x.get('start_time', ''), reverse=True)
-
-            # 分页
-            return tasks[offset:offset + limit]
 
     async def list_user_tasks(
         self,

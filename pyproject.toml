@@ -70,7 +70,7 @@ qianfan = ["qianfan>=0.4.12.3"]
 tradingagents = "scripts.examples.run_analysis:main"
 
 [tool.setuptools.packages.find]
-include = ["app*", "backend*", "scripts*"]
+include = ["app*", "scripts*"]
 exclude = ["tests*", "docs*", "data*", "logs*", "reports*", "results*", "eval_results*", "upstream_contribution*", "frontend*"]
 
 [dependency-groups]

@@ -495,11 +495,6 @@ class UsageStatisticsService:
         stats = await self.get_usage_statistics(days=days)
         return {provider: data["cost"] for provider, data in stats.by_provider.items()}
 
-    async def get_cost_by_model(self, days: int = 7) -> Dict[str, float]:
-        """获取按模型的成本统计"""
-        stats = await self.get_usage_statistics(days=days)
-        return {model: data["cost"] for model, data in stats.by_model.items()}
-
     async def get_daily_cost(self, days: int = 7) -> Dict[str, float]:
         """获取每日成本统计"""
         stats = await self.get_usage_statistics(days=days)

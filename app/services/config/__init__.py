@@ -125,14 +125,8 @@ class ConfigServiceFacade:
 
     # ==================== 数据库配置管理（委托 DatabaseService）====================
 
-    async def add_database_config(self, db_config: DatabaseConfig) -> bool:
-        return await self._database.add_database_config(db_config)
-
     async def update_database_config(self, db_config: DatabaseConfig) -> bool:
         return await self._database.update_database_config(db_config)
-
-    async def delete_database_config(self, db_name: str) -> bool:
-        return await self._database.delete_database_config(db_name)
 
     async def get_database_config(self, db_name: str) -> Optional[DatabaseConfig]:
         return await self._database.get_database_config(db_name)

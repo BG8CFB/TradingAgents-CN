@@ -498,48 +498,6 @@ async def get_database_configs(
         )
 
 
-@router.post("/database", response_model=dict)
-async def add_database_config(
-    request: DatabaseConfigRequest,
-    current_user: dict = Depends(require_admin)
-):
-    """添加数据库配置"""
-    try:
-        logger.info(f"添加数据库配置: {request.name}")
-
-        # 转换为 DatabaseConfig 对象
-        db_config = DatabaseConfig(**request.model_dump())
-
-        # 添加配置
-        success = await config_service.add_database_config(db_config)
-
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="添加数据库配置失败，可能已存在同名配置"
-            )
-
-        # 记录操作日志
-        await log_operation(
-            user_id=current_user["id"],
-            username=current_user.get("username", "unknown"),
-            action_type=ActionType.CONFIG_MANAGEMENT,
-            action=f"添加数据库配置: {request.name}",
-            details={"name": request.name, "type": request.type, "host": request.host, "port": request.port}
-        )
-
-        return {"success": True, "message": "数据库配置添加成功"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"添加数据库配置失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"添加数据库配置失败: {str(e)}"
-        )
-
-
 @router.put("/database/{db_name}", response_model=dict)
 async def update_database_config(
     db_name: str,
@@ -587,43 +545,4 @@ async def update_database_config(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"更新数据库配置失败: {str(e)}"
-        )
-
-
-@router.delete("/database/{db_name}", response_model=dict)
-async def delete_database_config(
-    db_name: str,
-    current_user: dict = Depends(require_admin)
-):
-    """删除数据库配置"""
-    try:
-        logger.info(f"删除数据库配置: {db_name}")
-
-        # 删除配置
-        success = await config_service.delete_database_config(db_name)
-
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"数据库配置 '{db_name}' 不存在"
-            )
-
-        # 记录操作日志
-        await log_operation(
-            user_id=current_user["id"],
-            username=current_user.get("username", "unknown"),
-            action_type=ActionType.CONFIG_MANAGEMENT,
-            action=f"删除数据库配置: {db_name}",
-            details={"name": db_name}
-        )
-
-        return {"success": True, "message": "数据库配置删除成功"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"删除数据库配置失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"删除数据库配置失败: {str(e)}"
         )

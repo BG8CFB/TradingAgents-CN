@@ -38,23 +38,6 @@ export interface UsageStatistics {
   by_agent?: Record<string, any>
 }
 
-export interface TaskUsageTotals {
-  requests: number
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  cache_creation_tokens: number
-  cost: number
-}
-
-export interface TaskUsage {
-  task_id: string
-  owner_user_id: string
-  totals: Partial<TaskUsageTotals>
-  by_agent: Array<Partial<TaskUsageTotals> & { agent_key: string }>
-  by_phase: Array<Partial<TaskUsageTotals> & { phase: string }>
-}
-
 /**
  * 获取使用记录
  */
@@ -70,13 +53,6 @@ export function getUsageRecords(params?: {
     '/api/usage-statistics/records',
     params
   )
-}
-
-/**
- * 获取单任务 token 用量明细（总览 + 按 agent/phase 分摊）
- */
-export function getTaskUsage(taskId: string): Promise<ApiResponse<TaskUsage>> {
-  return ApiClient.get<TaskUsage>(`/api/usage-statistics/tasks/${taskId}`)
 }
 
 /**
