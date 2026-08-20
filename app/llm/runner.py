@@ -203,12 +203,12 @@ async def run_conversation(
                 await emit("compact", level="auto", messages=len(messages))
 
         # ── 调用模型（流式；带重试；聚合文本增量）────────────────────
-        # 体积控制：messages 全文仅每个 agent 首个请求轮携带（messages_full=true），
-        # 后续轮次只带条数，避免多轮工具循环反复重复发送同样的大 payload
-        if event_sink is not None:
-            messages_full = event_sink.claim_full_messages(agent_key)
-        else:
-            messages_full = turns == 1
+        # 体积控制：messages 全文仅在本会话（run_conversation）首个请求轮携带
+        # （messages_full=true），会话内后续轮次只带条数，避免多轮工具循环
+        # 反复重复发送同样的大 payload。多会话 agent（如辩论辩手每轮重建
+        # 历史）每次会话的首轮都会重新携带全文——否则辩论轮注入的对手
+        # 报告在过程视图中不可见
+        messages_full = turns == 1
         request_payload: Dict[str, Any] = {
             "tools": len(tool_defs),
             "estimated_tokens": counter.count(messages),

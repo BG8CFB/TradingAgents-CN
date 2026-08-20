@@ -12,8 +12,9 @@
 - user_message_injected          用户消息注入运行中的智能体（payload: agent_key、text 全文）
 - report_ready                   单份报告就绪（payload: report_key、title、content）——
                                   pipeline 在节点增量合并时 diff reports 字典发射
-- progress                       流水线进度消息（payload: text）——经 on_progress 通道转发，
-                                  兼容旧 progress_callback 外部接口（不落库）
+- progress                       流水线进度消息（payload: completed/total/percent/step_text，
+                                  完成驱动计数）——经 on_event 通道实时下发 + on_progress 通道
+                                  转发给服务层落盘（不进 Mongo 落库缓冲）
 """
 
 import asyncio
@@ -144,8 +145,6 @@ class EventSink:
         self._seq = 0
         self._last_flush = time.time()
         self._agent_status: Dict[str, str] = {}  # agent_key -> running|completed
-        # 已携带过全量 messages 的 agent（llm_request 体积控制：每个 agent 仅首个请求轮带全量）
-        self._full_messages_agents: set = set()
 
     # ---- agent 状态跟踪（用户消息发送校验依据）----
 
@@ -161,15 +160,6 @@ class EventSink:
     @property
     def running_agents(self) -> List[str]:
         return [k for k, v in self._agent_status.items() if v == "running"]
-
-    # ---- llm_request 全量 messages 体积控制（per-agent 首轮判定）----
-
-    def claim_full_messages(self, agent_key: str) -> bool:
-        """该 agent_key 首次调用返回 True 并登记；后续（含跨 conversation loop 重入）返回 False"""
-        if agent_key in self._full_messages_agents:
-            return False
-        self._full_messages_agents.add(agent_key)
-        return True
 
     # ---- 发射 ----
 
@@ -192,10 +182,11 @@ class EventSink:
                     await result
             except Exception as e:  # noqa: BLE001 - 事件失败不阻断对话
                 logger.warning(f"⚠️ [events] 实时回调失败: {e}")
-        # 进度转发（progress 事件专走旧 progress_callback 兼容出口）
+        # 进度转发（progress 事件专走 on_progress 通道，payload 为结构化计数：
+        # {completed, total, percent, step_text}；经 on_event 通道同时下发 WS 供前端实时消费）
         if event_type in PROGRESS_ONLY and self._on_progress is not None:
             try:
-                result = self._on_progress(str(payload.get("text", "")))
+                result = self._on_progress(payload)
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:  # noqa: BLE001

@@ -814,16 +814,16 @@ class AnalysisService:
             # 更新初始状态
             await asyncio.to_thread(
                 progress_tracker.update_progress,
-                {"progress_percentage": 10, "last_message": "🚀 开始股票分析"},
+                {"progress_percentage": 5, "last_message": "🚀 开始股票分析"},
             )
             await self.memory_manager.update_task_status(
                 task_id=task_id,
                 status=TaskStatus.RUNNING,
-                progress=10,
+                progress=5,
                 message="分析开始...",
                 current_step="initialization",
             )
-            await self._update_task_status(task_id, AnalysisStatus.PROCESSING, 10)
+            await self._update_task_status(task_id, AnalysisStatus.PROCESSING, 5)
 
             # 记录 MCP 工具选择（实际加载在同步执行阶段完成）
             selected_mcp_tools = []
@@ -1147,7 +1147,7 @@ class AnalysisService:
                 except Exception as e:
                     logger.warning(f"⚠️ [Sync] 更新进度失败: {e}")
 
-            update_progress_sync(7, "⚙️ 配置分析参数", "configuration")
+            update_progress_sync(6, "⚙️ 配置分析参数", "configuration")
 
             # 选中分析师列表（完全依赖配置文件加载，禁止写死）
             selected_analysts = []
@@ -1316,7 +1316,7 @@ class AnalysisService:
             config["task_id"] = task_id
             logger.info(f"🔧 [任务管理器] 已将 MCP 管理器注入配置: task_id={task_id}")
 
-            update_progress_sync(9, "🚀 初始化AI分析引擎", "engine_initialization")
+            update_progress_sync(8, "🚀 初始化AI分析引擎", "engine_initialization")
 
             # 预计算内置工具可用性（基于数据域状态）
             try:
@@ -1349,7 +1349,7 @@ class AnalysisService:
                 logger.warning(
                     f"⚠️ [数据预拉取] 失败（不影响分析，使用现有数据）: {_prefetch_err}"
                 )
-            update_progress_sync(20, "📊 数据预拉取完成", "data_prefetch_done")
+            update_progress_sync(12, "📊 数据预拉取完成", "data_prefetch_done")
 
             # 🔥 添加时间戳日志，精确定位耗时
             import time
@@ -1386,29 +1386,30 @@ class AnalysisService:
                 f"📅 分析目标日期: {analysis_date}, 数据范围: {data_start_date} 至 {data_end_date}"
             )
 
-            update_progress_sync(25, "🤖 开始多智能体协作分析", "agent_analysis")
+            update_progress_sync(15, "🤖 开始多智能体协作分析", "agent_analysis")
 
-            # 进度回调 - 动态从配置文件加载，基于选择的智能体计算进度
-            selected_analysts_for_progress = config.get("selected_analysts", [])
-            node_progress_map = DynamicAnalystFactory.build_progress_map(
-                selected_analysts=selected_analysts_for_progress
-            )
-
-            def graph_progress_callback(message: str):
+            # 结构化进度回调：pipeline 完成驱动计数（payload: completed/total/percent/step_text），
+            # 经 EventSink.on_progress 通道转发至此，写入 tracker 供 5s 轮询兜底；
+            # 前端实时进度直接消费 WS agent_event 流中的 progress 事件。
+            def graph_progress_callback(payload: dict):
                 try:
                     if not progress_tracker:
                         return
-                    progress_pct = node_progress_map.get(message)
-                    if progress_pct is not None:
-                        current_progress = progress_tracker.progress_data.get(
-                            "progress_percentage", 0
-                        )
-                        if int(progress_pct) > current_progress:
-                            # 优先使用同步更新
-                            update_progress_sync(int(progress_pct), message, message)
-                        else:
-                            progress_tracker.update_progress({"last_message": message})
+                    percent = int(payload.get("percent") or 0)
+                    step_text = str(payload.get("step_text") or "")
+                    completed = payload.get("completed")
+                    total = payload.get("total")
+                    message = (
+                        f"{step_text}（{completed}/{total}）"
+                        if completed and total else step_text
+                    )
+                    current_progress = progress_tracker.progress_data.get(
+                        "progress_percentage", 0
+                    )
+                    if percent >= current_progress:
+                        update_progress_sync(percent, message, step_text)
                     else:
+                        # 单调保护：乱序回退仅更新文案
                         progress_tracker.update_progress({"last_message": message})
                 except Exception as e:
                     logger.debug(f"进度回调更新失败: {e}")
@@ -1416,20 +1417,22 @@ class AnalysisService:
             # 执行分析（事件汇聚点：实时 WS + Mongo 落库，供过程面板/回放）
             from app.services.analysis_events import create_event_sink, release_event_sink
 
-            event_sink = create_event_sink(task_id, server_loop=server_loop)
+            event_sink = create_event_sink(
+                task_id, server_loop=server_loop, on_progress=graph_progress_callback
+            )
             try:
                 state, decision = trading_graph.propagate_sync(
                     request.stock_code,
                     analysis_date,
-                    progress_callback=graph_progress_callback,
                     task_id=task_id,
                     event_sink=event_sink,
                     user_id=user_id,
+                    progress_range=(15, 92),
                 )
             finally:
                 release_event_sink(task_id, server_loop=server_loop)
 
-            update_progress_sync(90, "处理分析结果...", "result_processing")
+            update_progress_sync(95, "处理分析结果...", "result_processing")
             execution_time = (now_config_tz() - start_time).total_seconds()
 
             # 提取 reports 从 state

@@ -103,11 +103,11 @@
         <!-- 阶段化进度 -->
         <el-card shadow="never" class="progress-card">
           <div class="progress-head">
-            <span class="step-name">{{ currentStepName || defaultStepName }}</span>
-            <span class="progress-percent">{{ progressPercentage }}%</span>
+            <span class="step-name">{{ displayStepName }}</span>
+            <span class="progress-percent">{{ displayPercentage }}%</span>
           </div>
           <el-progress
-            :percentage="progressPercentage"
+            :percentage="displayPercentage"
             :status="progressStatus"
             :stroke-width="10"
           />
@@ -256,6 +256,15 @@ const defaultStepName = computed(() => {
   if (taskStatus.value === 'cancelled') return '任务已取消'
   return '等待任务启动…'
 })
+
+// 实时进度显示：WS progress 事件（计数式，完成驱动秒级更新）优先，5s 轮询值兜底，终态定格
+const displayPercentage = computed(() => {
+  if (taskStatus.value === 'completed') return 100
+  const wsPercent = processStore.progressInfo?.percent
+  return typeof wsPercent === 'number' && wsPercent > 0 ? wsPercent : progressPercentage.value
+})
+const displayStepName = computed(() =>
+  processStore.progressInfo?.stepText || currentStepName.value || defaultStepName.value)
 
 function stopTimers() {
   // 递增序号使在途的 getTaskStatus 回包作废，防止取消/终止后旧响应把状态翻回 processing

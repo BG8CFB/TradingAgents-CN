@@ -114,11 +114,16 @@ class AnalysisRuntime:
 
     # ── 主入口 ────────────────────────────────────────────────────────
 
-    async def propagate(self, company_name, trade_date, progress_callback=None, task_id=None, event_sink=None, user_id=None):
+    async def propagate(
+        self, company_name, trade_date, progress_callback=None, task_id=None,
+        event_sink=None, user_id=None, progress_range=(0, 100),
+    ):
         """Run the analysis pipeline for a company on a specific date.
 
         progress_callback 为旧兼容入口：pipeline 内部经 EventSink.on_progress
         单通道转发（进度机制已收敛，ProgressManager 已删除）。
+        progress_range: 计数式进度映射区间 (lo, hi)，服务层用于给 pipeline
+        阶段留出前后缀（前置准备/结果处理）。
         """
         logger.debug(
             f"🔍 [RUNTIME DEBUG] propagate: company='{company_name}', "
@@ -151,6 +156,7 @@ class AnalysisRuntime:
             progress_callback=progress_callback,
             event_sink=event_sink,
             user_id=user_id,
+            progress_range=progress_range,
         )
 
         if final_state is None:

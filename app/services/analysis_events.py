@@ -36,13 +36,15 @@ def running_agents(task_id: str) -> List[str]:
     return sink.running_agents if sink else []
 
 
-def create_event_sink(task_id: str, server_loop=None):
+def create_event_sink(task_id: str, server_loop=None, on_progress=None):
     """创建并注册事件汇聚点（propagate 传入；finally 必须调 release_event_sink）
 
     Args:
         server_loop: FastAPI 主事件循环。分析在工作线程的事件循环中执行，
             WS 发送与 Mongo 写入必须调度回主循环（asyncio.run_coroutine_threadsafe），
             避免跨事件循环操作连接/客户端对象。
+        on_progress: 结构化进度回调（payload: completed/total/percent/step_text），
+            由服务层写入 progress_tracker 供轮询兜底。
     """
     from app.llm.events import EventSink
     from app.services.websocket_manager import get_websocket_manager
@@ -84,6 +86,7 @@ def create_event_sink(task_id: str, server_loop=None):
         task_id=task_id,
         on_event=_on_event,
         on_persist=_on_persist,
+        on_progress=on_progress,
         persist_batch=20,
         persist_interval=2.0,
     )

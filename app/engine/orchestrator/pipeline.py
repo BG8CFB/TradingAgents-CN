@@ -43,9 +43,10 @@ _NODE_EVENT_KEYS: Dict[str, str] = {
     "Bear Researcher": "researcher_bear",
     "Research Manager": "research_manager",
     "Trader": "trader",
-    "Risky Analyst": "risk_debator_risky",
-    "Safe Analyst": "risk_debator_safe",
-    "Neutral Analyst": "risk_debator_neutral",
+    # 注意：键拼法为 debater（与 debator_factory.run_agent_turn 一致），不是 debator
+    "Risky Analyst": "risk_debater_risky",
+    "Safe Analyst": "risk_debater_safe",
+    "Neutral Analyst": "risk_debater_neutral",
     "Risk Judge": "risk_manager",
     "Summary Agent": "summary",
 }
@@ -173,6 +174,36 @@ def _record_error(st: Dict[str, Any], node_name: str, error: str, start: float, 
     })
 
 
+def compute_total_units(
+    num_analysts: int,
+    *,
+    phase2_enabled: bool,
+    phase2_rounds: int,
+    phase3_enabled: bool,
+    phase3_rounds: int,
+) -> int:
+    """预计算进度原子单元总数（等权计数，完成驱动）：
+    分析师 + Phase2(Bull/Bear×(rounds+1)+Manager) + Trader + Phase3(三策略×(rounds+1)+Judge) + Summary
+    """
+    units = max(num_analysts, 0)
+    if phase2_enabled:
+        units += 2 * (max(phase2_rounds, 0) + 1) + 1
+    units += 1  # Trader 恒执行
+    if phase3_enabled:
+        units += 3 * (max(phase3_rounds, 0) + 1) + 1
+    units += 1  # Summary 恒执行
+    return units
+
+
+def interpolate_percent(completed: int, total: int, lo: int, hi: int) -> int:
+    """completed/total 线性映射到 [lo, hi]；total<=0 返回 lo，完成时恰为 hi（尾差归末端）"""
+    if total <= 0 or completed <= 0:
+        return lo
+    if completed >= total:
+        return hi
+    return lo + round(completed / total * (hi - lo))
+
+
 async def run_pipeline(
     deps: PipelineDeps,
     company_name: str,
@@ -180,9 +211,10 @@ async def run_pipeline(
     selected_analysts: List[str],
     *,
     task_id: Optional[str] = None,
-    progress_callback: Optional[Callable[[str], None]] = None,
+    progress_callback: Optional[Callable[[Any], None]] = None,
     event_sink: Optional[Any] = None,
     user_id: Optional[str] = None,
+    progress_range: tuple = (0, 100),
 ) -> Dict[str, Any]:
     """执行完整分析流水线，返回最终 state（字段形状与旧 final_state 一致）"""
     config = deps.config or {}
@@ -230,6 +262,11 @@ async def run_pipeline(
 
     node_timings: Dict[str, float] = {}
 
+    # 进度计数（等权、完成驱动）：total 在 specs 构建后回填；asyncio 单线程内 += 安全
+    completed_box = [0]
+    total_units_box = [0]
+    progress_lo, progress_hi = progress_range
+
     # 进度单通道：progress_callback 旧兼容入口统一挂到 EventSink.on_progress
     # （无 event_sink 时构造轻量 sink，仅转发进度，不落库不下发）
     if event_sink is None and progress_callback is not None:
@@ -238,31 +275,34 @@ async def run_pipeline(
         event_sink = EventSink(task_id=task_id or "", on_progress=progress_callback)
 
     def _progress_text(node_name: str) -> str:
-        """节点名 → 中文进度消息（映射与旧 _send_progress_update 一致；空串=跳过）"""
+        """节点名 → 中文进度文案（node_mapping；无映射回退节点名）"""
         try:
             from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
 
             mapping = DynamicAnalystFactory.build_node_mapping()
             message = mapping.get(node_name)
             if message is None:
-                return ""  # 跳过（工具节点、消息清理节点）
+                return f"🔍 {node_name}"  # 工具节点等：以节点名兜底（完成驱动后不再跳过）
             return message or f"🔍 {node_name}"
         except Exception as e:  # noqa: BLE001
             logger.warning(f"⚠️ [orchestrator] 进度文案解析失败: {e}")
-            return ""
+            return f"🔍 {node_name}"
 
-    async def _emit_progress(node_name: str, phase: str = "", agent_key: str = "") -> None:
+    async def _emit_unit_done(node_name: str, phase: str, agent_key: str) -> None:
+        """单元完成（含失败降级）即计数 +1 并发射结构化进度事件（completed/total/percent/step_text）"""
         if event_sink is None:
             return
-        text = _progress_text(node_name)
-        if text:
-            try:
-                # agent_key 缺省用 node_name；调用方应传与生命周期事件一致的键，避免面板分裂出重复 tab
-                await event_sink.emit(
-                    "progress", agent_key=agent_key or node_name, phase=phase, text=text
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"⚠️ [orchestrator] 进度事件发射失败: {e}")
+        completed_box[0] += 1
+        total = total_units_box[0]
+        percent = interpolate_percent(completed_box[0], total, progress_lo, progress_hi)
+        try:
+            await event_sink.emit(
+                "progress", agent_key=agent_key or node_name, phase=phase,
+                completed=completed_box[0], total=total,
+                percent=percent, step_text=_progress_text(node_name),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"⚠️ [orchestrator] 进度事件发射失败: {e}")
 
     async def _run_node(
         node_name: str, node_fn, st: Dict[str, Any], event_key: str = "", display_name: str = "",
@@ -285,7 +325,6 @@ async def run_pipeline(
                 "agent_start", agent_key=key, phase=st.get("_phase", ""),
                 name=display_name or _resolve_display_names().get(node_name) or node_name,
             )
-            await _emit_progress(node_name, phase=st.get("_phase", ""), agent_key=key)
         try:
             try:
                 update = await node_fn(st)
@@ -310,6 +349,8 @@ async def run_pipeline(
                 await event_sink.emit(
                     "agent_end", agent_key=key, duration_ms=int(elapsed * 1000)
                 )
+                # 完成驱动计数（critical 重试上抛路径同样经过 finally → 计数，不卡死）
+                await _emit_unit_done(node_name, phase=st.get("_phase", ""), agent_key=key)
         _before_reports = dict(st.get("reports") or {})  # 合并前快照（report_ready diff 依据）
         _merge_state_update(st, update or {})
         # 单份报告就绪即发（diff 本次 update 的 reports：新增或内容变化的 key）
@@ -341,6 +382,12 @@ async def run_pipeline(
             )
             concurrency = max(1, int(config.get("analyst_concurrency", 5) or 1))
             semaphore = asyncio.Semaphore(concurrency)
+            # 进度分母在此确定（分析师数 + 各阶段展开节点数）
+            total_units_box[0] = compute_total_units(
+                len(specs),
+                phase2_enabled=phase2_enabled, phase2_rounds=max_debate_rounds,
+                phase3_enabled=phase3_enabled, phase3_rounds=max_risk_rounds,
+            )
 
             async def _run_analyst(internal_key: str, spec) -> Dict[str, Any]:
                 """单个分析师并行单元：事件/计时/进度 + run_analyst（失败降级）"""
@@ -352,7 +399,6 @@ async def run_pipeline(
                         "agent_start", agent_key=internal_key, phase="analysts",
                         name=spec.name,
                     )
-                    await _emit_progress(node_name, phase="analysts", agent_key=internal_key)
                 try:
                     async with semaphore:
                         return await run_analyst(
@@ -372,6 +418,7 @@ async def run_pipeline(
                             "agent_end", agent_key=internal_key,
                             duration_ms=int(elapsed * 1000),
                         )
+                        await _emit_unit_done(node_name, "analysts", internal_key)
 
             analyst_results = await asyncio.gather(
                 *[_run_analyst(k, s) for k, s in specs.items()]
@@ -438,11 +485,6 @@ async def run_pipeline(
             summary_node = create_summary_agent(deps.debate_client)
             # Summary 为终端节点：重试后仍失败则整体失败（不再产出假成功报告）
             await _run_node("Summary Agent", summary_node, state, critical=True)
-            if event_sink is not None:
-                await event_sink.emit(
-                    "progress", agent_key=_NODE_EVENT_KEYS.get("Summary Agent", "Summary Agent"),
-                    phase="summary", text="📊 生成报告"
-                )
 
             # reports 字典回填顶层 *_report 字段（支持自定义智能体，与旧逻辑一致）
             for report_key, report_content in (state.get("reports") or {}).items():

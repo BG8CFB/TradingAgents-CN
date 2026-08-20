@@ -14,6 +14,14 @@ export interface AgentReport {
   content: string
 }
 
+/** 计数式实时进度（来自 agent_event 流中的 progress 事件，完成驱动） */
+export interface ProgressInfo {
+  completed: number
+  total: number
+  percent: number
+  stepText: string
+}
+
 /** agent 执行状态 */
 export type AgentRunStatus = 'running' | 'completed'
 
@@ -55,6 +63,8 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
   const agentStatus = ref<Record<string, AgentRunStatus>>({})
   const lastError = ref('')
   const loadingReplay = ref(false)
+  /** 计数式实时进度（WS progress 事件驱动；5s 轮询值在 TaskDetail 侧兜底） */
+  const progressInfo = ref<ProgressInfo | null>(null)
   /** report_ready 产物（智能体实时报告），按到达序，report_key 去重 */
   const reports = ref<AgentReport[]>([])
   const seenReportKeys = new Set<string>()
@@ -187,6 +197,8 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
    * @param insert true 时同时入库（去重由 insertEvent/insertEvents 的 Set 保证）
    */
   function applyAgentEvent(ev: AgentEvent, insert = true) {
+    // progress 事件只更新 progressInfo，不建 agent tab（防御：正常路径已在 handleWSMessage 提前返回）
+    if (ev.event_type === 'progress') return
     ensureAgent(ev.agent_key)
     if (insert) insertEvent(ev)
     if (ev.event_type === 'agent_end') {
@@ -234,6 +246,19 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
         if (msg.event_type === 'text_delta') {
           const delta = String((msg.payload as Record<string, unknown> | undefined)?.text ?? '')
           if (delta) streamingText.value[msg.agent_key] = (streamingText.value[msg.agent_key] ?? '') + delta
+          return
+        }
+        // 计数式进度（完成驱动）：只更新 progressInfo，不入 events、不建 agent tab
+        if (msg.event_type === 'progress') {
+          const p = (msg.payload ?? {}) as Record<string, unknown>
+          const percent = Number(p.percent ?? 0)
+          progressInfo.value = {
+            completed: Number(p.completed ?? 0),
+            total: Number(p.total ?? 0),
+            // 单调保护：乱序回退不下降
+            percent: Math.max(progressInfo.value?.percent ?? 0, percent),
+            stepText: typeof p.step_text === 'string' ? p.step_text : '',
+          }
           return
         }
         applyAgentEvent({
@@ -509,6 +534,7 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     hasMoreEarlier.value = false
     pendingMessages.value = []
     reports.value = []
+    progressInfo.value = null
     seenReportKeys.clear()
     seenEventKeys.clear()
     pendingReceipts.clear()
@@ -528,6 +554,7 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     hasMoreEarlier,
     pendingMessages,
     reports,
+    progressInfo,
     agents,
     anyRunning,
     visibleEventsByAgent,

@@ -195,16 +195,27 @@ async def test_thinking_event_emitted_and_persisted():
     assert "llm_request" in persisted_types
 
 
-async def test_per_agent_full_messages_once_across_conversations():
-    """同一 agent_key 第二次 run_conversation 不再携带全量 messages（sink 级登记）"""
+async def test_full_messages_per_conversation_first_round():
+    """全量 messages 按会话（run_conversation）首轮携带：
+    同一 agent_key 的第二次会话（如辩论辩手的辩论轮）首轮重新携带全文，
+    会话内后续轮次只带条数"""
     sink, events, _ = _capture_sink()
-    for _ in range(2):
-        client = _ScriptedClient([_resp(TextBlock(text="ok"))])
-        await run_conversation(client, "q", registry=_echo_registry(), event_sink=sink, agent_key="same_agent")
+    # 会话 1：两轮（首轮 tool_use 续轮 + 收尾）→ 首轮全文、次轮条数
+    client = _ScriptedClient([
+        _resp(ToolUseBlock(id="t1", name="echo", input={"text": "x"})),
+        _resp(TextBlock(text="ok")),
+    ])
+    await run_conversation(client, "q", registry=_echo_registry(), event_sink=sink, agent_key="same_agent")
+    # 会话 2：同 agent_key 新会话 → 首轮重新携带全文（辩论轮对手报告可见）
+    client2 = _ScriptedClient([_resp(TextBlock(text="ok"))])
+    await run_conversation(client2, "q2", registry=_echo_registry(), event_sink=sink, agent_key="same_agent")
     requests = [e["payload"] for e in events if e["event_type"] == "llm_request"]
     assert requests[0]["messages_full"] is True
+    assert isinstance(requests[0]["messages"], list)
     assert requests[1]["messages_full"] is False
     assert isinstance(requests[1]["messages"], int)
+    assert requests[2]["messages_full"] is True
+    assert isinstance(requests[2]["messages"], list)
 
 
 # ---------- 纯函数：system-reminder 解包 / content 展平 ----------

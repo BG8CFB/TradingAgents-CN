@@ -81,19 +81,6 @@ class TestBuildNodeMapping:
         assert len(none_keys) > 0
 
 
-class TestBuildProgressMap:
-    def test_dynamic_analyst_progress(self, sample_config):
-        pm = DynamicAnalystFactory.build_progress_map(config_path=sample_config)
-        has_analyst = any("分析师" in k for k in pm.keys())
-        assert has_analyst
-
-    def test_progress_includes_all_fixed_stages(self, sample_config):
-        pm = DynamicAnalystFactory.build_progress_map(config_path=sample_config)
-        assert "🐂 看涨研究员" in pm
-        assert "🐻 看跌研究员" in pm
-        assert "📊 生成报告" in pm
-
-
 class TestInferToolKey:
     def test_market_slug(self):
         result = DynamicAnalystFactory._infer_tool_key("market-analyst", "市场分析师")

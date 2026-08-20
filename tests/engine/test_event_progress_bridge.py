@@ -1,7 +1,8 @@
-"""进度单通道桥测试（替代已删除的 ProgressManager）
+"""进度单通道桥测试（计数式重构后）
 
-契约：pipeline 的 progress_callback 旧兼容入口统一挂到 EventSink.on_progress；
-progress 事件仅走 on_progress 通道（不落库、不进 on_event 实时通道）。
+契约：pipeline 发射结构化 progress 事件（completed/total/percent/step_text）；
+progress 经 on_progress 通道转发给服务层落盘（payload 为 dict），同时走
+on_event 实时通道下发 WS（前端实时消费），但不进 Mongo 落库缓冲。
 """
 
 import asyncio
@@ -17,8 +18,8 @@ class Recorder:
         self.events = []
         self.persisted = []
 
-    def on_progress(self, text: str):
-        self.progress.append(text)
+    def on_progress(self, payload: dict):
+        self.progress.append(payload)
 
     def on_event(self, ev: Event):
         self.events.append(ev)
@@ -28,20 +29,26 @@ class Recorder:
 
 
 async def _emit(sink: EventSink):
-    await sink.emit("progress", agent_key="Market Analyst", phase="analysts", text="📈 市场分析师分析中")
+    await sink.emit(
+        "progress", agent_key="market", phase="analysts",
+        completed=1, total=8, percent=5, step_text="📈 市场分析师",
+    )
     await sink.emit("agent_start", agent_key="market", phase="analysts", name="市场分析师")
     await sink.flush()
 
 
-def test_progress_forwards_to_on_progress_only():
+def test_progress_forwards_structured_payload():
     rec = Recorder()
     sink = EventSink(task_id="t1", on_event=rec.on_event, on_persist=rec.on_persist, on_progress=rec.on_progress)
     asyncio.run(_emit(sink))
 
-    # progress 文本经 on_progress 通道转发（旧 progress_callback 兼容出口）
-    assert rec.progress == ["📈 市场分析师分析中"]
-    # progress 不进实时通道、不落库；agent_start 正常落库
+    # on_progress 通道收到完整结构化 payload（服务层据此写 progress_tracker）
+    assert rec.progress == [
+        {"completed": 1, "total": 8, "percent": 5, "step_text": "📈 市场分析师"}
+    ]
+    # progress 也走 on_event 实时通道（WS agent_event 帧，前端实时进度来源）
     assert [e.event_type for e in rec.events] == ["progress", "agent_start"]
+    # progress 不落库；agent_start 正常落库
     assert [e.event_type for e in rec.persisted] == ["agent_start"]
 
 
@@ -54,3 +61,4 @@ def test_pipeline_wraps_bare_callback_into_sink():
     sig = inspect.signature(run_pipeline)
     assert "progress_callback" in sig.parameters
     assert "event_sink" in sig.parameters
+    assert "progress_range" in sig.parameters
