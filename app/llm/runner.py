@@ -14,7 +14,7 @@ agent 循环（对齐 claude-code query.ts 的核心模式）
 import inspect
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import logging
 
@@ -25,6 +25,11 @@ from .core.errors import ContextWindowExceededError
 from .core.types import ChatResponse, Message, Role, ToolResultBlock, ToolUseBlock
 from .limits import resolve_output_limits
 from .orchestration.concurrency import partition_tool_calls, run_batches
+from .events import (
+    TOOL_RESULT_MAX_CHARS,
+    messages_event_payload,
+    unwrap_system_reminder,
+)
 from .retry import DEFAULT_MAX_RETRIES, FallbackTriggeredError, with_retry
 
 logger = logging.getLogger("app.llm.runner")
@@ -35,6 +40,37 @@ RECOVERY_INSTRUCTION = (
     "Output token limit hit. Resume directly from where you stopped — no apology, "
     "no repetition, continue the unfinished content."
 )
+
+
+def _extract_thinking_text(resp: ChatResponse) -> str:
+    """防御式抽取 thinking/reasoning 块文本。
+
+    canonical 层（core.types）目前不保留 thinking 块，此处从原始 SDK 响应提取：
+    - Anthropic: raw.content 中 type 为 thinking/reasoning 的块（.thinking/.text）
+    - OpenAI 兼容: raw.choices[0].message.reasoning_content / reasoning
+    抽取全程异常安全，失败返回空串（不发射 thinking 事件）。
+    """
+    parts: List[str] = []
+    try:
+        raw = getattr(resp, "raw", None)
+        content = getattr(raw, "content", None)
+        if isinstance(content, list):
+            for b in content:
+                if getattr(b, "type", "") in ("thinking", "reasoning"):
+                    t = getattr(b, "thinking", None) or getattr(b, "text", None) or getattr(b, "reasoning", None)
+                    if t:
+                        parts.append(str(t))
+        if not parts:
+            choices = getattr(raw, "choices", None)
+            if choices:
+                msg = getattr(choices[0], "message", None)
+                if msg is not None:
+                    t = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
+                    if t:
+                        parts.append(str(t))
+    except Exception as e:  # noqa: BLE001 - thinking 抽取失败不影响主流程
+        logger.debug(f"[runner] thinking 块抽取失败: {e}")
+    return "\n".join(parts)
 
 
 @dataclass
@@ -164,12 +200,22 @@ async def run_conversation(
                 await emit("compact", level="auto", messages=len(messages))
 
         # ── 调用模型（流式；带重试；聚合文本增量）────────────────────
-        await emit(
-            "llm_request",
-            messages=len(messages),
-            tools=len(tool_defs),
-            estimated_tokens=counter.count(messages),
-        )
+        # 体积控制：messages 全文仅每个 agent 首个请求轮携带（messages_full=true），
+        # 后续轮次只带条数，避免多轮工具循环反复重复发送同样的大 payload
+        if event_sink is not None:
+            messages_full = event_sink.claim_full_messages(agent_key)
+        else:
+            messages_full = turns == 1
+        request_payload: Dict[str, Any] = {
+            "tools": len(tool_defs),
+            "estimated_tokens": counter.count(messages),
+            "messages_full": messages_full,
+        }
+        if messages_full:
+            request_payload["messages"] = messages_event_payload(messages)
+        else:
+            request_payload["messages"] = len(messages)
+        await emit("llm_request", **request_payload)
 
         async def _call() -> ChatResponse:
             resp_local: Optional[ChatResponse] = None
@@ -227,7 +273,13 @@ async def run_conversation(
             cache_creation_input_tokens=resp.usage.cache_creation_input_tokens,
             cache_read_input_tokens=resp.usage.cache_read_input_tokens,
             model=getattr(resp, "model", ""),
+            text=resp.text(),  # 本轮最终 assistant 文本全文（纯工具轮为空串，字段恒在）
         )
+
+        # 推理模型 thinking/reasoning 块（canonical 层不保留，从 raw 响应防御式提取）
+        thinking_text = _extract_thinking_text(resp)
+        if thinking_text:
+            await emit("thinking", text=thinking_text)
 
         # usage 校准 token 计数
         counter.update_from_usage(resp.usage.input_tokens, len(messages))
@@ -276,14 +328,19 @@ async def run_conversation(
                     for msg in injected:
                         messages.append(msg)
                         result.user_messages_injected += 1
-                        await emit("user_message_injected", text=msg.content[:200])
+                        await emit(
+                            "user_message_injected",
+                            text=unwrap_system_reminder(msg.content),
+                        )
                     continue
             result.final_text = resp.text()
             result.stop_reason = resp.stop_reason.value
             break
 
         # ── 同轮多工具：并发分区执行 ─────────────────────────────────
-        outputs = await _execute_partitioned(reg, tool_uses, safe_map, extra_defs, emit, task_id=task_id)
+        outputs = await _execute_partitioned(
+            reg, tool_uses, safe_map, extra_defs=extra_defs, emit=emit, task_id=task_id
+        )
         result.tool_calls_executed += len(tool_uses)
         result_blocks = [
             ToolResultBlock(
@@ -301,7 +358,10 @@ async def run_conversation(
             for msg in injected:
                 messages.append(msg)
                 result.user_messages_injected += 1
-                await emit("user_message_injected", text=msg.content[:200])
+                await emit(
+                    "user_message_injected",
+                    text=unwrap_system_reminder(msg.content),
+                )
 
     result.turns = min(turns, max_turns)
     return result
@@ -321,7 +381,7 @@ async def _execute_partitioned(
         logger.info(f"🔧 [runner] 工具调用: {tu.name}({str(tu.input)[:500]}{'...' if len(str(tu.input)) > 500 else ''})")
         start = time.time()
         if emit is not None:
-            await emit("tool_call", tool=tu.name, input=tu.input)
+            await emit("tool_call", tool=tu.name, tool_use_id=tu.id, input=tu.input)
         try:
             if extra_defs and tu.name in extra_defs:
                 result = extra_defs[tu.name].handler(**tu.input)
@@ -336,7 +396,8 @@ async def _execute_partitioned(
             await emit(
                 "tool_result",
                 tool=tu.name,
-                output=out[:2000],
+                tool_use_id=tu.id,
+                output=out[:TOOL_RESULT_MAX_CHARS],
                 duration_ms=int((time.time() - start) * 1000),
                 is_error=out.startswith("错误") or out.startswith("工具执行失败"),
             )

@@ -93,6 +93,60 @@ def _merge_state_update(target: Dict[str, Any], update: Dict[str, Any]) -> None:
         target[k] = v
 
 
+def _report_display_title(report_key: str, display_name: str = "") -> str:
+    """report_key → 展示标题。
+
+    解析链：去掉 _report 后缀 → slug 化（bull_researcher_report → bull-researcher）
+    → load_agent_display_name(YAML 中文名) → 节点 display_name → report_key 原样。
+    """
+    base = report_key[: -len("_report")] if report_key.endswith("_report") else report_key
+    title = ""
+    try:
+        from app.engine.agents.utils.agent_config import load_agent_display_name
+
+        title = load_agent_display_name(base.replace("_", "-"))
+    except Exception:  # noqa: BLE001 - 标题解析失败回退，不影响事件发射
+        title = ""
+    return title or display_name or report_key
+
+
+async def _emit_report_ready(
+    event_sink: Optional[Any],
+    update: Dict[str, Any],
+    *,
+    agent_key: str,
+    phase: str,
+    before_reports: Dict[str, Any],
+    display_name: str = "",
+) -> None:
+    """对比合并前后 reports 字典，为本次 update 中新增/内容变化的报告发射 report_ready。
+
+    前端据此逐份即时展示报告，无需等整阶段结束。事件失败不阻断流水线。
+    """
+    if event_sink is None:
+        return
+    try:
+        from app.llm.events import REPORT_CONTENT_MAX_CHARS
+
+        reports_update = (update or {}).get("reports")
+        if not isinstance(reports_update, dict) or not reports_update:
+            return
+        for report_key, content in reports_update.items():
+            if before_reports.get(report_key) == content:
+                continue  # 本次 update 未新增也未变化
+            text = content if isinstance(content, str) else str(content)
+            await event_sink.emit(
+                "report_ready",
+                agent_key=agent_key,
+                phase=phase,
+                report_key=report_key,
+                title=_report_display_title(report_key, display_name),
+                content=text[:REPORT_CONTENT_MAX_CHARS],
+            )
+    except Exception as e:  # noqa: BLE001 - 事件发射失败不阻断节点合并
+        logger.warning(f"⚠️ [orchestrator] report_ready 发射失败: {e}")
+
+
 def _record_error(st: Dict[str, Any], node_name: str, error: str, start: float, *, retried: bool) -> None:
     """节点失败落 state["errors"]（不静默吞掉，供前端/回放展示）"""
     st.setdefault("errors", []).append({
@@ -238,7 +292,17 @@ async def run_pipeline(
                 await event_sink.emit(
                     "agent_end", agent_key=key, duration_ms=int(elapsed * 1000)
                 )
+        _before_reports = dict(st.get("reports") or {})  # 合并前快照（report_ready diff 依据）
         _merge_state_update(st, update or {})
+        # 单份报告就绪即发（diff 本次 update 的 reports：新增或内容变化的 key）
+        await _emit_report_ready(
+            event_sink,
+            update or {},
+            agent_key=key,
+            phase=st.get("_phase", ""),
+            before_reports=_before_reports,
+            display_name=display_name or _resolve_display_names().get(node_name) or "",
+        )
 
     state = create_initial_state(company_name, trade_date, task_id=task_id, user_id=user_id)
     # 事件汇聚点经 state 下发（业务节点经 invoker 透传给 run_conversation，Stage 2-4 过程可观测）
@@ -296,7 +360,12 @@ async def run_pipeline(
             )
             # 按 specs 序回填合并（与旧串行执行的 state 报告顺序一致）
             for (_internal_key, _spec), update in zip(specs.items(), analyst_results):
+                _before = dict(state.get("reports") or {})
                 _merge_state_update(state, update or {})
+                await _emit_report_ready(
+                    event_sink, update or {},
+                    agent_key=_internal_key, phase="analysts", before_reports=_before,
+                )
 
             # ── Phase 2：公平辩论（Bull 先发言，交替各 rounds+1 次）+ 裁决
             if phase2_enabled:
