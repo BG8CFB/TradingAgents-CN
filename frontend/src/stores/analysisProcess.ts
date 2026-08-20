@@ -394,8 +394,11 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
       })
       const list: AgentEvent[] = res?.data ?? []
       if (list.length > 0) {
-        insertEvents(list.slice().reverse())
-        for (const ev of list) applyAgentEvent(ev, false)
+        // 副作用必须按时间正序应用：desc 原序会让 agent_end 先于 agent_start，
+        // 把已完成 agent 翻回 running
+        const ordered = list.slice().reverse()
+        insertEvents(ordered)
+        for (const ev of ordered) applyAgentEvent(ev, false)
       }
       if (list.length < 500) hasMoreEarlier.value = false
     } catch (error) {
