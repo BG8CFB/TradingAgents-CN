@@ -52,7 +52,7 @@
             </span>
             <span v-else class="agent-state is-done">
               <el-icon><CircleCheckFilled /></el-icon>
-              <template v-if="agentDurationMs(agent.key) != null">{{ formatDuration(agentDurationMs(agent.key)!) }}</template>
+              <template v-if="agentDurations.get(agent.key) != null">{{ formatDuration(agentDurations.get(agent.key)!) }}</template>
               <template v-else>完成</template>
             </span>
             <el-icon class="section-caret" :class="{ expanded: isExpanded(agent.key) }"><ArrowRight /></el-icon>
@@ -60,11 +60,11 @@
 
           <!-- 段内时间线 -->
           <div v-show="isExpanded(agent.key)" class="timeline">
-            <template v-for="item in buildTimeline(agent.key)" :key="item.id">
+            <template v-for="item in timelines.get(agent.key) ?? []" :key="item.id">
               <!-- assistant 文本（markdown 渲染） -->
               <div v-if="item.kind === 'assistant'" class="timeline-item assistant">
-                <!-- eslint-disable-next-line vue/no-v-html -- DOMPurify 消毒后的 markdown HTML -->
-                <div class="bubble assistant-bubble md-bubble" v-html="renderMarkdown(item.text)"></div>
+                <!-- eslint-disable-next-line vue/no-v-html -- DOMPurify 消毒后的 markdown HTML（memoize 缓存） -->
+                <div class="bubble assistant-bubble md-bubble" v-html="cachedMarkdown(item.text)"></div>
               </div>
 
               <!-- 用户注入消息 -->
@@ -106,10 +106,8 @@
               </div>
             </template>
 
-            <!-- running agent 尾部：text_delta 实时气泡 -->
-            <div v-if="agent.status === 'running' && streamingOf(agent.key)" class="timeline-item assistant">
-              <div class="bubble assistant-bubble streaming-bubble">{{ streamingOf(agent.key) }}<span class="streaming-cursor">▌</span></div>
-            </div>
+            <!-- running agent 尾部：text_delta 实时气泡（独立小组件，delta 只重渲该组件） -->
+            <StreamingBubble v-if="agent.status === 'running'" :agent-key="agent.key" />
           </div>
         </div>
       </div>
@@ -142,14 +140,14 @@
             v-model="inputText"
             size="small"
             :placeholder="inputPlaceholder"
-            :disabled="!canSend"
+            :disabled="!canSend || sending"
             @keyup.enter="sendMessage()"
           />
           <el-button
             size="small"
             type="primary"
             :loading="sending"
-            :disabled="!canSend"
+            :disabled="!canSend || sending"
             @click="sendMessage()"
           >
             发送
@@ -169,6 +167,8 @@ import { ElMessage } from 'element-plus'
 import { Connection, Loading, VideoPlay, CircleCheckFilled, ArrowRight, WarningFilled } from '@element-plus/icons-vue'
 import { useAnalysisProcessStore } from '@/stores/analysisProcess'
 import { renderMarkdown } from '@/utils/markdown'
+import type { AgentEvent } from '@/api/analysis'
+import StreamingBubble from './StreamingBubble.vue'
 
 const props = defineProps<{
   /** 任务 ID（live 模式下可缺省，由父组件先 store.start()） */
@@ -225,15 +225,19 @@ const visibleAgents = computed(() =>
   })),
 )
 
-/** agent 耗时（首条事件 → 末条事件，无 ts 时返回 null） */
-function agentDurationMs(agentKey: string): number | null {
-  const evs = store.visibleEvents.filter(e => e.agent_key === agentKey && e.ts != null)
-  if (evs.length === 0) return null
-  const first = Date.parse(String(evs[0].ts))
-  const last = Date.parse(String(evs[evs.length - 1].ts))
-  if (Number.isNaN(first) || Number.isNaN(last) || last < first) return null
-  return last - first
-}
+/** agent 耗时 Map（首条事件 → 末条事件，无 ts 的 agent 不在 Map 中）：computed 缓存，避免模板每渲染逐 agent filter */
+const agentDurations = computed(() => {
+  const map = new Map<string, number>()
+  for (const agentKey of store.visibleAgentOrder) {
+    const evs = store.visibleEvents.filter(e => e.agent_key === agentKey && e.ts != null)
+    if (evs.length === 0) continue
+    const first = Date.parse(String(evs[0].ts))
+    const last = Date.parse(String(evs[evs.length - 1].ts))
+    if (Number.isNaN(first) || Number.isNaN(last) || last < first) continue
+    map.set(agentKey, last - first)
+  }
+  return map
+})
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
@@ -243,10 +247,7 @@ function formatDuration(ms: number): string {
   return `${m}m${s}s`
 }
 
-/** 实时流式文本（text_delta 累积） */
-function streamingOf(agentKey: string): string {
-  return store.streamingText[agentKey] ?? ''
-}
+// 实时流式文本（text_delta 累积）由 StreamingBubble 子组件直接读 store，父组件不再建立渲染依赖
 
 // ── 时间线视图模型 ──
 interface ToolTimelineItem {
@@ -325,9 +326,24 @@ function compactText(raw: string): string {
   return text
 }
 
+/** markdown 渲染结果 memoize（Map 以原文为 key，容量 300，超限逐出最旧项）：避免重渲时重复 parse+sanitize */
+const MD_CACHE_MAX = 300
+const mdCache = new Map<string, string>()
+function cachedMarkdown(text: string): string {
+  const hit = mdCache.get(text)
+  if (hit !== undefined) return hit
+  const html = renderMarkdown(text)
+  if (mdCache.size >= MD_CACHE_MAX) {
+    // 淘汰最旧插入项（Map 迭代序即插入序）
+    const oldest = mdCache.keys().next().value
+    if (oldest !== undefined) mdCache.delete(oldest)
+  }
+  mdCache.set(text, html)
+  return html
+}
+
 /** 由事件流构建时间线：tool_call/tool_result 按 name+顺序配对（基于渲染窗口内事件） */
-function buildTimeline(agentKey: string): TimelineItem[] {
-  const evs = store.visibleEvents.filter(e => e.agent_key === agentKey)
+function buildTimelineFromEvents(evs: AgentEvent[]): TimelineItem[] {
   const items: TimelineItem[] = []
   /** 每个工具名对应的未匹配 tool_call 下标队列 */
   const pendingCalls = new Map<string, number[]>()
@@ -398,6 +414,22 @@ function buildTimeline(agentKey: string): TimelineItem[] {
   return items
 }
 
+/**
+ * 各 agent 时间线 computed 缓存（agentKey → items）：
+ * 一次遍历 visibleEvents 分组后逐 agent 构建，替代模板中每渲染逐 agent filter 的方法调用。
+ */
+const timelines = computed(() => {
+  const byAgent = new Map<string, AgentEvent[]>()
+  for (const ev of store.visibleEvents) {
+    const list = byAgent.get(ev.agent_key)
+    if (list) list.push(ev)
+    else byAgent.set(ev.agent_key, [ev])
+  }
+  const map = new Map<string, TimelineItem[]>()
+  for (const [key, evs] of byAgent) map.set(key, buildTimelineFromEvents(evs))
+  return map
+})
+
 // ── 滚动控制 ──
 const streamEl = ref<HTMLElement | null>(null)
 const atBottom = ref(true)
@@ -420,13 +452,20 @@ const streamingTotalLength = computed(() =>
   Object.values(store.streamingText).reduce((n, s) => n + s.length, 0),
 )
 
+/** rAF 节流滚底：text_delta 高频触发时每帧至多滚一次 */
+let scrollScheduled = false
+function scheduleScrollToBottom() {
+  if (!atBottom.value || scrollScheduled) return
+  scrollScheduled = true
+  requestAnimationFrame(() => {
+    scrollScheduled = false
+    if (atBottom.value) scrollToBottom()
+  })
+}
+
 watch(
   [() => store.visibleEvents.length, streamingTotalLength],
-  async () => {
-    if (!atBottom.value) return
-    await nextTick()
-    scrollToBottom()
-  },
+  scheduleScrollToBottom,
 )
 
 // ── 加载更早 ──
@@ -481,6 +520,7 @@ const inputPlaceholder = computed(() => {
 })
 
 async function sendMessage() {
+  if (sending.value) return // 发送中守卫：防止回车+点击重复发送
   const agentKey = selectedAgent.value
   const text = inputText.value.trim()
   if (!agentKey || !text) return
@@ -719,15 +759,7 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-secondary);
 }
 
-/* 实时流式气泡 */
-.streaming-bubble { white-space: pre-wrap; }
-
-.streaming-cursor {
-  display: inline-block;
-  margin-left: 2px;
-  color: var(--el-color-success);
-  animation: pulse 1s ease-in-out infinite;
-}
+/* 实时流式气泡样式已随 StreamingBubble.vue 组件化迁入子组件 */
 
 .user-bubble {
   background: var(--el-color-primary-light-9);

@@ -31,7 +31,7 @@ interface TaskWSMessage {
   [key: string]: unknown
 }
 
-/** 本地乐观添加的用户消息事件 seq 固定为负数，避免与服务器 seq 冲突 */
+/** 本地乐观添加的用户消息 seq 固定为负数，避免与服务器 seq 冲突 */
 let localSeq = -1
 
 export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
@@ -50,8 +50,16 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
   const RENDER_WINDOW = 500
   /** agent_key → 实时流式文本（live 模式 text_delta 累积，收到 llm_response 清空） */
   const streamingText = ref<Record<string, string>>({})
-  /** 是否还有更早的事件可加载（loadEarlier 拉取，Task 6 实现真实逻辑） */
+  /** 是否还有更早的事件可加载（loadEarlier 向前分页拉取） */
   const hasMoreEarlier = ref(false)
+  /**
+   * 乐观用户消息（seq<0）单独存放，不混入 events：
+   * 避免被渲染窗口 slice 切掉；visibleEvents 计算时合并到窗口尾部。
+   * 收到服务器 user_message_injected 真实回显后移除对应乐观消息。
+   */
+  const pendingMessages = ref<AgentEvent[]>([])
+  /** 已入库事件去重键（`agent_key:seq`），重连重放时 O(1) 判重 */
+  const seenEventKeys = new Set<string>()
 
   // ── WS 内部状态 ──
   let ws: WebSocket | null = null
@@ -81,10 +89,15 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     agentOrder.value.some(key => (agentStatus.value[key] ?? 'running') === 'running'),
   )
 
-  /** 渲染窗口：events 已按 seq 升序，取最近 RENDER_WINDOW 条（本地乐观 seq<0 消息天然保留在窗口内） */
+  /**
+   * 渲染窗口：events 已按 seq 升序，取最近 RENDER_WINDOW 条；
+   * 乐观消息（pendingMessages，seq<0）不参与窗口裁剪，合并时附加到尾部，
+   * 由 buildTimeline 按 agent_key 归入对应 agent 时间线，不会被窗口切掉。
+   */
   const visibleEvents = computed(() => {
     const evs = events.value
-    return evs.length > RENDER_WINDOW ? evs.slice(evs.length - RENDER_WINDOW) : [...evs]
+    const windowed = evs.length > RENDER_WINDOW ? evs.slice(evs.length - RENDER_WINDOW) : evs
+    return pendingMessages.value.length > 0 ? [...windowed, ...pendingMessages.value] : windowed
   })
 
   /** 基于 visibleEvents 的 agent 执行顺序（只渲染窗口内出现过的 agent） */
@@ -101,17 +114,45 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     }
   }
 
+  /** 二分插入：events 全部为服务器事件（seq>=0）且按 seq 升序，避免每次整体 sort 的 O(n log n) */
   function insertEvent(ev: AgentEvent) {
-    // 按 seq 升序插入（本地乐观消息 seq<0 排最前亦可，直接排序即可）
-    events.value.push(ev)
-    events.value.sort((a, b) => a.seq - b.seq)
+    if (ev.seq >= 0) {
+      const key = `${ev.agent_key}:${ev.seq}`
+      if (seenEventKeys.has(key)) return
+      seenEventKeys.add(key)
+    }
+    const evs = events.value
+    let lo = 0
+    let hi = evs.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (evs[mid].seq <= ev.seq) lo = mid + 1
+      else hi = mid
+    }
+    evs.splice(lo, 0, ev)
   }
 
-  function applyAgentEvent(ev: AgentEvent) {
+  /** 批量插入（loadReplay / loadEarlier）：Set 判重后整批 concat 一次排序，代替逐条二分 splice */
+  function insertEvents(batch: AgentEvent[]) {
+    if (batch.length === 0) return
+    const fresh = batch.filter(ev => {
+      if (ev.seq < 0) return true
+      const key = `${ev.agent_key}:${ev.seq}`
+      if (seenEventKeys.has(key)) return false
+      seenEventKeys.add(key)
+      return true
+    })
+    if (fresh.length === 0) return
+    events.value = [...events.value, ...fresh].sort((a, b) => a.seq - b.seq)
+  }
+
+  /**
+   * 应用一条 agent 事件的副作用（状态/标签/乐观消息回执清理）。
+   * @param insert true 时同时入库（去重由 insertEvent/insertEvents 的 Set 保证）
+   */
+  function applyAgentEvent(ev: AgentEvent, insert = true) {
     ensureAgent(ev.agent_key)
-    // 去重（重连后可能收到重复消息）
-    if (events.value.some(e => e.seq === ev.seq && e.agent_key === ev.agent_key && e.seq >= 0)) return
-    insertEvent(ev)
+    if (insert) insertEvent(ev)
     if (ev.event_type === 'agent_end') {
       agentStatus.value[ev.agent_key] = 'completed'
     } else if (ev.event_type === 'agent_start') {
@@ -122,12 +163,11 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     } else if (ev.event_type === 'user_message_injected' && ev.seq >= 0) {
       // 真实回显到达：移除对应的本地乐观消息（回显为 system-reminder 包装，含用户原文）
       const echoText = String((ev.payload as Record<string, unknown> | undefined)?.text ?? '')
-      const idx = events.value.findIndex(e =>
-        e.seq < 0 && e.agent_key === ev.agent_key
-        && e.event_type === 'user_message_injected'
-        && echoText.includes(String((e.payload as Record<string, unknown> | undefined)?.text ?? '\x00')),
+      const idx = pendingMessages.value.findIndex(p =>
+        p.agent_key === ev.agent_key
+        && echoText.includes(String((p.payload as Record<string, unknown> | undefined)?.text ?? '\x00')),
       )
-      if (idx >= 0) events.value.splice(idx, 1)
+      if (idx >= 0) pendingMessages.value.splice(idx, 1)
     }
   }
 
@@ -155,8 +195,8 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
           event_type: msg.event_type ?? '',
           payload: msg.payload,
         })
-        // llm_response 到达后流式文本已固化，清空实时气泡
-        if (msg.event_type === 'llm_response') {
+        // llm_response 到达后流式文本已固化；agent_end 兜底清空，避免残留实时气泡
+        if (msg.event_type === 'llm_response' || msg.event_type === 'agent_end') {
           delete streamingText.value[msg.agent_key]
         }
         break
@@ -286,9 +326,10 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     return new Promise<AgentMessageReceipt>((resolve) => {
       pendingReceipts.set(agentKey, resolve)
       ws!.send(JSON.stringify({ type: 'user_message', agent_key: agentKey, text: trimmed }))
-      // 本地乐观添加高亮消息
+      // 本地乐观添加高亮消息：存 pendingMessages（seq<0），不混入 events 以免被渲染窗口切掉
       localSeq -= 1
-      insertEvent({
+      pendingMessages.value.push({
+        task_id: taskId.value,
         seq: localSeq,
         ts: new Date().toISOString(),
         agent_key: agentKey,
@@ -314,15 +355,18 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     lastError.value = ''
     let afterSeq: number | undefined
     try {
-      // 分页拉全量
+      // 分页拉全量：先整批收集，再一次 insertEvents 排序入库（避免逐条插入的重复 splice）
+      const all: AgentEvent[] = []
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const res = await analysisApi.getTaskEvents(id, { after_seq: afterSeq, limit: 500 })
         const list: AgentEvent[] = res?.data ?? []
-        for (const ev of list) applyAgentEvent(ev)
+        all.push(...list)
         if (list.length < 500) break
         afterSeq = list[list.length - 1].seq
       }
+      insertEvents(all)
+      for (const ev of all) applyAgentEvent(ev, false)
       // 回放时所有 agent 均已结束
       for (const key of agentOrder.value) agentStatus.value[key] = 'completed'
       // 回放拉全量：总数超出渲染窗口即可"加载更早"
@@ -335,10 +379,29 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     }
   }
 
-  /** 加载更早的事件（拉取窗口之前的分页；真实拉取逻辑 Task 6 实现） */
+  /** 加载更早的事件：以当前 events 最小 seq 为锚，向前分页拉取（desc → reverse 升序） */
   async function loadEarlier() {
-    // Task 6: getTaskEvents(id, { order: 'desc', before_seq: visibleEvents 最小 seq, limit: 500 })
-    return
+    const evs = events.value
+    if (!taskId.value || evs.length === 0) {
+      hasMoreEarlier.value = false
+      return
+    }
+    try {
+      const res = await analysisApi.getTaskEvents(taskId.value, {
+        order: 'desc',
+        before_seq: evs[0].seq,
+        limit: 500,
+      })
+      const list: AgentEvent[] = res?.data ?? []
+      if (list.length > 0) {
+        insertEvents(list.slice().reverse())
+        for (const ev of list) applyAgentEvent(ev, false)
+      }
+      if (list.length < 500) hasMoreEarlier.value = false
+    } catch (error) {
+      console.error('[AnalysisProcess] 加载更早事件失败:', error)
+      lastError.value = '加载更早事件失败'
+    }
   }
 
   /** 重置全部状态 */
@@ -354,6 +417,8 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     localSeq = -1
     streamingText.value = {}
     hasMoreEarlier.value = false
+    pendingMessages.value = []
+    seenEventKeys.clear()
     pendingReceipts.clear()
   }
 
@@ -369,6 +434,7 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     loadingReplay,
     streamingText,
     hasMoreEarlier,
+    pendingMessages,
     agents,
     anyRunning,
     visibleEvents,
