@@ -142,10 +142,10 @@ export interface TaskOverview {
   }
   stock_info: {
     symbol: string
-    name?: string
+    name?: string | null
     market?: string
-    industry?: string
-    latest_price?: number
+    industry?: string | null
+    latest_price?: number | null
   } | null
 }
 
