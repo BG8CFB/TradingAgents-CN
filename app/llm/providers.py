@@ -45,6 +45,7 @@ class ResolvedProvider:
     timeout: Optional[int] = None
     retry_times: Optional[int] = None
     context_window: Optional[int] = None
+    thinking_budget: Optional[int] = None  # >0 开启推理思考（Anthropic opt-in）
 
 
 @dataclass
@@ -61,6 +62,7 @@ class EngineClientBundle:
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
     context_window: Optional[int] = None
+    thinking_budget: Optional[int] = None  # >0 开启推理思考（透传 run_conversation）
     upper_limit: Optional[int] = None  # 截断升级封顶（limits.py 解析）
     _meta: Dict[str, Any] = field(default_factory=dict)
 
@@ -123,6 +125,7 @@ def resolve_provider(
         timeout=cfg.get("timeout"),
         retry_times=cfg.get("retry_times"),
         context_window=cfg.get("context_window"),
+        thinking_budget=cfg.get("thinking_budget"),
     )
 
 
@@ -186,6 +189,7 @@ _CONFIG_FIELDS = (
     "enabled", "suitable_roles", "priority",
     # 每模型参数（表单采集，此前未消费）
     "max_tokens", "temperature", "timeout", "retry_times", "context_window",
+    "thinking_budget",
 )
 
 
@@ -348,6 +352,7 @@ async def _resolve_role_bundle(
         max_tokens=bundle_max_tokens,
         temperature=resolved.temperature,
         context_window=bundle_context_window,
+        thinking_budget=resolved.thinking_budget,
         upper_limit=limits_.upper_limit,
     )
 
@@ -412,6 +417,7 @@ async def resolve_task_override_bundle(
         timeout=inherit.get("timeout"),
         retry_times=inherit.get("retry_times"),
         context_window=db_window or limits_.context_window,
+        thinking_budget=inherit.get("thinking_budget"),
     )
     if not resolved.api_key:
         return None
@@ -422,6 +428,7 @@ async def resolve_task_override_bundle(
         max_tokens=resolved.max_tokens,
         temperature=resolved.temperature,
         context_window=resolved.context_window,
+        thinking_budget=resolved.thinking_budget,
         upper_limit=limits_.upper_limit,
     )
     logger.info(

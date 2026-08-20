@@ -41,6 +41,7 @@ export interface LLMConfig {
   max_tokens: number
   context_window?: number | null  // 上下文窗口（输入侧，与 max_tokens 单次输出上限是两个概念；留空继承模型目录）
   temperature: number
+  thinking_budget?: number | null  // 推理思考预算（Anthropic opt-in；>0 开启，留空不开启；OpenAI 兼容协议忽略）
   timeout: number
   retry_times: number
   enabled: boolean

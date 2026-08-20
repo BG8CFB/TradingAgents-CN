@@ -97,6 +97,7 @@ async def run_conversation(
     max_turns: int = DEFAULT_MAX_TURNS,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    thinking_budget: Optional[int] = None,
     fallback_client: Optional[BaseLLMClient] = None,
     retry_times: Optional[int] = None,
     history: Optional[List[Message]] = None,
@@ -129,6 +130,8 @@ async def run_conversation(
         fallback_client: 限流 fallback 客户端（连续 3 次 429 触发切换，对齐
             claude-code query.ts：清本轮消息后用备模型重放整个请求；仅切换一次）
         retry_times: 覆盖默认重试上限（数据库每模型配置 retry_times）
+        thinking_budget: 推理思考预算（Anthropic extended thinking opt-in 开关，
+            >0 时启用；OpenAI 协议侧忽略——vllm/Qwen 系默认输出 reasoning）
     """
     from .tools.registry import ToolRegistry, tool_registry as default_registry
 
@@ -225,6 +228,7 @@ async def run_conversation(
                 tools=tool_defs or None,
                 max_tokens=escalated_max_tokens or max_tokens,
                 temperature=temperature,
+                thinking_budget=thinking_budget,
             ):
                 if event.type == "text_delta":
                     if on_text_delta:

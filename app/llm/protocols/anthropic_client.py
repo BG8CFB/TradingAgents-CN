@@ -8,6 +8,7 @@ Anthropic Messages 协议客户端（官方 anthropic SDK）
 """
 
 import json
+import logging
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from app.constants.llm_defaults import DEFAULT_MAX_TOKENS
@@ -25,6 +26,7 @@ from ..core.types import (
     Role,
     StopReason,
     TextBlock,
+    ThinkingBlock,
     ToolDef,
     ToolResultBlock,
     ToolUseBlock,
@@ -32,12 +34,37 @@ from ..core.types import (
 )
 from ..tools.pairing import ensure_pairing
 
+logger = logging.getLogger("app.llm.protocols.anthropic")
+
 _STOP_REASON_MAP = {
     "end_turn": StopReason.END_TURN,
     "stop_sequence": StopReason.STOP_SEQUENCE,
     "max_tokens": StopReason.MAX_TOKENS,
     "tool_use": StopReason.TOOL_USE,
 }
+
+# Anthropic extended thinking 的 budget 下限（官方约束）
+_MIN_THINKING_BUDGET = 1024
+
+
+def _apply_thinking(params: Dict[str, Any], thinking_budget: Optional[int], max_tokens: Optional[int]) -> None:
+    """开启 extended thinking（opt-in）。
+
+    官方约束：budget_tokens ≥ 1024 且 < max_tokens；thinking 开启时
+    temperature 必须为 1（显式覆盖调用方传入的 temperature）。
+    """
+    if not thinking_budget or thinking_budget <= 0:
+        return
+    eff_max = max_tokens or params.get("max_tokens") or 0
+    budget = max(_MIN_THINKING_BUDGET, min(thinking_budget, eff_max - 1))
+    if budget >= eff_max:
+        logger.warning(
+            f"[anthropic] max_tokens={eff_max} 过小，无法开启 thinking "
+            f"(budget 至少 {_MIN_THINKING_BUDGET} 且须小于 max_tokens)，本次不开启"
+        )
+        return
+    params["thinking"] = {"type": "enabled", "budget_tokens": budget}
+    params["temperature"] = 1
 
 
 def _translate_error(e: Exception) -> LLMError:
@@ -88,6 +115,12 @@ class AnthropicLLMClient(BaseLLMClient):
             for b in msg.blocks():
                 if isinstance(b, TextBlock):
                     blocks.append({"type": "text", "text": b.text})
+                elif isinstance(b, ThinkingBlock):
+                    # thinking 块回传（signature 必带；thinking 开启的多轮会话
+                    # 缺失会被 API 400 拒绝）。thinking 必须位于消息块序列首位
+                    blocks.insert(0, {
+                        "type": "thinking", "thinking": b.thinking, "signature": b.signature,
+                    })
                 elif isinstance(b, ToolUseBlock):
                     blocks.append({"type": "tool_use", "id": b.id, "name": b.name, "input": b.input})
                 elif isinstance(b, ToolResultBlock):
@@ -142,6 +175,7 @@ class AnthropicLLMClient(BaseLLMClient):
         tools: Optional[List[ToolDef]] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        thinking_budget: Optional[int] = None,
         **kwargs,
     ) -> ChatResponse:
         params: Dict[str, Any] = {
@@ -156,6 +190,7 @@ class AnthropicLLMClient(BaseLLMClient):
         eff_temp = temperature if temperature is not None else self.temperature
         if eff_temp is not None:
             params["temperature"] = eff_temp
+        _apply_thinking(params, thinking_budget, max_tokens or self.max_tokens)
         params.update(kwargs)
         try:
             resp = await self._client.messages.create(**params)
@@ -171,6 +206,7 @@ class AnthropicLLMClient(BaseLLMClient):
         tools: Optional[List[ToolDef]] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        thinking_budget: Optional[int] = None,
         **kwargs,
     ) -> AsyncIterator[StreamEvent]:
         params: Dict[str, Any] = {
@@ -185,11 +221,16 @@ class AnthropicLLMClient(BaseLLMClient):
         eff_temp = temperature if temperature is not None else self.temperature
         if eff_temp is not None:
             params["temperature"] = eff_temp
+        _apply_thinking(params, thinking_budget, max_tokens or self.max_tokens)
         params.update(kwargs)
 
         # SSE 事件装配（参考 claude-code claude.ts 的事件处理）：
         # input_json_delta 增量拼接 tool_use.input，content_block_stop 时块完整
+        # extended thinking（opt-in：请求需带 thinking={type,budget_tokens}，
+        # 经 kwargs 透传）→ thinking_delta 聚合，经 raw 交给 runner 发 thinking 事件
         text_parts: List[str] = []
+        thinking_parts: List[str] = []
+        signature_parts: List[str] = []  # thinking 块签名（多轮回传校验必带）
         tool_blocks: List[Any] = []
         usage = Usage()
         stop_reason = StopReason.OTHER
@@ -203,11 +244,17 @@ class AnthropicLLMClient(BaseLLMClient):
                         block = event.content_block
                         if block.type == "tool_use":
                             tool_blocks.append({"id": block.id, "name": block.name, "json": ""})
+                    # thinking 块的 signature_delta 仅为多轮回传校验用，
+                    # canonical 层不回传 thinking 块，无需收集
                     elif et == "content_block_delta":
                         delta = event.delta
                         if delta.type == "text_delta":
                             text_parts.append(delta.text)
                             yield StreamEvent("text_delta", text=delta.text)
+                        elif delta.type == "thinking_delta":
+                            thinking_parts.append(delta.thinking)
+                        elif delta.type == "signature_delta":
+                            signature_parts.append(getattr(delta, "signature", "") or "")
                         elif delta.type == "input_json_delta":
                             if tool_blocks:
                                 tool_blocks[-1]["json"] += delta.partial_json
@@ -230,6 +277,14 @@ class AnthropicLLMClient(BaseLLMClient):
             raise _translate_error(e) from e
 
         blocks: List[Any] = [TextBlock(text=t) for t in text_parts if t]
+        # thinking 开启时 canonical 保留 thinking 块（含 signature）：
+        # 多轮工具循环回传历史时 API 要求 assistant 消息携带原 thinking 块；
+        # thinking 块必须位于块序列首位
+        if thinking_parts:
+            blocks.insert(0, ThinkingBlock(
+                thinking="".join(thinking_parts),
+                signature="".join(signature_parts),
+            ))
         for tb in tool_blocks:
             try:
                 parsed = json.loads(tb["json"]) if tb["json"] else {}
@@ -239,6 +294,17 @@ class AnthropicLLMClient(BaseLLMClient):
         # 有工具调用块时停止原因必然是 tool_use（个别网关不回传 stop_reason）
         if tool_blocks:
             stop_reason = StopReason.TOOL_USE
+
+        # thinking 经 raw 透传（runner._extract_thinking_text 提取并发 thinking 事件）；
+        # 流式无完整 SDK 响应对象，以轻量命名空间模拟 message.content 结构
+        raw_thinking = None
+        if thinking_parts:
+            from types import SimpleNamespace
+
+            raw_thinking = SimpleNamespace(
+                content=[SimpleNamespace(type="thinking", thinking="".join(thinking_parts))]
+            )
+
         yield StreamEvent(
             "message",
             response=ChatResponse(
@@ -246,6 +312,7 @@ class AnthropicLLMClient(BaseLLMClient):
                 stop_reason=stop_reason,
                 usage=usage,
                 model=model_name,
+                raw=raw_thinking,
             ),
         )
 

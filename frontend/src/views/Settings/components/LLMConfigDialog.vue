@@ -163,6 +163,17 @@
             />
           </el-form-item>
 
+          <el-form-item label="思考预算(Token)">
+            <el-input-number
+              v-model="formData.thinking_budget"
+              :min="1024"
+              :max="128000"
+              :step="1024"
+              placeholder="留空不开启"
+            />
+            <div class="form-tip">Anthropic 协议推理思考预算（≥1024 且小于单次输出上限）；开启后过程视图可见思考内容。OpenAI 兼容协议忽略此参数</div>
+          </el-form-item>
+
           <el-divider content-position="left">定价配置</el-divider>
 
           <el-form-item label="输入价格">
@@ -281,6 +292,7 @@ const defaultFormData = {
   max_tokens: DEFAULT_MAX_TOKENS,
   context_window: undefined as number | undefined,
   temperature: DEFAULT_TEMPERATURE,
+  thinking_budget: undefined as number | undefined,
   timeout: DEFAULT_TIMEOUT,
   retry_times: DEFAULT_RETRY_TIMES,
   enabled: true,
@@ -490,6 +502,7 @@ watch(
         model_display_name: config.model_display_name || '',
         suitable_roles: config.suitable_roles || [],
         context_window: config.context_window ?? undefined,
+        thinking_budget: config.thinking_budget ?? undefined,
       }
       modelOptions.value = getModelOptions(config.provider)
       if (config.model_name) {
@@ -522,6 +535,7 @@ watch(
           model_display_name: props.config.model_display_name || '',
           suitable_roles: props.config.suitable_roles || [],
           context_window: props.config.context_window ?? undefined,
+          thinking_budget: props.config.thinking_budget ?? undefined,
         }
         modelOptions.value = getModelOptions(props.config.provider)
         if (props.config.model_name) {

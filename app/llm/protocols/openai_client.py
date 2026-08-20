@@ -191,6 +191,7 @@ class OpenAILLMClient(BaseLLMClient):
         tools: Optional[List[ToolDef]] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        thinking_budget: Optional[int] = None,  # OpenAI 兼容无对应参数；忽略（vllm/Qwen 系默认输出 reasoning）
         **kwargs,
     ) -> ChatResponse:
         params: Dict[str, Any] = {
@@ -218,6 +219,7 @@ class OpenAILLMClient(BaseLLMClient):
         tools: Optional[List[ToolDef]] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        thinking_budget: Optional[int] = None,  # OpenAI 兼容无对应参数；忽略（vllm/Qwen 系默认输出 reasoning）
         **kwargs,
     ) -> AsyncIterator[StreamEvent]:
         params: Dict[str, Any] = {
@@ -235,6 +237,7 @@ class OpenAILLMClient(BaseLLMClient):
         params.update(kwargs)
 
         text_parts: List[str] = []
+        reasoning_parts: List[str] = []  # 推理模型思考增量（vllm/Qwen/DeepSeek 系）
         tool_calls: Dict[int, Dict[str, str]] = {}  # index → {id, name, arguments}
         usage = Usage()
         finish_reason: Optional[str] = None
@@ -259,6 +262,14 @@ class OpenAILLMClient(BaseLLMClient):
                     if delta.content:
                         text_parts.append(delta.content)
                         yield StreamEvent("text_delta", text=delta.content)
+                    # 推理内容两键兼容：vllm/SGLang/DeepSeek 用 reasoning_content，
+                    # 部分网关与 OpenAI Responses 风格网关用 reasoning
+                    reasoning_delta = (
+                        getattr(delta, "reasoning_content", None)
+                        or getattr(delta, "reasoning", None)
+                    )
+                    if reasoning_delta:
+                        reasoning_parts.append(reasoning_delta)
                     for tc in delta.tool_calls or []:
                         entry = tool_calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
                         if tc.id:
@@ -285,6 +296,24 @@ class OpenAILLMClient(BaseLLMClient):
             blocks.append(ToolUseBlock(id=entry["id"], name=entry["name"], input=args))
 
         stop = StopReason.TOOL_USE if tool_calls else _FINISH_MAP.get(finish_reason, StopReason.OTHER)
+
+        # 思考内容经 raw 透传（runner._extract_thinking_text 从 raw 提取并发
+        # thinking 事件）；canonical 层不保留 reasoning，流式也无完整 SDK 响应对象，
+        # 故以轻量命名空间模拟 choices[0].message 结构
+        raw_thinking = None
+        if reasoning_parts:
+            from types import SimpleNamespace
+
+            raw_thinking = SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            reasoning_content="".join(reasoning_parts), reasoning=None
+                        )
+                    )
+                ]
+            )
+
         yield StreamEvent(
             "message",
             response=ChatResponse(
@@ -292,6 +321,7 @@ class OpenAILLMClient(BaseLLMClient):
                 stop_reason=stop,
                 usage=usage,
                 model=model_name,
+                raw=raw_thinking,
             ),
         )
 

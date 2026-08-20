@@ -51,7 +51,20 @@ class ToolResultBlock:
     is_error: bool = False
 
 
-ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock
+@dataclass
+class ThinkingBlock:
+    """assistant 消息中的推理/思考块（Anthropic extended thinking）。
+
+    仅 Anthropic 协议在开启 thinking_budget 时产生并回传（signature 是
+    多轮工具循环回传的必带校验字段，缺失会被 API 拒绝）；OpenAI 协议侧
+    忽略本块（reasoning 走 ChatResponse.raw → thinking 事件，不进历史）。
+    """
+
+    thinking: str
+    signature: str = ""
+
+
+ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock
 
 
 @dataclass
@@ -63,7 +76,7 @@ class Message:
         """以块列表形态访问 content（str 自动包装为单 TextBlock，单块自动包装为列表）"""
         if isinstance(self.content, str):
             return [TextBlock(text=self.content)]
-        if isinstance(self.content, (TextBlock, ToolUseBlock, ToolResultBlock)):
+        if isinstance(self.content, (TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock)):
             return [self.content]
         return list(self.content)
 

@@ -225,6 +225,12 @@ class LLMConfig(BaseModel):
         description="模型上下文窗口（输入能力，token 数；留空自动取模型目录 context_length）"
     )
     temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0, description="温度参数")
+    thinking_budget: Optional[int] = Field(
+        default=None,
+        ge=1024,
+        le=128000,
+        description="推理思考预算 token 数（Anthropic extended thinking；>0 开启，留空不开启。OpenAI 兼容协议忽略此参数）"
+    )
     timeout: int = Field(default=DEFAULT_TIMEOUT, description="请求超时时间(秒)")
     retry_times: int = Field(default=DEFAULT_RETRY_TIMES, description="重试次数")
     enabled: bool = Field(default=True, description="是否启用")
