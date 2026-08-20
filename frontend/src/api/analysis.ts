@@ -123,8 +123,30 @@ export interface AgentEvent {
     | 'tool_result'
     | 'compact'
     | 'user_message_injected'
+    | 'text_delta'
     | string
   payload?: Record<string, unknown>
+}
+
+/** 任务详情页聚合信息（GET /tasks/{id}/overview） */
+export interface TaskOverview {
+  task: {
+    task_id: string
+    status: string
+    symbol?: string
+    market_type?: string
+    parameters?: Record<string, unknown>
+    created_at?: string
+    started_at?: string
+    completed_at?: string
+  }
+  stock_info: {
+    symbol: string
+    name?: string
+    market?: string
+    industry?: string
+    latest_price?: number
+  } | null
 }
 
 /** 任务列表中的单个任务项（精简，仅前端消费字段） */
@@ -230,14 +252,26 @@ export const analysisApi = {
     return request.get(`/api/analysis/tasks/${taskId}/result`)
   },
 
-  // 获取任务分析过程事件（回放用，支持按 agent/类型过滤与增量拉取）
+  // 获取任务分析过程事件（回放用，支持按 agent/类型过滤、增量/向前分页拉取）
   getTaskEvents(taskId: string, params?: {
     agent_key?: string
     event_type?: string
     after_seq?: number
+    before_seq?: number
+    order?: 'asc' | 'desc'
     limit?: number
   }): Promise<ApiResponse<AgentEvent[]>> {
     return request.get(`/api/analysis/tasks/${taskId}/events`, { params })
+  },
+
+  // 获取任务详情页聚合信息（任务 + 股票信息）
+  getTaskOverview(taskId: string): Promise<ApiResponse<TaskOverview>> {
+    return request.get(`/api/analysis/tasks/${taskId}/overview`)
+  },
+
+  // 取消任务
+  cancelTask(taskId: string): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return request.post(`/api/analysis/tasks/${taskId}/cancel`, {})
   },
 
   // 标记任务为失败
