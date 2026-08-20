@@ -10,7 +10,7 @@ import uuid
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import concurrent.futures
 
 from app.engine.runtime import AnalysisRuntime
@@ -2265,19 +2265,33 @@ class AnalysisService:
             包含 "source" 字段标记数据来源的字典（mongodb_tasks / mongodb_reports），
             或 None 表示所有来源均未找到。
         """
+        status_info, _ = await self._get_status_with_record(task_id, user_id)
+        return status_info
+
+    async def _get_status_with_record(
+        self,
+        task_id: str,
+        user_id: Optional[str] = None,
+    ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+        """get_task_with_status_fallback 的核心实现。
+
+        额外返回 analysis_tasks 命中时的原始记录（第二返回值），供
+        get_task_overview 复用，避免对同一 filter 重复 find_one。
+        内存 / reports 兜底命中时原始记录为空 dict。
+        """
         # 1) 先走现有的 get_task_status（内存 + Redis 进度）
         result = await self.get_task_status(task_id)
         if result:
             # 内存命中后仍要校验所有权：admin (user_id=None) 直通；普通用户需匹配
             if user_id is None:
-                return result
+                return result, {}
             owner = result.get("user_id")
             if owner is None or owner == user_id:
-                return result
+                return result, {}
             logger.warning(
                 f"⚠️ 用户 {user_id} 越权访问任务状态 task_id={task_id} (owner={owner})"
             )
-            return None
+            return None, {}
 
         # 2) 从 analysis_tasks 集合查找（带 user_id 过滤）
         # 老数据兼容：早期记录可能不含 user_id 字段，用 $or 兜底放行无主任务
@@ -2312,7 +2326,7 @@ class AnalysisService:
 
             message = _TASK_STATUS_MESSAGES.get(status, "任务进行中…")
 
-            return {
+            status_dict = {
                 "task_id": task_id,
                 "status": status,
                 "progress": progress,
@@ -2330,6 +2344,7 @@ class AnalysisService:
                 or task_result.get("stock_code"),
                 "source": "mongodb_tasks",
             }
+            return status_dict, task_result
 
         # 3) 尝试通过 analysis_id 兜底查找 analysis_reports（同样带 user_id 过滤）
         report = await self._find_report_by_task_id(task_id, user_id)
@@ -2340,7 +2355,7 @@ class AnalysisService:
             if start_time and end_time:
                 elapsed_time = (end_time - start_time).total_seconds()
 
-            return {
+            report_dict = {
                 "task_id": task_id,
                 "status": "completed",
                 "progress": 100,
@@ -2355,8 +2370,9 @@ class AnalysisService:
                 "stock_symbol": report.get("stock_symbol"),
                 "source": "mongodb_reports",
             }
+            return report_dict, {}
 
-        return None
+        return None, {}
 
     async def get_task_overview(
         self,
@@ -2373,24 +2389,27 @@ class AnalysisService:
         Returns:
             任务概览 dict；不存在或无权访问时返回 None。
         """
-        status_info = await self.get_task_with_status_fallback(task_id, user_id)
+        status_info, record = await self._get_status_with_record(task_id, user_id)
         if not status_info:
             return None
 
-        record: Dict[str, Any] = {}
-        try:
-            db = get_mongo_db()
-            filter_doc: Dict[str, Any] = {"task_id": task_id}
-            if user_id is not None:
-                # 老数据兼容：与 get_task_with_status_fallback 保持一致
-                filter_doc["$or"] = [
-                    {"user_id": user_id},
-                    {"user_id": {"$exists": False}},
-                    {"user_id": None},
-                ]
-            record = await db.analysis_tasks.find_one(filter_doc) or {}
-        except Exception as e:
-            logger.warning(f"⚠️ get_task_overview 查询 analysis_tasks 失败: {e}")
+        # mongodb_tasks 命中时直接复用 fallback 查得的原始记录，不重复查询；
+        # 仅内存命中时补查一次档案字段（reports 兜底命中时 analysis_tasks 必无记录，跳过空查）
+        if not record and status_info.get("source") != "mongodb_reports":
+            try:
+                db = get_mongo_db()
+                filter_doc: Dict[str, Any] = {"task_id": task_id}
+                if user_id is not None:
+                    # 老数据兼容：与 get_task_with_status_fallback 保持一致
+                    filter_doc["$or"] = [
+                        {"user_id": user_id},
+                        {"user_id": {"$exists": False}},
+                        {"user_id": None},
+                    ]
+                record = await db.analysis_tasks.find_one(filter_doc) or {}
+            except Exception as e:
+                logger.warning(f"⚠️ get_task_overview 查询 analysis_tasks 失败: {e}")
+                record = {}
 
         parameters = record.get("parameters")
         if not isinstance(parameters, dict):
@@ -2407,7 +2426,8 @@ class AnalysisService:
             "status": record.get("status") or status_info.get("status"),
             "symbol": record.get("symbol")
             or record.get("stock_code")
-            or status_info.get("symbol"),
+            or status_info.get("symbol")
+            or status_info.get("stock_symbol"),
             "market_type": market_type,
             "parameters": parameters,
             "created_at": record.get("created_at"),
