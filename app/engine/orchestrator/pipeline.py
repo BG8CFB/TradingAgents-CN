@@ -35,6 +35,20 @@ _NODE_SLUG_MAP: Dict[str, str] = {
 _NODE_DISPLAY_FALLBACK: Dict[str, str] = {
     "Summary Agent": "报告总结",
 }
+# 节点名 → 事件流 agent_key 映射：与各节点内部 run_conversation 的 agent_key 对齐
+# （researcher_factory/debator_factory/trader/summary 等），否则同一智能体会在面板分裂成
+# 两个 tab（生命周期事件一个键、LLM 事件另一个键）。agent_key 保持英文稳定标识。
+_NODE_EVENT_KEYS: Dict[str, str] = {
+    "Bull Researcher": "researcher_bull",
+    "Bear Researcher": "researcher_bear",
+    "Research Manager": "research_manager",
+    "Trader": "trader",
+    "Risky Analyst": "risk_debator_risky",
+    "Safe Analyst": "risk_debator_safe",
+    "Neutral Analyst": "risk_debator_neutral",
+    "Risk Judge": "risk_manager",
+    "Summary Agent": "summary",
+}
 # 模块级缓存：配置文件在运行期不变化，进程内解析一次即可
 _NODE_DISPLAY_NAMES: Optional[Dict[str, str]] = None
 
@@ -237,13 +251,16 @@ async def run_pipeline(
             logger.warning(f"⚠️ [orchestrator] 进度文案解析失败: {e}")
             return ""
 
-    async def _emit_progress(node_name: str, phase: str = "") -> None:
+    async def _emit_progress(node_name: str, phase: str = "", agent_key: str = "") -> None:
         if event_sink is None:
             return
         text = _progress_text(node_name)
         if text:
             try:
-                await event_sink.emit("progress", agent_key=node_name, phase=phase, text=text)
+                # agent_key 缺省用 node_name；调用方应传与生命周期事件一致的键，避免面板分裂出重复 tab
+                await event_sink.emit(
+                    "progress", agent_key=agent_key or node_name, phase=phase, text=text
+                )
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"⚠️ [orchestrator] 进度事件发射失败: {e}")
 
@@ -254,12 +271,13 @@ async def run_pipeline(
         """执行单个节点：计时 + 事件 + 失败记录/重试 + 增量合并
 
         event_key：事件流的 agent_key（用户消息门禁/面板 tab 依据）。
-        分析师必须传 internal_key（与 run_conversation 内事件同键），其余阶段默认用 node_name。
+        分析师必须传 internal_key（与 run_conversation 内事件同键），其余阶段默认用
+        _NODE_EVENT_KEYS 对齐节点内部 run_conversation 的键（无映射才回退 node_name）。
         display_name：面板展示名（缺省用 node_name）。
         critical：关键节点（Trader/Judge/Manager/Summary）失败自动重试 1 次；
         重试仍失败则记录 errors 并上抛（不再静默吞掉，Summary 终败即整体失败）。
         """
-        key = event_key or node_name
+        key = event_key or _NODE_EVENT_KEYS.get(node_name, node_name)
         start = time.time()
         if event_sink is not None:
             event_sink.mark_running(key)
@@ -267,7 +285,7 @@ async def run_pipeline(
                 "agent_start", agent_key=key, phase=st.get("_phase", ""),
                 name=display_name or _resolve_display_names().get(node_name) or node_name,
             )
-            await _emit_progress(node_name, phase=st.get("_phase", ""))
+            await _emit_progress(node_name, phase=st.get("_phase", ""), agent_key=key)
         try:
             try:
                 update = await node_fn(st)
@@ -334,7 +352,7 @@ async def run_pipeline(
                         "agent_start", agent_key=internal_key, phase="analysts",
                         name=spec.name,
                     )
-                    await _emit_progress(node_name, phase="analysts")
+                    await _emit_progress(node_name, phase="analysts", agent_key=internal_key)
                 try:
                     async with semaphore:
                         return await run_analyst(
@@ -422,7 +440,8 @@ async def run_pipeline(
             await _run_node("Summary Agent", summary_node, state, critical=True)
             if event_sink is not None:
                 await event_sink.emit(
-                    "progress", agent_key="Summary Agent", phase="summary", text="📊 生成报告"
+                    "progress", agent_key=_NODE_EVENT_KEYS.get("Summary Agent", "Summary Agent"),
+                    phase="summary", text="📊 生成报告"
                 )
 
             # reports 字典回填顶层 *_report 字段（支持自定义智能体，与旧逻辑一致）
