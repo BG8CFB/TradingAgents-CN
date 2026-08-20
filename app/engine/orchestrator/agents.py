@@ -424,6 +424,11 @@ async def build_analyst_specs(
             func_to_tooldef(s.fn, name=s.tool_id, description=s.description)
             for s in skill_entry_specs
         ]
+        # 内置确定性计算工具：所有分析师默认可用（LLM 心算/金额计算易错，
+        # 必须走代码；执行走 runner 的 ad-hoc extra_defs 路径）
+        from app.engine.tools.builtin.tools.calc import calc_tool_defs
+
+        callable_tools.extend(calc_tool_defs())
         if skill_listing_tool is not None:
             callable_tools.append(skill_listing_tool)
         if enable_mcp and mcp_tools:

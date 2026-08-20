@@ -78,4 +78,19 @@ class SkillStore:
         # 替换串用 lambda：避免 Windows 路径反斜杠被当作正则转义（\U 等会报错）
         body = re.sub(r"\$\{(?:CLAUDE_)?SKILL_DIR\}", lambda _m: str(meta.skill_dir), body)
         header = f"Base directory for this skill: {meta.skill_dir}\n\n"
-        return header + body.strip()
+        footer = self._allowed_tools_hint(meta)
+        return header + body.strip() + footer
+
+    @staticmethod
+    def _allowed_tools_hint(meta: SkillMeta) -> str:
+        """frontmatter allowed-tools → 尾部能力边界提示（对齐 claude-code 权限声明）"""
+        at = meta.frontmatter.get("allowed-tools") or meta.frontmatter.get("allowed_tools")
+        if isinstance(at, str):
+            tools = [t for t in at.replace(",", " ").split() if t]
+        elif isinstance(at, list):
+            tools = [str(t) for t in at if str(t).strip()]
+        else:
+            return ""
+        if not tools:
+            return ""
+        return f"\n\n---\n本 skill 限定的数据工具: {', '.join(tools)}（仅通过这些工具获取数据）"

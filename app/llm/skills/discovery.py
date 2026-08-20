@@ -17,7 +17,10 @@ import logging
 
 logger = logging.getLogger("app.llm.skills")
 
-DEFAULT_SKILL_DIRS = ["config/skills"]  # 相对项目根
+DEFAULT_SKILL_DIRS = [
+    "config/skills",  # 用户 skill 根（可写：Git 安装落地、手工编辑）
+    "app/engine/tools/skill/builtin",  # 内置只读 skill（随代码发布，可被用户同名覆盖）
+]
 
 
 @dataclass

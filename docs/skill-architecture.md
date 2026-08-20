@@ -49,7 +49,7 @@ config/skills/{skill-name}/        # 用户本地（最高优先级，git 可追
 ## 与 builtin 工具的集成
 
 - Skill 的 `entrypoints` 通过 `register_skill_entrypoint` 追加到 `BUILTIN_TOOL_REGISTRY`
-- `tool_id` 形如 `{skill_name}.{entrypoint_name}`（如 `technical-screening.calc-indicators`）
+- `tool_id` 形如 `{skill_name}.{entrypoint_name}`（如 `my-skill.calc-indicators`）
 - `is_skill_tool(tool_id)` 判断是否为 skill 脚本入口
 - `simple_agent_factory` 中 skill 工具保留为"可调用工具"（不进入 `inject_tools` 预注入）
 
@@ -58,8 +58,19 @@ config/skills/{skill-name}/        # 用户本地（最高优先级，git 可追
 - **API 路由**：`app/routers/skills.py`，`prefix=/api/skills`，`tags=["Skills"]`
 - **前端管理页**：`/settings/skills`（`SkillsManagement.vue`），独立 Pinia store `stores/skills.ts`
 
-## 预置 Skill 示例
+## Skill 目录规划
 
-- `risk-aware-analysis` — 纯 prompt skill（风险优先分析框架）
-- `sector-rotation` — 纯 prompt skill（行业轮动视角）
-- `technical-screening` — 带 manifest + 脚本的 skill（依赖 `mplfinance`，含 `calc_indicators` 入口）
+| 目录 | 角色 | 说明 |
+|---|---|---|
+| `config/skills/` | 用户 skill 根 | 可写；Git 安装落地处、手工编辑；优先级最高，可覆盖内置同名 skill |
+| `config/skills/.cache/` | 安装缓存 | Git/registry 安装的临时缓存（gitignore） |
+| `app/engine/tools/skill/builtin/` | 内置只读 skill | 随代码发布，优先级最低（当前为空，预留） |
+
+## 内置计算工具（builtin tool，非 skill）
+
+LLM 心算/金额计算易错，数值计算不依赖提示词，统一走确定性 function-calling 工具：
+
+- 实现：`app/engine/tools/builtin/tools/calc.py`（纯标准库，Decimal 精度）
+- 工具：`calc_expression`（ast 白名单安全求值）、`pct_change`、`position_size`、`risk_reward`、`calc_pnl`、`compound`、`max_drawdown`、`var_95`
+- 注入：`build_analyst_specs` 无条件追加进每个分析师的 `callable_tools`（零 YAML 配置），执行走 runner 的 ad-hoc extra_defs 路径
+- 测试：`tests/engine/test_engine_builtin_calc.py`

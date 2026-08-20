@@ -8,10 +8,11 @@ Skill 系统测试套件
 - availability.py 依赖检查
 - builtin/registry.py 的 skill 入口注册/卸载
 - is_skill_tool 判定
+- 空目录退化（config/skills 无 skill 时运行时安全关闭清单）
 
 测试原则（遵守项目规则）：
 - 无 mock，全部真实调用代码路径
-- 使用项目内置的 3 个种子 skill 作为真实测试数据
+- 测试 skill 在 tmp_path 程序化构造（项目已移除预置方法论 skill）
 - 不依赖 MongoDB/Redis 的测试用例可在无基础设施环境运行
 """
 import sys
@@ -24,10 +25,84 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# 测试用 skill 定义 ──────────────────────────────────────────────────────
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+PROMPT_SKILL_MD = """---
+name: tmp-prompt-skill
+description: 临时纯提示词技能，用于机制测试
+version: 2.0.0
+user-invocable: true
+license: Apache-2.0
+metadata:
+  author: test
+  category: test
+allowed-tools: daily_quotes daily_indicators
+---
+
+# 临时提示词技能
+
+仅用于测试 frontmatter 解析与 registry 机制。
+"""
+
+SCRIPT_SKILL_MD = """---
+name: tmp-script-skill
+description: 临时带脚本技能，用于 manifest 与 entrypoint 测试
+version: 1.5.0
+metadata:
+  author: test
+  category: test
+---
+
+# 临时脚本技能
+
+manifest.yaml 声明 entrypoints，scripts/ 提供真实可执行函数。
+"""
+
+MANIFEST_YAML = """\
+skill_name: tmp-script-skill
+schema_version: "1.0"
+entrypoints:
+  - name: calc-indicators
+    display_name: 计算技术指标
+    description: 计算均线与 RSI
+    module: scripts.entry
+    function: calc_indicators
+    inject_args:
+      ticker: ticker
+    markets:
+      - CN
+    domains:
+      - daily_quotes
+python_dependencies:
+  - package: definitely-not-installed-test-package
+    version_constraint: ">=1.0"
+"""
+
+SCRIPT_ENTRY = '''\
+def calc_indicators(ticker: str, periods: int = 5):
+    """返回 ticker 标识与一个确定性计算结果"""
+    return {"ticker": ticker, "value": periods * 2}
+'''
+
+
+@pytest.fixture
+def skills_dir(tmp_path: Path) -> Path:
+    """在 tmp_path 程序化构造 1 个纯提示词 skill + 1 个带 manifest/脚本 skill"""
+    # 纯提示词 skill
+    prompt_dir = tmp_path / "tmp-prompt-skill"
+    prompt_dir.mkdir()
+    (prompt_dir / "SKILL.md").write_text(PROMPT_SKILL_MD, encoding="utf-8")
+
+    # 带 manifest + 脚本的 skill
+    script_dir = tmp_path / "tmp-script-skill"
+    script_dir.mkdir()
+    (script_dir / "SKILL.md").write_text(SCRIPT_SKILL_MD, encoding="utf-8")
+    (script_dir / "manifest.yaml").write_text(MANIFEST_YAML, encoding="utf-8")
+    scripts = script_dir / "scripts"
+    scripts.mkdir()
+    (scripts / "__init__.py").write_text("", encoding="utf-8")
+    (scripts / "entry.py").write_text(SCRIPT_ENTRY, encoding="utf-8")
+    return tmp_path
 
 
 @pytest.fixture(autouse=True)
@@ -40,15 +115,12 @@ def reset_skill_registry():
 
 
 @pytest.fixture
-def skill_registry():
-    """获取全新的 SkillRegistry 单例"""
+def skill_registry(skills_dir: Path):
+    """指向 tmp 目录的全新 SkillRegistry（并设为单例，供 availability 等模块取用）"""
     from app.engine.tools.skill.registry import SkillRegistry
-    return SkillRegistry.get_instance()
-
-
-def _seed_skills_dir():
-    """种子 skill 所在的项目目录（普通函数，便于直接调用）"""
-    return PROJECT_ROOT / "config" / "skills"
+    reg = SkillRegistry(skills_dir=str(skills_dir))
+    SkillRegistry._instance = reg  # availability.py 走 get_instance()
+    return reg
 
 
 # ---------------------------------------------------------------------------
@@ -59,13 +131,13 @@ def _seed_skills_dir():
 class TestManifestParsing:
     """manifest.yaml 解析测试"""
 
-    def test_load_manifest_technical_screening(self):
-        """应正确解析 technical-screening 的 manifest"""
+    def test_load_manifest_script_skill(self, skills_dir):
+        """应正确解析带 manifest 的 skill"""
         from app.engine.tools.skill.manifest import load_manifest
 
-        manifest = load_manifest(str(_seed_skills_dir() / "technical-screening"))
+        manifest = load_manifest(str(skills_dir / "tmp-script-skill"))
         assert manifest is not None
-        assert manifest.skill_name == "technical-screening"
+        assert manifest.skill_name == "tmp-script-skill"
         assert manifest.schema_version == "1.0"
         assert len(manifest.entrypoints) == 1
 
@@ -78,23 +150,24 @@ class TestManifestParsing:
         assert "CN" in ep.markets
         assert "daily_quotes" in ep.domains
 
-        # 依赖
         assert len(manifest.python_dependencies) == 1
-        assert manifest.python_dependencies[0].package == "mplfinance"
+        assert (
+            manifest.python_dependencies[0].package
+            == "definitely-not-installed-test-package"
+        )
 
-    def test_load_manifest_pure_prompt_skill_returns_none(self):
+    def test_load_manifest_pure_prompt_skill_returns_none(self, skills_dir):
         """纯 prompt skill 无 manifest，应返回 None"""
-        from app.engine.tools.skill.manifest import load_manifest, has_manifest
+        from app.engine.tools.skill.manifest import has_manifest, load_manifest
 
-        assert has_manifest(str(_seed_skills_dir() / "risk-aware-analysis")) is False
-        assert load_manifest(str(_seed_skills_dir() / "risk-aware-analysis")) is None
+        assert has_manifest(str(skills_dir / "tmp-prompt-skill")) is False
+        assert load_manifest(str(skills_dir / "tmp-prompt-skill")) is None
 
-    def test_has_manifest_detects_yaml(self):
+    def test_has_manifest_detects_yaml(self, skills_dir):
         """has_manifest 应识别 manifest.yaml"""
         from app.engine.tools.skill.manifest import has_manifest
 
-        assert has_manifest(str(_seed_skills_dir() / "technical-screening")) is True
-        assert has_manifest(str(_seed_skills_dir() / "sector-rotation")) is False
+        assert has_manifest(str(skills_dir / "tmp-script-skill")) is True
 
     def test_load_manifest_nonexistent_dir_returns_none(self):
         """不存在的目录应返回 None（不抛异常）"""
@@ -111,33 +184,29 @@ class TestManifestParsing:
 class TestFrontmatterParsing:
     """SKILL.md frontmatter 解析（yaml.safe_load）"""
 
-    def test_parse_metadata_risk_aware(self):
-        """应正确解析 risk-aware-analysis 的 frontmatter"""
+    def test_parse_metadata_prompt_skill(self, skills_dir):
+        """应正确解析纯提示词 skill 的 frontmatter"""
         from app.engine.tools.skill.loader import parse_skill_metadata
 
-        meta = parse_skill_metadata(
-            str(_seed_skills_dir() / "risk-aware-analysis" / "SKILL.md")
-        )
-        assert meta["name"] == "risk-aware-analysis"
-        assert "风险优先" in meta["description"]
-        assert meta["version"] == "1.0.0"
+        meta = parse_skill_metadata(str(skills_dir / "tmp-prompt-skill" / "SKILL.md"))
+        assert meta["name"] == "tmp-prompt-skill"
+        assert "机制测试" in meta["description"]
+        assert meta["version"] == "2.0.0"
         assert meta["user_invocable"] is True
         assert meta["license"] == "Apache-2.0"
         # allowed-tools 应被解析为列表
         assert meta["allowed_tools"] == ["daily_quotes", "daily_indicators"]
         # metadata 字段应保留
-        assert meta["metadata"].get("category") == "risk"
+        assert meta["metadata"].get("category") == "test"
 
-    def test_parse_metadata_sector_rotation(self):
-        """应正确解析 sector-rotation 的 metadata.tags"""
+    def test_parse_metadata_script_skill(self, skills_dir):
+        """应正确解析脚本 skill 的 metadata"""
         from app.engine.tools.skill.loader import parse_skill_metadata
 
-        meta = parse_skill_metadata(
-            str(_seed_skills_dir() / "sector-rotation" / "SKILL.md")
-        )
-        assert meta["name"] == "sector-rotation"
-        assert meta["version"] == "1.1.0"
-        assert meta["metadata"].get("category") == "strategy"
+        meta = parse_skill_metadata(str(skills_dir / "tmp-script-skill" / "SKILL.md"))
+        assert meta["name"] == "tmp-script-skill"
+        assert meta["version"] == "1.5.0"
+        assert meta["metadata"].get("category") == "test"
 
     def test_parse_metadata_nonexistent_file(self):
         """不存在的文件应返回仅含 file_path 的字典"""
@@ -170,50 +239,49 @@ class TestSkillRegistryDiscovery:
         r2 = SkillRegistry.get_instance()
         assert r1 is not r2
 
-    def test_discovers_three_seed_skills(self, skill_registry):
-        """应发现 3 个种子 skill"""
+    def test_discovers_tmp_skills(self, skill_registry):
+        """应发现 tmp 目录下的 2 个测试 skill"""
         all_skills = skill_registry.list_all_skills()
         names = {s["name"] for s in all_skills}
-        assert "risk-aware-analysis" in names
-        assert "sector-rotation" in names
-        assert "technical-screening" in names
-        assert len(all_skills) >= 3
+        assert "tmp-prompt-skill" in names
+        assert "tmp-script-skill" in names
+        assert len(all_skills) >= 2
 
-    def test_seed_skill_source_type_is_local(self, skill_registry):
-        """种子 skill 都在 config/skills/ 下，source_type 应为 local"""
+    def test_tmp_skill_source_type_is_local(self, skill_registry):
+        """显式指定目录下的 skill，source_type 应为 local"""
         for s in skill_registry.list_all_skills():
             assert s["source_type"] == "local"
 
     def test_get_manifest_returns_correct(self, skill_registry):
         """get_manifest 应正确返回有/无 manifest 的 skill"""
-        m1 = skill_registry.get_manifest("technical-screening")
+        m1 = skill_registry.get_manifest("tmp-script-skill")
         assert m1 is not None
-        assert m1.skill_name == "technical-screening"
+        assert m1.skill_name == "tmp-script-skill"
 
-        m2 = skill_registry.get_manifest("risk-aware-analysis")
+        m2 = skill_registry.get_manifest("tmp-prompt-skill")
         assert m2 is None  # 纯 prompt skill
 
     def test_get_entrypoints_only_for_manifest_skills(self, skill_registry):
         """只有带 manifest 的 skill 才有 entrypoints"""
-        eps1 = skill_registry.get_entrypoints("technical-screening")
+        eps1 = skill_registry.get_entrypoints("tmp-script-skill")
         assert len(eps1) == 1
         assert eps1[0]["name"] == "calc-indicators"
 
-        eps2 = skill_registry.get_entrypoints("risk-aware-analysis")
+        eps2 = skill_registry.get_entrypoints("tmp-prompt-skill")
         assert eps2 == []
 
     def test_get_skill_content_caches(self, skill_registry):
         """get_skill_content 应返回 SKILL.md 全文"""
-        content = skill_registry.get_skill_content("risk-aware-analysis")
+        content = skill_registry.get_skill_content("tmp-prompt-skill")
         assert content is not None
-        assert "风险优先" in content
+        assert "机制测试" in content
         # 二次访问应命中缓存
-        content2 = skill_registry.get_skill_content("risk-aware-analysis")
+        content2 = skill_registry.get_skill_content("tmp-prompt-skill")
         assert content == content2
 
     def test_enable_disable_lifecycle(self, skill_registry):
         """启停 skill 应影响 is_enabled 与 list_skills"""
-        name = "risk-aware-analysis"
+        name = "tmp-prompt-skill"
         assert skill_registry.is_enabled(name) is True
 
         assert skill_registry.disable_skill(name) is True
@@ -235,16 +303,24 @@ class TestSkillRegistryDiscovery:
     def test_reload_clears_cache(self, skill_registry):
         """reload 应清空内容缓存并重新发现"""
         # 先填充缓存
-        skill_registry.get_skill_content("risk-aware-analysis")
-        assert "risk-aware-analysis" in skill_registry._content_cache
+        skill_registry.get_skill_content("tmp-prompt-skill")
+        assert "tmp-prompt-skill" in skill_registry._content_cache
 
         skill_registry.reload()
-        assert "risk-aware-analysis" not in skill_registry._content_cache
+        assert "tmp-prompt-skill" not in skill_registry._content_cache
         # 仍能发现 skill
         assert any(
-            s["name"] == "risk-aware-analysis"
-            for s in skill_registry.list_all_skills()
+            s["name"] == "tmp-prompt-skill" for s in skill_registry.list_all_skills()
         )
+
+    def test_empty_skills_dir_degrades_gracefully(self, tmp_path):
+        """空目录应发现 0 个 skill 且不抛异常"""
+        from app.engine.tools.skill.registry import SkillRegistry
+
+        empty = tmp_path / "empty-skills"
+        empty.mkdir()
+        reg = SkillRegistry(skills_dir=str(empty))
+        assert reg.list_all_skills() == []
 
 
 # ---------------------------------------------------------------------------
@@ -259,29 +335,33 @@ class TestSkillAvailability:
         """纯 prompt skill 无 manifest，依赖应默认满足"""
         from app.engine.tools.skill.availability import check_skill_dependencies
 
-        av = check_skill_dependencies("risk-aware-analysis")
+        av = check_skill_dependencies("tmp-prompt-skill")
         assert av.dependencies_satisfied is True
         assert av.env_satisfied is True
         assert av.dependencies == []
 
     def test_skill_with_missing_dep_is_unsatisfied(self, skill_registry):
-        """technical-screening 声明了 mplfinance，未安装时应 unsatisfied"""
+        """声明了未安装测试包的 skill 应 unsatisfied"""
         from app.engine.tools.skill.availability import check_skill_dependencies
 
-        av = check_skill_dependencies("technical-screening")
+        av = check_skill_dependencies("tmp-script-skill")
         assert av.dependencies_satisfied is False
-        # 找到 mplfinance 依赖项
-        mpl = next(
-            (d for d in av.dependencies if d.package == "mplfinance"), None
+        dep = next(
+            (
+                d
+                for d in av.dependencies
+                if d.package == "definitely-not-installed-test-package"
+            ),
+            None,
         )
-        assert mpl is not None
-        # mplfinance 可能已装也可能未装，不强制断言 satisfied
+        assert dep is not None
+        assert dep.satisfied is False
 
     def test_check_skill_dependencies_raw_returns_dict(self, skill_registry):
         """check_skill_dependencies_raw 应返回标准字典结构"""
         from app.engine.tools.skill.availability import check_skill_dependencies_raw
 
-        result = check_skill_dependencies_raw("risk-aware-analysis")
+        result = check_skill_dependencies_raw("tmp-prompt-skill")
         assert "satisfied" in result
         assert "missing" in result
         assert "warnings" in result
@@ -298,6 +378,48 @@ class TestSkillAvailability:
         assert _package_to_module("mplfinance") == "mplfinance"
         # 未知包名：连字符转下划线
         assert _package_to_module("some-package") == "some_package"
+
+
+# ---------------------------------------------------------------------------
+# entrypoint_loader 真实脚本执行测试
+# ---------------------------------------------------------------------------
+
+
+class TestEntrypointLoader:
+    """skill 脚本入口应可被真实 import 并执行"""
+
+    def test_load_all_skill_entrypoints(self, skills_dir):
+        """依赖不满足的 skill 应被跳过并记入 unavailable"""
+        from app.engine.tools.builtin.registry import unregister_skill_entrypoints
+        from app.engine.tools.skill.entrypoint_loader import (
+            load_all_skill_entrypoints,
+        )
+        from app.engine.tools.skill.registry import SkillRegistry
+
+        reg = SkillRegistry(skills_dir=str(skills_dir))
+        SkillRegistry._instance = reg
+
+        result = load_all_skill_entrypoints()
+        try:
+            # tmp-script-skill 依赖未安装 → 不注册，记入 unavailable
+            assert "tmp-script-skill" not in result["registered"]
+            assert "tmp-script-skill" in result["unavailable"]
+        finally:
+            unregister_skill_entrypoints("tmp-script-skill")
+
+    def test_manifest_function_executable(self, skills_dir):
+        """manifest 声明的函数应真实可调用（直接 import，走 entrypoint 同路径）"""
+        import importlib
+
+        sys.path.insert(0, str(skills_dir / "tmp-script-skill"))
+        try:
+            entry = importlib.import_module("scripts.entry")
+            result = entry.calc_indicators("000001", periods=10)
+            assert result == {"ticker": "000001", "value": 20}
+        finally:
+            sys.path.remove(str(skills_dir / "tmp-script-skill"))
+            sys.modules.pop("scripts.entry", None)
+            sys.modules.pop("scripts", None)
 
 
 # ---------------------------------------------------------------------------
@@ -430,93 +552,32 @@ class TestBuiltinRegistrySkillEntrypoints:
 
 
 # ---------------------------------------------------------------------------
-# 技术指标脚本计算测试（用真实的 technical-screening 脚本）
+# 空目录退化：config/skills 无 skill 时运行时安全关闭清单
 # ---------------------------------------------------------------------------
 
 
-class TestTechnicalScreeningScript:
-    """验证 technical-screening 脚本的指标计算（不依赖 MongoDB）"""
+class TestEmptySkillsDegradation:
+    """项目移除预置方法论 skill 后，空目录应安全退化"""
 
-    @pytest.fixture(autouse=True)
-    def _add_skill_to_path(self):
-        """把 technical-screening 的根目录加入 sys.path"""
-        skill_dir = _seed_skills_dir() / "technical-screening"
-        sys.path.insert(0, str(skill_dir))
-        yield
-        try:
-            sys.path.remove(str(skill_dir))
-        except ValueError:
-            pass
+    def test_skill_store_listing_empty(self, tmp_path):
+        """SkillStore 扫描空目录 → 清单为空字符串"""
+        from app.llm.skills.loader import SkillStore
 
-    def test_calc_ma_simple(self):
-        """_calc_ma 应正确计算移动平均"""
-        from scripts.entry import _calc_ma
-        closes = [1.0, 2.0, 3.0, 4.0, 5.0]
-        ma5 = _calc_ma(closes, 5)
-        assert ma5[-1] == 3.0  # (1+2+3+4+5)/5
-        # 不足 5 个的前 4 个应为 None
-        assert ma5[0] is None
-        assert ma5[3] is None
+        empty = tmp_path / "empty-skills"
+        empty.mkdir()
+        store = SkillStore([str(empty)])
+        assert store.invocable() == []
+        assert store.listing_text() == ""
 
-    def test_calc_ma_short_data(self):
-        """数据不足时应返回全 None"""
-        from scripts.entry import _calc_ma
-        result = _calc_ma([1.0, 2.0], 5)
-        assert result == [None, None]
+    def test_expand_unknown_skill_returns_error_text(self, tmp_path):
+        """展开不存在的 skill 应返回错误提示而非抛异常"""
+        from app.llm.skills.loader import SkillStore
 
-    def test_calc_macd_returns_valid_structure(self):
-        """_calc_macd 应返回 dif/dea/hist 三元组"""
-        import math
-        from scripts.entry import _calc_macd
-        # 构造 40 个数据点
-        closes = [10.0 + math.sin(i / 5) for i in range(40)]
-        macd = _calc_macd(closes)
-        assert "dif" in macd
-        assert "dea" in macd
-        assert "hist" in macd
-        assert len(macd["dif"]) == 40
-
-    def test_calc_macd_short_data_returns_empty(self):
-        """数据不足时应返回空结构"""
-        from scripts.entry import _calc_macd
-        macd = _calc_macd([1.0, 2.0])
-        assert macd == {"dif": [], "dea": [], "hist": []}
-
-    def test_calc_rsi_bounded(self):
-        """RSI 应在 0-100 之间"""
-        import math
-        from scripts.entry import _calc_rsi
-        closes = [10.0 + math.sin(i / 3) * 0.5 + i * 0.1 for i in range(30)]
-        rsi = _calc_rsi(closes, 14)
-        assert len(rsi) > 0
-        for v in rsi:
-            assert 0 <= v <= 100
-
-    def test_classify_ma_sequence(self):
-        """均线排列分类"""
-        from scripts.entry import _classify_ma_sequence
-        assert "多头" in _classify_ma_sequence(15.0, 14.0, 13.0)
-        assert "空头" in _classify_ma_sequence(13.0, 14.0, 15.0)
-        assert "纠缠" in _classify_ma_sequence(14.0, 13.0, 15.0)
-        assert "数据不足" in _classify_ma_sequence(None, 14.0, 13.0)
-
-    def test_classify_rsi_zone(self):
-        """RSI 超买/超卖/中性分类"""
-        from scripts.entry import _classify_rsi_zone
-        assert _classify_rsi_zone(75) == "超买"
-        assert _classify_rsi_zone(25) == "超卖"
-        assert _classify_rsi_zone(50) == "中性"
-        assert _classify_rsi_zone(None) == "数据不足"
-
-    def test_calc_indicators_returns_json(self):
-        """calc_indicators 应返回 JSON 字符串"""
-        import json
-        from scripts.entry import calc_indicators
-        # 无 MongoDB 时会返回 error JSON，但格式应正确
-        result = calc_indicators(ticker="000001", periods=60)
-        parsed = json.loads(result)
-        assert "ticker" in parsed
-        assert parsed["ticker"] == "000001"
+        empty = tmp_path / "empty-skills"
+        empty.mkdir()
+        store = SkillStore([str(empty)])
+        result = store.expand_skill("nonexistent-skill", "args")
+        assert "未知 skill" in result
 
 
 # ---------------------------------------------------------------------------
@@ -670,4 +731,3 @@ class TestGitInstallerTrustedHostsOverride:
         if result2["success"] is False:
             # 失败原因不应该是"不在白名单"
             assert "不在可信白名单内" not in result2["error"]
-
