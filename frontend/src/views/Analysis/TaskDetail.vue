@@ -127,7 +127,8 @@
               <!-- report_ready 事件到达即出现内容：智能体完成的报告实时可看 -->
               <LiveReportPanel />
             </el-tab-pane>
-            <el-tab-pane label="分析报告" name="report">
+            <!-- 分析中隐藏：result 未生成，此时请求 /result 必 404；完成/终态后才展示 -->
+            <el-tab-pane v-if="!isActive" label="分析报告" name="report">
               <TaskReportPanel
                 ref="reportPanelRef"
                 :task-id="taskId"
