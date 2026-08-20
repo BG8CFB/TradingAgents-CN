@@ -379,6 +379,43 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     }
   }
 
+  /**
+   * 详情页 running 主入口：先连 WS 再 desc 首拉回填历史。
+   * 顺序约束：start() 内部会 stop()+reset() 清空 events，因此回放填充必须放在 start() 之后；
+   * WS 与回填并发到达时由 insertEvent/insertEvents 的 seenEventKeys 去重无缝拼接。
+   */
+  async function loadLatestAndConnect(id: string) {
+    start(id) // 连 WS（此后 WS 增量事件正常进入）
+    loadingReplay.value = true
+    lastError.value = ''
+    try {
+      // desc 首拉最近 500 条，reverse 为升序后入库（副作用需按时间正序应用）
+      const res = await analysisApi.getTaskEvents(id, { order: 'desc', limit: 500 })
+      const list: AgentEvent[] = res?.data ?? []
+      if (list.length > 0) {
+        const ordered = list.slice().reverse()
+        insertEvents(ordered)
+        for (const ev of ordered) applyAgentEvent(ev, false)
+      }
+      hasMoreEarlier.value = list.length >= 500
+      // 补洞：首拉快照与 WS 实时增量之间可能有空洞（WS 事件 seq 跳跃），
+      // 统一以当前最大 seq 为锚升序补拉一次，重复事件由去重键吸收
+      const evs = events.value
+      const maxSeq = evs.length > 0 ? evs[evs.length - 1].seq : 0
+      const inc = await analysisApi.getTaskEvents(id, { after_seq: maxSeq, limit: 500 })
+      const incList: AgentEvent[] = inc?.data ?? []
+      if (incList.length > 0) {
+        insertEvents(incList)
+        for (const ev of incList) applyAgentEvent(ev, false)
+      }
+    } catch (error) {
+      console.error('[AnalysisProcess] 加载最新事件失败:', error)
+      lastError.value = '加载历史事件失败'
+    } finally {
+      loadingReplay.value = false
+    }
+  }
+
   /** 加载更早的事件：以当前 events 最小 seq 为锚，向前分页拉取（desc → reverse 升序） */
   async function loadEarlier() {
     const evs = events.value
@@ -445,6 +482,7 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     start,
     stop,
     sendAgentMessage,
+    loadLatestAndConnect,
     loadReplay,
     loadEarlier,
     reset,

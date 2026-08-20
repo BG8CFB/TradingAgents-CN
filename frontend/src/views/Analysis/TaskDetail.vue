@@ -54,6 +54,16 @@
       class="task-alert"
     />
 
+    <!-- WS 断连提示（live 且曾连上后断开；进度由 5s 轮询兜底） -->
+    <el-alert
+      v-if="wsDisconnected"
+      type="warning"
+      title="连接中断，重连中…"
+      :closable="false"
+      show-icon
+      class="task-alert ws-alert"
+    />
+
     <!-- 加载失败 -->
     <el-alert
       v-if="loadError"
@@ -91,10 +101,10 @@
         <el-card shadow="never" class="tabs-card">
           <el-tabs v-model="activeTab">
             <el-tab-pane label="实时过程" name="process">
-              <!-- Task 6: 事件流挂载点 -->
-              <div class="tab-placeholder" :data-mount="`process:${taskId}`">
-                {{ isActive ? '正在接入实时事件流…' : '事件流待接入' }}
-              </div>
+              <!-- live：store 已由 loadLatestAndConnect 启动（WS+历史回填），不传 taskId 避免面板重复 start -->
+              <ProcessPanel v-if="isActive" />
+              <!-- 终态：store 已由 loadReplay 填充，事件定格展示 -->
+              <ProcessPanel v-else replay />
             </el-tab-pane>
             <el-tab-pane label="分析报告" name="report">
               <!-- Task 7: 报告面板挂载点 -->
@@ -115,6 +125,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { analysisApi, type TaskOverview } from '@/api/analysis'
 import TaskDetailSidebar from '@/components/Analysis/TaskDetailSidebar.vue'
+import ProcessPanel from '@/components/Analysis/ProcessPanel.vue'
+import { useAnalysisProcessStore } from '@/stores/analysisProcess'
+
+const processStore = useAnalysisProcessStore()
 
 const route = useRoute()
 const router = useRouter()
@@ -156,6 +170,18 @@ const statusTagType = computed(() => STATUS_META[taskStatus.value]?.tag ?? 'warn
 
 const symbolText = computed(() => overview.value?.task.symbol || taskId)
 const stockName = computed(() => overview.value?.stock_info?.name || '')
+
+// WS 断连提示：仅 live 模式且"曾连上后断开"时显示（避免首连阶段闪现），进度由 5s 轮询兜底
+const wsEverConnected = ref(false)
+watch(() => processStore.connected, (c) => {
+  if (c) wsEverConnected.value = true
+})
+watch(() => processStore.mode, () => {
+  // 切换模式（如 stop 后 idle）重置，避免下次 live 复用旧标记
+  if (processStore.mode !== 'live') wsEverConnected.value = false
+})
+const wsDisconnected = computed(() =>
+  processStore.mode === 'live' && wsEverConnected.value && !processStore.connected)
 
 function parseTs(v?: string | null): number | null {
   if (!v) return null
@@ -260,12 +286,15 @@ function startPolling() {
       if (data.status === 'completed') {
         progressPercentage.value = 100
         stopTimers()
+        processStore.stop() // 断开 WS，已收到的事件保留（切回过程 tab 仍可查看）
         activeTab.value = 'report'
       } else if (data.status === 'failed') {
         errorMessage.value = data.error_message || ''
         stopTimers()
+        processStore.stop()
       } else if (data.status === 'cancelled') {
         stopTimers()
+        processStore.stop() // 事件流定格
       }
     } catch {
       // 单次轮询失败不打断，下一周期重试
@@ -279,8 +308,14 @@ async function init() {
   if (isActive.value) {
     startTick()
     startPolling()
-  } else if (taskStatus.value === 'completed') {
-    activeTab.value = 'report'
+    // running 主入口：连 WS + desc 首拉回填历史（不阻塞首屏，面板渲染 store 响应式更新）
+    void processStore.loadLatestAndConnect(taskId)
+  } else {
+    // 终态（completed/failed/cancelled）：纯回放，事件定格展示
+    void processStore.loadReplay(taskId)
+    if (taskStatus.value === 'completed') {
+      activeTab.value = 'report'
+    }
   }
 }
 
@@ -305,6 +340,7 @@ async function handleCancel() {
       ElMessage.success('任务已取消')
       taskStatus.value = 'cancelled'
       stopTimers()
+      processStore.stop() // 事件流定格
       await loadOverview()
     } else {
       ElMessage.error(res.message || '取消失败，请重试')
@@ -321,7 +357,10 @@ function restartAnalysis() {
 }
 
 onMounted(init)
-onBeforeUnmount(stopTimers)
+onBeforeUnmount(() => {
+  stopTimers()
+  processStore.stop()
+})
 </script>
 
 <style scoped>
