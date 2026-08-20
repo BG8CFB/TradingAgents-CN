@@ -188,7 +188,15 @@ export const analysisApi = {
   },
 
   // 获取任务状态
-  getTaskStatus(taskId: string): Promise<ApiResponse<{ status: string; progress?: number; result_data?: any; error_message?: string }>> {
+  getTaskStatus(taskId: string): Promise<ApiResponse<{
+    status: string
+    progress?: number
+    progress_percentage?: number
+    current_step_name?: string
+    message?: string
+    result_data?: any
+    error_message?: string
+  }>> {
     return request.get(`/api/analysis/tasks/${taskId}/status`)
   },
 

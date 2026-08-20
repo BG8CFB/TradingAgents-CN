@@ -73,6 +73,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Analysis/BatchAnalysis.vue'),
         meta: { title: '批量分析', requiresAuth: true }
       },
+      {
+        path: 'tasks/:taskId',
+        name: 'AnalysisTaskDetail',
+        component: () => import('@/views/Analysis/TaskDetail.vue'),
+        meta: { title: '分析任务详情', requiresAuth: true }
+      },
 
     ]
   },
