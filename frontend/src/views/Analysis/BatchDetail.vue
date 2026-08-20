@@ -98,7 +98,8 @@
 
             <div class="card-body">
               <!-- 进度：非终态显示步骤提示，终态显示结果摘要 -->
-              <div v-if="!isTerminal(task.status)" class="card-line muted">
+              <div v-if="task.status === 'unknown'" class="card-line muted">状态获取失败，等待下次刷新…</div>
+              <div v-else-if="!isTerminal(task.status)" class="card-line muted">
                 {{ task.current_step || '排队等待中…' }}
               </div>
               <div v-else-if="task.status === 'completed'" class="card-line muted">
@@ -176,10 +177,14 @@ const STATUS_META: Record<string, { label: string; tag: 'success' | 'danger' | '
   completed: { label: '已完成', tag: 'success' },
   failed: { label: '失败', tag: 'danger' },
   cancelled: { label: '已取消', tag: 'info' },
+  // 单任务状态查询失败且无历史状态时的占位（灰色徽标），不计入终态、不停止轮询
+  unknown: { label: '未知', tag: 'info' },
 }
 
 const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled']
 const POLL_INTERVAL_MS = 5000
+/** 单轮任务状态查询的并发分批大小 */
+const TASK_FETCH_CHUNK = 8
 
 const route = useRoute()
 const router = useRouter()
@@ -194,13 +199,15 @@ const downloadingAll = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const batchId = computed(() => route.params.batchId as string)
-const totalCount = computed(() => tasks.value.length)
+// 总数固定取批次 tasks 数组长度：单任务查询失败保留占位卡片，不会因过滤而减少
+const totalCount = computed(() => batch.value?.tasks?.length ?? tasks.value.length)
 const doneCount = computed(() => tasks.value.filter(t => t.status === 'completed').length)
 const terminalCount = computed(() => tasks.value.filter(t => isTerminal(t.status)).length)
 const completedCount = computed(() => doneCount.value)
 const allDone = computed(() => totalCount.value > 0 && terminalCount.value === totalCount.value)
+// 口径统一：环内数字与百分比都用 completed/总数，部分终态（失败/取消）只推进计数不推进进度环
 const donePercentage = computed(() =>
-  totalCount.value === 0 ? 0 : Math.round((terminalCount.value / totalCount.value) * 100))
+  totalCount.value === 0 ? 0 : Math.min(100, Math.round((doneCount.value / totalCount.value) * 100)))
 
 const statusCountList = computed(() =>
   Object.keys(STATUS_META).map(status => ({
@@ -248,16 +255,21 @@ function toDate(v: number | string): Date | null {
 
 async function fetchBatch(): Promise<BatchInfo> {
   // 后端该端点直接返回批次对象（无 success/data 包装），响应拦截器原样透传
-  return (await request.get(`/api/analysis/batches/${batchId.value}`)) as BatchInfo
+  return (await request.get(`/api/analysis/batches/${encodeURIComponent(batchId.value)}`)) as BatchInfo
 }
 
-async function fetchTask(taskId: string): Promise<BatchTask | null> {
+/** 各任务最近一次成功获取的状态：单次查询失败时用于占位兜底 */
+const lastKnownStatus = new Map<string, string>()
+
+async function fetchTask(taskId: string): Promise<BatchTask> {
   try {
     const res = await analysisApi.getTaskStatus(taskId)
     const d = (res.data ?? {}) as Record<string, unknown>
+    const status = String(d.status ?? 'queued')
+    lastKnownStatus.set(taskId, status)
     return {
       task_id: taskId,
-      status: String(d.status ?? 'queued'),
+      status,
       symbol: d.symbol as string | undefined,
       stock_symbol: d.stock_symbol as string | undefined,
       stock_code: d.stock_code as string | undefined,
@@ -268,17 +280,40 @@ async function fetchTask(taskId: string): Promise<BatchTask | null> {
       completed_at: (d.completed_at as number | string | undefined),
     }
   } catch {
-    return null // 单个任务状态查询失败不阻断整页
+    // 单个任务状态查询失败不阻断整页：保留占位卡片，沿用上次已知状态（无则 unknown，不计终态）
+    return { task_id: taskId, status: lastKnownStatus.get(taskId) ?? 'unknown' }
   }
 }
 
+/** 轮次序号：batchId 变化重置时递增，使仍在途的旧轮次结果作废 */
+let loadSeq = 0
+/** 当前轮次是否已有一次 loadOnce 在途（防重复触发）；null 表示空闲 */
+let loadInFlightSeq: number | null = null
+
 async function loadOnce(): Promise<boolean> {
-  const info = await fetchBatch()
-  batch.value = info
-  const ids = info.tasks ?? []
-  const list = await Promise.all(ids.map(fetchTask))
-  tasks.value = list.filter((t): t is BatchTask => t !== null)
-  return allDone.value
+  // 同一轮次进行中：重复触发（定时器/手动）直接返回，不发起新请求
+  if (loadInFlightSeq === loadSeq) return false
+  loadInFlightSeq = loadSeq
+  const mySeq = loadSeq
+  try {
+    const info = await fetchBatch()
+    if (mySeq !== loadSeq) return false // 轮次已过期，丢弃结果
+    batch.value = info
+    const ids = info.tasks ?? []
+    const list: BatchTask[] = []
+    // 分批并行（每批 8 个），避免大批次一次性打满后端
+    for (let i = 0; i < ids.length; i += TASK_FETCH_CHUNK) {
+      if (mySeq !== loadSeq) return false
+      const chunk = ids.slice(i, i + TASK_FETCH_CHUNK)
+      list.push(...(await Promise.all(chunk.map(fetchTask))))
+    }
+    if (mySeq !== loadSeq) return false
+    // fetchTask 失败也返回占位（unknown/上次状态），因此 list 与 ids 一一对应
+    tasks.value = list
+    return allDone.value
+  } finally {
+    if (loadInFlightSeq === mySeq) loadInFlightSeq = null
+  }
 }
 
 function stopPolling() {
@@ -290,6 +325,9 @@ function stopPolling() {
 }
 
 async function init() {
+  // 递增轮次使旧轮次在途请求作废，并清理上一批次的状态缓存
+  loadSeq += 1
+  lastKnownStatus.clear()
   loading.value = true
   loadError.value = ''
   stopPolling()
