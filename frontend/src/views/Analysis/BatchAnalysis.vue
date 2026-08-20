@@ -737,37 +737,6 @@ const submitBatchAnalysis = async () => {
   }
 }
 
-// @ts-expect-error - reserved for future use
-const _resetForm = () => {
-  // 从用户偏好加载默认值
-  const authStore = useAuthStore()
-  const userPrefs = authStore.user?.preferences
-
-  // 重置分析师：如果分析师列表已加载，使用默认逻辑
-  let defaultAnalysts = [] as string[]
-  if (userPrefs?.default_analysts) {
-      defaultAnalysts = [...userPrefs.default_analysts]
-  } else if (analysts.value.length > 0) {
-      defaultAnalysts = analysts.value
-          .filter(a => a.slug.includes('market') || a.slug.includes('fundamental'))
-          .map(a => a.id)
-  } else {
-      defaultAnalysts = [] // 会由 fetchAnalysts 填充
-  }
-
-  Object.assign(batchForm, {
-    title: '',
-    description: '',
-    analysts: defaultAnalysts,
-    phases: {
-      phase2: { enabled: false, debateRounds: 2 },
-      phase3: { enabled: false, debateRounds: 1 },
-      phase4: { enabled: true, debateRounds: 1 }
-    }
-  })
-  clearStocks()
-}
-
 </script>
 
 <style lang="scss" scoped>

@@ -377,7 +377,6 @@ import VChart from 'vue-echarts'
 import type { EChartsOption } from 'echarts'
 import { favoritesApi } from '@/api/favorites'
 import { useFavoritesStore } from '@/stores/favorites'
-import { useNotificationStore } from '@/stores/notifications'
 import { loadAgentDisplayNames } from '@/utils/agentDisplayNames'
 
 
@@ -391,8 +390,6 @@ const router = useRouter()
 const analysisStatus = ref<'idle' | 'running' | 'completed' | 'failed'>('idle')
 const analysisProgress = ref(0)
 const analysisMessage = ref('')
-// @ts-expect-error
-const _currentTaskId = ref<string | null>(null)
 const lastAnalysis = ref<any | null>(null)
 const lastTaskInfo = ref<any | null>(null) // 保存任务信息（包含 end_time 等）
 
@@ -400,29 +397,18 @@ const lastTaskInfo = ref<any | null>(null) // 保存任务信息（包含 end_ti
 const showReportsDialog = ref(false)
 const activeReportTab = ref('')
 
-// @ts-expect-error
-const _notifStore = useNotificationStore()
 const favoritesStore = useFavoritesStore()
 
-// @ts-expect-error
-const _lastAnalysisTagType = computed(() => {
-  const reco = String(lastAnalysis.value?.recommendation || '').toLowerCase()
-  if (reco.includes('买') || reco.includes('buy') || reco.includes('增持') || reco.includes('强')) return 'success'
-  if (reco.includes('卖') || reco.includes('sell')) return 'danger'
-  if (reco.includes('减持') || reco.includes('谨慎')) return 'warning'
-  return 'info'
-})
+// 股票代码（从路由参数获取；computed 保持纯函数，校验副作用放 watch）
+const code = computed(() => String(route.params.code || '').toUpperCase())
 
-// 股票代码（从路由参数获取）
-const code = computed(() => {
-  const routeCode = String(route.params.code || '').toUpperCase()
-  if (!routeCode) {
+// 空代码防御：提示并跳回首页（副作用不能放 computed，否则触发 vue/no-side-effects）
+watch(code, (v) => {
+  if (!v) {
     ElMessage.error('股票代码不能为空')
     router.push({ name: 'Dashboard' })
-    return ''
   }
-  return routeCode
-})
+}, { immediate: true })
 const symbol = computed(() => code.value.replace(/\.\w+$/, ''))  // 去掉后缀（如 .SZ）
 const stockName = ref('')
 const market = ref('')
@@ -935,15 +921,6 @@ async function onToggleFavorite() {
     ElMessage.error(e?.message || '自选操作失败')
   }
 }
-
-
-
-// @ts-expect-error
-function _scrollToDetail() {
-  const el = document.getElementById('analysis-detail')
-  if (el) el.scrollIntoView({ behavior: 'smooth' })
-}
-
 // 获取最新的历史分析报告
 async function fetchLatestAnalysis() {
   try {
