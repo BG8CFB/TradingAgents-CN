@@ -148,6 +148,21 @@
                   <div class="risk-label" :style="{ color: getRiskColor(report.risk_level || '中等') }">
                     {{ report.risk_level || '中等' }}风险
                   </div>
+                  <!-- 风险评估详情（原独立区块合并入卡片） -->
+                  <div v-if="report.structured_summary?.risk_assessment" class="risk-detail">
+                    <div v-if="report.structured_summary.risk_assessment.score != null" class="risk-score-row">
+                      <span class="risk-score-label">评分 {{ report.structured_summary.risk_assessment.score }}/10</span>
+                      <el-progress
+                        class="risk-progress-bar"
+                        :percentage="(report.structured_summary.risk_assessment.score || 0) * 10"
+                        :stroke-width="8"
+                        :color="getRiskProgressColor(report.structured_summary.risk_assessment.score || 0)"
+                      />
+                    </div>
+                    <p v-if="report.structured_summary.risk_assessment.description" class="risk-detail-desc">
+                      {{ report.structured_summary.risk_assessment.description }}
+                    </p>
+                  </div>
                 </div>
               </div>
             </el-col>
@@ -229,29 +244,6 @@
               </div>
             </div>
             <el-tag type="info" size="small" style="margin-top: 8px;">仅供参考，不构成投资建议</el-tag>
-          </div>
-
-          <!-- 🔥 风险评估详情（来自结构化总结） -->
-          <div v-if="report.structured_summary && report.structured_summary.risk_assessment" class="risk-assessment-section">
-            <h4>
-              <el-icon><Warning /></el-icon>
-              风险评估详情
-            </h4>
-            <div class="risk-assessment-content">
-              <div class="risk-score-display">
-                <span class="risk-score-label">风险评分:</span>
-                <el-progress
-                  class="risk-progress-bar"
-                  :percentage="(report.structured_summary.risk_assessment.score || 0) * 10"
-                  :stroke-width="12"
-                  :color="getRiskProgressColor(report.structured_summary.risk_assessment.score || 0)"
-                />
-                <span class="risk-score-value">{{ report.structured_summary.risk_assessment.score || 0 }}/10</span>
-              </div>
-              <div v-if="report.structured_summary.risk_assessment.description" class="risk-description">
-                <p>{{ report.structured_summary.risk_assessment.description }}</p>
-              </div>
-            </div>
           </div>
         </div>
       </el-card>
@@ -871,34 +863,57 @@ onMounted(() => {
 
       .metric-item {
         text-align: center;
-        padding: 24px;
-        border: 1px solid var(--el-border-color-light);
-        border-radius: 12px;
+        padding: 24px 24px 20px;
+        border: 1px solid var(--el-border-color-lighter);
+        border-radius: 16px;
         background: var(--el-fill-color-blank);
-        transition: all 0.3s ease;
+        transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
         height: 100%;
         min-height: 240px;
+        width: 100%;
         display: flex;
         flex-direction: column;
+        position: relative;
+        overflow: hidden;
+
+        // 顶部主题色饰条（按卡片类型在各自的 item 类中覆色）
+        &::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 3px;
+          background: linear-gradient(90deg, var(--el-color-primary) 0%, var(--el-color-primary-light-5) 100%);
+          opacity: 0.85;
+        }
 
         &:hover {
-          box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-          transform: translateY(-2px);
+          border-color: var(--el-color-primary-light-7);
+          box-shadow:
+            0 4px 6px -1px rgba(0, 0, 0, 0.05),
+            0 10px 24px -4px rgba(64, 158, 255, 0.18);
+          transform: translateY(-3px);
         }
 
         .metric-label {
-          display: flex;
+          display: inline-flex;
           align-items: center;
           justify-content: center;
+          align-self: center;
           gap: 6px;
-          font-size: 15px;
-          font-weight: 500;
+          font-size: 14px;
+          font-weight: 600;
           color: var(--el-text-color-regular);
           margin-bottom: 16px;
+          padding: 6px 16px;
+          border-radius: 999px;
+          background: var(--el-color-primary-light-9);
           flex-shrink: 0;
 
           .el-icon {
-            font-size: 18px;
+            font-size: 16px;
+            color: var(--el-color-primary);
           }
         }
 
@@ -914,11 +929,25 @@ onMounted(() => {
           color: var(--el-text-color-primary);
           flex: 1;
           text-align: left;
+          min-width: 0;
+          overflow-wrap: anywhere;
         }
       }
 
       // 置信度评分样式
       .confidence-item {
+        &::before {
+          background: linear-gradient(90deg, var(--el-color-success) 0%, var(--el-color-success-light-5) 100%);
+        }
+
+        .metric-label {
+          background: var(--el-color-success-light-9);
+
+          .el-icon {
+            color: var(--el-color-success);
+          }
+        }
+
         .confidence-display {
           display: flex;
           flex-direction: column;
@@ -959,6 +988,18 @@ onMounted(() => {
 
       // 风险等级样式
       .risk-item {
+        &::before {
+          background: linear-gradient(90deg, var(--el-color-warning) 0%, var(--el-color-warning-light-5) 100%);
+        }
+
+        .metric-label {
+          background: var(--el-color-warning-light-9);
+
+          .el-icon {
+            color: var(--el-color-warning);
+          }
+        }
+
         .risk-display {
           display: flex;
           flex-direction: column;
@@ -973,11 +1014,12 @@ onMounted(() => {
             font-size: 28px;
 
             .star-icon {
-              color: #DCDFE6;
-              transition: all 0.3s ease;
+              color: var(--el-fill-color-darker);
+              transition: color 0.3s ease, filter 0.3s ease, transform 0.3s ease;
 
               &.active {
                 color: #F7BA2A;
+                filter: drop-shadow(0 2px 4px rgba(247, 186, 42, 0.45));
                 animation: starPulse 0.6s ease-in-out;
               }
             }
@@ -1060,7 +1102,7 @@ onMounted(() => {
           align-items: center;
           gap: 8px;
           margin: 0 0 16px 0;
-          font-size: 16px;
+          font-size: 15px;
           font-weight: 600;
           color: var(--el-text-color-primary);
 
@@ -1068,95 +1110,84 @@ onMounted(() => {
             font-size: 18px;
             color: var(--el-color-primary);
           }
+
+          // 标题右侧延伸的细装饰线
+          &::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            margin-left: 8px;
+            background: linear-gradient(90deg, var(--el-border-color-lighter), transparent);
+          }
         }
 
         .key-indicators-grid {
           display: grid;
-          grid-template-columns: repeat(5, 1fr);
+          // 点位值可能是短数字也可能是 LLM 生成的长句，用 auto-fit 自适应列数，防止内容撑破容器
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
           gap: 12px;
           margin-bottom: 12px;
+          max-width: 100%;
 
           .indicator-item {
             display: flex;
             flex-direction: column;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
             gap: 6px;
-            padding: 14px 8px;
-            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            padding: 14px 16px;
+            background: var(--el-fill-color-lighter);
             border-radius: 10px;
             border: 1px solid var(--el-border-color-lighter);
-            transition: all 0.2s ease;
-            text-align: center;
+            border-left: 3px solid var(--el-color-primary);
+            transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+            text-align: left;
+            min-width: 0;
 
             &:hover {
-              box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-              transform: translateY(-1px);
+              border-left-color: var(--el-color-primary-dark-2);
+              box-shadow: 0 4px 12px rgba(64, 158, 255, 0.12);
+              transform: translateY(-2px);
             }
 
             .indicator-label {
               font-size: 12px;
+              letter-spacing: 0.5px;
               color: var(--el-text-color-secondary);
               white-space: nowrap;
             }
 
             .indicator-value {
-              font-size: 15px;
+              font-size: 14px;
               font-weight: 600;
               color: var(--el-color-primary);
-              white-space: nowrap;
+              // 允许长句换行，禁止 nowrap 撑破 grid 列（历史 bug：长点位句把卡片撑到 1978px）
+              white-space: normal;
+              word-break: break-word;
+              overflow-wrap: anywhere;
+              line-height: 1.6;
             }
-          }
-        }
-
-        @media (max-width: 1024px) {
-          .key-indicators-grid {
-            grid-template-columns: repeat(3, 1fr);
-          }
-        }
-
-        @media (max-width: 768px) {
-          .key-indicators-grid {
-            grid-template-columns: repeat(2, 1fr);
           }
         }
       }
 
-      // 🔥 风险评估详情样式
-      .risk-assessment-section {
-        margin-top: 24px;
-        padding-top: 24px;
-        border-top: 1px solid var(--el-border-color-lighter);
+      // 🔥 风险评估详情（合并入风险评估卡片内）
+      .risk-item {
+        .risk-detail {
+          margin-top: 12px;
+          padding-top: 12px;
+          border-top: 1px dashed var(--el-border-color-lighter);
+          width: 100%;
+          min-width: 0;
 
-        h4 {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin: 0 0 16px 0;
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--el-text-color-primary);
-
-          .el-icon {
-            font-size: 18px;
-            color: var(--el-color-warning);
-          }
-        }
-
-        .risk-assessment-content {
-          padding: 20px 24px;
-          background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-          border-radius: 12px;
-          border: 1px solid #fcd34d;
-
-          .risk-score-display {
+          .risk-score-row {
             display: flex;
             align-items: center;
-            gap: 16px;
-            margin-bottom: 16px;
+            gap: 8px;
+            width: 100%;
 
             .risk-score-label {
-              font-size: 14px;
+              font-size: 13px;
               color: var(--el-text-color-secondary);
               white-space: nowrap;
               flex-shrink: 0;
@@ -1164,29 +1195,23 @@ onMounted(() => {
 
             .risk-progress-bar {
               flex: 1;
-              max-width: 300px;
-              min-width: 120px;
-            }
+              min-width: 0;
 
-            .risk-score-value {
-              font-size: 18px;
-              font-weight: 700;
-              color: var(--el-text-color-primary);
-              white-space: nowrap;
-              flex-shrink: 0;
+              :deep(.el-progress-bar__outer),
+              :deep(.el-progress-bar__inner) {
+                border-radius: 999px;
+              }
             }
           }
 
-          .risk-description {
-            padding-top: 12px;
-            border-top: 1px dashed rgba(252, 211, 77, 0.6);
-
-            p {
-              margin: 0;
-              font-size: 14px;
-              line-height: 1.7;
-              color: var(--el-text-color-regular);
-            }
+          .risk-detail-desc {
+            margin: 8px 0 0;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--el-text-color-regular);
+            text-align: left;
+            word-break: break-word;
+            overflow-wrap: anywhere;
           }
         }
       }
