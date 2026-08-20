@@ -24,7 +24,24 @@
         >
           取消任务
         </el-button>
-        <el-button v-if="taskStatus === 'completed'" disabled>下载报告</el-button>
+        <el-dropdown
+          v-if="taskStatus === 'completed'"
+          trigger="click"
+          @command="handleDownload"
+        >
+          <el-button type="primary" :loading="reportDownloading">
+            下载报告
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="markdown">Markdown</el-dropdown-item>
+              <el-dropdown-item command="docx">Word 文档</el-dropdown-item>
+              <el-dropdown-item command="pdf">PDF</el-dropdown-item>
+              <el-dropdown-item command="json" divided>JSON (原始数据)</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button
           v-if="taskStatus === 'cancelled'"
           type="primary"
@@ -107,10 +124,13 @@
               <ProcessPanel v-else replay />
             </el-tab-pane>
             <el-tab-pane label="分析报告" name="report">
-              <!-- Task 7: 报告面板挂载点 -->
-              <div class="tab-placeholder" :data-mount="`report:${taskId}`">
-                {{ taskStatus === 'completed' ? '报告待接入' : '任务完成后在此展示报告' }}
-              </div>
+              <TaskReportPanel
+                ref="reportPanelRef"
+                :task-id="taskId"
+                :visible="activeTab === 'report'"
+                :status="taskStatus"
+                @restart="restartAnalysis"
+              />
             </el-tab-pane>
           </el-tabs>
         </el-card>
@@ -123,9 +143,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { analysisApi, type TaskOverview } from '@/api/analysis'
 import TaskDetailSidebar from '@/components/Analysis/TaskDetailSidebar.vue'
 import ProcessPanel from '@/components/Analysis/ProcessPanel.vue'
+import TaskReportPanel from '@/components/Analysis/TaskReportPanel.vue'
 import { useAnalysisProcessStore } from '@/stores/analysisProcess'
 
 const processStore = useAnalysisProcessStore()
@@ -354,6 +376,21 @@ async function handleCancel() {
 
 function restartAnalysis() {
   router.push('/analysis/single')
+}
+
+// 报告下载：委托报告面板（失败提示含后端 message，如 pandoc 缺失）
+const reportPanelRef = ref<InstanceType<typeof TaskReportPanel> | null>(null)
+const reportDownloadingCount = ref(0)
+const reportDownloading = computed(() => reportDownloadingCount.value > 0)
+function handleDownload(format: string) {
+  if (!reportPanelRef.value) {
+    ElMessage.error('报告尚未生成，无法下载')
+    return
+  }
+  reportDownloadingCount.value++
+  void Promise.resolve(reportPanelRef.value.download(format)).finally(() => {
+    reportDownloadingCount.value--
+  })
 }
 
 onMounted(init)
