@@ -1,0 +1,33 @@
+/* markdown 气泡公共样式（非 scoped，按 .chat-md 类名隔离，供 AssistantMessage / LiveReportPanel 复用） */
+.chat-md {
+  white-space: normal;
+}
+
+.chat-md p { margin: 0 0 6px; }
+.chat-md p:last-child { margin-bottom: 0; }
+.chat-md ul, .chat-md ol { margin: 4px 0; padding-left: 18px; }
+.chat-md pre {
+  margin: 4px 0;
+  padding: 6px 8px;
+  background: var(--el-fill-color-darker);
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.chat-md code { font-family: monospace; font-size: 12px; }
+.chat-md table { border-collapse: collapse; }
+.chat-md th, .chat-md td {
+  border: 1px solid var(--el-border-color-lighter);
+  padding: 2px 6px;
+}
+.chat-md h1, .chat-md h2, .chat-md h3,
+.chat-md h4, .chat-md h5, .chat-md h6 {
+  margin: 6px 0 4px;
+  font-size: 14px;
+}
+.chat-md blockquote {
+  margin: 4px 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--el-border-color);
+  color: var(--el-text-color-secondary);
+}

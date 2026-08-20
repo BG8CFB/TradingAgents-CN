@@ -2,6 +2,17 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { analysisApi, type AgentEvent } from '@/api/analysis'
 import { useAuthStore } from '@/stores/auth'
+import { buildChatMessages, type ChatMessage } from '@/components/Analysis/ChatTimeline/buildChatMessages'
+
+export { buildChatMessages }
+export type { ChatMessage }
+
+/** report_ready 事件产物：智能体完成时生成的报告（按到达序） */
+export interface AgentReport {
+  key: string
+  title: string
+  content: string
+}
 
 /** agent 执行状态 */
 export type AgentRunStatus = 'running' | 'completed'
@@ -44,9 +55,13 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
   const agentStatus = ref<Record<string, AgentRunStatus>>({})
   const lastError = ref('')
   const loadingReplay = ref(false)
+  /** report_ready 产物（智能体实时报告），按到达序，report_key 去重 */
+  const reports = ref<AgentReport[]>([])
+  const seenReportKeys = new Set<string>()
 
-  // ── 渲染窗口 state（Task 5）──
-  /** 渲染窗口大小：store.events 全量保存，visibleEvents 只暴露最近 RENDER_WINDOW 条 */
+  // ── 渲染窗口 state ──
+  /** 渲染窗口大小：store.events 全量保存，每个 agent 各取最近 RENDER_WINDOW 条（per-agent 窗口，
+   * 避免全局窗口把事件少的 agent 历史整段切掉） */
   const RENDER_WINDOW = 500
   /** agent_key → 实时流式文本（live 模式 text_delta 累积，收到 llm_response 清空） */
   const streamingText = ref<Record<string, string>>({})
@@ -90,20 +105,41 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
   )
 
   /**
-   * 渲染窗口：events 已按 seq 升序，取最近 RENDER_WINDOW 条；
-   * 乐观消息（pendingMessages，seq<0）不参与窗口裁剪，合并时附加到尾部，
-   * 由 buildTimeline 按 agent_key 归入对应 agent 时间线，不会被窗口切掉。
+   * per-agent 渲染窗口：每个 agent 各取最近 RENDER_WINDOW 条（events 已按 seq 升序）；
+   * 乐观消息（pendingMessages，seq<0）不参与窗口裁剪，合并到对应 agent 窗口尾部。
    */
-  const visibleEvents = computed(() => {
-    const evs = events.value
-    const windowed = evs.length > RENDER_WINDOW ? evs.slice(evs.length - RENDER_WINDOW) : evs
-    return pendingMessages.value.length > 0 ? [...windowed, ...pendingMessages.value] : windowed
+  const visibleEventsByAgent = computed(() => {
+    const byAgent = new Map<string, AgentEvent[]>()
+    for (const ev of events.value) {
+      const list = byAgent.get(ev.agent_key)
+      if (list) list.push(ev)
+      else byAgent.set(ev.agent_key, [ev])
+    }
+    const windowed = new Map<string, AgentEvent[]>()
+    for (const [key, list] of byAgent) {
+      const cut = list.length > RENDER_WINDOW ? list.slice(list.length - RENDER_WINDOW) : list
+      windowed.set(key, cut)
+    }
+    for (const p of pendingMessages.value) {
+      const list = windowed.get(p.agent_key) ?? []
+      list.push(p)
+      windowed.set(p.agent_key, list)
+    }
+    return windowed
   })
 
-  /** 基于 visibleEvents 的 agent 执行顺序（只渲染窗口内出现过的 agent） */
-  const visibleAgentOrder = computed(() => {
-    const seen = new Set(visibleEvents.value.map(e => e.agent_key))
-    return agentOrder.value.filter(key => seen.has(key))
+  /** 是否还有更早的事件可加载（per-agent 判断：全局游标未拉完，或该 agent 自身窗口被裁剪） */
+  function hasMoreEarlierFor(agentKey: string): boolean {
+    if (hasMoreEarlier.value) return true
+    const list = visibleEventsByAgent.value.get(agentKey)
+    return !!list && list.length >= RENDER_WINDOW
+  }
+
+  /** 各 agent 对话消息序列（事件流 → ChatMessage[]，纯函数 buildChatMessages 的 computed 缓存） */
+  const chatTimelines = computed(() => {
+    const map = new Map<string, ChatMessage[]>()
+    for (const [key, evs] of visibleEventsByAgent.value) map.set(key, buildChatMessages(evs))
+    return map
   })
 
   // ── 内部工具 ──
@@ -168,6 +204,20 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
         && echoText.includes(String((p.payload as Record<string, unknown> | undefined)?.text ?? '\x00')),
       )
       if (idx >= 0) pendingMessages.value.splice(idx, 1)
+    } else if (ev.event_type === 'report_ready') {
+      // 智能体报告就绪：按 report_key 去重、按到达序追加（WS 实时与回放重建共用此路径）
+      const p = (ev.payload ?? {}) as Record<string, unknown>
+      const key = typeof p.report_key === 'string' && p.report_key
+        ? p.report_key
+        : `${ev.agent_key}:${ev.seq}`
+      if (!seenReportKeys.has(key)) {
+        seenReportKeys.add(key)
+        reports.value.push({
+          key,
+          title: typeof p.title === 'string' && p.title ? p.title : key,
+          content: typeof p.content === 'string' ? p.content : '',
+        })
+      }
     }
   }
 
@@ -458,6 +508,8 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     streamingText.value = {}
     hasMoreEarlier.value = false
     pendingMessages.value = []
+    reports.value = []
+    seenReportKeys.clear()
     seenEventKeys.clear()
     pendingReceipts.clear()
   }
@@ -475,10 +527,12 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     streamingText,
     hasMoreEarlier,
     pendingMessages,
+    reports,
     agents,
     anyRunning,
-    visibleEvents,
-    visibleAgentOrder,
+    visibleEventsByAgent,
+    chatTimelines,
+    hasMoreEarlierFor,
     start,
     stop,
     sendAgentMessage,

@@ -114,7 +114,7 @@
           <div v-if="statusMessage" class="status-message">{{ statusMessage }}</div>
         </el-card>
 
-        <!-- 实时过程 / 分析报告 -->
+        <!-- 实时过程 / 实时报告 / 分析报告 -->
         <el-card shadow="never" class="tabs-card">
           <el-tabs v-model="activeTab">
             <el-tab-pane label="实时过程" name="process">
@@ -122,6 +122,10 @@
               <ProcessPanel v-if="isActive" />
               <!-- 终态：store 已由 loadReplay 填充，事件定格展示 -->
               <ProcessPanel v-else replay />
+            </el-tab-pane>
+            <el-tab-pane label="实时报告" name="live_report" lazy>
+              <!-- report_ready 事件到达即出现内容：智能体完成的报告实时可看 -->
+              <LiveReportPanel />
             </el-tab-pane>
             <el-tab-pane label="分析报告" name="report">
               <TaskReportPanel
@@ -147,6 +151,7 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import { analysisApi, type TaskOverview } from '@/api/analysis'
 import TaskDetailSidebar from '@/components/Analysis/TaskDetailSidebar.vue'
 import ProcessPanel from '@/components/Analysis/ProcessPanel.vue'
+import LiveReportPanel from '@/components/Analysis/LiveReportPanel.vue'
 import TaskReportPanel from '@/components/Analysis/TaskReportPanel.vue'
 import { useAnalysisProcessStore } from '@/stores/analysisProcess'
 
@@ -160,7 +165,7 @@ const overview = ref<TaskOverview | null>(null)
 const loading = ref(true)
 const loadError = ref('')
 const taskStatus = ref('')
-const activeTab = ref<'process' | 'report'>('process')
+const activeTab = ref<'process' | 'live_report' | 'report'>('process')
 const errorMessage = ref('')
 
 // 进度（来自 getTaskStatus：progress_percentage / current_step_name / message）

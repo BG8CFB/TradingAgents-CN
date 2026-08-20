@@ -22,6 +22,20 @@
                 </el-tag>
               </div>
             </div>
+            <div v-if="phaseChips.length" class="config-row">
+              <div class="row-label">启用阶段</div>
+              <div class="chips">
+                <el-tag
+                  v-for="chip in phaseChips"
+                  :key="chip.label"
+                  size="small"
+                  :type="chip.rounds > 0 ? 'success' : 'info'"
+                  effect="plain"
+                >
+                  {{ chip.label }}{{ chip.rounds > 0 ? ` · ${chip.rounds} 轮` : '' }}
+                </el-tag>
+              </div>
+            </div>
             <el-descriptions :column="1" size="small" border class="config-desc">
               <el-descriptions-item v-if="analysisDate" label="分析日期">
                 {{ analysisDate }}
@@ -46,7 +60,7 @@
               </el-descriptions-item>
             </el-descriptions>
           </div>
-          <el-empty v-else description="暂无配置信息" :image-size="48" />
+          <el-empty v-else description="未记录（旧任务可能未保存参数）" :image-size="48" />
         </template>
       </el-skeleton>
     </el-card>
@@ -118,6 +132,21 @@ const analystChips = computed(() => {
   return slugs.map((slug) => ({ slug, label: displayNames.value[slug] ?? slug }))
 })
 
+// 已启用阶段 chips：phaseN_enabled=true 时展示"阶段N · N 轮"（轮次字段缺失时只显示阶段名）
+const phaseChips = computed(() => {
+  const phases: Array<{ enabledKey: string; label: string; roundsKey: string }> = [
+    { enabledKey: 'phase2_enabled', label: '阶段2 · 研究辩论', roundsKey: 'phase2_debate_rounds' },
+    { enabledKey: 'phase3_enabled', label: '阶段3 · 风险管理', roundsKey: 'phase3_debate_rounds' },
+    { enabledKey: 'phase4_enabled', label: '阶段4 · 交易决策', roundsKey: 'phase4_debate_rounds' },
+  ]
+  return phases
+    .filter(p => parameters.value[p.enabledKey] === true)
+    .map(p => ({
+      label: p.label,
+      rounds: typeof parameters.value[p.roundsKey] === 'number' ? (parameters.value[p.roundsKey] as number) : 0,
+    }))
+})
+
 function strParam(key: string): string {
   const v = parameters.value[key]
   if (typeof v === 'string' && v) return v
@@ -151,6 +180,7 @@ const debateRounds = computed(() => {
 
 const hasConfig = computed(() =>
   analystChips.value.length > 0 ||
+  phaseChips.value.length > 0 ||
   Boolean(analysisDate.value || marketType.value || analystModel.value || debateModel.value || debateRounds.value.length)
 )
 
