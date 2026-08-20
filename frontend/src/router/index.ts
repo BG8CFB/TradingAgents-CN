@@ -79,6 +79,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Analysis/TaskDetail.vue'),
         meta: { title: '分析任务详情', requiresAuth: true }
       },
+      {
+        path: 'batches/:batchId',
+        name: 'AnalysisBatchDetail',
+        component: () => import('@/views/Analysis/BatchDetail.vue'),
+        meta: { title: '批量分析详情', requiresAuth: true }
+      },
 
     ]
   },
