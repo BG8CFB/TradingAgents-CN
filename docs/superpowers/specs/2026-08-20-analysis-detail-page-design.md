@@ -84,7 +84,7 @@
 
 - 任务失败：详情页顶部 el-alert 展示错误信息；时间线中失败 agent 红色标记
 - WS 断连：沿用指数退避重连（最多 10 次）；期间顶部显示"连接中断，重连中…"提示条，并回退轮询 `GET /tasks/{id}/status` 保证进度不丢
-- 页面刷新 / 直接访问 URL：先拉 status；running → 连 WS + `after_seq=0` 回放补齐历史事件；completed/failed → 纯回放
+- 页面刷新 / 直接访问 URL：先拉 status；running → 连 WS + 回放补齐历史事件（**循环分页拉全量**：`order=desc&limit=500` 起步，`before_seq` 向前翻直到取完，记录当前最大 seq 与 WS 增量续接；渲染层仍只保留最近 500 条）；completed/failed → 纯回放
 
 ## 硬性约束遵循
 
