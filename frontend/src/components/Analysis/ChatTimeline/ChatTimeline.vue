@@ -30,7 +30,8 @@
         <ToolMessage v-else-if="msg.kind === 'tool'" :msg="msg" />
       </template>
 
-      <!-- 运行中：text_delta 实时气泡（独立小组件，delta 只重渲该组件） -->
+      <!-- 运行中：思考流式气泡（先于正文，对齐生成顺序）与 text_delta 实时气泡（独立小组件，delta 只重渲该组件） -->
+      <StreamingThinkingBubble v-if="isRunning" :agent-key="agentKey" />
       <StreamingBubble v-if="isRunning" :agent-key="agentKey" />
 
       <!-- 空态：该 agent 仅有生命周期事件（或旧事件无过程细节）时给出占位，避免空白窗口 -->
@@ -53,6 +54,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowRight } from '@element-plus/icons-vue'
 import { useAnalysisProcessStore } from '@/stores/analysisProcess'
 import StreamingBubble from '../StreamingBubble.vue'
+import StreamingThinkingBubble from './StreamingThinkingBubble.vue'
 import PromptMessage from './PromptMessage.vue'
 import ThinkingMessage from './ThinkingMessage.vue'
 import AssistantMessage from './AssistantMessage.vue'
@@ -105,8 +107,11 @@ function scheduleScrollToBottom() {
   })
 }
 
-/** 该 agent 的流式文本长度（变化驱动自动滚底；只依赖本 agent，其他 agent delta 不触发） */
-const streamingLength = computed(() => (store.streamingText[props.agentKey] ?? '').length)
+/** 该 agent 的流式文本/思考长度（变化驱动自动滚底；只依赖本 agent，其他 agent delta 不触发） */
+const streamingLength = computed(
+  () => (store.streamingText[props.agentKey] ?? '').length
+    + (store.streamingThinking[props.agentKey] ?? '').length,
+)
 
 watch(
   () => messages.value.length,

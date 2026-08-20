@@ -227,7 +227,8 @@ class AnthropicLLMClient(BaseLLMClient):
         # SSE 事件装配（参考 claude-code claude.ts 的事件处理）：
         # input_json_delta 增量拼接 tool_use.input，content_block_stop 时块完整
         # extended thinking（opt-in：请求需带 thinking={type,budget_tokens}，
-        # 经 kwargs 透传）→ thinking_delta 聚合，经 raw 交给 runner 发 thinking 事件
+        # 经 kwargs 透传）→ thinking_delta 增量实时上抛（前端流式渲染），
+        # 流结束后聚合段经 raw 交给 runner 发 thinking 事件（落库回放）
         text_parts: List[str] = []
         thinking_parts: List[str] = []
         signature_parts: List[str] = []  # thinking 块签名（多轮回传校验必带）
@@ -253,6 +254,7 @@ class AnthropicLLMClient(BaseLLMClient):
                             yield StreamEvent("text_delta", text=delta.text)
                         elif delta.type == "thinking_delta":
                             thinking_parts.append(delta.thinking)
+                            yield StreamEvent("thinking_delta", text=delta.thinking)
                         elif delta.type == "signature_delta":
                             signature_parts.append(getattr(delta, "signature", "") or "")
                         elif delta.type == "input_json_delta":

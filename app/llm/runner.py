@@ -8,7 +8,9 @@ agent 循环（对齐 claude-code query.ts 的核心模式）
 - API 调用经 with_retry（10 次指数退避，限流 3 次触发 fallback）
 - 工具结果之后、下次调用之前：drain 用户消息队列（system-reminder 包装注入）
 - 同轮多工具按"并发安全分区"执行（orchestration/concurrency.py）
-- 可选事件流（events.py）：每轮 LLM 调用 / 工具调用 / 压缩 / 用户消息注入发事件
+- 可选事件流（events.py）：每轮 LLM 调用 / 工具调用 / 压缩 / 用户消息注入发事件；
+  thinking 增量（thinking_delta）实时转发，聚合 thinking 事件先于 llm_response 发射
+  （思考在生成顺序上先于正文，seq 决定时间线与回放呈现顺序）
 """
 
 import inspect
@@ -234,6 +236,8 @@ async def run_conversation(
                     if on_text_delta:
                         on_text_delta(event.text)
                     await emit("text_delta", text=event.text)
+                elif event.type == "thinking_delta":
+                    await emit("thinking_delta", text=event.text)
                 elif event.type == "message" and event.response:
                     resp_local = event.response
             if resp_local is None:
@@ -269,6 +273,14 @@ async def run_conversation(
         messages.append(resp.message)
         result.total_tokens += resp.usage.total
         record_usage(active_client, resp)
+
+        # 推理模型 thinking/reasoning 块（canonical 层不保留，从 raw 响应防御式提取）。
+        # 必须先于 llm_response 发射：思考在生成顺序上先于正文，事件 seq 决定
+        # 前端时间线与落库回放的呈现顺序
+        thinking_text = _extract_thinking_text(resp)
+        if thinking_text:
+            await emit("thinking", text=thinking_text)
+
         await emit(
             "llm_response",
             stop_reason=resp.stop_reason.value,
@@ -279,11 +291,6 @@ async def run_conversation(
             model=getattr(resp, "model", ""),
             text=resp.text(),  # 本轮最终 assistant 文本全文（纯工具轮为空串，字段恒在）
         )
-
-        # 推理模型 thinking/reasoning 块（canonical 层不保留，从 raw 响应防御式提取）
-        thinking_text = _extract_thinking_text(resp)
-        if thinking_text:
-            await emit("thinking", text=thinking_text)
 
         # usage 校准 token 计数
         counter.update_from_usage(resp.usage.input_tokens, len(messages))

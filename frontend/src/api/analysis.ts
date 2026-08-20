@@ -99,6 +99,9 @@ export interface AgentEvent {
     | 'compact'
     | 'user_message_injected'
     | 'text_delta'
+    | 'thinking'
+    | 'thinking_delta'
+    | 'status'
     | string
   payload?: Record<string, unknown>
 }

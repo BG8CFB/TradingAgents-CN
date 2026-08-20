@@ -6,7 +6,11 @@
 - llm_request / llm_response     每轮模型调用（payload: 消息数、估算 token、工具数；
                                   request 首轮附完整 messages 数组、response 附本轮文本全文）
 - text_delta                     流式文本增量（payload: text）——仅实时通道，不落库
+- thinking_delta                 流式思考增量（payload: text）——仅实时通道，不落库；
+                                  聚合完整段由 thinking 事件落库回放
 - thinking                       推理模型 thinking/reasoning 块（payload: text）——落库+实时
+- status                         阶段状态提示（payload: text，如"正在生成最终交易信号..."）——
+                                  仅实时通道，不落库、不建 agent tab
 - tool_call / tool_result        工具调用与结果（payload: name、tool_use_id、input、output、耗时、is_error）
 - compact                        上下文压缩发生（payload: 层级 micro/auto/reactive、前后 token）
 - user_message_injected          用户消息注入运行中的智能体（payload: agent_key、text 全文）
@@ -95,8 +99,8 @@ def messages_event_payload(messages: List[Any]) -> List[Dict[str, str]]:
     return out
 
 
-# 不落库、仅实时下发的事件（高频）
-REALTIME_ONLY = {"text_delta"}
+# 不落库、仅实时下发的事件（高频 delta + 瞬时状态提示）
+REALTIME_ONLY = {"text_delta", "thinking_delta", "status"}
 # 仅经 on_progress 通道转发的事件（进度消息，走旧 progress_callback 兼容出口）
 PROGRESS_ONLY = {"progress"}
 

@@ -270,6 +270,7 @@ class OpenAILLMClient(BaseLLMClient):
                     )
                     if reasoning_delta:
                         reasoning_parts.append(reasoning_delta)
+                        yield StreamEvent("thinking_delta", text=reasoning_delta)
                     for tc in delta.tool_calls or []:
                         entry = tool_calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
                         if tc.id:

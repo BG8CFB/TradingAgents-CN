@@ -190,7 +190,12 @@ class AnalysisRuntime:
             or ""
         )
         if final_signal:
+            # signal 阶段含一次完整 LLM 调用，提前下发状态提示消除尾部静默空窗
+            if event_sink is not None:
+                await event_sink.emit("status", text="正在生成最终交易信号...")
             decision = await self.process_signal(final_signal, company_name)
+            if event_sink is not None:
+                await event_sink.emit("status", text="最终决策生成完毕")
         else:
             decision = {
                 "action": "观望",

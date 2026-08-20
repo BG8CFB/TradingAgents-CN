@@ -75,6 +75,8 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
   const RENDER_WINDOW = 500
   /** agent_key → 实时流式文本（live 模式 text_delta 累积，收到 llm_response 清空） */
   const streamingText = ref<Record<string, string>>({})
+  /** agent_key → 实时流式思考（live 模式 thinking_delta 累积，收到聚合 thinking 事件清空） */
+  const streamingThinking = ref<Record<string, string>>({})
   /** 是否还有更早的事件可加载（loadEarlier 向前分页拉取） */
   const hasMoreEarlier = ref(false)
   /**
@@ -248,6 +250,19 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
           if (delta) streamingText.value[msg.agent_key] = (streamingText.value[msg.agent_key] ?? '') + delta
           return
         }
+        // thinking_delta 同构：不落库不入 events，累积到 streamingThinking 实时渲染
+        if (msg.event_type === 'thinking_delta') {
+          const delta = String((msg.payload as Record<string, unknown> | undefined)?.text ?? '')
+          if (delta) streamingThinking.value[msg.agent_key] = (streamingThinking.value[msg.agent_key] ?? '') + delta
+          return
+        }
+        // status 阶段提示（如"正在生成最终交易信号..."）：只更新进度文案，
+        // 不入 events、不建 agent tab
+        if (msg.event_type === 'status') {
+          const text = String((msg.payload as Record<string, unknown> | undefined)?.text ?? '')
+          if (text && progressInfo.value) progressInfo.value = { ...progressInfo.value, stepText: text }
+          return
+        }
         // 计数式进度（完成驱动）：只更新 progressInfo，不入 events、不建 agent tab
         if (msg.event_type === 'progress') {
           const p = (msg.payload ?? {}) as Record<string, unknown>
@@ -270,9 +285,13 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
           event_type: msg.event_type ?? '',
           payload: msg.payload,
         })
-        // llm_response 到达后流式文本已固化；agent_end 兜底清空，避免残留实时气泡
+        // llm_response 到达后流式文本已固化；聚合 thinking 到达后流式思考固化；
+        // agent_end 兜底清空，避免残留实时气泡
         if (msg.event_type === 'llm_response' || msg.event_type === 'agent_end') {
           delete streamingText.value[msg.agent_key]
+        }
+        if (msg.event_type === 'thinking' || msg.event_type === 'agent_end') {
+          delete streamingThinking.value[msg.agent_key]
         }
         break
       }
@@ -531,6 +550,7 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     lastError.value = ''
     localSeq = -1
     streamingText.value = {}
+    streamingThinking.value = {}
     hasMoreEarlier.value = false
     pendingMessages.value = []
     reports.value = []
@@ -551,6 +571,7 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
     lastError,
     loadingReplay,
     streamingText,
+    streamingThinking,
     hasMoreEarlier,
     pendingMessages,
     reports,
