@@ -119,6 +119,9 @@ config/*.json
 !config/skills/
 !config/defaults/
 
+# chainlit（宿主机环境残留依赖，非本项目使用）运行时自动生成
+.chainlit/
+
 # app/config/ 已废弃，无代码引用
 app/config/*.json
 
