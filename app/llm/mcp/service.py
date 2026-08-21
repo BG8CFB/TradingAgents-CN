@@ -112,7 +112,7 @@ async def list_tools() -> List[Dict[str, Any]]:
                         "serverName": name,
                         "available": True,
                         "status": "connected",
-                        "inputSchema": getattr(t, "inputSchema", None),
+                        "inputSchema": getattr(t, "input_schema", None) or getattr(t, "inputSchema", None),
                     }
                 )
         except Exception as e:  # noqa: BLE001

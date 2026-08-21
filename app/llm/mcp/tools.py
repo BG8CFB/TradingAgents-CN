@@ -41,8 +41,9 @@ def _format_content(result, *, task_id: str = "") -> str:
         text = getattr(block, "text", None)
         if text:
             parts.append(text)
-    if not parts and getattr(result, "structuredContent", None):
-        parts.append(json.dumps(result.structuredContent, ensure_ascii=False))
+    structured = getattr(result, "structured_content", None) or getattr(result, "structuredContent", None)
+    if not parts and structured:
+        parts.append(json.dumps(structured, ensure_ascii=False))
     if not parts:
         return "(空结果)"
     return apply_result_budget("mcp_result", "\n".join(parts), task_id=task_id, max_chars=MAX_TOOL_RESULT_CHARS)
@@ -68,7 +69,12 @@ def make_mcp_tool_def(cfg: MCPServerConfig, manager: MCPManager, tool) -> ToolDe
     return ToolDef(
         name=display_name,
         description=desc,
-        params_schema=tool.inputSchema or {"type": "object", "properties": {}},
+        # mcp SDK 新版 Tool 字段为 input_schema（旧版 inputSchema），双兼容避免属性错误
+        params_schema=(
+            getattr(tool, "input_schema", None)
+            or getattr(tool, "inputSchema", None)
+            or {"type": "object", "properties": {}}
+        ),
         handler=_call,
         is_concurrency_safe=read_only,
     )
@@ -95,6 +101,9 @@ async def discover_mcp_tools(
             logger.warning(f"⚠️ [mcp] server '{name}' 连接/发现失败: {e}")
             continue
         for tool in listed.tools:
-            defs.append(make_mcp_tool_def(cfg, mgr, tool))
+            try:
+                defs.append(make_mcp_tool_def(cfg, mgr, tool))
+            except Exception as e:  # noqa: BLE001 - 单工具包装失败跳过，不炸整个发现流程
+                logger.warning(f"⚠️ [mcp] server '{name}' 工具 '{tool.name}' 包装失败: {e}")
         logger.info(f"[mcp] server '{name}' 发现 {len(listed.tools)} 个工具")
     return defs
