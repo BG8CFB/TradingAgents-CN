@@ -59,12 +59,24 @@ def make_mcp_tool_def(cfg: MCPServerConfig, manager: MCPManager, tool) -> ToolDe
         payload = call_args[0] if call_args and isinstance(call_args[0], dict) else call_kwargs
         session: ClientSession = await manager.get_session(cfg)
         result = await session.call_tool(tool.name, arguments=payload or {})
-        if result.isError:
+        # mcp SDK 新版 CallToolResult 字段为 is_error（旧版 isError），双兼容避免属性错误
+        is_error = getattr(result, "is_error", None)
+        if is_error is None:
+            is_error = getattr(result, "isError", False)
+        if is_error:
             return f"MCP 工具执行错误: {_format_content(result)}"
         return _format_content(result)
 
     annotations = getattr(tool, "annotations", None)  # annotations 可能为 None
-    read_only = bool(annotations and getattr(annotations, "readOnlyHint", False))
+    # mcp SDK 新版 annotations 字段为 read_only_hint（旧版 readOnlyHint），双兼容
+    read_only = bool(
+        annotations
+        and (
+            getattr(annotations, "read_only_hint", None)
+            if getattr(annotations, "read_only_hint", None) is not None
+            else getattr(annotations, "readOnlyHint", False)
+        )
+    )
 
     return ToolDef(
         name=display_name,

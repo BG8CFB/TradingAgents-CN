@@ -40,7 +40,7 @@ dependencies = [
     "chromadb>=1.0.12",
     "dashscope>=1.20.0",
     "anthropic>=0.40.0",  # app/llm 新 LLM 层：Anthropic 协议官方 SDK
-    "mcp>=1.0.0",  # app/llm 新 MCP 层：官方 mcp SDK
+    "mcp>=2.0.0,<3.0.0",  # app/llm 新 MCP 层：官方 mcp SDK（2.0 起字段 snake_case，代码已双兼容；上限防大版本漂移）
     "openai>=1.0.0,<2.0.0",
     # 数据处理和分析
     "pandas>=2.3.0",
