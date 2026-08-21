@@ -3,6 +3,7 @@
     :model-value="visible"
     :title="isEdit ? '编辑厂家信息' : '添加厂家'"
     width="520px"
+    :append-to-body="true"
     @update:model-value="handleVisibleChange"
     @close="handleClose"
   >
@@ -11,6 +12,7 @@
       :model="formData"
       :rules="rules"
       label-width="100px"
+      class="compact-form"
     >
       <!-- 预设厂家选择 -->
       <el-form-item v-if="!isEdit" label="快速选择">
@@ -81,7 +83,7 @@
       </el-form-item>
 
       <el-form-item label="请求协议" prop="protocol">
-        <el-select v-model="formData.protocol" placeholder="自动推断" clearable>
+        <el-select v-model="formData.protocol" placeholder="自动推断" clearable style="width: 100%">
           <el-option label="自动推断（按厂家名）" value="" />
           <el-option label="OpenAI 兼容" value="openai" />
           <el-option label="Anthropic" value="anthropic" />
@@ -121,7 +123,7 @@
         <div class="form-tip">某些厂家（如百度千帆）需要额外的 Secret Key</div>
       </el-form-item>
 
-      <el-form-item label="启用状态">
+      <el-form-item label="启用状态" class="last-item">
         <el-switch
           v-model="formData.is_active"
           active-text="启用"
@@ -438,10 +440,31 @@ const handleSubmit = async () => {
 </script>
 
 <style lang="scss" scoped>
+// 单屏适配：收紧弹窗 body 与表单项间距，1080p 下默认态无滚动
+:deep(.el-dialog__body) {
+  padding: 12px 20px;
+}
+
+.compact-form {
+  :deep(.el-form-item) {
+    margin-bottom: 14px;
+  }
+
+  // 每行输入控件右缘对齐
+  :deep(.el-input),
+  :deep(.el-select) {
+    width: 100%;
+  }
+}
+
 .form-tip {
   font-size: 12px;
   color: var(--el-text-color-placeholder);
   margin-top: 4px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  line-height: 1.5;
 }
 
 .dialog-footer {

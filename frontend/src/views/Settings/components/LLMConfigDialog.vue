@@ -3,6 +3,7 @@
     :model-value="visible"
     :title="isEdit ? '编辑大模型配置' : '添加大模型配置'"
     width="640px"
+    :append-to-body="true"
     @update:model-value="handleVisibleChange"
     @close="handleClose"
   >
@@ -11,16 +12,17 @@
       :model="formData"
       :rules="rules"
       label-width="110px"
+      class="compact-form"
     >
       <!-- 基础配置 -->
       <el-form-item label="供应商" prop="provider">
-        <div style="display: flex; gap: 8px; align-items: flex-start; width: 100%;">
+        <div class="control-row">
           <el-select
             v-model="formData.provider"
             placeholder="选择供应商"
             @change="handleProviderChange"
             :loading="providersLoading"
-            style="flex: 1; min-width: 0;"
+            class="control-main"
           >
             <el-option
               v-for="provider in availableProviders"
@@ -39,7 +41,7 @@
       </el-form-item>
 
       <el-form-item label="模型ID" prop="model_name">
-        <div style="display: flex; gap: 8px; align-items: flex-start; width: 100%;">
+        <div class="control-row">
           <el-select
             v-model="selectedModelKey"
             placeholder="选择模型或输入自定义模型ID"
@@ -48,7 +50,7 @@
             allow-create
             default-first-option
             @change="handleModelSelect"
-            style="flex: 1; min-width: 0;"
+            class="control-main"
           >
             <el-option
               v-for="model in modelOptions"
@@ -77,7 +79,8 @@
         </div>
       </el-form-item>
 
-      <el-form-item label="显示名称" prop="model_display_name">        <el-input
+      <el-form-item label="显示名称" prop="model_display_name">
+        <el-input
           v-model="formData.model_display_name"
           placeholder="模型显示名称，如：Qwen3 Flash - 快速经济"
         />
@@ -98,18 +101,18 @@
       </el-form-item>
 
       <el-form-item label="模型参数">
-        <div style="display: flex; gap: 16px; width: 100%;">
-          <div style="flex: 1;">
+        <div class="param-grid">
+          <div class="param-cell">
             <div class="param-label">单次输出上限(Token)</div>
             <el-input-number
               v-model="formData.max_tokens"
               :min="100"
               :max="maxTokensLimit"
               :step="100"
-              style="width: 100%;"
+              class="param-input"
             />
           </div>
-          <div style="flex: 1;">
+          <div class="param-cell">
             <div class="param-label">上下文窗口(Token)</div>
             <el-input-number
               v-model="formData.context_window"
@@ -117,11 +120,10 @@
               :max="10000000"
               :step="1000"
               :placeholder="contextWindowPlaceholder"
-              style="width: 100%;"
+              class="param-input"
             />
-            <div class="form-tip">留空自动继承模型目录窗口（{{ contextWindowPlaceholder }}）</div>
           </div>
-          <div style="flex: 1;">
+          <div class="param-cell">
             <div class="param-label">温度</div>
             <el-input-number
               v-model="formData.temperature"
@@ -129,20 +131,35 @@
               :max="2"
               :step="0.1"
               :precision="1"
-              style="width: 100%;"
+              class="param-input"
             />
           </div>
-          <div style="flex: 1;">
+          <div class="param-cell">
             <div class="param-label">超时(秒)</div>
             <el-input-number
               v-model="formData.timeout"
               :min="10"
               :max="300"
               :step="10"
-              style="width: 100%;"
+              class="param-input"
             />
           </div>
+          <div class="param-cell">
+            <div class="param-label">并发上限</div>
+            <el-input-number
+              v-model="formData.max_concurrency"
+              :min="1"
+              :max="50"
+              :step="1"
+              class="param-input"
+            />
+            <div class="form-tip">同时在途请求数上限（进程内灵活占位）</div>
+          </div>
         </div>
+      </el-form-item>
+
+      <el-form-item label="启用状态">
+        <el-switch v-model="formData.enabled" />
       </el-form-item>
 
       <!-- 高级设置（折叠） -->
@@ -207,10 +224,6 @@
           </el-form-item>
 
           <el-divider content-position="left">其他设置</el-divider>
-
-          <el-form-item label="启用状态">
-            <el-switch v-model="formData.enabled" />
-          </el-form-item>
 
           <el-form-item label="优先级">
             <el-input-number
@@ -295,6 +308,7 @@ const defaultFormData = {
   thinking_budget: undefined as number | undefined,
   timeout: DEFAULT_TIMEOUT,
   retry_times: DEFAULT_RETRY_TIMES,
+  max_concurrency: 5,
   enabled: true,
   enable_memory: false,
   enable_debug: false,
@@ -503,6 +517,7 @@ watch(
         suitable_roles: config.suitable_roles || [],
         context_window: config.context_window ?? undefined,
         thinking_budget: config.thinking_budget ?? undefined,
+        max_concurrency: config.max_concurrency ?? 5,
       }
       modelOptions.value = getModelOptions(config.provider)
       if (config.model_name) {
@@ -536,6 +551,7 @@ watch(
           suitable_roles: props.config.suitable_roles || [],
           context_window: props.config.context_window ?? undefined,
           thinking_budget: props.config.thinking_budget ?? undefined,
+          max_concurrency: props.config.max_concurrency ?? 5,
         }
         modelOptions.value = getModelOptions(props.config.provider)
         if (props.config.model_name) {
@@ -633,6 +649,48 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
+// 单屏适配：收紧弹窗 body 与表单项间距，默认态（高级设置折叠）1080p 无滚动
+:deep(.el-dialog__body) {
+  padding: 12px 20px;
+}
+
+.compact-form {
+  :deep(.el-form-item) {
+    margin-bottom: 14px;
+  }
+}
+
+// 输入控件 + 按钮并排行（右缘对齐，控件吃满剩余宽度）
+.control-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  width: 100%;
+
+  .control-main {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+// 参数区：3 列 grid 两行（含并发上限），小屏降级 2 列
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px 16px;
+  width: 100%;
+}
+
+.param-input {
+  width: 100%;
+}
+
+@media (max-width: 700px) {
+  .param-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .dialog-footer {
   text-align: right;
 }

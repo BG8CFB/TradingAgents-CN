@@ -44,6 +44,7 @@ export interface LLMConfig {
   thinking_budget?: number | null  // 推理思考预算（Anthropic opt-in；>0 开启，留空不开启；OpenAI 兼容协议忽略）
   timeout: number
   retry_times: number
+  max_concurrency?: number  // 模型并发上限（同时在途请求数，进程内灵活占位；默认 5）
   enabled: boolean
   description?: string
   // 定价配置

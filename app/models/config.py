@@ -233,6 +233,8 @@ class LLMConfig(BaseModel):
     )
     timeout: int = Field(default=DEFAULT_TIMEOUT, description="请求超时时间(秒)")
     retry_times: int = Field(default=DEFAULT_RETRY_TIMES, description="重试次数")
+    # 模型级并发上限：该模型同时在途 LLM 请求数（进程内灵活占位：槽位仅在请求在途期间持有）
+    max_concurrency: int = Field(default=5, ge=1, le=50, description="模型并发上限(同时在途请求数)")
     enabled: bool = Field(default=True, description="是否启用")
     description: Optional[str] = Field(None, description="配置描述")
 
@@ -396,6 +398,7 @@ class LLMConfigRequest(BaseModel):
     temperature: float = DEFAULT_TEMPERATURE
     timeout: int = DEFAULT_TIMEOUT
     retry_times: int = DEFAULT_RETRY_TIMES
+    max_concurrency: int = Field(default=5, ge=1, le=50, description="模型并发上限(同时在途请求数)")
     enabled: bool = True
     description: Optional[str] = None
 

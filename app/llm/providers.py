@@ -46,6 +46,7 @@ class ResolvedProvider:
     retry_times: Optional[int] = None
     context_window: Optional[int] = None
     thinking_budget: Optional[int] = None  # >0 开启推理思考（Anthropic opt-in）
+    max_concurrency: Optional[int] = None  # 模型级并发上限（同时在途请求数）
 
 
 @dataclass
@@ -64,6 +65,7 @@ class EngineClientBundle:
     context_window: Optional[int] = None
     thinking_budget: Optional[int] = None  # >0 开启推理思考（透传 run_conversation）
     upper_limit: Optional[int] = None  # 截断升级封顶（limits.py 解析）
+    max_concurrency: Optional[int] = None  # 模型级并发上限（None=不限）
     _meta: Dict[str, Any] = field(default_factory=dict)
 
     def __getattr__(self, name: str) -> Any:
@@ -126,6 +128,7 @@ def resolve_provider(
         retry_times=cfg.get("retry_times"),
         context_window=cfg.get("context_window"),
         thinking_budget=cfg.get("thinking_budget"),
+        max_concurrency=cfg.get("max_concurrency"),
     )
 
 
@@ -189,7 +192,7 @@ _CONFIG_FIELDS = (
     "enabled", "suitable_roles", "priority",
     # 每模型参数（表单采集，此前未消费）
     "max_tokens", "temperature", "timeout", "retry_times", "context_window",
-    "thinking_budget",
+    "thinking_budget", "max_concurrency",
 )
 
 
@@ -354,6 +357,8 @@ async def _resolve_role_bundle(
         context_window=bundle_context_window,
         thinking_budget=resolved.thinking_budget,
         upper_limit=limits_.upper_limit,
+        max_concurrency=resolved.max_concurrency,
+        _meta={"limit_key": f"{provider}|{resolved.model}".strip('|').lower(), "model": resolved.model},
     )
 
 
@@ -418,6 +423,7 @@ async def resolve_task_override_bundle(
         retry_times=inherit.get("retry_times"),
         context_window=db_window or limits_.context_window,
         thinking_budget=inherit.get("thinking_budget"),
+        max_concurrency=inherit.get("max_concurrency"),
     )
     if not resolved.api_key:
         return None
@@ -430,6 +436,8 @@ async def resolve_task_override_bundle(
         context_window=resolved.context_window,
         thinking_budget=resolved.thinking_budget,
         upper_limit=limits_.upper_limit,
+        max_concurrency=resolved.max_concurrency,
+        _meta={"limit_key": f"{prov}|{model}".strip('|').lower(), "model": model},
     )
     logger.info(
         f"[providers] 任务覆盖 → {resolved.protocol}:{model} "
