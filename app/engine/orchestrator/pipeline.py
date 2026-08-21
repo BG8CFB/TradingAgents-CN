@@ -1,12 +1,14 @@
 """
 保序流水线（替代 LangGraph graph/setup.py 的编排）
 
-硬约束（与旧图语义完全一致，禁止漂移）：
-- Phase 1 分析师严格串行（单点封装 run_stage，预留后期并行）
-- Phase 2 公平辩论：Bull 先发言，之后 Bull/Bear 交替，各发言 rounds+1 次，
-  总发言上限 2*(rounds+1)（节点内 count/current_round_index=count//2 语义保留）
+硬约束（语义与旧图等价，禁止漂移）：
+- Phase 1 分析师并行（Semaphore(analyst_concurrency)，模型级 max_concurrency 封顶）
+- Phase 2 公平辩论：同轮 Bull/Bear 并行 + barrier（debate_parallel=False 回退串行交替），
+  各发言 rounds+1 次，总发言上限 2*(rounds+1)；公平性 = 上下文注入只读完整历史轮
+  （rounds[0:current_round_index]），与旧串行逐字节一致
 - Trader 恒执行（phase2 关闭时直接从分析师进入）
-- Phase 3 风险循环固定 Risky→Safe→Neutral，总发言上限 3*(rounds+1)
+- Phase 3 风险辩论：同轮三方并行 + barrier（回退固定 Risky→Safe→Neutral 串行），
+  总发言上限 3*(rounds+1)
 - Summary 恒执行
 - phase2/phase3 开关三拓扑：P2+P3 / P2 / 仅 P3(P2 关→分析师直连 Trader)
 """
@@ -86,6 +88,11 @@ class PipelineDeps:
     invest_judge_memory: Any = None
     risk_manager_memory: Any = None
     config: Dict[str, Any] = field(default_factory=dict)
+    # 模型级并发限额（providers bundle._meta 透传；None=不限）
+    analyst_limit: Optional[int] = None
+    analyst_limit_key: Optional[str] = None
+    debate_limit: Optional[int] = None
+    debate_limit_key: Optional[str] = None
 
 
 def _format_analyst_node(internal_key: str) -> str:
@@ -177,6 +184,50 @@ async def _emit_report_ready(
         logger.warning(f"⚠️ [orchestrator] report_ready 发射失败: {e}")
 
 
+def _merge_debate_updates(
+    st: Dict[str, Any],
+    updates: List[Dict[str, Any]],
+    *,
+    state_key: str,
+    side_keys: List[str],
+    has_latest_speaker: bool = False,
+) -> List[str]:
+    """辩论 barrier 合并（纯函数，就地修改 st）：并行各侧 update → 字段级写入 debate_state。
+
+    - rounds[idx][side_key] 按侧写入（idx 用合并前快照 count//per_turn，避免读改写竞争）
+    - count = 快照 + 成功侧数（失败侧缺席该轮，与串行失败语义一致）
+    - 各 update 的非 debate_state 键（messages/reports/errors）按固定侧序合并（确定性）
+    - Phase 3 latest_speaker = 固定顺序中最后一个有产出的侧（旧串行轮末等价）
+    返回成功产出内容的 side_key 列表（固定顺序）。
+    """
+    from .state import current_round_index
+
+    ds = st.setdefault(state_key, {})
+    snapshot_count = int(ds.get("count", 0) or 0)
+    snapshot_idx = current_round_index(ds, len(side_keys))
+    succeeded: List[str] = []
+    last_written: Optional[str] = None
+    for side_key, update in zip(side_keys, updates):
+        new_ds = (update or {}).get(state_key)
+        content = None
+        if isinstance(new_ds, dict):
+            new_rounds = new_ds.get("rounds") or []
+            if snapshot_idx < len(new_rounds):
+                content = new_rounds[snapshot_idx].get(side_key)
+        if content:
+            rounds: List[Dict[str, Any]] = ds.setdefault("rounds", [])
+            while snapshot_idx >= len(rounds):
+                rounds.append({})
+            rounds[snapshot_idx][side_key] = content
+            succeeded.append(side_key)
+            last_written = side_key
+        _merge_state_update(st, {k: v for k, v in (update or {}).items() if k != state_key})
+    ds["count"] = snapshot_count + len(succeeded)
+    if has_latest_speaker and last_written is not None:
+        ds["latest_speaker"] = last_written
+    return succeeded
+
+
 def _record_error(st: Dict[str, Any], node_name: str, error: str, start: float, *, retried: bool) -> None:
     """节点失败落 state["errors"]（不静默吞掉，供前端/回放展示）"""
     st.setdefault("errors", []).append({
@@ -235,6 +286,8 @@ async def run_pipeline(
     config = deps.config or {}
     phase2_enabled = bool(config.get("phase2_enabled", False))
     phase3_enabled = bool(config.get("phase3_enabled", False))
+    # 辩论同轮并行开关（默认开；False 回退旧串行交替作为保险丝）
+    debate_parallel = bool(config.get("debate_parallel", True))
 
     max_debate_rounds = config.get("phase2_debate_rounds")
     if max_debate_rounds is None:
@@ -272,6 +325,13 @@ async def run_pipeline(
             logger.info(f"🔧 [orchestrator] MCP 工具发现: {len(mcp_tools)} 个")
         except Exception as e:  # noqa: BLE001 - MCP 不可用不阻断分析
             logger.warning(f"⚠️ [orchestrator] MCP 工具发现失败，跳过: {e}")
+            # 失败也必须显式关闭已建立的 stdio 会话：泄漏的 anyio cancel scope
+            # 被 GC 关闭时会以 CancelledError 反杀整个流水线（BaseException 穿透 except Exception）
+            if mcp_manager is not None:
+                try:
+                    await mcp_manager.close_all()
+                except Exception as close_err:  # noqa: BLE001
+                    logger.warning(f"⚠️ [orchestrator] MCP 会话关闭失败: {close_err}")
             mcp_manager = None
             mcp_tools = []
 
@@ -319,11 +379,11 @@ async def run_pipeline(
         except Exception as e:  # noqa: BLE001
             logger.warning(f"⚠️ [orchestrator] 进度事件发射失败: {e}")
 
-    async def _run_node(
+    async def _execute_node(
         node_name: str, node_fn, st: Dict[str, Any], event_key: str = "", display_name: str = "",
-        critical: bool = False,
-    ) -> None:
-        """执行单个节点：计时 + 事件 + 失败记录/重试 + 增量合并
+        critical: bool = False, limit_key: Optional[str] = None, limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """执行单个节点：计时 + 事件 + 失败记录/重试 + 模型级并发限流，返回 update（不合并 state）
 
         event_key：事件流的 agent_key（用户消息门禁/面板 tab 依据）。
         分析师必须传 internal_key（与 run_conversation 内事件同键），其余阶段默认用
@@ -331,7 +391,10 @@ async def run_pipeline(
         display_name：面板展示名（缺省用 node_name）。
         critical：关键节点（Trader/Judge/Manager/Summary）失败自动重试 1 次；
         重试仍失败则记录 errors 并上抛（不再静默吞掉，Summary 终败即整体失败）。
+        limit_key/limit：模型级并发限额（alimit；None 直通）。
         """
+        from app.llm.limiter import alimit
+
         key = event_key or _NODE_EVENT_KEYS.get(node_name, node_name)
         start = time.time()
         if event_sink is not None:
@@ -342,7 +405,8 @@ async def run_pipeline(
             )
         try:
             try:
-                update = await node_fn(st)
+                async with alimit(limit_key, limit):
+                    update = await node_fn(st)
             except Exception as e:  # noqa: BLE001 - 节点异常：先记录再决定重试/上抛
                 logger.error(f"❌ [orchestrator] 节点 {node_name} 异常: {e}", exc_info=True)
                 if not critical:
@@ -351,7 +415,8 @@ async def run_pipeline(
                 else:
                     logger.warning(f"🔁 [orchestrator] 关键节点 {node_name} 失败，重试 1 次")
                     try:
-                        update = await node_fn(st)
+                        async with alimit(limit_key, limit):
+                            update = await node_fn(st)
                     except Exception as e2:  # 重试仍失败 → 记录后上抛（不再静默吞掉）
                         _record_error(st, node_name, str(e2), start, retried=True)
                         raise
@@ -366,6 +431,18 @@ async def run_pipeline(
                 )
                 # 完成驱动计数（critical 重试上抛路径同样经过 finally → 计数，不卡死）
                 await _emit_unit_done(node_name, phase=st.get("_phase", ""), agent_key=key)
+        return update or {}
+
+    async def _run_node(
+        node_name: str, node_fn, st: Dict[str, Any], event_key: str = "", display_name: str = "",
+        critical: bool = False, limit_key: Optional[str] = None, limit: Optional[int] = None,
+    ) -> None:
+        """_execute_node + 顺序合并（串行路径：Trader/Judge/Manager/Summary 等）"""
+        key = event_key or _NODE_EVENT_KEYS.get(node_name, node_name)
+        update = await _execute_node(
+            node_name, node_fn, st, event_key=event_key, display_name=display_name,
+            critical=critical, limit_key=limit_key, limit=limit,
+        )
         _before_reports = dict(st.get("reports") or {})  # 合并前快照（report_ready diff 依据）
         _merge_state_update(st, update or {})
         # 单份报告就绪即发（diff 本次 update 的 reports：新增或内容变化的 key）
@@ -377,6 +454,53 @@ async def run_pipeline(
             before_reports=_before_reports,
             display_name=display_name or _resolve_display_names().get(node_name) or "",
         )
+
+    async def _run_debate_round(
+        side_nodes: List[tuple],
+        st: Dict[str, Any],
+        *,
+        state_key: str,
+        side_keys: List[str],
+        report_keys: List[str],
+        report_view: Callable[[Dict[str, Any], str], str],
+        has_latest_speaker: bool = False,
+    ) -> None:
+        """同轮多方并行辩论（barrier 语义）：gather 并行执行各侧 → 全部完成后字段级合并。
+
+        公平性保证：各侧节点只读 rounds[0:current_round_index]（完整历史轮，
+        不见本轮对手），与旧串行的上下文注入逐字节一致；差异仅在执行顺序。
+        合并由 _merge_debate_updates（纯函数）完成；reports 丢弃各 update 自带
+        report_content，合并 rounds 后统一重派生。
+        """
+        updates = await asyncio.gather(*[
+            _execute_node(
+                node_name, node_fn, st,
+                critical=False,
+                limit_key=deps.debate_limit_key, limit=deps.debate_limit,
+            )
+            for node_name, node_fn in side_nodes
+        ])
+
+        _before_reports = dict(st.get("reports") or {})
+        _merge_debate_updates(
+            st, updates, state_key=state_key, side_keys=side_keys,
+            has_latest_speaker=has_latest_speaker,
+        )
+
+        # reports 统一重派生（各 update 内的派生视图只含自己本轮，不可信）+ report_ready 事件
+        ds = st.get(state_key) or {}
+        for (node_name, _fn), side_key, report_key in zip(side_nodes, side_keys, report_keys):
+            content = report_view(ds, side_key)
+            if not content:
+                continue
+            st.setdefault("reports", {})[report_key] = content
+            await _emit_report_ready(
+                event_sink, {"reports": {report_key: content}},
+                agent_key=_NODE_EVENT_KEYS.get(node_name, node_name),
+                phase=st.get("_phase", ""),
+                before_reports=_before_reports,
+                display_name=_resolve_display_names().get(node_name) or node_name,
+            )
 
     state = create_initial_state(company_name, trade_date, task_id=task_id, user_id=user_id)
     # 事件汇聚点经 state 下发（业务节点经 invoker 透传给 run_conversation，Stage 2-4 过程可观测）
@@ -396,6 +520,9 @@ async def run_pipeline(
                 enable_subagent=bool(config.get("enable_subagent", False)),
             )
             concurrency = max(1, int(config.get("analyst_concurrency", 5) or 1))
+            # 模型级并发限额（LLMConfig.max_concurrency）封顶编排并行度：灵活占位语义
+            if deps.analyst_limit:
+                concurrency = min(concurrency, int(deps.analyst_limit))
             semaphore = asyncio.Semaphore(concurrency)
             # 进度分母在此确定（分析师数 + 各阶段展开节点数）
             total_units_box[0] = compute_total_units(
@@ -415,7 +542,9 @@ async def run_pipeline(
                         name=spec.name,
                     )
                 try:
-                    async with semaphore:
+                    from app.llm.limiter import alimit
+
+                    async with semaphore, alimit(deps.analyst_limit_key, deps.analyst_limit):
                         return await run_analyst(
                             spec, deps.analyst_client, state, event_sink=event_sink
                         )
@@ -459,18 +588,42 @@ async def run_pipeline(
                 bear_node = create_researcher(deps.debate_client, deps.bear_memory, side="bear")
                 research_manager = create_research_manager(deps.debate_client, deps.invest_judge_memory)
 
-                # 总发言 2*(rounds+1)：for 循环展开与旧条件路由 Bull→Bear 交替完全等价
+                # 总发言 2*(rounds+1)。debate_parallel=True：同轮 Bull/Bear 并行 + barrier
+                # （上下文注入只读完整历史轮，与串行等价）；False：旧串行交替（回退保险丝）
+                from .state import investment_report_content
+
+                side_nodes_p2 = [("Bull Researcher", bull_node), ("Bear Researcher", bear_node)]
+                side_keys_p2 = ["bull", "bear"]
+                report_keys_p2 = ["bull_researcher", "bear_researcher"]
                 for _round in range(max_debate_rounds + 1):
-                    await _run_node("Bull Researcher", bull_node, state)
-                    await _run_node("Bear Researcher", bear_node, state)
-                await _run_node("Research Manager", research_manager, state, critical=True)
+                    if debate_parallel:
+                        await _run_debate_round(
+                            side_nodes_p2, state,
+                            state_key="investment_debate_state",
+                            side_keys=side_keys_p2,
+                            report_keys=report_keys_p2,
+                            report_view=investment_report_content,
+                        )
+                    else:
+                        for node_name, node_fn in side_nodes_p2:
+                            await _run_node(
+                                node_name, node_fn, state,
+                                limit_key=deps.debate_limit_key, limit=deps.debate_limit,
+                            )
+                await _run_node(
+                    "Research Manager", research_manager, state, critical=True,
+                    limit_key=deps.debate_limit_key, limit=deps.debate_limit,
+                )
 
             # ── Trader（恒执行）──────────────────────────────────────
             state["_phase"] = "trader"
             from app.engine.agents.stage_2.trader import create_trader
 
             trader_node = create_trader(deps.debate_client, deps.trader_memory)
-            await _run_node("Trader", trader_node, state, critical=True)
+            await _run_node(
+                "Trader", trader_node, state, critical=True,
+                limit_key=deps.debate_limit_key, limit=deps.debate_limit,
+            )
 
             # ── Phase 3：风险辩论（固定 Risky→Safe→Neutral 循环）+ 裁决
             if phase3_enabled:
@@ -487,11 +640,37 @@ async def run_pipeline(
                 }
                 risk_manager = create_risk_manager(deps.debate_client, deps.risk_manager_memory)
 
-                # 总发言 3*(rounds+1)：固定顺序循环与旧条件路由等价
+                # 总发言 3*(rounds+1)。debate_parallel=True：同轮三方并行 + barrier；
+                # False：旧 Risky→Safe→Neutral 固定串行（回退保险丝）
+                from .state import risk_report_content
+
+                side_nodes_p3 = [
+                    ("Risky Analyst", debators["Risky Analyst"]),
+                    ("Safe Analyst", debators["Safe Analyst"]),
+                    ("Neutral Analyst", debators["Neutral Analyst"]),
+                ]
+                side_keys_p3 = ["risky", "safe", "neutral"]
+                report_keys_p3 = ["risky_analyst", "safe_analyst", "neutral_analyst"]
                 for _round in range(max_risk_rounds + 1):
-                    for node_name in ("Risky Analyst", "Safe Analyst", "Neutral Analyst"):
-                        await _run_node(node_name, debators[node_name], state)
-                await _run_node("Risk Judge", risk_manager, state, critical=True)
+                    if debate_parallel:
+                        await _run_debate_round(
+                            side_nodes_p3, state,
+                            state_key="risk_debate_state",
+                            side_keys=side_keys_p3,
+                            report_keys=report_keys_p3,
+                            report_view=risk_report_content,
+                            has_latest_speaker=True,
+                        )
+                    else:
+                        for node_name, node_fn in side_nodes_p3:
+                            await _run_node(
+                                node_name, node_fn, state,
+                                limit_key=deps.debate_limit_key, limit=deps.debate_limit,
+                            )
+                await _run_node(
+                    "Risk Judge", risk_manager, state, critical=True,
+                    limit_key=deps.debate_limit_key, limit=deps.debate_limit,
+                )
 
             # ── Summary（恒执行）─────────────────────────────────────
             state["_phase"] = "summary"
@@ -499,7 +678,10 @@ async def run_pipeline(
 
             summary_node = create_summary_agent(deps.debate_client)
             # Summary 为终端节点：重试后仍失败则整体失败（不再产出假成功报告）
-            await _run_node("Summary Agent", summary_node, state, critical=True)
+            await _run_node(
+                "Summary Agent", summary_node, state, critical=True,
+                limit_key=deps.debate_limit_key, limit=deps.debate_limit,
+            )
 
             # reports 字典回填顶层 *_report 字段（支持自定义智能体，与旧逻辑一致）
             for report_key, report_content in (state.get("reports") or {}).items():

@@ -136,6 +136,17 @@ class AnalysisRuntime:
 
         clients = await self._resolve_clients()
         self._last_debate_client = clients["debate"]
+
+        def _limit_fields(prefix: str, bundle) -> Dict[str, Any]:
+            """从 bundle 提取模型级并发限额（_meta.limit_key + max_concurrency）"""
+            meta = getattr(bundle, "_meta", None) or {}
+            return {
+                f"{prefix}_limit": getattr(bundle, "max_concurrency", None),
+                f"{prefix}_limit_key": meta.get("limit_key"),
+            }
+
+        limit_fields = {**_limit_fields("analyst", clients["analyst"]),
+                        **_limit_fields("debate", clients["debate"])}
         deps = PipelineDeps(
             analyst_client=clients["analyst"],
             debate_client=clients["debate"],
@@ -146,6 +157,7 @@ class AnalysisRuntime:
             invest_judge_memory=self.invest_judge_memory,
             risk_manager_memory=self.risk_manager_memory,
             config=self.config,
+            **limit_fields,
         )
         final_state = await run_pipeline(
             deps,
