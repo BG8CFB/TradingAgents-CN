@@ -11,7 +11,6 @@ Skill Git URL 安装器
 """
 
 import logging
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -20,7 +19,6 @@ from urllib.parse import urlparse
 
 from app.core.config import settings
 from app.engine.tools.skill.loader import get_cache_skills_dir, get_default_user_skills_dir
-from app.engine.tools.skill.manifest import load_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +69,22 @@ def _validate_git_url(url: str, trusted_hosts: Optional[set] = None) -> Optional
     return None
 
 
+def _rmtree_force(path: Path) -> None:
+    """Windows 下 .git 内对象文件带只读属性，rmtree 会静默失败——chmod 后重试"""
+
+    def _onerror(func, p, _exc):
+        import os
+        import stat
+
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except Exception:
+            pass
+
+    shutil.rmtree(path, onerror=_onerror)
+
+
 def _clone_to_cache(url: str, skill_name: str) -> Path:
     """
     克隆到缓存目录。
@@ -82,8 +96,13 @@ def _clone_to_cache(url: str, skill_name: str) -> Path:
 
     target = cache_root / skill_name
     if target.exists():
-        # 已存在同名缓存，先清空再克隆
-        shutil.rmtree(target, ignore_errors=True)
+        # 已存在同名缓存，先清空再克隆（Windows 下句柄释放有延迟，重试几次）
+        for _ in range(3):
+            _rmtree_force(target)
+            if not target.exists():
+                break
+        if target.exists():
+            raise RuntimeError(f"缓存目录无法清空: {target}")
 
     args = [
         "git",
@@ -109,10 +128,10 @@ def _clone_to_cache(url: str, skill_name: str) -> Path:
     except FileNotFoundError:
         raise RuntimeError("git 命令未找到，请安装 git")
 
-    # 删除 .git 目录（防止 git hook 被触发）
+    # 删除 .git 目录（防止 git hook 被触发；Windows 只读对象需 force 删除）
     git_dir = target / ".git"
     if git_dir.exists():
-        shutil.rmtree(git_dir, ignore_errors=True)
+        _rmtree_force(git_dir)
 
     return target
 
@@ -171,8 +190,41 @@ def install_from_git(url: str, trusted_hosts_override: Optional[list] = None) ->
     return _do_install(url, merged_hosts)
 
 
-def _do_install(url: str, trusted_hosts: Optional[set] = None) -> dict:
-    """实际安装逻辑（已校验 URL）"""
+def install_from_git_interactive(url: str, subdir: Optional[str] = None) -> dict:
+    """
+    交互式（Web 管理界面）Git 安装入口。
+
+    与 install_from_git 的区别：
+    - 仅允许 https://（ssh 凭据注入面更大，交互场景不需要）
+    - 提交的 URL 主机自动视为本次可信（管理员显式提交即授权该主机），
+      不再要求手动填写临时可信主机；全局白名单仍作为额外放行清单
+    - 支持 subdir：monorepo（如 skills.sh 的 skills 仓库）技能在子目录时，
+      只把该子目录作为 skill 根安装
+    - 返回值额外含 resolved_host（供审计日志记录）
+
+    安全影响：原白名单防线防"任意仓库克隆"，但管理员本可改全局白名单
+    达到同样效果，故未降权；克隆后的全部防线（depth-1、删 .git、
+    skill_name 路径安全、manifest 一致性、pip 依赖白名单）全部保留。
+    """
+    host = _extract_host(url)
+    if not url.startswith("https://"):
+        return {
+            "success": False,
+            "skill_name": "",
+            "installed_path": "",
+            "error": "仅允许 https:// 协议的 Git URL",
+            "resolved_host": host,
+        }
+    trusted = _get_trusted_hosts() | {host.lower()} if host else None
+    result = _do_install(url, trusted, subdir=subdir)
+    result["resolved_host"] = host
+    return result
+
+
+def _do_install(
+    url: str, trusted_hosts: Optional[set] = None, subdir: Optional[str] = None
+) -> dict:
+    """实际安装逻辑（已校验 URL）；subdir 非空时以仓库子目录为 skill 根"""
     err = _validate_git_url(url, trusted_hosts)
     if err:
         return {
@@ -185,7 +237,7 @@ def _do_install(url: str, trusted_hosts: Optional[set] = None) -> dict:
     try:
         # 先克隆到一个临时名称，待读取 SKILL.md 后再确定真实名称
         temp_name = "_pending_install"
-        cache_path = _clone_to_cache(url, temp_name)
+        repo_path = _clone_to_cache(url, temp_name)
     except Exception as e:
         return {
             "success": False,
@@ -194,34 +246,43 @@ def _do_install(url: str, trusted_hosts: Optional[set] = None) -> dict:
             "error": str(e),
         }
 
-    # 校验 SKILL.md 存在
-    skill_md = cache_path / "SKILL.md"
-    if not skill_md.exists():
+    # 子目录模式：monorepo 中技能在 subdir 下，把该子目录提为 skill 根
+    if subdir:
+        # skills.sh 仓库（如 vercel-labs/skills）把技能统一放 skills/ 下，
+        # 引用 "skills-sh:owner/repo/name" 的 name 实际位于 skills/name —— 依次尝试候选
+        candidates = [subdir, f"skills/{subdir.strip('/')}"]
+        sub = None
+        for cand in candidates:
+            if cand and (repo_path / cand / "SKILL.md").exists():
+                sub = repo_path / cand
+                break
+        if sub is None:
+            shutil.rmtree(repo_path, ignore_errors=True)
+            return {
+                "success": False,
+                "skill_name": "",
+                "installed_path": "",
+                "error": f"仓库子目录 {subdir}（及 skills/{subdir}）均缺少 SKILL.md",
+            }
+        extracted = repo_path.parent / "_pending_subdir"
+        shutil.rmtree(extracted, ignore_errors=True)
+        shutil.copytree(sub, extracted)
+        shutil.rmtree(repo_path, ignore_errors=True)
+        cache_path = extracted
+    else:
+        cache_path = repo_path
+
+    # 公共校验：SKILL.md 存在 / skill_name 字符安全 / manifest 一致
+    from app.engine.tools.skill.package_validator import validate_skill_package
+
+    skill_name, err = validate_skill_package(cache_path)
+    if err:
         shutil.rmtree(cache_path, ignore_errors=True)
         return {
             "success": False,
-            "skill_name": "",
+            "skill_name": skill_name or "",
             "installed_path": "",
-            "error": "Git 仓库根目录缺少 SKILL.md，不是合法的 skill 包",
-        }
-
-    # 解析 skill_name
-    from app.engine.tools.skill.loader import parse_skill_metadata
-
-    meta = parse_skill_metadata(str(skill_md))
-    skill_name = meta.get("name") or cache_path.name
-
-    # R13-ET-02 修复：校验 skill_name 字符，防止路径遍历攻击。
-    # skill_name 来源于远程 Git 仓库的 SKILL.md（仅 .strip() 处理），
-    # 若含 ../ 等路径片段可写入项目任意目录。
-    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$", skill_name):
-        logger.error(f"[SkillGitInstaller] skill_name 含非法字符，拒绝安装: {skill_name!r}")
-        shutil.rmtree(cache_path, ignore_errors=True)
-        return {
-            "success": False,
-            "skill_name": skill_name,
-            "installed_path": "",
-            "error": f"skill_name 含非法字符（仅允许字母、数字、下划线、连字符）: {skill_name}",
+            "error": err,
         }
 
     # 验证目录名与 skill_name 一致（Agent Skills 规范要求）
@@ -231,17 +292,6 @@ def _do_install(url: str, trusted_hosts: Optional[set] = None) -> dict:
         if new_cache.exists():
             shutil.rmtree(new_cache, ignore_errors=True)
         cache_path = cache_path.rename(new_cache)
-
-    # 校验 manifest（若存在）
-    manifest = load_manifest(str(cache_path))
-    if manifest is not None and manifest.skill_name != skill_name:
-        shutil.rmtree(cache_path, ignore_errors=True)
-        return {
-            "success": False,
-            "skill_name": skill_name,
-            "installed_path": "",
-            "error": f"manifest.skill_name ({manifest.skill_name}) 与目录名 ({skill_name}) 不一致",
-        }
 
     try:
         final_path = _move_to_user_dir(cache_path, skill_name)
@@ -253,6 +303,15 @@ def _do_install(url: str, trusted_hosts: Optional[set] = None) -> dict:
             "installed_path": "",
             "error": f"移动到用户目录失败: {e}",
         }
+
+    # 标记来源（registry/_refine_source_type 依赖 manifest.source.type，
+    # 否则 git 安装会被判为 local，卸载需 force）
+    try:
+        from app.engine.tools.skill.local_installer import mark_skill_source
+
+        mark_skill_source(final_path, "git", url=url, installed_by="git")
+    except Exception as e:
+        logger.warning(f"[SkillGitInstaller] 写入 source 标记失败: {e}")
 
     logger.info(f"[SkillGitInstaller] 已从 Git 安装 skill: {skill_name} <- {url}")
 

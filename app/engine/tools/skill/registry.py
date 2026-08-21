@@ -160,7 +160,11 @@ class SkillRegistry:
                             "skill_dir": skill_dir,
                             "has_manifest": manifest is not None,
                             "has_scripts": (subdir / "scripts").is_dir(),
-                            "source_type": self._classify_source_dir(base_dir),
+                            # manifest 记录的安装来源（git/registry）优先于目录位置推断，
+                            # 否则市场/Git 安装到用户目录后会被误判为 local（卸载需 force）
+                            "source_type": self._refine_source_type(
+                                manifest, base_dir
+                            ),
                         }
                     )
             except Exception as e:
@@ -208,10 +212,25 @@ class SkillRegistry:
         if base_dir == self._user_skills_dir:
             return "local"
         if base_dir == self._cache_skills_dir:
-            return "git"  # 或 registry，运行时由 manifest.source.type 细化
+            return "git"
         if base_dir == self._builtin_skills_dir:
             return "builtin"
         return "local"
+
+    def _refine_source_type(self, manifest, base_dir: str) -> str:
+        """安装来源判定：manifest.source.type（安装器写入）优先，缺省回退目录推断。
+
+        manifest 可能是 SkillManifest 模型（load_manifest 正常路径）或 dict。
+        """
+        source = getattr(manifest, "source", None) if manifest is not None else None
+        if source is None and isinstance(manifest, dict):
+            source = manifest.get("source")
+        source_type = getattr(source, "type", None) or (
+            source.get("type") if isinstance(source, dict) else None
+        )
+        if source_type in ("git", "registry"):
+            return source_type
+        return self._classify_source_dir(base_dir)
 
     def get_skill_dir(self, name: str) -> Optional[str]:
         """获取 skill 的根目录路径"""

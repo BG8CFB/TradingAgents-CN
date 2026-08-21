@@ -470,15 +470,31 @@ class Settings(BaseSettings):
         le=1800,
         description="单次 skill 依赖 pip install 的超时时间（秒）",
     )
-    # 未来中心化注册表地址（本期未使用）
+    # 已弃用：由 SKILL_MARKETPLACE_URL 取代（保留一个版本作 fallback 读取）
     SKILL_REGISTRY_URL: str = Field(
         default="",
-        description="中心化 skill 注册表地址（预留，本期未实现）",
+        description="（已弃用）中心化 skill 注册表地址，由 SKILL_MARKETPLACE_URL 取代",
+    )
+    # ClawHub 市场（OpenClaw skill marketplace，https://clawhub.ai）
+    SKILL_MARKETPLACE_URL: str = Field(
+        default="https://clawhub.ai",
+        description="ClawHub 市场地址（官方公开只读 API，第三方复用被明确允许）",
+    )
+    SKILL_MARKETPLACE_CACHE_TTL: int = Field(
+        default=300,
+        ge=0,
+        description="市场只读请求的内存缓存 TTL（秒），0 表示不缓存",
+    )
+    # 本地 zip 上传大小上限
+    SKILL_UPLOAD_MAX_SIZE_MB: int = Field(
+        default=20,
+        ge=1,
+        description="上传 zip 安装包的总大小上限（MB）",
     )
     # Git URL 安装的可信主机白名单（逗号分隔）
     SKILL_GIT_TRUSTED_HOSTS: str = Field(
         default="github.com,gitee.com",
-        description="允许从 Git URL 安装 skill 的可信主机白名单（逗号分隔）",
+        description="允许从 Git URL 安装 skill 的可信主机白名单（逗号分隔；交互安装时提交的 URL 主机自动可信）",
     )
 
     @property

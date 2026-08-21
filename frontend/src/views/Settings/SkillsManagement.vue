@@ -12,9 +12,9 @@
         </el-tooltip>
       </div>
       <div class="header-right">
-        <el-button @click="showGitInstall = true" type="primary" plain>
+        <el-button @click="showInstall = true" type="primary" plain>
           <el-icon><Download /></el-icon>
-          <span>从 Git 安装</span>
+          <span>添加技能</span>
         </el-button>
         <el-button @click="handleReload" :loading="reloading">
           <el-icon><Refresh /></el-icon>
@@ -61,7 +61,6 @@
           <span>
             自动安装: {{ skillsStore.config.auto_install ? '已开启' : '已关闭' }}
             | 超时: {{ skillsStore.config.install_timeout }}s
-            | 可信 Git 主机: {{ skillsStore.config.git_trusted_hosts.join(', ') || '无' }}
             | 白名单: {{ skillsStore.config.allowed_packages.length || '不限' }}
           </span>
         </div>
@@ -221,46 +220,62 @@
           </el-alert>
         </div>
 
+        <h4 class="section-title">安装日志</h4>
+        <el-table
+          v-if="skillsStore.installLogs.length > 0"
+          :data="skillsStore.installLogs"
+          size="small"
+          border
+        >
+          <el-table-column label="时间" width="160">
+            <template #default="{ row }">{{ formatLogTime(row.installed_at) }}</template>
+          </el-table-column>
+          <el-table-column label="包" min-width="180">
+            <template #default="{ row }">
+              <span class="log-packages">{{ (row.packages || []).map((p: any) => p.package).join(', ') || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="结果" width="90">
+            <template #default="{ row }">
+              <el-tag
+                :type="row.status === 'success' ? 'success' : row.status === 'partial' ? 'warning' : 'danger'"
+                size="small"
+              >
+                {{ row.status }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="耗时" width="90">
+            <template #default="{ row }">{{ row.duration_seconds ? `${row.duration_seconds}s` : '-' }}</template>
+          </el-table-column>
+          <el-table-column label="触发者" width="120" prop="installed_by" show-overflow-tooltip />
+          <el-table-column label="错误" min-width="140">
+            <template #default="{ row }">
+              <el-tooltip v-if="row.error" :content="row.error" placement="top">
+                <span class="log-error">{{ row.error.slice(0, 40) }}…</span>
+              </el-tooltip>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <p v-else class="empty-hint">暂无安装记录</p>
+
         <h4 class="section-title">SKILL.md 预览</h4>
         <pre class="skillmd-preview">{{ currentDetail.content_preview }}</pre>
       </div>
     </el-drawer>
 
-    <!-- Git 安装对话框 -->
-    <el-dialog v-model="showGitInstall" title="从 Git URL 安装技能" width="500px">
-      <el-form label-position="top">
-        <el-form-item label="Git URL">
-          <el-input
-            v-model="gitUrl"
-            placeholder="https://github.com/user/my-skill.git"
-          />
-        </el-form-item>
-        <el-form-item label="临时可信主机（可选，与全局合并）">
-          <el-input
-            v-model="gitTrustedHosts"
-            placeholder="github.com,gitee.com（逗号分隔）"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showGitInstall = false">取消</el-button>
-        <el-button
-          type="primary"
-          @click="handleGitInstall"
-          :loading="gitInstalling"
-        >
-          安装
-        </el-button>
-      </template>
-    </el-dialog>
+    <!-- 添加技能对话框（Git / 本地 / 市场） -->
+    <InstallDialog v-model="showInstall" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { QuestionFilled, Refresh, Download, Tools, Check, Warning } from '@element-plus/icons-vue'
 import { useSkillsStore } from '@/stores/skills'
+import InstallDialog from '@/components/Skills/InstallDialog.vue'
 import type { SkillSummary } from '@/api/skills'
 
 const skillsStore = useSkillsStore()
@@ -269,10 +284,7 @@ const detailDrawer = ref(false)
 const currentDetail = ref<any>(null)
 const installingSkill = ref('')
 const reloading = ref(false)
-const showGitInstall = ref(false)
-const gitUrl = ref('')
-const gitTrustedHosts = ref('')
-const gitInstalling = ref(false)
+const showInstall = ref(false)
 
 const refresh = async () => {
   await Promise.all([skillsStore.fetchSkills(), skillsStore.fetchConfig()])
@@ -300,7 +312,17 @@ const handleViewDetail = async (name: string) => {
 }
 
 const onDetailOpen = () => {
-  // 预留：打开时可以预加载安装日志
+  if (currentDetail.value?.name) {
+    skillsStore.fetchInstallLogs(currentDetail.value.name)
+  }
+}
+
+const formatLogTime = (iso: string) => {
+  try {
+    return new Date(iso).toLocaleString()
+  } catch {
+    return iso
+  }
 }
 
 const handleReload = async () => {
@@ -325,34 +347,12 @@ const handleUninstall = async (skill: SkillSummary) => {
   }
 }
 
-const handleGitInstall = async () => {
-  if (!gitUrl.value) {
-    ElMessage.warning('请输入 Git URL')
-    return
-  }
-  gitInstalling.value = true
-  try {
-    const hosts = gitTrustedHosts.value
-      .split(',')
-      .map((h) => h.trim())
-      .filter(Boolean)
-    await skillsStore.installFromGit(gitUrl.value, hosts.length ? hosts : undefined)
-    showGitInstall.value = false
-    gitUrl.value = ''
-    gitTrustedHosts.value = ''
-  } catch {
-    // 错误已在 store 中处理
-  } finally {
-    gitInstalling.value = false
-  }
-}
-
 const sourceLabel = (type: string): string => {
   const map: Record<string, string> = {
     local: '本地',
     builtin: '内置',
     git: 'Git',
-    registry: '注册表',
+    registry: '市场',
   }
   return map[type] || type
 }
@@ -571,5 +571,16 @@ onMounted(() => {
 
 .mr-1 {
   margin-right: 4px;
+}
+
+.log-packages {
+  font-size: 12px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+.log-error {
+  color: var(--el-color-danger);
+  font-size: 12px;
+  cursor: help;
 }
 </style>

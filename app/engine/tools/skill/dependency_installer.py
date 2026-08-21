@@ -18,15 +18,18 @@ ensure_skill_dependencies 是 async——因为 SkillStateStore 的写入是 asy
 
 import asyncio
 import logging
-import re
-import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import Dict, List
 
 from app.core.config import settings
+from app.core.package_install import (
+    build_pip_args as _build_pip_args_core,
+    run_install as _run_install_core,
+    validate_package_spec,
+    write_requirements,
+)
 from app.engine.tools.skill.availability import check_skill_dependencies_raw
 from app.engine.tools.skill.registry import SkillRegistry
 from app.engine.tools.skill.state_store import SkillStateStore
@@ -74,32 +77,12 @@ def _build_pip_args(
     deps: List[SkillPythonDependency],
     requirements_file: Path,
 ) -> List[str]:
-    """
-    构造 pip install 命令参数。
-
-    安全约束：
-    - 不传 --index-url / --extra-index-url（强制走默认 PyPI）
-    - 若任一依赖声明了 hash，则全部走 --require-hashes
-    - --no-input 防交互
-    --disable-pip-version-check 减少输出噪音
-    """
-    args = [
+    """构造 pip install 命令参数（公共原语薄封装；任一依赖声明 hash 则 --require-hashes）"""
+    return _build_pip_args_core(
         sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "-r",
-        str(requirements_file),
-        "--no-input",
-        "--disable-pip-version-check",
-        "--no-warn-script-location",
-    ]
-
-    has_hash = any(dep.hash for dep in deps)
-    if has_hash:
-        args.append("--require-hashes")
-
-    return args
+        requirements_file,
+        require_hashes=any(dep.hash for dep in deps),
+    )
 
 
 def _write_requirements(
@@ -113,80 +96,21 @@ def _write_requirements(
         mplfinance>=0.12.10b0
         ta-lib==0.4.28 --hash=sha256:abc...
 
-    R13-ET-03 修复：对 package 和 version 做严格字符校验，
-    防止通过换行符 + --index-url 注入改变 pip 安装源。
+    包名/版本字符校验走公共原语 validate_package_spec（R13-ET-03：防注入切换安装源）。
     """
-    # package: 只允许字母、数字、下划线、连字符、点（PEP 508 名称规范）
-    _PACKAGE_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$")
-    # version: PEP 440 版本约束字符，禁止换行、空格、-- 选项
-    _VERSION_RE = re.compile(r"^[a-zA-Z0-9_.<>=!~;,+^*-]*$")
-
     lines = []
     for dep in deps:
-        package = dep.package
-        version = dep.version
-
-        if not _PACKAGE_RE.match(package):
-            logger.error(f"[SkillInstaller] 包名含非法字符，拒绝安装: {package!r}")
-            raise ValueError(f"包名含非法字符（仅允许字母、数字、下划线、连字符、点）: {package}")
-
-        if version and not _VERSION_RE.match(version):
-            logger.error(f"[SkillInstaller] 版本约束含非法字符，拒绝安装: {package}{version!r}")
-            raise ValueError(f"版本约束含非法字符（禁止换行、空格、-- 选项）: {package}{version}")
-
+        validate_package_spec(dep.package, dep.version)
         if dep.hash:
-            lines.append(f"{package}{version} --hash={dep.hash}")
+            lines.append(f"{dep.package}{dep.version} --hash={dep.hash}")
         else:
-            lines.append(f"{package}{version}")
-    requirements_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            lines.append(f"{dep.package}{dep.version}")
+    write_requirements(lines, requirements_file)
 
 
 def _run_pip_install(args: List[str], timeout: int) -> Dict:
-    """
-    执行 pip install 子进程。
-
-    Returns:
-        {
-            "success": bool,
-            "returncode": int,
-            "stdout_tail": str,   # stdout 最后 2000 字符（用于错误诊断）
-            "stderr_tail": str,
-            "duration_seconds": float,
-        }
-    """
-    start = time.time()
-    try:
-        proc = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-        duration = time.time() - start
-        return {
-            "success": proc.returncode == 0,
-            "returncode": proc.returncode,
-            "stdout_tail": proc.stdout[-2000:] if proc.stdout else "",
-            "stderr_tail": proc.stderr[-2000:] if proc.stderr else "",
-            "duration_seconds": round(duration, 2),
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "returncode": -1,
-            "stdout_tail": "",
-            "stderr_tail": f"pip install 超时（{timeout}秒）",
-            "duration_seconds": float(timeout),
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "returncode": -2,
-            "stdout_tail": "",
-            "stderr_tail": f"子进程执行失败: {e}",
-            "duration_seconds": round(time.time() - start, 2),
-        }
+    """执行 pip install 子进程（公共原语薄封装）"""
+    return _run_install_core(args, timeout)
 
 
 async def install_skill_dependencies(

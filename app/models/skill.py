@@ -133,7 +133,8 @@ class SkillInstallLog(BaseModel):
     """
 
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
-    skill_name: str = Field(..., description="skill 名")
+    kind: str = Field(default="skill", description="日志归属：skill | mcp（复用同一审计集合）")
+    skill_name: str = Field(..., description="skill 名（mcp 场景为 server 名）")
     source_url: str = Field(default="", description="来源 URL")
     source_commit: str = Field(default="", description="来源 commit")
     packages: List[Dict[str, str]] = Field(

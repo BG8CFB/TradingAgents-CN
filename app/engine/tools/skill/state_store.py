@@ -12,7 +12,7 @@ Skill 状态持久化层
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.core.database import get_mongo_db
 from app.models.skill import SkillInstallLog, SkillState
@@ -160,7 +160,8 @@ class SkillStateStore:
         """写入安装审计日志"""
         try:
             db = get_mongo_db()
-            doc = log.model_dump(by_alias=True, exclude_none=False)
+            # id=None 会 dump 成 _id:null，第二条起触发 E11000 重复键——插入前必须排除，由 Mongo 生成
+            doc = log.model_dump(by_alias=True, exclude_none=False, exclude={"id"})
             await db[_SKILL_INSTALL_LOG_COLLECTION].insert_one(doc)
             return True
         except Exception as e:
@@ -171,11 +172,16 @@ class SkillStateStore:
         self,
         skill_name: Optional[str] = None,
         limit: int = 100,
+        kind: Optional[str] = None,
     ) -> List[SkillInstallLog]:
-        """查询安装审计日志"""
+        """查询安装审计日志（kind: skill | mcp，None 表示全部）"""
         try:
             db = get_mongo_db()
-            query = {"skill_name": skill_name} if skill_name else {}
+            query: Dict[str, Any] = {}
+            if skill_name:
+                query["skill_name"] = skill_name
+            if kind:
+                query["kind"] = kind
             cursor = db[_SKILL_INSTALL_LOG_COLLECTION].find(query).sort("installed_at", -1).limit(limit)
             result: List[SkillInstallLog] = []
             async for doc in cursor:

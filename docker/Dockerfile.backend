@@ -39,7 +39,8 @@ RUN echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
         libffi-dev \
         ca-certificates \
         curl \
-        wget && \
+        wget \
+        git && \
     rm -rf /var/lib/apt/lists/*
 
 # 把依赖装到独立 venv，方便整目录复制到 runtime
@@ -89,6 +90,7 @@ WORKDIR /app
 # - fontconfig: 字体缓存
 # - tzdata: 时区数据
 # - xz-utils: 解压 Node.js tarball（MCP 服务器依赖）
+# - git: skill Git URL 安装（app/engine/tools/skill/git_installer.py 依赖 git clone）
 # 不装编译工具链（gcc/make/cmake），缩小攻击面与镜像体积
 RUN mkdir -p /app/runtime /app/config && \
     echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
@@ -106,7 +108,8 @@ RUN mkdir -p /app/runtime /app/config && \
         wkhtmltopdf \
         xvfb \
         xauth \
-        xz-utils && \
+        xz-utils \
+        git && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone && \
     fc-cache -fv && \

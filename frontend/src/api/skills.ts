@@ -70,7 +70,12 @@ export interface SkillGlobalConfig {
   install_timeout: number
   registry_url: string
   git_trusted_hosts: string[]
+  marketplace_url: string
 }
+
+// 安装类请求超时：市场/Git 下载在慢网下可达分钟级，前端默认 60s 会提前断开
+//（后端仍会完成安装，但用户看到的是超时报错）
+const INSTALL_TIMEOUT = 5 * 60 * 1000
 
 export const skillsApi = {
   list(): Promise<ApiResponse<{ skills: SkillSummary[]; total: number }>> {
@@ -101,11 +106,39 @@ export const skillsApi = {
     return request.post('/api/skills/reload')
   },
 
-  installFromGit(
-    url: string,
-    trusted_hosts?: string[]
-  ): Promise<ApiResponse<any>> {
-    return request.post('/api/skills/install/git', { url, trusted_hosts })
+  installFromGit(url: string): Promise<ApiResponse<any>> {
+    return request.post('/api/skills/install/git', { url }, { timeout: INSTALL_TIMEOUT })
+  },
+
+  installFromLocalPath(path: string): Promise<ApiResponse<any>> {
+    return request.post('/api/skills/install/local-path', { path }, { timeout: INSTALL_TIMEOUT })
+  },
+
+  installUpload(file: File): Promise<ApiResponse<any>> {
+    const form = new FormData()
+    form.append('file', file)
+    return request.post('/api/skills/install/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: INSTALL_TIMEOUT,
+    })
+  },
+
+  installFromRegistry(name: string, version?: string): Promise<ApiResponse<any>> {
+    return request.post(
+      '/api/skills/install/registry',
+      { name, version },
+      { timeout: INSTALL_TIMEOUT }
+    )
+  },
+
+  /** 粘贴安装命令/引用一键安装（后台任务，返回 task_id） */
+  installFromReference(reference: string): Promise<ApiResponse<{ task_id: string; status: string }>> {
+    return request.post('/api/skills/install/reference', { reference })
+  },
+
+  /** 查询粘贴命令安装任务结果 */
+  installReferenceStatus(taskId: string): Promise<ApiResponse<{ status: string; result?: any }>> {
+    return request.get(`/api/skills/install/reference/${taskId}`)
   },
 
   uninstall(name: string, force = false): Promise<ApiResponse<any>> {

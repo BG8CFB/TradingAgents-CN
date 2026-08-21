@@ -1,4 +1,7 @@
 import { defineStore } from 'pinia'
+
+// 安装轮询上限（后端任务可能持续数分钟）
+const INSTALL_POLL_TIMEOUT = 10 * 60 * 1000
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
@@ -128,9 +131,9 @@ export const useSkillsStore = defineStore('skills', () => {
     }
   }
 
-  const installFromGit = async (url: string, trustedHosts?: string[]) => {
+  const installFromGit = async (url: string) => {
     try {
-      const res = await skillsApi.installFromGit(url, trustedHosts)
+      const res = await skillsApi.installFromGit(url)
       if (res.success) {
         ElMessage.success(`已安装: ${res.data.skill_name}`)
         await fetchSkills()
@@ -140,6 +143,67 @@ export const useSkillsStore = defineStore('skills', () => {
       ElMessage.error('Git 安装失败')
       throw e
     }
+  }
+
+  const installFromLocalPath = async (path: string) => {
+    try {
+      const res = await skillsApi.installFromLocalPath(path)
+      if (res.success) {
+        ElMessage.success(`已导入: ${res.data.skill_name}`)
+        await fetchSkills()
+      }
+      return res
+    } catch (e) {
+      ElMessage.error('本地路径导入失败')
+      throw e
+    }
+  }
+
+  const installUpload = async (file: File) => {
+    try {
+      const res = await skillsApi.installUpload(file)
+      if (res.success) {
+        ElMessage.success(`已安装: ${res.data.skill_name}`)
+        await fetchSkills()
+      }
+      return res
+    } catch (e) {
+      ElMessage.error('zip 安装失败')
+      throw e
+    }
+  }
+
+  // ── ClawHub 市场：引导去官网找技能，安装统一走粘贴命令（installFromReference） ──
+
+  /** 粘贴安装命令/引用一键安装（后台任务 + 轮询，不阻塞界面） */
+  const installFromReference = async (reference: string) => {
+    const submit = await skillsApi.installFromReference(reference)
+    if (!submit.success || !submit.data?.task_id) {
+      return submit
+    }
+    const taskId = submit.data.task_id
+    // 轮询直到完成（慢网下市场/Git 下载可达分钟级；提交已即时返回，界面不卡）
+    const deadline = Date.now() + INSTALL_POLL_TIMEOUT
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 2000))
+      try {
+        const res = await skillsApi.installReferenceStatus(taskId)
+        if (res.success && res.data?.status === 'done') {
+          const result = res.data.result || {}
+          if (result.success) {
+            ElMessage.success(`已安装: ${result.skill_name}`)
+            await fetchSkills()
+          } else {
+            ElMessage.error(result.error || '安装失败')
+          }
+          return result
+        }
+      } catch (e) {
+        console.error('查询安装任务状态失败', e)
+      }
+    }
+    ElMessage.warning('安装仍在后台执行，稍后请手动刷新列表查看结果')
+    return { success: false, error: '安装仍在后台执行' }
   }
 
   const uninstallSkill = async (name: string, force = false) => {
@@ -175,6 +239,9 @@ export const useSkillsStore = defineStore('skills', () => {
     checkSkill,
     reloadSkills,
     installFromGit,
+    installFromLocalPath,
+    installUpload,
+    installFromReference,
     uninstallSkill,
   }
 })
