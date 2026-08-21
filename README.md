@@ -343,7 +343,7 @@ TradingAgents-CN/
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.10%20--%203.13-blue.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/Version-v1.3.2-green.svg)](./pyproject.toml)
+[![Version](https://img.shields.io/badge/Version-v1.4.0-green.svg)](./pyproject.toml)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
 **如果这个项目对您有帮助，请点亮 Star 支持我们！**

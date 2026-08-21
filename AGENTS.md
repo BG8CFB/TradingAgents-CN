@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-**TradingAgents-CN** (`v1.3.2`) is a Chinese stock analysis platform using a multi-agent AI system built on a hand-written orchestrator (LangGraph/langchain fully removed). It consists of:
+**TradingAgents-CN** (`v1.4.0`) is a Chinese stock analysis platform using a multi-agent AI system built on a hand-written orchestrator (LangGraph/langchain fully removed). It consists of:
 
 - **Backend API**: FastAPI (`app/`) — Web server, database management, real-time notifications
 - **Frontend**: Vue 3 + Element Plus + Vite (`frontend/`) — Single SPA UI
