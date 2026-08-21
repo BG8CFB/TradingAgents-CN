@@ -17,6 +17,7 @@ from mcp.client.stdio import stdio_client
 import logging
 
 from .config import MCPServerConfig
+from .management.config_store import resolve_command
 
 logger = logging.getLogger("app.llm.mcp")
 
@@ -62,8 +63,10 @@ class MCPManager:
         async with self._local_semaphore:
             try:
                 async with asyncio.timeout(CONNECT_TIMEOUT):
-                    if cfg.type == "http":
+                    if cfg.type in ("http", "streamable-http"):
                         session = await self._connect_http(stack, cfg)
+                    elif cfg.type == "sse":
+                        session = await self._connect_sse(stack, cfg)
                     else:
                         session = await self._connect_stdio(stack, cfg)
             except asyncio.TimeoutError:
@@ -72,7 +75,12 @@ class MCPManager:
         return session
 
     async def _connect_stdio(self, stack: AsyncExitStack, cfg: MCPServerConfig) -> ClientSession:
-        params = StdioServerParameters(command=cfg.command, args=cfg.args, env=cfg.env or None)
+        # 连接前解析命令（Windows 下 uvx/npx 包装器需 which 解析/回退），
+        # 不可用时给出安装引导而不是让 subprocess 抛模糊错误
+        resolved, cmd_err = resolve_command(cfg.command or "")
+        if cmd_err:
+            raise RuntimeError(f"MCP server '{cfg.name}' 命令不可用: {cmd_err}")
+        params = StdioServerParameters(command=resolved, args=cfg.args, env=cfg.env or None)
         read_stream, write_stream = await stack.enter_async_context(stdio_client(params))
         session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
         await session.initialize()
@@ -83,6 +91,21 @@ class MCPManager:
 
         transport = await stack.enter_async_context(streamablehttp_client(cfg.url, headers=cfg.headers or None))
         read_stream, write_stream, _ = transport
+        session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+        await session.initialize()
+        return session
+
+    async def _connect_sse(self, stack: AsyncExitStack, cfg: MCPServerConfig) -> ClientSession:
+        from mcp.client.sse import sse_client
+
+        try:
+            read_stream, write_stream = await stack.enter_async_context(
+                sse_client(cfg.url, headers=cfg.headers or None)
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"MCP server '{cfg.name}' SSE 连接失败: {e}（旧版 SSE 传输，建议升级为 streamable-http）"
+            ) from e
         session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
         await session.initialize()
         return session

@@ -18,7 +18,8 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="manual">手动添加</el-dropdown-item>
+              <el-dropdown-item command="form">手动添加</el-dropdown-item>
+              <el-dropdown-item command="import">JSON 导入（支持 Cline / Kilo / Claude Desktop）</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -26,9 +27,9 @@
     </div>
 
     <div class="server-list" v-loading="mcpStore.loading">
-      <div 
-        v-for="server in mcpStore.connectors" 
-        :key="server.name" 
+      <div
+        v-for="server in mcpStore.connectors"
+        :key="server.name"
         class="server-item"
         :class="{ expanded: expandedItems.includes(server.name) }"
       >
@@ -48,15 +49,15 @@
             <span class="status-text" :class="getStatusClass(server.status)">{{ getStatusText(server.status) }}</span>
           </div>
           <div class="item-right">
-            <el-switch 
-              :model-value="server.enabled" 
+            <el-switch
+              :model-value="server.enabled"
               @change="(val) => handleToggle(server.name, val as boolean)"
               @click.stop
               style="--el-switch-on-color: #10b981;"
             />
           </div>
         </div>
-        
+
         <div v-show="expandedItems.includes(server.name)" class="server-details">
           <div class="details-content">
             <!-- 健康信息 -->
@@ -78,65 +79,142 @@
                 <span>{{ server.healthInfo.error }}</span>
               </div>
             </div>
+
+            <!-- 配置摘要 -->
+            <div class="config-summary">
+              <div v-if="server.config?.description" class="summary-item">
+                <span class="health-label">描述:</span>
+                <span>{{ server.config.description }}</span>
+              </div>
+              <div v-if="server.config?.command" class="summary-item code">
+                {{ server.config.command }} {{ (server.config.args || []).join(' ') }}
+              </div>
+              <div v-if="server.config?.url" class="summary-item code">{{ server.config.url }}</div>
+              <div v-if="server.config?.deps?.length" class="summary-item">
+                <span class="health-label">deps:</span>
+                <el-tag v-for="d in server.config.deps" :key="d" size="small" class="dep-tag">{{ d }}</el-tag>
+              </div>
+            </div>
+
+            <!-- 测试结果 -->
+            <div v-if="testResults[server.name]" class="health-info" :class="getStatusClass(testResults[server.name])">
+              <div class="health-item">
+                <span class="health-label">连接测试:</span>
+                <span :class="getStatusClass(testResults[server.name])">{{ getStatusText(testResults[server.name]) }}</span>
+              </div>
+            </div>
+
             <div class="actions-row">
+              <el-button size="small" @click="handleEdit(server)" text bg>编辑</el-button>
+              <el-button size="small" :loading="testingName === server.name" @click="handleTest(server.name)" text bg>测试连接</el-button>
+              <el-button
+                v-if="server.config?.deps?.length"
+                size="small"
+                :loading="installingDeps === server.name"
+                @click="handleInstallDeps(server.name)"
+                text bg
+              >安装依赖</el-button>
               <el-button type="danger" size="small" text bg @click="handleDelete(server.name)">删除配置</el-button>
             </div>
           </div>
         </div>
       </div>
-      
+
       <div v-if="mcpStore.connectors.length === 0 && !mcpStore.loading" class="empty-state-card">
         <el-icon class="empty-icon"><Tools /></el-icon>
         <p class="empty-text">暂无 MCP Servers</p>
         <div class="empty-actions">
-          <el-button type="primary" bg text class="action-btn" @click="handleCommand('manual')">手动添加</el-button>
+          <el-button type="primary" bg text class="action-btn" @click="handleCommand('form')">手动添加</el-button>
         </div>
       </div>
     </div>
 
-    <!-- 手动配置 Dialog -->
+    <!-- 结构化表单（添加/编辑） -->
+    <McpServerFormDialog
+      v-model="formDialogVisible"
+      :edit-name="editName"
+      :edit-config="editConfig"
+      @saved="mcpStore.fetchConnectors()"
+    />
+
+    <!-- JSON 导入 Dialog -->
     <el-dialog
-      v-model="dialogVisible"
-      title="手动配置"
-      width="600px"
+      v-model="importDialogVisible"
+      title="JSON 导入"
+      width="640px"
       class="mcp-config-dialog"
       :close-on-click-modal="false"
       align-center
     >
       <div class="dialog-body">
         <p class="dialog-desc">
-          请从 MCP Servers 的介绍页面复制配置 JSON (优先使用 NPX 或 UVX 配置)，并粘贴到输入框中。
+          粘贴 MCP 配置 JSON，自动识别格式（Claude Desktop / Cline / Kilo / 单服务器对象），兼容 NPX / UVX 配置。
         </p>
-        
+
         <div class="editor-container">
           <el-input
             v-model="jsonConfig"
             type="textarea"
-            :rows="15"
-            placeholder="// 示例:
+            :rows="10"
+            placeholder='// 支持以下格式，直接粘贴即可：
 {
-  &quot;mcpServers&quot;: {
-    &quot;example-server&quot;: {
-      &quot;command&quot;: &quot;npx&quot;,
-      &quot;args&quot;: [
-        &quot;-y&quot;,
-        &quot;mcp-server-example&quot;
-      ]
+  "mcpServers": {
+    "example-server": {
+      "command": "npx",
+      "args": ["-y", "mcp-server-example"]
     }
   }
-}"
+}'
             class="json-editor"
           />
         </div>
-        
+
+        <!-- 识别结果预览 -->
+        <div v-if="insight" class="insight-panel">
+          <div class="insight-header">
+            识别格式：
+            <el-tag size="small" type="info">{{ insight.format }}</el-tag>
+            <span class="insight-count">{{ Object.keys(insight.servers).length }} 个服务器</span>
+          </div>
+          <div v-for="(cfg, name) in insight.servers" :key="name" class="insight-server">
+            <el-tag size="small" :type="getTypeTagType(cfg.type || 'stdio')">{{ cfg.type || 'stdio' }}</el-tag>
+            <span class="server-name">{{ name }}</span>
+            <span class="insight-detail">{{ cfg.command || cfg.url }}</span>
+          </div>
+          <el-alert
+            v-for="w in insight.warnings"
+            :key="w"
+            type="warning"
+            :title="w"
+            :closable="false"
+            show-icon
+            class="insight-alert"
+          />
+          <el-alert
+            v-for="(err, name) in insight.errors"
+            :key="name"
+            type="error"
+            :title="`${name}: ${err}`"
+            :closable="false"
+            show-icon
+            class="insight-alert"
+          />
+        </div>
+
         <div class="dialog-warning">
           <el-icon><Warning /></el-icon> 配置前请确认来源，甄别风险
         </div>
       </div>
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="confirmAdd" :loading="mcpStore.saving">确认</el-button>
+          <el-button @click="importDialogVisible = false">取消</el-button>
+          <el-button @click="analyze" :loading="analyzing">解析识别</el-button>
+          <el-button
+            type="primary"
+            @click="confirmImport"
+            :loading="mcpStore.saving"
+            :disabled="!insight || Object.keys(insight.servers).length === 0"
+          >确认导入</el-button>
         </span>
       </template>
     </el-dialog>
@@ -145,13 +223,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { 
-  QuestionFilled, 
-  Refresh, 
-  Plus, 
-  ArrowDown, 
-  ArrowRight, 
-  Check, 
+import {
+  QuestionFilled,
+  Refresh,
+  Plus,
+  ArrowDown,
+  ArrowRight,
+  Check,
   Warning,
   Tools,
   Close,
@@ -159,20 +237,68 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useMCPStore } from '@/stores/mcp'
+import McpServerFormDialog from './components/McpServerFormDialog.vue'
+import type { ImportInsight, MCPServerConfig } from '@/types/mcp'
 
 const mcpStore = useMCPStore()
 const expandedItems = ref<string[]>([])
-const dialogVisible = ref(false)
+
+// 结构化表单
+const formDialogVisible = ref(false)
+const editName = ref<string | undefined>(undefined)
+const editConfig = ref<MCPServerConfig | undefined>(undefined)
+
+// JSON 导入
+const importDialogVisible = ref(false)
 const jsonConfig = ref('')
+const analyzing = ref(false)
+const insight = ref<ImportInsight | null>(null)
+
+// 测试与依赖安装
+const testingName = ref('')
+const testResults = ref<Record<string, string>>({})
+const installingDeps = ref('')
 
 const refresh = () => {
   mcpStore.fetchConnectors()
 }
 
 const handleCommand = (command: string) => {
-  if (command === 'manual') {
+  if (command === 'form') {
+    editName.value = undefined
+    editConfig.value = undefined
+    formDialogVisible.value = true
+  } else if (command === 'import') {
     jsonConfig.value = ''
-    dialogVisible.value = true
+    insight.value = null
+    importDialogVisible.value = true
+  }
+}
+
+const handleEdit = (server: { name: string; config: MCPServerConfig }) => {
+  editName.value = server.name
+  editConfig.value = server.config
+  formDialogVisible.value = true
+}
+
+const handleTest = async (name: string) => {
+  testingName.value = name
+  try {
+    const status = await mcpStore.testConnector(name)
+    if (status) {
+      testResults.value[name] = status
+    }
+  } finally {
+    testingName.value = ''
+  }
+}
+
+const handleInstallDeps = async (name: string) => {
+  installingDeps.value = name
+  try {
+    await mcpStore.installDeps(name)
+  } finally {
+    installingDeps.value = ''
   }
 }
 
@@ -197,8 +323,10 @@ const getIconColor = (name: string) => {
 const getStatusClass = (status: string) => {
   switch (status) {
     case 'healthy': return 'success'
+    case 'connected': return 'success'
     case 'degraded': return 'warning'
     case 'unreachable': return 'danger'
+    case 'disconnected': return 'danger'
     case 'stopped': return 'info'
     default: return 'unknown'
   }
@@ -207,8 +335,10 @@ const getStatusClass = (status: string) => {
 const getStatusIcon = (status: string) => {
   switch (status) {
     case 'healthy': return Check
+    case 'connected': return Check
     case 'degraded': return Warning
     case 'unreachable': return Close
+    case 'disconnected': return Close
     case 'stopped': return Close
     default: return Unknown
   }
@@ -217,8 +347,10 @@ const getStatusIcon = (status: string) => {
 const getStatusText = (status: string) => {
   switch (status) {
     case 'healthy': return '健康'
+    case 'connected': return '已连接'
     case 'degraded': return '降级'
     case 'unreachable': return '不可达'
+    case 'disconnected': return '连接失败'
     case 'stopped': return '已停止'
     case 'unknown': return '未知'
     default: return status
@@ -229,6 +361,7 @@ const getTypeTagType = (type: string) => {
   switch (type) {
     case 'streamable-http': return 'success'
     case 'http': return 'warning'
+    case 'sse': return 'warning'
     case 'stdio': return 'info'
     default: return 'info'
   }
@@ -247,29 +380,30 @@ const handleToggle = (name: string, val: boolean) => {
   mcpStore.toggleConnector(name, val)
 }
 
-const confirmAdd = async () => {
-  if (!jsonConfig.value.trim()) return
-  
-  let config
-  try {
-    config = JSON.parse(jsonConfig.value)
-  } catch (e) {
-    ElMessage.error('JSON 解析失败，请检查格式是否正确')
+const analyze = async () => {
+  if (!jsonConfig.value.trim()) {
+    ElMessage.warning('请先粘贴配置 JSON')
     return
   }
-  
-  if (!config.mcpServers || typeof config.mcpServers !== 'object') {
-    ElMessage.error('无效的配置格式，必须包含 "mcpServers" 对象')
-    return
-  }
-  
+  analyzing.value = true
   try {
-    await mcpStore.batchUpdate(config)
-    dialogVisible.value = false
-    ElMessage.success('添加成功')
+    insight.value = await mcpStore.importRaw(jsonConfig.value)
+  } finally {
+    analyzing.value = false
+  }
+}
+
+const confirmImport = async () => {
+  if (!insight.value) return
+  try {
+    await mcpStore.batchUpdate({ mcpServers: insight.value.servers })
+    importDialogVisible.value = false
+    insight.value = null
+    jsonConfig.value = ''
+    ElMessage.success('导入成功')
   } catch (e: any) {
-    const errorMsg = e?.response?.data?.detail || e?.message || '更新配置失败'
-    ElMessage.error(`配置更新失败: ${errorMsg}`)
+    const errorMsg = e?.response?.data?.detail || e?.message || '导入失败'
+    ElMessage.error(`导入失败: ${errorMsg}`)
   }
 }
 
@@ -482,6 +616,35 @@ onMounted(() => {
   width: 100%;
 }
 
+.config-summary {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary-item {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  &.code {
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 12px;
+    background-color: var(--el-fill-color-light);
+    padding: 6px 10px;
+    border-radius: 4px;
+    width: fit-content;
+  }
+}
+
+.dep-tag {
+  margin-right: 4px;
+}
+
 .server-details {
   border-top: 1px solid var(--el-border-color-darker);
   background-color: var(--el-fill-color-darker);
@@ -491,6 +654,7 @@ onMounted(() => {
 .actions-row {
   display: flex;
   justify-content: flex-end;
+  gap: 4px;
 }
 
 .empty-state-card {
@@ -549,6 +713,49 @@ onMounted(() => {
   background-color: var(--el-fill-color-darker);
   color: var(--el-text-color-primary);
   line-height: 1.5;
+}
+
+/* 导入识别结果面板 */
+.insight-panel {
+  border: 1px solid var(--el-border-color-darker);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.insight-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+
+.insight-count {
+  color: var(--el-text-color-secondary);
+}
+
+.insight-server {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.insight-detail {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+.insight-alert {
+  :deep(.el-alert__title) {
+    font-size: 12px;
+  }
 }
 
 .dialog-warning {

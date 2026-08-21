@@ -31,6 +31,7 @@ class MCPServerType(str, Enum):
     STDIO = "stdio"
     HTTP = "http"
     STREAMABLE_HTTP = "streamable-http"  # MCP 官方新标准传输协议
+    SSE = "sse"  # 旧版 SSE 传输（Cline/Kilo 等客户端配置常见）
 
 # 项目根目录的 config/ 目录（而非 tradingagents/config/）
 BASE_CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
@@ -189,6 +190,7 @@ class MCPServerConfig(BaseModel):
     command: Optional[str] = Field(default=None, min_length=1, max_length=256, description="可执行程序路径或名称")
     args: List[str] = Field(default_factory=list, max_length=32)
     env: Dict[str, str] = Field(default_factory=dict)
+    deps: List[str] = Field(default_factory=list, max_length=64, description="stdio 服务器运行所需的 Python 依赖（如 'pandas>=2.0'），由运行时安装到容器环境")
     # HTTP 模式字段
     url: Optional[str] = Field(default=None, max_length=2048, description="HTTP 服务器 URL")
     headers: Dict[str, str] = Field(default_factory=dict, description="HTTP 请求头")
@@ -272,6 +274,29 @@ class MCPServerConfig(BaseModel):
             result.append(item)
         return result
 
+    @field_validator("deps", mode="before")
+    @classmethod
+    def _validate_deps(cls, value: List[str]) -> List[str]:
+        """依赖声明走公共注入防护校验（防 requirements 注入切换安装源）"""
+        from app.core.package_install import validate_package_spec
+
+        if not value:
+            return []
+        result = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("deps 必须为字符串列表")
+            package, _, version = item.strip().partition("==")
+            if version == "":
+                # 可能是 >=/<= 等约束：把首个版本运算符作为分隔
+                for op in (">=", "<=", "!=", "~=", "==", ">", "<"):
+                    if op in package:
+                        package, _, version = package.partition(op)
+                        break
+            validate_package_spec(package.strip(), version.strip())
+            result.append(item.strip())
+        return result
+
     @field_validator("env", mode="before")
     @classmethod
     def _validate_env(cls, value: Dict[str, Any]) -> Dict[str, str]:
@@ -305,9 +330,9 @@ class MCPServerConfig(BaseModel):
         if server_type == MCPServerType.STDIO:
             if not self.command:
                 raise ValueError("stdio 类型服务器需要 'command' 字段")
-        elif server_type in (MCPServerType.HTTP, MCPServerType.STREAMABLE_HTTP):
+        elif server_type in (MCPServerType.HTTP, MCPServerType.STREAMABLE_HTTP, MCPServerType.SSE):
             if not self.url:
-                raise ValueError("http/streamable-http 类型服务器需要 'url' 字段")
+                raise ValueError("http/streamable-http/sse 类型服务器需要 'url' 字段")
         return self
 
     def sanitized(self) -> Dict[str, Any]:
@@ -322,7 +347,12 @@ class MCPServerConfig(BaseModel):
             result["command"] = self.command
             result["args"] = list(self.args)
             result["env"] = dict(self.env)
-        elif self.type in (MCPServerType.HTTP, MCPServerType.STREAMABLE_HTTP) or self.type in ("http", "streamable-http"):
+            if self.deps:
+                result["deps"] = list(self.deps)
+        elif (
+            self.type in (MCPServerType.HTTP, MCPServerType.STREAMABLE_HTTP, MCPServerType.SSE)
+            or self.type in ("http", "streamable-http", "sse")
+        ):
             result["url"] = self.url
             result["headers"] = dict(self.headers)
         
@@ -340,8 +370,8 @@ class MCPServerConfig(BaseModel):
         return self.type == MCPServerType.STDIO or self.type == "stdio"
     
     def is_http(self) -> bool:
-        """检查是否为 HTTP 类型（包括 streamable-http）"""
-        return self.type in (MCPServerType.HTTP, MCPServerType.STREAMABLE_HTTP) or self.type in ("http", "streamable-http")
+        """检查是否为 HTTP 类型（包括 streamable-http/sse）"""
+        return self.type in (MCPServerType.HTTP, MCPServerType.STREAMABLE_HTTP, MCPServerType.SSE) or self.type in ("http", "streamable-http", "sse")
     
     def is_streamable_http(self) -> bool:
         """检查是否为 streamable-http 类型"""

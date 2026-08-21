@@ -60,7 +60,7 @@ def enabled_server_configs() -> Dict[str, NewServerConfig]:
         )
         if cfg.type == "stdio" and not cfg.command:
             continue
-        if cfg.type == "http" and not cfg.url:
+        if cfg.type in ("http", "streamable-http", "sse") and not cfg.url:
             continue
         result[name] = cfg
     return result

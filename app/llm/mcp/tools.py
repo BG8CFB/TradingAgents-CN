@@ -17,7 +17,7 @@ import logging
 
 from ..core.types import ToolDef
 from .client import MCPManager
-from .config import MCPServerConfig, load_mcp_config
+from .config import MCPServerConfig
 
 logger = logging.getLogger("app.llm.mcp")
 
@@ -77,11 +77,15 @@ def make_mcp_tool_def(cfg: MCPServerConfig, manager: MCPManager, tool) -> ToolDe
 async def discover_mcp_tools(
     manager: Optional[MCPManager] = None,
     servers: Optional[Dict[str, MCPServerConfig]] = None,
-    config_path: Optional[str] = None,
+    config_path: Optional[str] = None,  # 保留参数兼容旧签名；实际配置源为 config/mcp.json
 ) -> List[ToolDef]:
     """连接全部配置的 server 并发现工具，返回 ToolDef 列表"""
     mgr = manager or MCPManager()
-    cfgs = servers if servers is not None else load_mcp_config(config_path)
+    if servers is None:
+        from .service import enabled_server_configs
+
+        servers = enabled_server_configs()
+    cfgs = servers
     defs: List[ToolDef] = []
     for name, cfg in cfgs.items():
         try:

@@ -30,6 +30,14 @@ class UpdatePayload(BaseModel):
     mcpServers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+class ImportPayload(BaseModel):
+    raw: str = Field(..., min_length=2, max_length=200_000, description="待导入的配置 JSON 文本")
+
+
+class RuntimeToolPayload(BaseModel):
+    tool: str = Field(..., pattern="^(uv|node)$", description="要安装的运行时工具（uv 自动安装，node 仅引导）")
+
+
 # -----------------------------------------------------------------------------
 # 基础端点
 # -----------------------------------------------------------------------------
@@ -87,10 +95,97 @@ async def update_connectors(
     incoming = {name: cfg.sanitized() for name, cfg in payload.mcpServers.items()}
     merged = merge_servers(current_config.get("mcpServers", {}), incoming, strict=True)
     write_mcp_config({"mcpServers": merged}, CONFIG_FILE)
-    return {
-        "success": True,
-        "message": "Configuration updated. Use /api/mcp/reload to apply changes."
-    }
+    return {"success": True, "message": "配置已更新，调用 /api/mcp/reload 立即生效"}
+
+
+@router.post("/connectors/import")
+async def import_connectors(
+    payload: ImportPayload,
+    user: dict = Depends(require_admin)
+) -> Dict[str, Any]:
+    """
+    多格式配置导入（dry-run）：识别 claude-desktop / cline / kilo / 裸服务器对象格式，
+    归一化为标准 MCPServerConfig 并回显丢弃字段与失败项。不落盘；
+    前端确认后拿返回的 servers 调 /connectors/update 落盘。
+    """
+    from app.llm.mcp.management.import_normalizer import normalize_import_raw
+
+    try:
+        insight = normalize_import_raw(payload.raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": True, "data": insight.to_dict()}
+
+
+@router.post("/reload")
+async def reload_mcp(user: dict = Depends(require_admin)) -> Dict[str, Any]:
+    """重载 MCP 连接：断开全部会话并按当前配置重建（保存/导入后调用）"""
+    try:
+        await mcp_service.shutdown()
+        connected = await mcp_service.startup()
+        return {"success": True, "data": {"connected": connected}, "message": "MCP 连接已重载"}
+    except Exception as e:
+        logger.error(f"重载 MCP 连接失败: {e}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "重载 MCP 连接失败"))
+
+
+@router.post("/connectors/check-runtime")
+async def check_connector_runtime(
+    cfg: MCPServerConfig,
+    user: dict = Depends(require_admin)
+) -> Dict[str, Any]:
+    """检测 stdio 服务器运行时可用性（未落盘即可测；command 可用性 + 安装引导）"""
+    from app.llm.mcp.management.runtime import check_stdio_runtime
+
+    if not cfg.is_stdio():
+        return {"success": True, "data": {"command_available": True, "skipped_reason": "not_stdio"}}
+    return {"success": True, "data": check_stdio_runtime(cfg).to_dict()}
+
+
+@router.post("/connectors/{name}/test")
+async def test_connector(
+    name: str,
+    user: dict = Depends(require_admin)
+) -> Dict[str, Any]:
+    """主动测试已配置服务器的连接（探活一次并返回状态）"""
+    config = load_mcp_config(CONFIG_FILE)
+    if name not in config.get("mcpServers", {}):
+        raise HTTPException(status_code=404, detail="Server not found")
+    status = await mcp_service.ping_server(name)
+    return {"success": True, "data": {"name": name, "status": status}}
+
+
+@router.post("/connectors/{name}/install-deps")
+async def install_connector_deps(
+    name: str,
+    user: dict = Depends(require_admin)
+) -> Dict[str, Any]:
+    """安装 stdio 服务器声明的 deps 到容器 Python（审计写入 skill_install_logs, kind=mcp）"""
+    from app.llm.mcp.management.runtime import install_server_deps
+
+    config = load_mcp_config(CONFIG_FILE)
+    raw = config.get("mcpServers", {}).get(name)
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Server not found")
+    try:
+        model = MCPServerConfig(**raw) if not isinstance(raw, MCPServerConfig) else raw
+        result = await install_server_deps(name, model, installed_by=f"user:{user.get('username', 'admin')}")
+        return {"success": True, "data": result}
+    except Exception as e:
+        logger.error(f"安装服务器 {name} 依赖失败: {e}")
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "安装依赖失败"))
+
+
+@router.post("/runtime/install-tool")
+async def install_runtime_tool(
+    payload: RuntimeToolPayload,
+    user: dict = Depends(require_admin)
+) -> Dict[str, Any]:
+    """一键安装缺失的运行时工具（当前支持 uv；node 仅返回引导链接）"""
+    from app.llm.mcp.management.runtime import install_runtime_tool as do_install
+
+    result = await do_install(payload.tool, installed_by=f"user:{user.get('username', 'admin')}")
+    return {"success": bool(result.get("success")), "data": result}
 
 
 @router.patch("/connectors/{name}/toggle")
@@ -149,10 +244,7 @@ async def delete_connector(
         del config["mcpServers"][name]
         write_mcp_config(config, CONFIG_FILE)
 
-    return {
-        "success": True,
-        "message": "Configuration updated. Use /api/mcp/reload to apply changes."
-    }
+    return {"success": True, "message": "配置已删除，调用 /api/mcp/reload 立即生效"}
 
 
 @router.get("/tools")

@@ -497,6 +497,26 @@ class Settings(BaseSettings):
         description="允许从 Git URL 安装 skill 的可信主机白名单（逗号分隔；交互安装时提交的 URL 主机自动可信）",
     )
 
+    # ==================== MCP 依赖安装配置（与 Skill 机制对齐） ====================
+
+    # 是否允许为 stdio MCP 服务器自动安装声明的 deps 依赖
+    MCP_AUTO_INSTALL_DEPS: bool = Field(
+        default=True,
+        description="添加 stdio MCP 服务器时自动 pip install 声明的 deps（仅在容器内执行）",
+    )
+    # MCP 依赖包名白名单（逗号分隔，空表示不限制）
+    MCP_ALLOWED_PACKAGES: str = Field(
+        default="",
+        description="允许为 MCP 服务器安装的 PyPI 包名白名单（逗号分隔），空表示不限制",
+    )
+    # 单次 MCP 依赖 pip install 超时（秒）
+    MCP_INSTALL_TIMEOUT: int = Field(
+        default=300,
+        ge=30,
+        le=1800,
+        description="单次 MCP 依赖 pip install 的超时时间（秒）",
+    )
+
     @property
     def is_production(self) -> bool:
         """是否为生产环境"""

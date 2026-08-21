@@ -1,7 +1,7 @@
 /**
  * MCP 服务器类型
  */
-export type MCPServerType = 'stdio' | 'http' | 'streamable-http';
+export type MCPServerType = 'stdio' | 'http' | 'streamable-http' | 'sse';
 
 /**
  * 健康检查配置
@@ -21,6 +21,7 @@ export interface MCPServerConfig {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  deps?: string[];  // stdio 服务器运行所需 Python 依赖（安装到容器环境）
   // HTTP 模式字段
   url?: string;
   headers?: Record<string, string>;
@@ -68,6 +69,39 @@ export interface MCPHealthResult {
   latency_ms?: number;
   checked_at?: string;
   message?: string;
+}
+
+/**
+ * 多格式导入识别结果（dry-run）
+ */
+export interface ImportInsight {
+  format: 'claude-desktop' | 'cline' | 'kilo' | 'bare-server';
+  servers: Record<string, MCPServerConfig>;
+  warnings: string[];
+  errors: Record<string, string>;
+}
+
+/**
+ * stdio 运行时检测结果
+ */
+export interface RuntimeCheckResult {
+  command_available: boolean;
+  resolved_command?: string | null;
+  error?: string | null;
+  install_hint?: 'uv' | 'node' | string | null;
+  python_version?: string | null;
+  skipped_reason?: string;
+}
+
+/**
+ * 依赖安装结果
+ */
+export interface DepsInstallResult {
+  installed: boolean;
+  satisfied: boolean;
+  packages: string[];
+  error?: string;
+  skipped_reason?: string;
 }
 
 /**

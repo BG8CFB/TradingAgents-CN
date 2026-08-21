@@ -8,7 +8,7 @@ import pytest
 from app.llm import create_client
 from app.llm.config import load_config
 from app.llm.mcp import MCPManager, MCPServerConfig, discover_mcp_tools, mcp_tool_name
-from app.llm.mcp.config import expand_env, load_mcp_config
+from app.llm.mcp.config import expand_env
 from app.llm.runner import run_conversation
 from app.llm.tools.registry import ToolRegistry
 
@@ -31,23 +31,6 @@ def test_expand_env(monkeypatch):
     monkeypatch.setenv("MCP_TEST_TOKEN", "abc123")
     assert expand_env("Bearer ${MCP_TEST_TOKEN}") == "Bearer abc123"
     assert expand_env("no placeholder") == "no placeholder"
-
-
-def test_load_missing_config_returns_empty(tmp_path):
-    assert load_mcp_config(str(tmp_path / "nope.json")) == {}
-
-
-def test_load_config_parses(tmp_path):
-    import json
-
-    p = tmp_path / "mcp.json"
-    p.write_text(
-        json.dumps({"mcpServers": {"calc": {"command": "python", "args": ["s.py"]}}}),
-        encoding="utf-8",
-    )
-    cfgs = load_mcp_config(str(p))
-    assert cfgs["calc"].command == "python"
-    assert cfgs["calc"].type == "stdio"
 
 
 # ---------- 真实 stdio server：发现与调用 ----------
