@@ -176,6 +176,7 @@ async def run_conversation(
     result = RunResult(messages=messages)
     turns = 0
     output_recovery_count = 0  # 截断恢复计数
+    empty_response_retried = False  # 空正文（全在思考通道）恢复重试标记，仅一次
     truncated_text_parts: List[str] = []  # 各截断轮已生成文本（耗尽时拼接降级输出）
     escalated_max_tokens: Optional[int] = None  # 截断恢复时升级的输出上限
     reacted_too_long = False  # reactive compact 已触发标记
@@ -344,6 +345,21 @@ async def run_conversation(
                             text=unwrap_system_reminder(msg.content),
                         )
                     continue
+            # 空正文恢复：推理模型可能把全部输出写进思考通道（content 空、finish=stop）。
+            # 注入恢复指令重试一次；重试后仍为空属模型自身问题，保持空正文由
+            # 调用方降级（思考文本不作为正文兜底）
+            if not resp.text().strip() and not empty_response_retried:
+                empty_response_retried = True
+                logger.warning(
+                    "⚠️ [runner] 本轮正文为空（全部输出在思考通道），注入恢复指令重试"
+                )
+                messages.append(
+                    Message(role=Role.USER, content=(
+                        "你上一条回复只包含思考过程，没有输出任何正文内容。"
+                        "请直接输出正式的正文报告，不要再只写思考。"
+                    ))
+                )
+                continue
             result.final_text = resp.text()
             result.stop_reason = resp.stop_reason.value
             break
