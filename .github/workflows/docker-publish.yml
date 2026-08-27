@@ -10,12 +10,18 @@ permissions:
   contents: read
   packages: write
 
-# GHCR 镜像名必须全小写，而 GitHub 用户名可能含大写字母。
-# 在 job level 用 step 把 owner 转小写后赋给 JOB_ENV，避免硬编码。
+# 双 registry 发布：GHCR（海外用户）+ Docker Hub（国内经 docker.1ms.run 等代理拉取）。
+# Docker Hub 推送需要仓库 Secrets：DOCKERHUB_USERNAME / DOCKERHUB_TOKEN（Access Token）。
+# Secrets 未配置时自动跳过 Docker Hub 部分，仅推 GHCR（不阻塞发布）。
+# 注意：Docker Hub 用户名默认取 secrets.DOCKERHUB_USERNAME（缺省 bg8cfb），
+#       compose 里镜像路径写死了 bg8cfb，若用户名不同需同步修改部署文件。
 jobs:
   build:
     name: Build ${{ matrix.image }} (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
+    env:
+      DH_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -48,10 +54,14 @@ jobs:
         id: ref
         run: |
           OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          # Docker Hub 用户名：优先取 secrets，缺省与 GitHub 一致
+          DH_USER="${DH_USERNAME:-$OWNER_LC}"
           if [ "${{ matrix.image }}" = "backend" ]; then
             echo "name=ghcr.io/${OWNER_LC}/tradingagents-backend" >> "$GITHUB_OUTPUT"
+            echo "dh_name=docker.io/${DH_USER}/tradingagents-backend" >> "$GITHUB_OUTPUT"
           else
             echo "name=ghcr.io/${OWNER_LC}/tradingagents-frontend" >> "$GITHUB_OUTPUT"
+            echo "dh_name=docker.io/${DH_USER}/tradingagents-frontend" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up Docker Buildx
@@ -64,7 +74,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push by-digest
+      - name: Log in to Docker Hub
+        if: ${{ env.DH_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push by-digest (GHCR)
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -76,6 +94,32 @@ jobs:
           outputs: type=image,name=${{ steps.ref.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.slug }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.slug }}
+
+      # 同一构建产物推 Docker Hub：GHA 缓存全命中，仅消耗推送时间
+      - name: Build and push by-digest (Docker Hub)
+        id: build_dh
+        if: ${{ env.DH_TOKEN != '' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          outputs: type=image,name=${{ steps.ref.outputs.dh_name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.slug }}
+          # 缓存已由上一步写入，这里不重复写
+          cache-to: type=gha,mode=min,scope=${{ matrix.image }}-${{ matrix.slug }}
+
+      # digest 由镜像内容决定，两个 registry 必须一致；不一致说明构建不可复现，直接失败
+      - name: Verify digest consistency across registries
+        if: ${{ env.DH_TOKEN != '' }}
+        run: |
+          if [ "${{ steps.build.outputs.digest }}" != "${{ steps.build_dh.outputs.digest }}" ]; then
+            echo "::error::Digest mismatch: GHCR=${{ steps.build.outputs.digest }} DH=${{ steps.build_dh.outputs.digest }}"
+            exit 1
+          fi
+          echo "Digest consistent: ${{ steps.build.outputs.digest }}"
 
       - name: Export digest artifact
         run: |
@@ -95,6 +139,9 @@ jobs:
     name: Merge ${{ matrix.image }} manifest
     needs: build
     runs-on: ubuntu-latest
+    env:
+      DH_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -104,10 +151,13 @@ jobs:
         id: ref
         run: |
           OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          DH_USER="${DH_USERNAME:-$OWNER_LC}"
           if [ "${{ matrix.image }}" = "backend" ]; then
             echo "name=ghcr.io/${OWNER_LC}/tradingagents-backend" >> "$GITHUB_OUTPUT"
+            echo "dh_name=docker.io/${DH_USER}/tradingagents-backend" >> "$GITHUB_OUTPUT"
           else
             echo "name=ghcr.io/${OWNER_LC}/tradingagents-frontend" >> "$GITHUB_OUTPUT"
+            echo "dh_name=docker.io/${DH_USER}/tradingagents-frontend" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Log in to GHCR
@@ -116,6 +166,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: ${{ env.DH_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Download all digests for ${{ matrix.image }}
         uses: actions/download-artifact@v4
@@ -136,6 +194,20 @@ jobs:
           echo "sources=$MANIFEST_SOURCES" >> "$GITHUB_OUTPUT"
           echo "Manifest sources:$MANIFEST_SOURCES"
 
+      # Docker Hub 的 manifest sources：同一份 digest，仅仓库名不同
+      - name: Assemble Docker Hub manifest sources
+        if: ${{ env.DH_TOKEN != '' }}
+        id: dh_sources
+        run: |
+          set -e
+          DH_SOURCES=""
+          while IFS= read -r f; do
+            d=$(tr -d '[:space:]' < "$f")
+            DH_SOURCES="$DH_SOURCES ${{ steps.ref.outputs.dh_name }}@$d"
+          done < <(ls ./digests/*.txt)
+          echo "sources=$DH_SOURCES" >> "$GITHUB_OUTPUT"
+          echo "Docker Hub manifest sources:$DH_SOURCES"
+
       - name: Resolve tag
         id: tag
         uses: docker/metadata-action@v5
@@ -145,7 +217,7 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest
 
-      - name: Create multi-arch manifest
+      - name: Create multi-arch manifest (GHCR)
         run: |
           set -e
           TAG_ARGS=""
@@ -157,9 +229,34 @@ jobs:
           echo "Sources:${{ steps.sources.outputs.sources }}"
           docker buildx imagetools create $TAG_ARGS ${{ steps.sources.outputs.sources }}
 
+      # tag 集合与 GHCR 保持一致：tag push 事件打版本号 + latest，其余（workflow_dispatch）仅 latest
+      - name: Create multi-arch manifest (Docker Hub)
+        if: ${{ env.DH_TOKEN != '' }}
+        run: |
+          set -e
+          DH_REPO="${{ steps.ref.outputs.dh_name }}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VER="${GITHUB_REF#refs/tags/}"
+            DH_TAGS="${DH_REPO}:${VER},${DH_REPO}:latest"
+          else
+            DH_TAGS="${DH_REPO}:latest"
+          fi
+          TAG_ARGS=""
+          IFS=',' read -ra TAG_LIST <<< "$DH_TAGS"
+          for t in "${TAG_LIST[@]}"; do
+            TAG_ARGS="$TAG_ARGS -t $t"
+          done
+          echo "Creating Docker Hub manifest with tags: $TAG_ARGS"
+          echo "Sources:${{ steps.dh_sources.outputs.sources }}"
+          docker buildx imagetools create $TAG_ARGS ${{ steps.dh_sources.outputs.sources }}
+
       - name: Inspect final image
         run: |
           for t in $(echo '${{ steps.tag.outputs.tags }}' | tr ',' ' '); do
             echo "=== $t ==="
             docker buildx imagetools inspect "$t" || true
           done
+          if [ -n "${{ env.DH_TOKEN }}" ]; then
+            echo "=== ${{ steps.ref.outputs.dh_name }}:latest ==="
+            docker buildx imagetools inspect "${{ steps.ref.outputs.dh_name }}:latest" || true
+          fi
