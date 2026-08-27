@@ -14,8 +14,9 @@
 #   2. 本文件 ${VAR:-default} 的 default（内联默认值）
 #   3. 应用代码默认值
 #
-# 镜像来源: GitHub Container Registry (ghcr.io)
-# 推送 tag 时由 GitHub Actions 自动构建发布
+# 镜像来源: Docker Hub + GitHub Container Registry 双发布（打 tag 时 GitHub Actions 自动构建）
+# 应用镜像默认经 docker.1ms.run 代理拉取 Docker Hub（国内链路，与基础镜像同源）
+# 海外用户可把前缀改为 ghcr.io/bg8cfb 直连 GHCR
 
 services:
   # ── MongoDB 数据库 ──
@@ -64,7 +65,7 @@ services:
 
   # ── FastAPI 后端服务 ──
   backend:
-    image: ghcr.1ms.run/bg8cfb/tradingagents-backend:${TA_VERSION:-latest}
+    image: docker.1ms.run/bg8cfb/tradingagents-backend:${TA_VERSION:-latest}
     container_name: tradingagents-backend
     restart: unless-stopped
     # Dockerfile 内置 entrypoint：以 root 修复 volume 权限，再降权到 appuser
@@ -149,7 +150,7 @@ services:
 
   # ── Vue 3 前端服务 ──
   frontend:
-    image: ghcr.1ms.run/bg8cfb/tradingagents-frontend:${TA_VERSION:-latest}
+    image: docker.1ms.run/bg8cfb/tradingagents-frontend:${TA_VERSION:-latest}
     container_name: tradingagents-frontend
     restart: unless-stopped
     expose:
