@@ -191,54 +191,29 @@ def _strict_date(value: Any) -> Optional[Any]:
 async def _fetch_targeted_news(
     symbol: str, limit: int = 10
 ) -> List[Dict[str, Any]]:
-    """策略 0: 个股定向新闻（东方财富公告 API）"""
-    import requests as req
+    """策略 0: 个股定向新闻（东方财富公告直连通道，实现收拢在 cn/shared）"""
+    from app.data.sources.cn.shared.news_channels import fetch_em_notices
 
-    def _fetch():
-        url = "https://np-anotice-stock.eastmoney.com/api/security/ann"
-        params = {
-            "sr": "-1",
-            "page_size": str(min(limit, 20)),
-            "page_index": "1",
-            "ann_type": "A",
-            "client_source": "web",
-            "f_node": "0",
-            "s_node": "0",
-            "stock_list": symbol,
-        }
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
-            "Referer": "https://data.eastmoney.com/notices/stock.html",
-        }
-        try:
-            resp = req.get(url, params=params, headers=headers, timeout=15)
-            data = resp.json()
-            notices = data.get("data", {}).get("list", [])
-            results = []
-            for notice in notices:
-                art_code = notice.get("art_code", "")
-                title = notice.get("title", "")
-                results.append({
-                    "title": title,
-                    "content": title,
-                    "summary": title[:200],
-                    "url": f"https://data.eastmoney.com/notices/detail/{symbol}/{art_code}.html",
-                    "source": "东方财富公告",
-                    "publish_time": notice.get("notice_date", ""),
-                    "category": "company_announcement",
-                    "sentiment": "neutral",
-                    "importance": "high",
-                    "keywords": [],
-                    "data_source": "tushare",
-                    "original_source": "em_notice",
-                    "symbol": symbol,
-                })
-            return results
-        except Exception as e:
-            logger.debug(f"东方财富公告获取失败: {e}")
-            return []
+    clean = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "").zfill(6)
+    raw = await fetch_em_notices(clean, limit=limit)
+    results = []
+    for item in raw:
+        results.append({
+            "title": item.get("title", ""),
+            "content": item.get("content", ""),
+            "summary": item.get("summary", ""),
+            "url": item.get("url", ""),
+            "source": "东方财富公告",
+            "publish_time": item.get("publish_time", ""),
+            "category": "company_announcement",
+            "sentiment": "neutral",
+            "importance": "high",
+            "keywords": [],
+            "data_source": "tushare",
+            "original_source": "em_notice",
+            "symbol": clean,
+        })
 
-    results = await asyncio.to_thread(_fetch)
     if results:
         logger.info(f"  个股公告 ({symbol}): {len(results)} 条")
     return results
