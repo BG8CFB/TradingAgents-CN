@@ -66,6 +66,16 @@ def _first_item(client) -> dict:
     pytest.skip("上游列表暂时为空（外部服务抖动）")
 
 
+def _get_detail(client, item: dict) -> dict:
+    """取详情；裸 slug 撞名（上游出现同名发布者）时用候选 owner 消歧重试。"""
+    try:
+        return asyncio.run(client.get_skill(item["reference"]))
+    except AmbiguousSkillSlug as e:
+        assert e.matches
+        m = e.matches[0]
+        return asyncio.run(client.get_skill(f"{m.get('ownerHandle')}/{m.get('slug')}"))
+
+
 @pytest.mark.skipif(not _REACHABLE, reason=_SKIP_REASON)
 class TestMarketplaceReadOnly:
     def test_list_pagination_and_reference(self, client):
@@ -87,7 +97,7 @@ class TestMarketplaceReadOnly:
 
     def test_detail_canonical_url(self, client):
         item = _first_item(client)
-        detail = asyncio.run(client.get_skill(item["reference"]))
+        detail = _get_detail(client, item)
         assert detail["slug"]
         assert detail["canonical_url"].startswith("https://clawhub.ai/")
         # reference 消歧：详情返回 owner/slug 形式
@@ -95,7 +105,7 @@ class TestMarketplaceReadOnly:
 
     def test_version_files_with_sha256(self, client):
         item = _first_item(client)
-        detail = asyncio.run(client.get_skill(item["reference"]))
+        detail = _get_detail(client, item)
         version = detail.get("latest_version")
         if not version:
             pytest.skip("该 skill 无版本信息")
