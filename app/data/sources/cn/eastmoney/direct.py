@@ -233,312 +233,6 @@ def fetch_em_spot_direct() -> Optional[Any]:
     return None
 
 
-def fetch_em_hist_direct(
-    symbol: str,
-    period: str = "daily",
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    adjust: str = "",
-) -> Optional[Any]:
-    """
-    直接调用东方财富历史 K 线 API。
-    symbol: 6 位纯数字代码
-    period: daily / weekly / monthly
-    start_date / end_date: YYYYMMDD 格式
-    adjust: "" / "qfq" / "hfq"
-    """
-    import json
-
-    session = get_anti_scraping_session()
-    limiter = get_em_rate_limiter()
-
-    # 东方财富的 secid 格式: 市场.代码 （0=深交所, 1=上交所）
-    if symbol.startswith(("6", "9")):
-        secid = f"1.{symbol}"
-    elif symbol.startswith(("0", "3", "2")):
-        secid = f"0.{symbol}"
-    elif symbol.startswith("8") or symbol.startswith("4"):
-        secid = f"0.{symbol}"
-    else:
-        secid = f"0.{symbol}"
-
-    period_map = {"daily": "101", "weekly": "102", "monthly": "103"}
-    klt = period_map.get(period, "101")
-
-    adjust_map = {"": "0", "qfq": "1", "hfq": "2"}
-    fqt = adjust_map.get(adjust, "0")
-
-    # push2his 已被 CDN 封锁，优先使用腾讯 API 获取历史 K 线
-    tencent_data = _fetch_tencent_hist(symbol, period, start_date, end_date, adjust)
-    if tencent_data:
-        return tencent_data
-
-    # 回退: 尝试东方财富 datacenter API
-    url = "https://push2delay.eastmoney.com/api/qt/stock/kline/get"
-    params = {
-        "secid": secid,
-        "ut": "fa5fd1943c7b386f172d6893dbfba10b",
-        "fields1": "f1,f2,f3,f4,f5,f6",
-        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-        "klt": klt,
-        "fqt": fqt,
-        "beg": start_date or "0",
-        "end": end_date or "20500101",
-        "lmt": "1000000",
-    }
-
-    headers = {
-        **EASTMONEY_HEADERS,
-        "User-Agent": get_random_ua(),
-        "Referer": "https://quote.eastmoney.com/",
-    }
-
-    for attempt in range(3):
-        try:
-            limiter.acquire()
-            resp = session.get(url, params=params, headers=headers)
-
-            if resp.status_code != 200:
-                logger.warning(f"东方财富 K 线 API 返回 {resp.status_code}（尝试 {attempt + 1}/3）")
-                continue
-
-            data = resp.json() if hasattr(resp, "json") else json.loads(resp.text)
-
-            if data.get("data") and data["data"].get("klines"):
-                klines = data["data"]["klines"]
-                logger.info(f"东方财富 K 线直接 API 成功: {symbol} {len(klines)} 条")
-                return klines
-
-            logger.warning(f"东方财富 K 线 API 返回数据异常: {symbol}（尝试 {attempt + 1}/3）")
-        except Exception as e:
-            logger.warning(f"东方财富 K 线直接 API 失败: {symbol}（尝试 {attempt + 1}/3）: {e}")
-
-    return None
-
-
-def fetch_em_bid_ask_direct(symbol: str) -> Optional[Dict]:
-    """
-    直接调用东方财富盘口/实时行情 API。
-    使用 HTTP 协议绕过 TLS 指纹检测。
-    symbol: 6 位纯数字代码
-    """
-    import json
-
-    session = get_anti_scraping_session()
-    limiter = get_em_rate_limiter()
-
-    if symbol.startswith(("6", "9")):
-        secid = f"1.{symbol}"
-    elif symbol.startswith(("0", "3", "2")):
-        secid = f"0.{symbol}"
-    else:
-        secid = f"0.{symbol}"
-
-    url = "https://push2delay.eastmoney.com/api/qt/stock/get"
-    params = {
-        "secid": secid,
-        "ut": "fa5fd1943c7b386f172d6893dbfba10b",
-        "fields": "f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f62,f71,f75,f78,f80,f84,f85,f86,f88,f116,f117,f152,f162,f167,f168",
-        "np": "1",
-    }
-
-    headers = {
-        "User-Agent": get_random_ua(),
-        "Accept": "*/*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Referer": "https://quote.eastmoney.com/",
-    }
-
-    try:
-        limiter.acquire()
-        resp = session.get(url, params=params, headers=headers)
-
-        if resp.status_code != 200:
-            logger.warning(f"东方财富实时行情 API 返回 {resp.status_code}: {symbol}")
-            return None
-
-        data = resp.json() if hasattr(resp, "json") else json.loads(resp.text)
-
-        if data.get("data"):
-            return data["data"]
-
-        return None
-    except Exception as e:
-        logger.warning(f"东方财富实时行情直接 API 失败: {symbol}: {e}")
-        return None
-
-
-def fetch_em_board_direct() -> Optional[Any]:
-    """
-    直接调用东方财富板块行情 API。
-    使用 HTTP 协议绕过 TLS 指纹检测。
-    返回板块列表数据。
-    """
-    import json
-
-    session = get_anti_scraping_session()
-    limiter = get_em_rate_limiter()
-
-    url = "https://push2delay.eastmoney.com/api/qt/clist/get"
-    params = {
-        "pn": "1",
-        "pz": "200",
-        "np": "1",
-        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-        "fltt": "2",
-        "invt": "2",
-        "fid": "f3",
-        "fs": "m:90+t:2+f:!50",
-        "fields": "f2,f3,f4,f8,f12,f14",
-    }
-
-    headers = {
-        "User-Agent": get_random_ua(),
-        "Accept": "*/*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Referer": "https://data.eastmoney.com/",
-    }
-
-    for attempt in range(2):
-        try:
-            limiter.acquire()
-            resp = session.get(url, params=params, headers=headers)
-
-            if resp.status_code != 200:
-                continue
-
-            data = resp.json() if hasattr(resp, "json") else json.loads(resp.text)
-
-            if data.get("data") and data["data"].get("diff"):
-                diff = data["data"]["diff"]
-                logger.info(f"东方财富板块直接 API 成功: {len(diff)} 条")
-                return diff
-
-        except Exception as e:
-            logger.warning(f"东方财富板块直接 API 失败（尝试 {attempt + 1}/2）: {e}")
-
-    return None
-
-
-def _fetch_tencent_hist(
-    symbol: str,
-    period: str = "daily",
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    adjust: str = "",
-) -> Optional[list]:
-    """
-    通过腾讯行情 API 获取历史 K 线数据（东方财富 push2his 被封时的替代方案）。
-
-    Args:
-        symbol: 6 位纯数字股票代码
-        period: daily / weekly / monthly
-        start_date / end_date: YYYYMMDD 格式
-        adjust: "" / "qfq" / "hfq"
-
-    Returns:
-        K 线字符串列表，格式与东方财富 push2his 一致
-        "日期,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率"
-    """
-
-    def _code_to_tencent(code: str) -> str:
-        code = code.strip().zfill(6)
-        if code.startswith(("6", "9")):
-            return f"sh{code}"
-        elif code.startswith("8") or code.startswith("4"):
-            return f"bj{code}"
-        else:
-            return f"sz{code}"
-
-    tencent_code = _code_to_tencent(symbol)
-
-    # 腾讯 K 线接口: https://web.ifzq.gtimg.cn/appstock/app/fqkline/get
-    # 参数: _var=kline_dayqfq (日K前复权), kline_day (日K不复权)
-    var_map = {
-        ("daily", "qfq"): "kline_dayqfq",
-        ("daily", "hfq"): "kline_dayhfq",
-        ("daily", ""): "kline_day",
-        ("weekly", "qfq"): "kline_weekqfq",
-        ("weekly", "hfq"): "kline_weekhfq",
-        ("weekly", ""): "kline_week",
-        ("monthly", "qfq"): "kline_monthqfq",
-        ("monthly", "hfq"): "kline_monthhfq",
-        ("monthly", ""): "kline_month",
-    }
-    var = var_map.get((period, adjust), "kline_day")
-
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?_var={var}&param={tencent_code},day,,,320,,{adjust}"
-
-    try:
-        import requests as req
-        resp = req.get(url, timeout=10)
-        if resp.status_code != 200:
-            return None
-
-        text = resp.text.strip()
-        # 解析 JS 变量赋值: kline_dayqfq={...};
-        if "=" in text:
-            json_str = text[text.index("=") + 1:].rstrip(";")
-        else:
-            json_str = text
-
-        import json
-        data = json.loads(json_str)
-
-        stock_data = data.get("data", {}).get(tencent_code, {})
-        if not stock_data:
-            # 尝试小写
-            stock_data = data.get("data", {}).get(tencent_code.lower(), {})
-        if not stock_data:
-            return None
-
-        # 腾讯返回格式: "day" / "week" / "month" 键下是 [date, open, close, high, low, volume]
-        # qfq/hfq 时键名带 "qfq"/"hfq"
-        key_map = {"daily": "day", "weekly": "week", "monthly": "month"}
-        key = key_map.get(period, "day")
-        raw_klines = stock_data.get(key, [])
-        if not raw_klines:
-            return None
-
-        # 过滤日期范围并转换为东方财富兼容格式
-        result = []
-        for item in raw_klines:
-            # 腾讯格式: ["2026-05-15", "12.34", "12.56", "12.78", "12.10", "1234567"]
-            # 或带成交额: ["2026-05-15", "12.34", "12.56", "12.78", "12.10", "1234567", "15234567"]
-            if len(item) < 6:
-                continue
-
-            date_str = str(item[0]).replace("-", "")
-
-            if start_date and date_str < start_date.replace("-", ""):
-                continue
-            if end_date and date_str > end_date.replace("-", ""):
-                continue
-
-            open_p = item[1] or "0"
-            close_p = item[2] or "0"
-            high_p = item[3] or "0"
-            low_p = item[4] or "0"
-            volume = item[5] or "0"
-            amount = item[6] if len(item) > 6 else "0"
-
-            # 东方财富格式: "日期,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率"
-            # 简化版只填核心字段
-            result.append(f"{item[0]},{open_p},{close_p},{high_p},{low_p},{volume},{amount},0,0,0,0")
-
-        if result:
-            logger.info(f"腾讯历史K线 API 成功: {symbol} {len(result)} 条")
-        return result if result else None
-
-    except Exception as e:
-        logger.warning(f"腾讯历史K线 API 失败: {symbol}: {e}")
-        return None
-
-
-# ============================================================
-# 腾讯行情 API（东方财富 push2 被封时的替代方案，速度极快）
-# ============================================================
-
 def fetch_tencent_spot_batch(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     """
     通过腾讯行情 API 批量获取实时行情。
@@ -638,3 +332,55 @@ def _safe_int(v) -> Optional[int]:
         return int(float(v))
     except (ValueError, TypeError):
         return None
+def fetch_em_board_direct() -> Optional[Any]:
+    """
+    直接调用东方财富板块行情 API。
+    使用 HTTP 协议绕过 TLS 指纹检测。
+    返回板块列表数据。
+    """
+    import json
+
+    session = get_anti_scraping_session()
+    limiter = get_em_rate_limiter()
+
+    url = "https://push2delay.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1",
+        "pz": "200",
+        "np": "1",
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "fltt": "2",
+        "invt": "2",
+        "fid": "f3",
+        "fs": "m:90+t:2+f:!50",
+        "fields": "f2,f3,f4,f8,f12,f14",
+    }
+
+    headers = {
+        "User-Agent": get_random_ua(),
+        "Accept": "*/*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": "https://data.eastmoney.com/",
+    }
+
+    for attempt in range(2):
+        try:
+            limiter.acquire()
+            resp = session.get(url, params=params, headers=headers)
+
+            if resp.status_code != 200:
+                continue
+
+            data = resp.json() if hasattr(resp, "json") else json.loads(resp.text)
+
+            if data.get("data") and data["data"].get("diff"):
+                diff = data["data"]["diff"]
+                logger.info(f"东方财富板块直接 API 成功: {len(diff)} 条")
+                return diff
+
+        except Exception as e:
+            logger.warning(f"东方财富板块直接 API 失败（尝试 {attempt + 1}/2）: {e}")
+
+    return None
+
+

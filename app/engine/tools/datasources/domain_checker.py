@@ -16,20 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class DomainAvailabilityChecker:
-    """数据域可用性检测器（async）"""
+    """数据域可用性检测器（async）
 
-    def __init__(self):
-        self._standard_domains = self._load_standard_domains()
-
-    def _load_standard_domains(self) -> set:
-        """加载标准域名称集合"""
-        try:
-            from app.data.storage.mongo.collections import get_all_domains
-
-            return set(get_all_domains())
-        except Exception as e:
-            logger.debug(f"加载标准域名称失败: {e}")
-            return set()
+    域数据一律通过 DataInterface 查询，不直接触碰 app.data.storage。
+    """
 
     async def check_domain(self, market: str, domain: str) -> bool:
         """检查单个域是否有数据"""

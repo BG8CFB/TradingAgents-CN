@@ -56,6 +56,11 @@ class AnalysisParameters(BaseModel):
     mcp_tools: List[str] = Field(default_factory=list, description="兼容旧字段：MCP 工具ID列表")
     mcp_tool_ids: List[str] = Field(default_factory=list, description="MCP 工具ID列表（推荐字段）")
 
+    # 数据预拉取
+    prefetch_data: bool = Field(
+        default=True, description="分析前是否先从数据源拉取最新数据到标准库（关闭则直接使用库内已有数据）"
+    )
+
 
 class AnalysisResult(BaseModel):
     """分析结果模型"""

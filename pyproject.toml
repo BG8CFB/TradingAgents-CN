@@ -118,6 +118,17 @@ forbidden_modules = [
 # 仅检查直接导入：routers 允许走 DataInterface（其内部使用 storage 属数据层自治）
 allow_indirect_imports = true
 
+[[tool.importlinter.contracts]]
+name = "Engine must not import data storage internals"
+type = "forbidden"
+source_modules = ["app.engine"]
+forbidden_modules = ["app.data.storage"]
+# 消费数据统一走 DataInterface；storage 属数据层内部实现
+allow_indirect_imports = true
+# 注意：engine 对 app.data.sources 的依赖有意保留一处豁免——
+# china_market 板块实时快照的 eastmoney 直连兜底（akshare 板块接口在本环境不可用），
+# 后续若板块数据入标准库，应移除该豁免并补 engine→sources 禁止契约。
+
 [tool.pytest.ini_options]
 markers = [
     "asyncio: async test",

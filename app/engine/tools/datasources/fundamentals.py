@@ -7,13 +7,12 @@
 import json
 import logging
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data.core.interface import DataInterface
-from app.core.async_utils import run_async
+from app.engine.tools.common.data_access import read_with_refresh
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +62,7 @@ def get_stock_fundamentals(
             logger.info("[基本面工具] 处理A股数据...")
 
             try:
-                recent_end_date = current_date
-                recent_start_date = (datetime.strptime(current_date, "%Y-%m-%d") - timedelta(days=2)).strftime(
-                    "%Y-%m-%d"
-                )
-
-                _di = DataInterface.get_instance()
+                # 直接读标准库 financial_data 域，库空时按需刷新后重读
                 clean_symbol = (
                     stock_code.replace(".SZ", "")
                     .replace(".SH", "")
@@ -77,35 +71,37 @@ def get_stock_fundamentals(
                     .replace(".sh", "")
                     .replace(".bj", "")
                 )
-                _r = run_async(
-                    _di.read(
-                        "CN",
-                        "daily_quotes",
-                        symbol=clean_symbol,
-                        start_date=recent_start_date,
-                        end_date=recent_end_date,
-                    )
-                )
-                _d = _r.get("data")
+                fundamentals_raw = read_with_refresh("CN", "financial_data", symbol=clean_symbol)
+                _d = fundamentals_raw.get("data") if fundamentals_raw else None
                 if _d:
                     import pandas as pd
 
-                    if isinstance(_d, list) and _d:
-                        pd.DataFrame(_d).to_string()
-            except Exception as e:
-                logger.error(f"[基本面工具] A股价格数据获取失败: {e}")
-
-            try:
-                from app.services.fundamentals import get_fundamentals_provider
-
-                _fp = get_fundamentals_provider()
-                fundamentals_raw = run_async(_fp.get_fundamentals(stock_code))
-                if fundamentals_raw:
-                    fundamentals_data = str(fundamentals_raw)
+                    # 选取标准 schema 中的核心字段，避免把整条原始记录透传给 LLM
+                    _CORE_FIELDS = [
+                        "report_period",
+                        "statement_type",
+                        "revenue",
+                        "net_profit",
+                        "total_assets",
+                        "total_equity",
+                        "roe",
+                        "roa",
+                        "gross_margin",
+                        "net_margin",
+                        "eps",
+                        "bps",
+                        "debt_ratio",
+                        "current_ratio",
+                        "announce_date",
+                        "data_source",
+                    ]
+                    records = _d if isinstance(_d, list) else [_d]
+                    df = pd.DataFrame(records)
+                    cols = [c for c in _CORE_FIELDS if c in df.columns]
+                    df = df[cols]
+                    result_data.append(f"## A股基本面财务数据\n{format_result(df, 'A股财务数据 (标准 financial_data 域)')}")
                 else:
-                    fundamentals_data = "暂无基本面数据"
-
-                result_data.append(f"## A股基本面财务数据\n{fundamentals_data}")
+                    result_data.append("## A股基本面财务数据\n暂无基本面数据（请先同步 financial_data 数据）")
             except Exception as e:
                 logger.error(f"[基本面工具] A股基本面数据获取失败: {e}")
                 result_data.append(f"## A股基本面财务数据\n获取失败: {e}")
@@ -114,9 +110,8 @@ def get_stock_fundamentals(
             logger.info("[基本面工具] 处理港股数据...")
 
             try:
-                _di_info = DataInterface.get_instance()
-                _r_info = run_async(_di_info.read("HK", "basic_info", symbol=stock_code))
-                hk_info = _r_info.get("data")
+                _r_info = read_with_refresh("HK", "basic_info", symbol=stock_code)
+                hk_info = _r_info.get("data") if _r_info else None
                 if isinstance(hk_info, list) and hk_info:
                     hk_info = hk_info[0]
                 elif not hk_info:
@@ -137,11 +132,15 @@ def get_stock_fundamentals(
         else:
             logger.info("[基本面工具] 处理美股数据...")
             try:
-                _di = DataInterface.get_instance()
-                _r = run_async(_di.read("US", "financial_data", symbol=stock_code.upper()))
-                us_info = _r.get("data")
+                _r = read_with_refresh("US", "financial_data", symbol=stock_code.upper())
+                us_info = _r.get("data") if _r else None
                 if us_info:
-                    result_data.append(f"## 美股基本面信息\n{us_info}")
+                    import pandas as pd
+
+                    records = us_info if isinstance(us_info, list) else [us_info]
+                    result_data.append(
+                        f"## 美股基本面信息\n{format_result(pd.DataFrame(records), '美股财务数据 (标准 financial_data 域)')}"
+                    )
                 else:
                     result_data.append("## 美股基本面信息\n暂无详细数据")
             except Exception as info_err:
@@ -248,18 +247,15 @@ def get_company_performance_unified(
         }
         stmt_type = _DT_TO_STMT.get(data_type)
 
-        di = DataInterface.get_instance()
-        result = run_async(
-            di.read(
-                market,
-                "financial_data",
-                symbol=symbol,
-                start_date=start_date,
-                end_date=end_date,
-                filters={"statement_type": stmt_type} if stmt_type else None,
-            )
+        result = read_with_refresh(
+            market,
+            "financial_data",
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            filters={"statement_type": stmt_type} if stmt_type else None,
         )
-        perf_data = result.get("data")
+        perf_data = result.get("data") if result else None
         if perf_data:
             import pandas as pd
 
@@ -327,9 +323,8 @@ def get_stock_basic_info(
 
         logger.info(f"[基本信息] 获取 {market_name} {stock_code} 基本信息数据")
 
-        di = DataInterface.get_instance()
-        result = run_async(di.read(market, "basic_info", symbol=symbol))
-        data = result.get("data")
+        result = read_with_refresh(market, "basic_info", symbol=symbol)
+        data = result.get("data") if result else None
 
         if data:
             if isinstance(data, list):

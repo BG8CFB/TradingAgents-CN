@@ -4,6 +4,9 @@
 主要数据通过 DataInterface 统一获取，走 FallbackRouter 自动降级。
 板块行情属于高频实时快照，通过东方财富 API 直接获取（不经过 DataInterface）。
 """
+# data-access-exempt: 板块行情为高频实时快照，标准库无此 domain；akshare 板块接口
+# 在本环境实测不可用（ConnectionError），需 akshare 优先 + eastmoney 直连兜底双通道。
+# 若后续板块数据入标准库（market_quotes 扩展），应移除本豁免。
 
 import json
 import logging
@@ -76,21 +79,36 @@ def get_china_market_overview(date: str = None, include_indices: bool = True, in
         try:
             sector_df = None
 
-            # 板块行情是高频实时快照数据，无法通过"同步→缓存→读取"模式管理
-            # 因此直接调用东方财富 API 获取，不经过 DataInterface
+            # 板块行情是高频实时快照：优先 akshare 库（由其维护反爬），
+            # 失败时回退到数据层 eastmoney 直连通道（push2delay，实战验证过的替代路径）
             try:
-                from app.utils.anti_scraping import fetch_em_board_direct
+                import akshare as ak
 
-                board_data = fetch_em_board_direct()
-                if board_data:
+                raw = ak.stock_board_industry_name_em()
+                if raw is not None and not raw.empty:
                     import pandas as pd
 
-                    sector_df = pd.DataFrame(board_data)
-                    sector_df = sector_df.rename(columns={"f14": "板块名称", "f3": "涨跌幅", "f2": "最新价"})
+                    sector_df = pd.DataFrame(raw)
+                    # akshare 返回中文列名（板块名称/涨跌幅/最新价等），直接使用
                     sector_df = sector_df.sort_values("涨跌幅", ascending=False)
-                    logger.info(f"东方财富 API 板块数据获取成功: {len(sector_df)} 条")
+                    logger.info(f"akshare 板块数据获取成功: {len(sector_df)} 条")
             except Exception as e:
-                logger.warning(f"东方财富 API 板块数据失败: {e}")
+                logger.warning(f"akshare 板块数据获取失败，回退 eastmoney 直连: {e}")
+
+            if sector_df is None or sector_df.empty:
+                try:
+                    from app.data.sources.cn.eastmoney.direct import fetch_em_board_direct
+
+                    board_data = fetch_em_board_direct()
+                    if board_data:
+                        import pandas as pd
+
+                        sector_df = pd.DataFrame(board_data)
+                        sector_df = sector_df.rename(columns={"f14": "板块名称", "f3": "涨跌幅", "f2": "最新价"})
+                        sector_df = sector_df.sort_values("涨跌幅", ascending=False)
+                        logger.info(f"eastmoney 直连板块数据获取成功: {len(sector_df)} 条")
+                except Exception as e:
+                    logger.warning(f"eastmoney 直连板块数据失败: {e}")
 
             if sector_df is not None and not sector_df.empty:
                 top_sectors = sector_df.head(5)
@@ -127,7 +145,7 @@ def get_china_market_overview(date: str = None, include_indices: bool = True, in
 {chr(10).join(result_sections)}
 
 ---
-*数据来源: DataInterface（自动降级） + 东方财富实时API（板块行情）*
+*数据来源: 标准数据库（DataInterface，自动降级）；板块行情为实时快照，经标准字段（板块名称/涨跌幅/最新价）转换*
 """
     logger.info(f"[中国市场工具] 数据获取完成，总长度: {len(combined_result)}")
     return format_tool_result(success_result(combined_result))
@@ -150,7 +168,7 @@ def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[st
 
         logger.info(f"获取龙虎榜数据: 日期{trade_date}, 股票{ts_code}")
 
-        di = DataInterface.get_instance()
+        from app.engine.tools.common.data_access import read_with_refresh
 
         filters = {"limit": 100}
         symbol = None
@@ -158,11 +176,11 @@ def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[st
             symbol = ts_code.replace(".SH", "").replace(".SZ", "").replace(".sh", "").replace(".sz", "").zfill(6)
 
         if symbol:
-            result = run_async(di.read("CN", "dragon_tiger", symbol=symbol, filters=filters))
+            result = read_with_refresh("CN", "dragon_tiger", symbol=symbol, filters=filters)
         else:
-            result = run_async(di.read("CN", "dragon_tiger", start_date=trade_date, filters=filters))
+            result = run_async(DataInterface.get_instance().read("CN", "dragon_tiger", start_date=trade_date, filters=filters))
 
-        data = result.get("data")
+        data = result.get("data") if result else None
 
         if data:
             if isinstance(data, list):
@@ -203,15 +221,17 @@ def get_block_trade(
 
         logger.info(f"获取大宗交易数据: 日期范围 {start_date}-{end_date}, 股票{code}")
 
-        di = DataInterface.get_instance()
+        from app.engine.tools.common.data_access import read_with_refresh
 
         if code:
             symbol = code.replace(".SH", "").replace(".SZ", "").replace(".sh", "").replace(".sz", "").zfill(6)
-            result = run_async(di.read("CN", "block_trade", symbol=symbol))
+            result = read_with_refresh("CN", "block_trade", symbol=symbol)
         else:
-            result = run_async(di.read("CN", "block_trade", start_date=start_date, end_date=end_date))
+            result = run_async(
+                DataInterface.get_instance().read("CN", "block_trade", start_date=start_date, end_date=end_date)
+            )
 
-        data = result.get("data")
+        data = result.get("data") if result else None
 
         if data:
             if isinstance(data, list):

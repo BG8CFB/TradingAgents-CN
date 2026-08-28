@@ -28,6 +28,8 @@ export interface AnalysisParameters {
   // MCP 工具配置
   mcp_enabled?: boolean
   mcp_tool_ids?: string[]
+  // 数据预拉取（分析前先从数据源拉取最新数据到标准库）
+  prefetch_data?: boolean
 }
 
 // 分析结果

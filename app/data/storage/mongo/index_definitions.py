@@ -85,9 +85,9 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
         ([("symbol", 1), ("trade_date", -1)], True),
     ],
     "dragon_tiger": [
-        # 龙虎榜：同一 symbol 同一交易日可能有多个上榜理由（direction 不同），
-        # 唯一索引必须包含 direction 才不会丢数据
-        ([("symbol", 1), ("trade_date", -1), ("direction", 1)], True),
+        # 龙虎榜：同一 symbol 同一交易日可能有多个上榜理由（reason 不同），
+        # 唯一索引必须包含 reason 才不会丢数据
+        ([("symbol", 1), ("trade_date", -1), ("reason", 1)], True),
         ([("trade_date", -1)], False),
     ],
     "block_trade": [
@@ -147,7 +147,7 @@ _LEGACY_UNIQUE_WITH_SOURCE: Dict[str, List[tuple]] = {
     "intraday_quotes": [("symbol", 1), ("datetime", -1), ("freq", 1), ("data_source", 1)],
     "money_flow": [("symbol", 1), ("trade_date", -1), ("data_source", 1)],
     "margin_trading": [("symbol", 1), ("trade_date", -1), ("data_source", 1)],
-    "dragon_tiger": [("symbol", 1), ("trade_date", -1), ("direction", 1), ("data_source", 1)],
+    "dragon_tiger": [("symbol", 1), ("trade_date", -1), ("reason", 1), ("data_source", 1)],
     "block_trade": [
         ("symbol", 1), ("trade_date", -1), ("buyer", 1), ("seller", 1), ("data_source", 1),
     ],

@@ -444,12 +444,12 @@ class TushareCNAdapter(BaseAdapter):
                     market="CN",
                     data_source="tushare",
                     trade_date=td,
-                    rzye=_safe_float(get("rzye")),
-                    rqye=_safe_float(get("rqye")),
-                    rz_buy=_safe_float(get("rzmre")),
-                    rq_sell=_safe_float(get("rqmcl")),
-                    rzrqye=_safe_float(get("rzrqye")),
-                    rqyl=_safe_float(get("rqyl")),
+                    margin_balance=_safe_float(get("rzye")),
+                    short_balance=_safe_float(get("rqye")),
+                    margin_buy_amount=_safe_float(get("rzmre")),
+                    short_sell_volume=_safe_float(get("rqmcl")),
+                    total_balance=_safe_float(get("rzrqye")),
+                    short_volume=_safe_float(get("rqyl")),
                 )
             )
         return results
@@ -477,7 +477,7 @@ class TushareCNAdapter(BaseAdapter):
                     name=str(get("name", "")),
                     close=_safe_float(get("close")),
                     pct_chg=_safe_float(get("pct_change")),
-                    direction=str(get("reason", "")),
+                    reason=str(get("reason", "")),
                     buy_amount=_safe_float(get("l_buy")),
                     sell_amount=_safe_float(get("l_sell")),
                     net_amount=_safe_float(get("net_amount")),

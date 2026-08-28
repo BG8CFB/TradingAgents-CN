@@ -9,8 +9,6 @@ from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.data.core.interface import DataInterface
-from app.core.async_utils import run_async
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -57,15 +55,18 @@ def get_money_flow(
                 .zfill(6)
             )
         try:
-            di = DataInterface.get_instance()
-            result = run_async(di.read("CN", "money_flow", symbol=symbol, start_date=start_date, end_date=end_date))
-            data = result.get("data")
+            from app.engine.tools.common.data_access import read_with_refresh
+
+            # symbol 为 "market" 时是市场级查询，无法按需刷新，helper 内部会自动跳过
+            result = read_with_refresh(
+                "CN", "money_flow", symbol=symbol, start_date=start_date, end_date=end_date
+            )
+            data = result.get("data") if result else None
             if data:
                 df = pd.DataFrame(data) if isinstance(data, list) else data
                 return format_tool_result(success_result(format_result(df, f"Money Flow: {ts_code or query_type}")))
         except Exception as e:
             logger.debug(f"资金流向数据获取失败: {e}")
-            pass
 
         return format_tool_result(
             error_result(
@@ -117,15 +118,17 @@ def get_margin_trade(
                 .zfill(6)
             )
         try:
-            di = DataInterface.get_instance()
-            result = run_async(di.read("CN", "margin_trading", symbol=symbol, start_date=start_date, end_date=end_date))
-            data = result.get("data")
+            from app.engine.tools.common.data_access import read_with_refresh
+
+            result = read_with_refresh(
+                "CN", "margin_trading", symbol=symbol, start_date=start_date, end_date=end_date
+            )
+            data = result.get("data") if result else None
             if data:
                 df = pd.DataFrame(data) if isinstance(data, list) else data
                 return format_tool_result(success_result(format_result(df, f"Margin Trade: {data_type}")))
         except Exception as e:
             logger.debug(f"融资融券数据获取失败: {e}")
-            pass
 
         return format_tool_result(
             error_result(

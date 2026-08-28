@@ -41,7 +41,7 @@ async def fetch_batch_quotes(codes: List[str]) -> Dict[str, Dict[str, Any]]:
 async def _fetch_em_spot_direct(codes: List[str]) -> Optional[Dict[str, Dict[str, Any]]]:
     """策略 1: 东方财富直接 HTTP"""
     try:
-        from app.utils.anti_scraping import fetch_em_spot_direct
+        from app.data.sources.cn.eastmoney.direct import fetch_em_spot_direct
         data = await asyncio.to_thread(fetch_em_spot_direct)
         if not data:
             return None
@@ -58,7 +58,7 @@ async def _fetch_em_spot_direct(codes: List[str]) -> Optional[Dict[str, Dict[str
 async def _fetch_tencent_batch(codes: List[str]) -> Optional[Dict[str, Dict[str, Any]]]:
     """策略 2: 腾讯批量接口"""
     try:
-        from app.utils.anti_scraping import fetch_tencent_spot_batch
+        from app.data.sources.cn.eastmoney.direct import fetch_tencent_spot_batch
         data = await asyncio.to_thread(fetch_tencent_spot_batch, codes)
         return data
     except (ImportError, Exception):

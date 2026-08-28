@@ -83,7 +83,7 @@ def get_stock_sentiment(
 """
                 result_data.append(sentiment_summary)
             else:
-                result_data.append("## 社交媒体情绪\n暂无新闻数据用于情绪分析")
+                result_data.append("## 新闻舆情情绪\n暂无新闻数据用于情绪分析")
 
         else:
             try:
@@ -93,10 +93,11 @@ def get_stock_sentiment(
                 _r = run_async(_di.read("US", "news", symbol=stock_code.upper()))
                 reddit_info = _r.get("data")
                 if reddit_info:
-                    result_data.append(f"## Reddit讨论\n{reddit_info}")
+                    result_data.append(f"## 美股新闻舆情\n{reddit_info}")
+                else:
+                    result_data.append("## 市场情绪分析\n暂无数据")
             except Exception as e:
-                logger.debug(f"获取 Reddit 数据失败: {e}")
-                pass
+                logger.debug(f"获取美股新闻数据失败: {e}")
                 result_data.append("## 市场情绪分析\n暂无数据")
 
         execution_time = (now_utc() - start_time).total_seconds()
@@ -110,7 +111,7 @@ def get_stock_sentiment(
 {chr(10).join(result_data)}
 
 ---
-*数据来源: 社交媒体、新闻评论及内部交易数据*
+*数据来源: 新闻舆情数据（基于新闻 sentiment 标签统计，非实时 NLP 分析）*
 """
         return format_tool_result(success_result(combined_result))
 

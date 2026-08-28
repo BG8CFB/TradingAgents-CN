@@ -348,11 +348,11 @@ class AKShareCNAdapter(BaseAdapter):
                 market="CN",
                 data_source="akshare",
                 trade_date=td,
-                rzye=_safe_float(get("融资余额", "") or get("rzye")),
-                rqye=_safe_float(get("融券余额", "") or get("rqye")),
-                rz_buy=_safe_float(get("融资买入额", "") or get("rz_buy")),
-                rq_sell=_safe_float(get("融券卖出量", "") or get("rq_sell")),
-                rzrqye=_safe_float(get("融资融券余额", "") or get("rzrqye")),
+                margin_balance=_safe_float(get("融资余额", "") or get("rzye")),
+                short_balance=_safe_float(get("融券余额", "") or get("rqye")),
+                margin_buy_amount=_safe_float(get("融资买入额", "") or get("rz_buy")),
+                short_sell_volume=_safe_float(get("融券卖出量", "") or get("rq_sell")),
+                total_balance=_safe_float(get("融资融券余额", "") or get("rzrqye")),
             ))
         return results
 
@@ -373,7 +373,7 @@ class AKShareCNAdapter(BaseAdapter):
                 name=str(get("名称", "") or get("name", "")),
                 close=_safe_float(get("收盘价", "") or get("close")),
                 pct_chg=_safe_float(get("涨跌幅", "") or get("change_pct")),
-                direction=str(get("解读", "") or get("direction", "")),
+                reason=str(get("解读", "") or get("reason", "")),
                 buy_amount=_safe_float(get("买入额", "") or get("buy")),
                 sell_amount=_safe_float(get("卖出额", "") or get("sell")),
                 net_amount=_safe_float(get("净额", "") or get("net")),

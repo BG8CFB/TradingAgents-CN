@@ -20,6 +20,7 @@ export interface SingleAnalysisRequest {
     analyst_model?: string
     debate_model?: string
     mcp_tools?: string[]
+    prefetch_data?: boolean
   }
 }
 

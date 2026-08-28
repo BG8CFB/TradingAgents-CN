@@ -1037,6 +1037,16 @@ class AnalysisService:
         )
         return result
 
+    @staticmethod
+    def _normalize_symbol_for_data(symbol: str, market: str) -> str:
+        """规范化股票代码以匹配数据库存储格式（与 schema normalize_symbol 一致）"""
+        symbol = (symbol or "").strip()
+        if market == "CN":
+            return symbol.replace(".SZ", "").replace(".SH", "").replace(".BJ", "").zfill(6)
+        if market == "HK":
+            return symbol.replace(".HK", "").replace(".hk", "").zfill(5)
+        return symbol.upper()
+
     def _prefetch_stock_data(
         self,
         market: str,
@@ -1336,20 +1346,29 @@ class AnalysisService:
                 logger.warning(f"⚠️ [工具可用性] 预计算失败（不影响分析）: {_e}")
 
             # ── 预拉取阶段：拉取该股票在该市场的全部数据域到 MongoDB ──
-            update_progress_sync(10, "📊 预拉取股票数据...", "data_prefetch")
-            try:
-                prefetch_result = self._prefetch_stock_data(
-                    _market, request.get_symbol()
-                )
-                logger.info(f"📊 [数据预拉取] 结果: {prefetch_result}")
-                # 预拉取后重新计算工具可用性
-                run_async(_cache.compute(_market, DATASOURCE_REGISTRY))
-                logger.info(f"📊 [工具可用性] 预拉取后重新计算: {_cache.all_results}")
-            except Exception as _prefetch_err:
-                logger.warning(
-                    f"⚠️ [数据预拉取] 失败（不影响分析，使用现有数据）: {_prefetch_err}"
-                )
-            update_progress_sync(12, "📊 数据预拉取完成", "data_prefetch_done")
+            # 用户可通过 parameters.prefetch_data=False 关闭（直接使用库内已有数据）
+            _prefetch_enabled = True
+            if request.parameters is not None:
+                _prefetch_enabled = bool(getattr(request.parameters, "prefetch_data", True))
+            if _prefetch_enabled:
+                update_progress_sync(10, "📊 预拉取股票数据...", "data_prefetch")
+                try:
+                    _prefetch_symbol = self._normalize_symbol_for_data(
+                        request.get_symbol(), _market
+                    )
+                    prefetch_result = self._prefetch_stock_data(_market, _prefetch_symbol)
+                    logger.info(f"📊 [数据预拉取] 结果: {prefetch_result}")
+                    # 预拉取后重新计算工具可用性
+                    run_async(_cache.compute(_market, DATASOURCE_REGISTRY))
+                    logger.info(f"📊 [工具可用性] 预拉取后重新计算: {_cache.all_results}")
+                except Exception as _prefetch_err:
+                    logger.warning(
+                        f"⚠️ [数据预拉取] 失败（不影响分析，使用现有数据）: {_prefetch_err}"
+                    )
+                update_progress_sync(12, "📊 数据预拉取完成", "data_prefetch_done")
+            else:
+                logger.info("📊 [数据预拉取] 用户已关闭，直接使用库内数据")
+                update_progress_sync(12, "📊 跳过数据预拉取（使用库内数据）", "data_prefetch_skipped")
 
             # 🔥 添加时间戳日志，精确定位耗时
             import time

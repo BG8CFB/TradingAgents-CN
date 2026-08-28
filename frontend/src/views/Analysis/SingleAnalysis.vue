@@ -154,6 +154,17 @@
                   </div>
                 </div>
                 
+                <!-- 数据预拉取开关 -->
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; margin-bottom: 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 14px; font-weight: 600;">📊 分析前获取最新数据</span>
+                    <el-tooltip content="开启后，分析开始前会先从数据源拉取该股票的最新数据（日线、财务、新闻等）到标准库；关闭则直接使用库内已有数据，速度更快" placement="top">
+                      <el-icon style="color: var(--el-text-color-secondary); cursor: help;"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </div>
+                  <el-switch v-model="analysisForm.prefetchData" />
+                </div>
+
                 <div class="phases-grid">
                   <div 
                     v-for="phase in PHASES" 
@@ -338,6 +349,7 @@ import {
   Histogram,
   Money,
   Wallet,
+  QuestionFilled,
 } from '@element-plus/icons-vue'
 import { analysisApi, type SingleAnalysisRequest } from '@/api/analysis'
 import { stocksApi } from '@/api/stocks'
@@ -375,6 +387,7 @@ interface AnalysisForm {
   selectedAnalysts: string[]
   mcpTools: string[]
   language: 'zh-CN' | 'en-US'
+  prefetchData: boolean
   phases: {
     phase2: { enabled: boolean, debateRounds: number }
     phase3: { enabled: boolean, debateRounds: number }
@@ -482,6 +495,7 @@ const analysisForm = reactive<AnalysisForm>({
   selectedAnalysts: [], // 将在 onMounted 中加载默认值
   mcpTools: [],
   language: 'zh-CN',
+  prefetchData: true, // 分析前先从数据源拉取最新数据到标准库
   phases: {
     phase2: { enabled: false, debateRounds: 2 },
     phase3: { enabled: false, debateRounds: 1 },
@@ -740,7 +754,9 @@ const submitAnalysis = async () => {
         // 阶段配置（按顺序依赖）
         ...buildPhasePayload(analysisForm.phases),
         // MCP工具
-        mcp_tools: analysisForm.mcpTools
+        mcp_tools: analysisForm.mcpTools,
+        // 数据预拉取
+        prefetch_data: analysisForm.prefetchData
       }
     }
 

@@ -12,7 +12,7 @@ class DragonTigerSchema(CommonFields):
     name: Optional[str] = None           # 股票名称
     close: Optional[float] = None        # 收盘价
     pct_chg: Optional[float] = None      # 涨跌幅 %
-    direction: Optional[str] = None      # 上榜理由（Tushare）/ 营业部方向（AKShare）
+    reason: Optional[str] = None         # 上榜理由（Tushare reason / AKShare 解读）
     buy_amount: Optional[float] = None   # 买入金额（元）
     sell_amount: Optional[float] = None  # 卖出金额（元）
     net_amount: Optional[float] = None   # 净金额（元）

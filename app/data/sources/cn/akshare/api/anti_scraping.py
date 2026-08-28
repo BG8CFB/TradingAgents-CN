@@ -21,7 +21,7 @@ def get_anti_scraping_session():
         with _init_lock:
             if _session is None:
                 try:
-                    from app.utils.anti_scraping import AntiScrapingSession
+                    from app.data.sources.cn.eastmoney.direct import AntiScrapingSession
                     _session = AntiScrapingSession()
                 except ImportError:
                     logger.debug("AntiScrapingSession 不可用，使用标准请求")
@@ -35,7 +35,7 @@ def get_rate_limiter():
         with _init_lock:
             if _rate_limiter is None:
                 try:
-                    from app.utils.anti_scraping import ThreadSafeRateLimiter
+                    from app.data.sources.cn.eastmoney.direct import ThreadSafeRateLimiter
                     _rate_limiter = ThreadSafeRateLimiter(min_interval=0.3, burst=3)
                 except ImportError:
                     _rate_limiter = None
