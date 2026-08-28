@@ -44,19 +44,58 @@ export interface SourceHealthItem {
   source: string
   domain: string
   circuit_state: string
-  success_rate_1h: number
-  avg_latency_1h: number
+  success_rate_1h: number | null
+  avg_latency_1h: number | null
   total_calls: number
   consecutive_failures: number
-  open_count: number
+  open_count?: number
 }
+
+/** 域健康状态（后端数据层判定，前端只渲染） */
+export type DomainHealthStatus =
+  | 'healthy'
+  | 'degraded'
+  | 'unhealthy'
+  | 'stale'
+  | 'no_data'
+  | 'unknown'
+
+export interface DomainHealth {
+  domain: string
+  status: DomainHealthStatus
+  reason: string
+  record_count: number
+  coverage: number | null
+  last_sync_time: string | null
+  freshness: {
+    expected_hours: number | null
+    actual_hours: number | null
+    budget_hours: number | null
+  }
+  sources: Array<{
+    source: string
+    circuit_state: string
+    success_rate_1h: number | null
+    avg_latency_1h: number | null
+    total_calls: number
+    consecutive_failures: number
+  }>
+}
+
+export type MarketOverall = 'all_healthy' | 'degraded' | 'partial_outage' | 'unknown'
 
 export interface DashboardData {
   domain_stats: Record<string, DomainStat>
+  domain_health: DomainHealth[]
   source_health: SourceHealthItem[]
   summary: {
+    overall: MarketOverall
     total_domains: number
-    healthy_sources: number
+    healthy_domains: number
+    warning_domains: number
+    problem_domains: number
+    unknown_domains: number
+    degraded_fields?: string[]
   }
 }
 

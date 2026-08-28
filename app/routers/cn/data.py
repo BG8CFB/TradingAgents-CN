@@ -31,32 +31,10 @@ def _all_domains() -> List[str]:
 
 @router.get("/dashboard")
 async def get_dashboard(user: dict = Depends(get_current_user)):
-    """数据总览看板：域状态 + 源健康 + 覆盖率"""
-    health = []
-    try:
-        di = DataInterface.get_instance()
-        health = await di.get_source_health(_MARKET)
-    except Exception as e:
-        logger.debug(f"获取CN数据源健康状态失败: {e}")
-        pass
+    """数据总览看板：域健康（三支柱判定）+ 源健康 + 市场总览"""
+    from app.services.data_dashboard_service import get_dashboard_payload
 
-    domain_stats = {}
-    dashboard_domains = _all_domains()
-    try:
-        from app.services.data_dashboard_service import get_domain_stats
-        domain_stats = await get_domain_stats(_MARKET, dashboard_domains)
-    except Exception as e:
-        logger.debug(f"获取CN域统计失败: {e}")
-        domain_stats = {d: {"records": 0, "last_updated": None} for d in dashboard_domains}
-
-    return ok(data={
-        "domain_stats": domain_stats,
-        "source_health": health,
-        "summary": {
-            "total_domains": len(domain_stats),
-            "healthy_sources": sum(1 for h in health if isinstance(h, dict) and h.get("success_rate", 0) > 0.5),
-        },
-    })
+    return ok(data=await get_dashboard_payload(_MARKET))
 
 
 # ---------------------------------------------------------------------------

@@ -31,7 +31,7 @@
               <span class="alert-domain">{{ domainLabel(h.domain) }}</span>
             </div>
             <div class="alert-metrics">
-              <span class="metric-badge">成功率: <strong :class="{ 'text-danger': h.success_rate_1h < 0.8 }">{{ formatPercent(h.success_rate_1h) }}</strong></span>
+              <span class="metric-badge">成功率: <strong :class="{ 'text-danger': (h.success_rate_1h ?? 1) < 0.8 }">{{ h.success_rate_1h === null ? '无信号' : formatPercent(h.success_rate_1h) }}</strong></span>
               <span class="metric-badge">连续失败: <strong>{{ h.consecutive_failures }} 次</strong></span>
             </div>
             <el-button type="warning" size="small" plain round @click="handleReset(h)">

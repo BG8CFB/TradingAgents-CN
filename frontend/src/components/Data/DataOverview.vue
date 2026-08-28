@@ -1,5 +1,27 @@
 <template>
   <div class="data-overview" v-loading="loading">
+    <!-- 市场整体健康横幅（状态页规范：顶部总览） -->
+    <el-alert
+      v-if="marketBanner"
+      :title="marketBanner.title"
+      :description="marketBanner.desc"
+      :type="marketBanner.type"
+      show-icon
+      :closable="false"
+      class="market-banner"
+    />
+
+    <!-- 监控失联横幅：请求失败绝不退回"推断正常" -->
+    <el-alert
+      v-if="loadErrors.length > 0"
+      :title="`部分监控数据加载失败（${loadErrors.join('、')}），以下状态可能不完整`"
+      type="warning"
+      show-icon
+      class="market-banner"
+    >
+      <el-button size="small" type="warning" plain @click="loadData">重试加载</el-button>
+    </el-alert>
+
     <!-- 质量总览 + 抽样校验 -->
     <div class="overview-top">
       <!-- 左：质量评分 -->
@@ -115,7 +137,7 @@
         数据域落库状态总览
       </div>
       <div class="title-right">
-        <span class="update-hint">实时监控各业务域的库内存量与更新鲜活度</span>
+        <span class="update-hint">60秒自动刷新{{ lastRefreshTime ? ` · 上次刷新 ${lastRefreshTime}` : '' }}</span>
         <el-button size="small" plain type="primary" @click="loadData" :loading="loading">
           <el-icon><Refresh /></el-icon> 刷新状态
         </el-button>
@@ -134,7 +156,7 @@
             <el-icon :size="18"><component :is="card.icon" /></el-icon>
             {{ card.label }}
           </div>
-          <el-tooltip :content="card.healthText === '异常' ? '部分或全部首选数据源熔断，已降级' : card.healthText === '未同步' ? '该域尚未执行过同步任务，无健康数据' : '当前路由链路健康'" placement="top">
+          <el-tooltip :content="card.reason" placement="top">
             <el-tag :type="card.healthTagType" size="small" effect="dark" round class="health-tag">
               {{ card.healthText }}
             </el-tag>
@@ -152,7 +174,13 @@
             <span class="metric-value" :class="freshnessClass(card.freshnessMinutes)">{{ card.freshness }}</span>
             <span class="metric-label">数据鲜活度</span>
           </div>
-          <div class="metric-item" v-if="card.completeness !== null">
+          <div class="metric-item" v-if="card.coverage !== null">
+            <span class="metric-value" :style="{ color: coverageColor(card.coverage) }">
+              {{ Math.round(card.coverage * 100) }}%
+            </span>
+            <span class="metric-label">标的覆盖率</span>
+          </div>
+          <div class="metric-item" v-else-if="card.completeness !== null">
             <span class="metric-value" :style="{ color: completenessColor(card.completeness) }">
               {{ Math.round(card.completeness * 100) }}%
             </span>
@@ -202,14 +230,23 @@ import {
 } from '@element-plus/icons-vue'
 import {
   getDashboard, getQualityOverview, triggerSync, getStockData,
-  type SourceHealthItem, type DomainStat,
+  type DomainHealth, type DomainHealthStatus, type DomainStat, type MarketOverall,
   DOMAIN_LABELS,
 } from '@/api/marketData'
 import type { MarketCode } from '@/api/marketData'
+import { usePolling } from '@/composables/usePolling'
 
 const props = defineProps<{ market: MarketCode }>()
 const emit = defineEmits<{
-  statsLoaded: [stats: { healthySources: number; totalDomains: number; totalRecords: number; lastSync: string }]
+  statsLoaded: [stats: {
+    overall: MarketOverall
+    healthyDomains: number
+    warningDomains: number
+    problemDomains: number
+    totalDomains: number
+    totalRecords: number
+    lastSync: string
+  }]
 }>()
 
 // 域图标映射
@@ -261,17 +298,58 @@ interface DomainCard {
   lastUpdated: string | null
   freshness: string
   freshnessMinutes: number
-  healthSources: SourceHealthItem[]
+  reason: string
+  coverage: number | null
   healthTagType: 'success' | 'warning' | 'danger' | 'info'
   healthText: string
   healthClass: string
   completeness: number | null
 }
 
+// 后端 6 态健康 → 展示元数据（颜色语义：绿/黄/红/橙/灰）
+const HEALTH_META: Record<DomainHealthStatus, {
+  tagType: 'success' | 'warning' | 'danger' | 'info'
+  text: string
+  cls: string
+}> = {
+  healthy: { tagType: 'success', text: '健康', cls: 'state-healthy' },
+  degraded: { tagType: 'warning', text: '降级', cls: 'state-warning' },
+  unhealthy: { tagType: 'danger', text: '异常', cls: 'state-error' },
+  stale: { tagType: 'warning', text: '数据过期', cls: 'state-warning' },
+  no_data: { tagType: 'info', text: '无数据', cls: '' },
+  unknown: { tagType: 'info', text: '未知', cls: '' },
+}
+
+const OVERALL_META: Record<MarketOverall, {
+  title: string
+  type: 'success' | 'warning' | 'error' | 'info'
+}> = {
+  all_healthy: { title: '市场数据全部健康', type: 'success' },
+  degraded: { title: '市场数据部分降级', type: 'warning' },
+  partial_outage: { title: '市场数据部分异常', type: 'error' },
+  unknown: { title: '市场数据状态未知', type: 'info' },
+}
+
 const loading = ref(false)
-const healthData = ref<SourceHealthItem[]>([])
+const domainHealth = ref<DomainHealth[]>([])
+const summary = ref<DashboardSummary | null>(null)
+const loadErrors = ref<string[]>([])
 const domainStats = ref<Record<string, DomainStat>>({})
 const qualityData = ref<Record<string, any>>({})
+
+const MARKET_NAMES: Record<MarketCode, string> = { cn: 'A股', hk: '港股', us: '美股' }
+
+const marketBanner = computed(() => {
+  const s = summary.value
+  if (!s) return null
+  const meta = OVERALL_META[s.overall] || OVERALL_META.unknown
+  const desc = `健康 ${s.healthy_domains} · 降级 ${s.warning_domains} · 异常 ${s.problem_domains} · 未知 ${s.unknown_domains}（共 ${s.total_domains} 个数据域）`
+  return {
+    title: `${MARKET_NAMES[props.market]} · ${meta.title}`,
+    desc,
+    type: meta.type,
+  }
+})
 
 // 股票查询
 const stockSymbol = ref('')
@@ -348,44 +426,54 @@ function getRelativeTime(iso: string | null): { text: string; minutes: number } 
   return { text: new Date(iso).toLocaleDateString('zh-CN'), minutes: diffMin }
 }
 
-function getDomainHealth(sources: SourceHealthItem[], hasRecords: boolean): { tagType: 'success' | 'warning' | 'danger' | 'info'; text: string; cls: string } {
-  if (sources.length === 0) {
-    // 无健康监控数据时，根据域是否有落库记录推断状态：
-    // 有记录 → 数据源曾经正常工作过，推断为"正常"
-    // 无记录 → 从未同步过，推断为"未同步"
-    if (hasRecords) return { tagType: 'success', text: '正常', cls: 'state-healthy' }
-    return { tagType: 'info', text: '未同步', cls: '' }
-  }
-  const hasUnhealthy = sources.some(s => s.circuit_state === 'open')
-  const hasHalfOpen = sources.some(s => s.circuit_state === 'half_open')
-  if (hasUnhealthy) return { tagType: 'danger', text: '异常', cls: 'state-error' }
-  if (hasHalfOpen) return { tagType: 'warning', text: '恢复中', cls: 'state-warning' }
-  return { tagType: 'success', text: '正常', cls: 'state-healthy' }
+/** 后端 dashboard summary 聚合口径（市场整体状态 + 各态计数） */
+interface DashboardSummary {
+  overall: MarketOverall
+  total_domains: number
+  healthy_domains: number
+  warning_domains: number
+  problem_domains: number
+  unknown_domains: number
+  degraded_fields?: string[]
+}
+
+function coverageColor(c: number): string {
+  if (c >= 0.99) return '#7CB342'
+  if (c >= 0.8) return '#C5A55A'
+  if (c >= 0.5) return '#D4AF37'
+  return '#E57373'
 }
 
 const domainCards = computed<DomainCard[]>(() => {
-  const domains = Object.keys(domainStats.value)
+  // 以后端 domain_health 为主构建卡片；domain_stats 仅补 records 兜底
+  const statsDomains = Object.keys(domainStats.value)
+  const healthDomains = domainHealth.value.map(h => h.domain)
+  const domains = healthDomains.length > 0
+    ? [...new Set([...healthDomains, ...statsDomains])]
+    : statsDomains
   if (domains.length === 0) return []
 
   return domains.map(domain => {
     const stat = domainStats.value[domain]
-    const sources = healthData.value.filter(h => h.domain === domain)
+    const health = domainHealth.value.find(h => h.domain === domain)
     const quality = (qualityData.value as Record<string, any>)?.[domain]
-    const health = getDomainHealth(sources, (stat?.records ?? 0) > 0)
-    const freshness = getRelativeTime(stat?.last_updated ?? null)
+    const lastUpdated = health?.last_sync_time ?? stat?.last_updated ?? null
+    const freshness = getRelativeTime(lastUpdated)
+    const meta = HEALTH_META[health?.status ?? 'unknown'] ?? HEALTH_META.unknown
 
     return {
       domain,
       label: domainLabel(domain),
       icon: DOMAIN_ICON_MAP[domain] || markRaw(Document),
-      records: stat?.records ?? 0,
-      lastUpdated: stat?.last_updated ?? null,
+      records: health?.record_count ?? stat?.records ?? 0,
+      lastUpdated,
       freshness: freshness.text,
       freshnessMinutes: freshness.minutes,
-      healthSources: sources,
-      healthTagType: health.tagType,
-      healthText: health.text,
-      healthClass: health.cls,
+      reason: health?.reason || '暂无健康信号',
+      coverage: health?.coverage ?? null,
+      healthTagType: meta.tagType,
+      healthText: meta.text,
+      healthClass: meta.cls,
       completeness: quality?.completeness ?? null,
     }
   })
@@ -393,31 +481,50 @@ const domainCards = computed<DomainCard[]>(() => {
 
 async function loadData() {
   loading.value = true
+  loadErrors.value = []
   try {
     const [dashRes, qualRes] = await Promise.allSettled([
       getDashboard(props.market),
       getQualityOverview(props.market),
     ])
 
+    // 失败可见：收集 rejected，绝不静默吞掉退回"推断正常"
+    const errors: string[] = []
+    if (dashRes.status === 'rejected' || (dashRes.status === 'fulfilled' && !dashRes.value.success)) {
+      errors.push('数据总览')
+    }
+    if (qualRes.status === 'rejected' || (qualRes.status === 'fulfilled' && !qualRes.value.success)) {
+      errors.push('质量评分')
+    }
+    loadErrors.value = errors
+    if (errors.length > 0) {
+      ElMessage.error('监控数据加载失败，请点击重试')
+    }
+
     if (dashRes.status === 'fulfilled' && dashRes.value.success) {
-      healthData.value = dashRes.value.data?.source_health || []
-      domainStats.value = dashRes.value.data?.domain_stats || {}
+      const d = dashRes.value.data
+      domainStats.value = d?.domain_stats || {}
+      domainHealth.value = d?.domain_health || []
+      summary.value = d?.summary || null
     }
 
     if (qualRes.status === 'fulfilled' && qualRes.value.success) {
       qualityData.value = qualRes.value.data || {}
     }
 
-    // 向父组件发送统计
-    const healthyCount = healthData.value.filter(h => h.circuit_state === 'closed').length
-    const records = Object.values(domainStats.value).reduce((sum, s) => sum + s.records, 0)
-    const allUpdated = Object.values(domainStats.value)
-      .map(s => s.last_updated).filter(Boolean).sort().reverse() as string[]
+    // 向父组件发送统计（新口径：域健康计数）
+    const s = summary.value
+    const records = Object.values(domainStats.value).reduce((sum, st) => sum + st.records, 0)
+    const allUpdated = domainHealth.value
+      .map(h => h.last_sync_time).filter(Boolean).sort().reverse() as string[]
     const lastSync = allUpdated.length > 0 ? getRelativeTime(allUpdated[0]).text : '--'
 
     emit('statsLoaded', {
-      healthySources: healthyCount,
-      totalDomains: Object.keys(domainStats.value).length,
+      overall: s?.overall ?? 'unknown',
+      healthyDomains: s?.healthy_domains ?? 0,
+      warningDomains: s?.warning_domains ?? 0,
+      problemDomains: s?.problem_domains ?? 0,
+      totalDomains: s?.total_domains ?? Object.keys(domainStats.value).length,
       totalRecords: records,
       lastSync,
     })
@@ -493,6 +600,9 @@ watch(() => props.market, () => {
 })
 
 onMounted(loadData)
+
+// 60s 自动轮询（页面不可见时暂停）
+const { lastRefreshTime } = usePolling(loadData, 60_000)
 </script>
 
 <style scoped lang="scss">

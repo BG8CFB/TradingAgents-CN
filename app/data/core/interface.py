@@ -258,6 +258,104 @@ class DataInterface:
         """获取能力注册表。"""
         return self._registry
 
+    # ── 域健康（数据可观测性三支柱：freshness / volume / 运行健康）──
+
+    async def get_domain_health(self, market: str) -> Dict:
+        """聚合 domain_stats + sync_checkpoints + source_health，返回域健康判定。
+
+        判定逻辑在 app/data/core/health.py（纯逻辑可单测），本方法只做信号聚合：
+        - 记录数 / 最新 updated_at：get_domain_stats
+        - 最近同步时间 / 是否成功同步过：sync_checkpoints
+        - 源运行状态：source_health（stale 快照过滤：>2h 且无内存热数据 → 无信号）
+        - 覆盖率：domain 内 distinct symbol 数 / basic_info 股票总数（豁免域为 None）
+        """
+        from app.data.core.health import DomainHealthCalculator, HEALTH_SNAPSHOT_MAX_AGE_HOURS
+
+        calculator = DomainHealthCalculator()
+        domains = self._registry.get_domains(market)
+        degraded_fields: List[str] = []
+
+        domain_stats = await self.get_domain_stats(market, domains)
+
+        checkpoints: List[Dict] = []
+        try:
+            checkpoints = await self._metadata_repo.get_all_checkpoints(market)
+        except Exception as e:
+            degraded_fields.append("sync_checkpoints")
+            logger.warning(f"读取 {market} sync_checkpoints 失败: {e}")
+
+        health_items: List[Dict] = []
+        try:
+            health_items = await self.get_source_health(market)
+        except Exception as e:
+            degraded_fields.append("source_health")
+            logger.warning(f"读取 {market} source_health 失败: {e}")
+
+        # stale Mongo 快照过滤：updated_at 超龄的条目视为无信号
+        # （内存热数据无 updated_at 字段，天然保留）
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        fresh_health: List[Dict] = []
+        for item in health_items:
+            age = DomainHealthCalculator._age_hours(item.get("updated_at"), now)
+            if age is not None and age > HEALTH_SNAPSHOT_MAX_AGE_HOURS:
+                continue
+            fresh_health.append(item)
+
+        # 按 domain 分组源健康
+        sources_by_domain: Dict[str, List[Dict]] = {}
+        for item in fresh_health:
+            sources_by_domain.setdefault(item.get("domain", ""), []).append(item)
+
+        # checkpoint 按 domain 取最新一条
+        latest_cp: Dict[str, Dict] = {}
+        for cp in checkpoints:  # 已按 last_sync_time 降序
+            latest_cp.setdefault(cp.get("domain", ""), cp)
+
+        # 覆盖率：豁免域为 None，其余 = distinct symbols / basic_info 总数
+        basic_info_total: Optional[int] = None
+        symbol_counts: Dict[str, int] = {}
+        try:
+            from app.data.storage.mongo.client import get_motor_db
+            from app.data.storage.mongo.collections import get_collection_name
+
+            db = get_motor_db()
+            basic_coll = db[get_collection_name("basic_info", market)]
+            basic_info_total = await basic_coll.count_documents({})
+            for domain in domains:
+                if calculator._is_coverage_exempt(domain):
+                    continue
+                coll = db[get_collection_name(domain, market)]
+                pipeline = [{"$group": {"_id": "$symbol"}}, {"$count": "n"}]
+                agg = await coll.aggregate(pipeline).to_list(length=1)
+                symbol_counts[domain] = agg[0]["n"] if agg else 0
+        except Exception as e:
+            degraded_fields.append("coverage")
+            logger.warning(f"计算 {market} 覆盖率失败: {e}")
+
+        domain_health = []
+        for domain in domains:
+            stats = domain_stats.get(domain, {})
+            cp = latest_cp.get(domain)
+            coverage = None
+            if basic_info_total and symbol_counts.get(domain) is not None:
+                coverage = round(symbol_counts[domain] / basic_info_total, 4)
+            domain_health.append(calculator.evaluate(
+                market=market,
+                domain=domain,
+                record_count=stats.get("records", 0),
+                last_sync_time=(cp or {}).get("last_sync_time") or stats.get("last_updated"),
+                checkpoint_success=bool(cp and cp.get("status") == "success"),
+                sources=sources_by_domain.get(domain),
+                coverage=coverage,
+                monitoring_available=bool(fresh_health) or bool(sources_by_domain),
+            ))
+
+        summary = DomainHealthCalculator.summarize(domain_health)
+        summary["degraded_fields"] = degraded_fields
+        return {"domains": domain_health, "summary": summary}
+
     # ── 配置管理 ──
 
     async def get_config(self, market: str, domain: str) -> Optional[Dict]:
@@ -353,9 +451,11 @@ class DataInterface:
                 overview[domain] = {
                     "total_records": total,
                     "missing_symbol": missing_symbol,
+                    # 空集合 = 0% 完整（无数据不是"完整"，避免健康误报）
                     "completeness": round((total - missing_symbol) / total, 3)
                     if total > 0
-                    else 1.0,
+                    else 0.0,
+                    "empty": total == 0,
                     "latest_date": latest_date,
                 }
             except Exception as e:

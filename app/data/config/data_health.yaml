@@ -1,0 +1,40 @@
+# 域健康判定参数（数据可观测性健康模型）
+#
+# 新鲜度预算复用 freshness_rules.yaml（time_window 类直接用其 threshold；
+# trading_day_after_close 类只有"收盘后 N 分钟"的即时阈值，域级健康需要
+# 容忍周末/节假日的自然日预算，由下面的 stale_after_hours 提供）。
+
+defaults:
+  min_samples: 20          # 成功率判定的样本门槛（低于此样本不参与判定，避免噪声）
+  min_success_rate: 0.5    # 窗口成功率低于 → unhealthy
+  warn_success_rate: 0.8   # 窗口成功率低于（且样本≥min_samples）→ degraded
+  max_latency_ms: 5000     # 窗口平均延迟超过 → degraded
+  min_coverage: 0.8        # 覆盖率（domain 股票数 / basic_info 总数）低于 → degraded
+
+# trading_day_after_close 类域的"硬过期"预算（小时）：
+# 超过即 stale——数据是交易后更新的，但跨周末/节假日 3 个自然日没更新一定有问题
+stale_after_hours:
+  trading_day_default: 72
+
+# 覆盖率豁免域：无 symbol 维度（市场级/日历/名单类）、按需同步的实时快照
+# （intraday/pre_post 只同步自选股）、事件/按股订阅类（news 只同步分析过的股票，
+# dragon_tiger/block_trade 只有上榜/大宗标的数据），覆盖率对股票全集无意义
+coverage_exempt_domains:
+  - basic_info           # 覆盖率基线本身
+  - market_quotes        # 指数快照
+  - trade_calendar
+  - connect_status
+  - southbound_holding
+  - intraday_quotes
+  - pre_post_market
+  - news
+  - dragon_tiger
+  - block_trade
+
+markets:
+  HK:
+    stale_after_hours:
+      trading_day_default: 96   # 港股节假日更长
+  US:
+    stale_after_hours:
+      trading_day_default: 96

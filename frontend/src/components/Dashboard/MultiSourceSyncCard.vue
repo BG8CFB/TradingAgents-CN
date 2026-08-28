@@ -36,12 +36,12 @@
             <div v-if="syncStatus?.status === 'running'" class="progress-display">
               <el-progress 
                 :percentage="getProgress()"
-                :status="syncStatus.errors > 0 ? 'warning' : 'success'"
+                :status="(syncStatus.errors ?? 0) > 0 ? 'warning' : 'success'"
                 :stroke-width="6"
                 :show-text="false"
               />
               <div class="progress-text">
-                {{ syncStatus.total > 0 ? `${syncStatus.updated + syncStatus.inserted}/${syncStatus.total}` : '同步中...' }}
+                {{ syncStatus.total > 0 ? `${(syncStatus.updated ?? 0) + (syncStatus.inserted ?? 0)}/${syncStatus.total}` : '同步中...' }}
               </div>
             </div>
           </div>
@@ -63,21 +63,28 @@
           </div>
           
           <div class="sources-list">
-            <div 
-              v-for="source in dataSources" 
+            <div
+              v-for="source in dataSources"
               :key="source.name"
               class="source-item"
-              :class="{ 'available': source.available }"
+              :class="{ 'available': source.state === 'closed', 'degraded': source.state === 'half_open' }"
             >
               <div class="source-info">
                 <span class="source-name">{{ source.name.toUpperCase() }}</span>
-                <el-icon 
-                  :class="source.available ? 'status-success' : 'status-error'"
+                <el-icon
+                  v-if="source.state === 'closed'"
+                  class="status-success"
                 >
-                  <component :is="source.available ? 'SuccessFilled' : 'CircleCloseFilled'" />
+                  <component :is="'SuccessFilled'" />
+                </el-icon>
+                <el-icon
+                  v-else-if="source.state === 'open'"
+                  class="status-error"
+                >
+                  <component :is="'CircleCloseFilled'" />
                 </el-icon>
               </div>
-              <div class="source-priority">优先级: {{ source.priority }}</div>
+              <div class="source-priority">{{ source.stateLabel }}</div>
             </div>
           </div>
         </div>
@@ -101,9 +108,9 @@
         <div v-if="syncStatus && syncStatus.status !== 'never_run'" class="last-sync-section">
           <div class="last-sync-info">
             <div class="sync-stats">
-              <span class="stat-item">总数: {{ syncStatus.total }}</span>
-              <span class="stat-item success">更新: {{ syncStatus.updated }}</span>
-              <span class="stat-item danger">错误: {{ syncStatus.errors }}</span>
+              <span class="stat-item">域: {{ syncStatus.job }}</span>
+              <span class="stat-item">记录: {{ syncStatus.total }}</span>
+              <span class="stat-item success">源: {{ syncStatus.data_sources_used.join(', ') }}</span>
             </div>
             <div v-if="syncStatus.finished_at" class="sync-time">
               {{ formatLastSyncTime(syncStatus.finished_at) }}
@@ -132,15 +139,23 @@ import {
   type MarketCode
 } from '@/api/marketData'
 
+/** 源熔断态 → 人读标签 */
+const CIRCUIT_LABEL: Record<string, string> = {
+  closed: '正常',
+  open: '已熔断',
+  half_open: '恢复探测中',
+  unknown: '无调用信号',
+}
+
 type SyncStatus = {
   job: string
   status: 'idle' | 'running' | 'success' | 'success_with_errors' | 'failed' | 'never_run'
   started_at?: string
   finished_at?: string
   total: number
-  inserted: number
-  updated: number
-  errors: number
+  inserted?: number
+  updated?: number
+  errors?: number
   last_trade_date?: string
   data_sources_used: string[]
   source_stats?: Record<string, Record<string, number>>
@@ -149,9 +164,8 @@ type SyncStatus = {
 
 interface DataSourceStatus {
   name: string
-  priority: number
-  available: boolean
-  description: string
+  state: string
+  stateLabel: string
 }
 
 const MARKET: MarketCode = 'cn'
@@ -177,9 +191,6 @@ const fetchSyncStatus = async () => {
         job: latest.domain,
         status: latest.status === 'success' ? 'success' : latest.status === 'failed' ? 'failed' : 'idle',
         total: latest.record_count,
-        inserted: 0,
-        updated: latest.record_count,
-        errors: 0,
         finished_at: latest.last_sync_time,
         data_sources_used: [latest.source],
       }
@@ -203,11 +214,12 @@ const fetchDataSources = async () => {
         .forEach((item: SourceHealthItem) => {
           if (!seen.has(item.source)) {
             seen.add(item.source)
+            // 无样本不伪造：后端已把 total_calls==0 序列化为 unknown
+            const state = item.circuit_state
             sources.push({
               name: item.source,
-              priority: sources.length + 1,
-              available: item.circuit_state === 'closed',
-              description: `${item.domain} - ${item.circuit_state}`,
+              state,
+              stateLabel: CIRCUIT_LABEL[state] || state,
             })
           }
         })
@@ -306,7 +318,8 @@ const getStatusText = (status?: SyncStatus['status'] | string) => {
 // 获取进度百分比
 const getProgress = () => {
   if (!syncStatus.value || syncStatus.value.total === 0) return 0
-  return Math.round(((syncStatus.value.inserted + syncStatus.value.updated) / syncStatus.value.total) * 100)
+  const done = (syncStatus.value.inserted ?? 0) + (syncStatus.value.updated ?? 0)
+  return Math.round((done / syncStatus.value.total) * 100)
 }
 
 // 格式化最后同步时间

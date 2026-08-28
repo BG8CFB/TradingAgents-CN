@@ -9,7 +9,7 @@
             <span class="hero-icon-wrap">
               <el-icon :size="28"><Coin /></el-icon>
             </span>
-            数据源管理
+            数据中心
           </h1>
           <p class="hero-subtitle">全市场数据资产监控、同步调度与路由降级配置</p>
         </div>
@@ -37,8 +37,8 @@
           <el-icon :size="20"><CircleCheck /></el-icon>
         </div>
         <div class="stat-body">
-          <div class="stat-number">{{ summaryStats.healthySources }}</div>
-          <div class="stat-desc">健康数据源</div>
+          <div class="stat-number">{{ summaryStats.healthyDomains }}</div>
+          <div class="stat-desc">健康数据域</div>
         </div>
       </div>
       <div class="stat-card">
@@ -46,8 +46,8 @@
           <el-icon :size="20"><Grid /></el-icon>
         </div>
         <div class="stat-body">
-          <div class="stat-number">{{ summaryStats.totalDomains }}</div>
-          <div class="stat-desc">数据域</div>
+          <div class="stat-number">{{ summaryStats.warningDomains }}</div>
+          <div class="stat-desc">降级数据域</div>
         </div>
       </div>
       <div class="stat-card">
@@ -109,7 +109,10 @@ import SourceConfig from '@/components/Data/SourceConfig.vue'
 import type { MarketCode } from '@/api/marketData'
 
 interface SummaryStats {
-  healthySources: number
+  overall: 'all_healthy' | 'degraded' | 'partial_outage' | 'unknown'
+  healthyDomains: number
+  warningDomains: number
+  problemDomains: number
   totalDomains: number
   totalRecords: number
   lastSync: string

@@ -68,16 +68,8 @@ export interface BatchStockSyncResponse {
 
 export interface StockSyncStatus {
   symbol: string
-  historical_data: {
-    last_sync: string | null
-    last_date: string | null
-    total_records: number
-  }
-  financial_data: {
-    last_sync: string | null
-    last_report_period: string | null
-    total_records: number
-  }
+  /** 各数据域新鲜度状态（fresh / stale / unknown），来自后端 /refresh/{symbol}/status */
+  domains: Record<string, string>
 }
 
 /**
@@ -235,27 +227,12 @@ export const stockSyncApi = {
    * 获取股票同步状态（兼容接口）
    */
   async getStatus(symbol: string): Promise<ApiResponse<StockSyncStatus>> {
-    try {
-      await ApiClient.get(`/api/cn/data/refresh/${symbol}/status`)
-      return {
-        success: true,
-        data: {
-          symbol,
-          historical_data: { last_sync: null, last_date: null, total_records: 0 },
-          financial_data: { last_sync: null, last_report_period: null, total_records: 0 },
-        },
-        message: 'ok',
-      }
-    } catch {
-      return {
-        success: false,
-        data: {
-          symbol,
-          historical_data: { last_sync: null, last_date: null, total_records: 0 },
-          financial_data: { last_sync: null, last_report_period: null, total_records: 0 },
-        },
-        message: '获取状态失败',
-      }
+    // 真实透传后端各域新鲜度，不再硬编码全 0 假数据
+    const res = await ApiClient.get<StockSyncStatus>(`/api/cn/data/refresh/${symbol}/status`)
+    return {
+      success: res.success,
+      data: { symbol, domains: res.data?.domains || {} },
+      message: res.message,
     }
   }
 }

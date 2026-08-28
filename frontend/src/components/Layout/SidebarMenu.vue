@@ -45,10 +45,10 @@
       <template #title>学习中心</template>
     </el-menu-item>
 
-    <!-- 数据源管理 (移出3级菜单，作为顶级菜单) -->
+    <!-- 数据中心 (移出3级菜单，作为顶级菜单) -->
     <el-menu-item index="/data">
       <el-icon><Coin /></el-icon>
-      <template #title>数据源管理</template>
+      <template #title>数据中心</template>
     </el-menu-item>
 
     <!-- 系统设置 -->

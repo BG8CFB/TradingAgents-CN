@@ -134,13 +134,13 @@ const routes: RouteRecordRaw[] = [
     ]
   },
 
-  // ==================== 数据源管理 ====================
+  // ==================== 数据中心 ====================
   {
     path: '/data',
     name: 'DataCenter',
     component: () => import('@/layouts/BasicLayout.vue'),
     meta: {
-      title: '数据源管理',
+      title: '数据中心',
       icon: 'Coin',
       requiresAuth: true,
       transition: 'fade'
@@ -151,7 +151,7 @@ const routes: RouteRecordRaw[] = [
         name: 'DataCenterHome',
         component: () => import('@/views/Data/index.vue'),
         meta: {
-          title: '数据源管理',
+          title: '数据中心',
           requiresAuth: true
         }
       }
