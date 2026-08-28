@@ -474,31 +474,37 @@ class TestRateLimiterFailClosed:
         修复：让 get_redis 返回 None，强制两条路径都走 _memory_counters。
         """
         from app.data.storage.redis import client as redis_client_mod
-        from app.data.processor.rate_limiter import RateLimiter
+        from app.data.processor.rate_limiter import RateLimiter, _bucket_key
         from app.data.storage.redis.counters import _memory_counters
 
         # 统一走内存降级路径，保证写入与读取同源
         monkeypatch.setattr(redis_client_mod, "get_redis", lambda: None)
-        _memory_counters.pop("ratelimit:tushare", None)
+
+        # 显式传 token，使分桶 key 确定为 _bucket_key(source, token) ——
+        # 不传 token 时限流器会经 ds_key_utils 解析（本机 .env/DB 配了
+        # tushare token 时桶 key 是 token 哈希而非源名，测试会因环境漂移）
+        test_token = "unit-test-token"
+        bucket = _bucket_key("tushare", test_token)
+        _memory_counters.pop(bucket, None)
 
         limiter = RateLimiter()
         limiter.configure(source="tushare", rate_per_minute=2, polite_interval_ms=0)
 
         # 两次通过（错开毫秒避免 time.time() 同值）
-        await limiter.acquire("tushare", domain="daily_quotes")
+        await limiter.acquire("tushare", domain="daily_quotes", token=test_token)
         await asyncio.sleep(0.002)
-        await limiter.acquire("tushare", domain="daily_quotes")
+        await limiter.acquire("tushare", domain="daily_quotes", token=test_token)
 
         # 被拒绝 5 次（原子 try_increment 在 limit 已满时直接返回 False，不写入）
         for _ in range(5):
-            allowed, _ = await limiter.acquire("tushare", domain="daily_quotes")
+            allowed, _ = await limiter.acquire("tushare", domain="daily_quotes", token=test_token)
             assert allowed is False
 
         # 内存计数仍应只有 2（修复前会是 7）
         from app.data.storage.redis.counters import SlidingWindowCounter
         counter = SlidingWindowCounter(window_seconds=60)
-        actual = await counter.get_count("ratelimit:tushare")
+        actual = await counter.get_count(bucket)
         assert actual == 2
 
         # 清理避免污染后续测试
-        _memory_counters.pop("ratelimit:tushare", None)
+        _memory_counters.pop(bucket, None)
