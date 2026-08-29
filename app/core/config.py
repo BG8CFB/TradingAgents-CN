@@ -1,8 +1,9 @@
 from pathlib import Path
-from typing import Dict, List
+from typing import Annotated, Dict, List
 from urllib.parse import quote_plus
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+import json
 import logging as _logging
 import os
 import secrets
@@ -71,10 +72,13 @@ class Settings(BaseSettings):
     DEBUG: bool = Field(default=False)
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8000)
-    ALLOWED_ORIGINS: List[str] = Field(
+    # NoDecode：关闭 pydantic-settings 源层对 List[str] 的强 JSON 解析
+    # （否则裸 `*` 等写法在 EnvSettingsSource 阶段就抛 SettingsError），
+    # 原始字符串交由下方 _parse_str_list 宽容解析
+    ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
     )
-    ALLOWED_HOSTS: List[str] = Field(default_factory=lambda: ["*"])
+    ALLOWED_HOSTS: Annotated[List[str], NoDecode] = Field(default_factory=lambda: ["*"])
 
     # 运行时根目录（所有日志/数据/缓存统一收敛到此目录下）
     RUNTIME_BASE_DIR: str = Field(default="runtime")
@@ -516,6 +520,35 @@ class Settings(BaseSettings):
         le=1800,
         description="单次 MCP 依赖 pip install 的超时时间（秒）",
     )
+
+    @field_validator("ALLOWED_ORIGINS", "ALLOWED_HOSTS", mode="before")
+    @classmethod
+    def _parse_str_list(cls, v):
+        """宽容解析来源/主机白名单：JSON 数组、逗号分隔、单值均可。
+
+        背景：pydantic-settings 对 List[str] 字段的环境变量默认按 JSON 解析，
+        compose 的 `${VAR:-*}` 回落默认值会传裸 ``*``，导致启动期抛
+        SettingsError、后端容器无限重启。此验证器兜底为：合法 JSON 数组
+        直接采用；其余按逗号分隔拆分（单值是其特例）。
+
+        输入输出：接受 list/tuple（默认值或代码传参，原样放行）、任意标量
+        （按上述规则转 list[str]）；空串解析为空列表。仅放宽取值格式，
+        不改变已合法值的语义。
+        """
+        if v is None or isinstance(v, (list, tuple)):
+            return v
+        s = str(v).strip()
+        if not s:
+            return []
+        try:
+            parsed = json.loads(s)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+        if isinstance(parsed, str) and parsed.strip():
+            s = parsed.strip()
+        return [part.strip() for part in s.split(",") if part.strip()]
 
     @property
     def is_production(self) -> bool:

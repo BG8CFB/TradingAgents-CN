@@ -106,9 +106,9 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: "480"
       REFRESH_TOKEN_EXPIRE_DAYS: "30"
       BCRYPT_ROUNDS: "12"
-      CORS_ORIGINS: "${ALLOWED_ORIGINS:-*}"
-      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-*}"
-      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-*}"
+      # List[str] 字段必须是 JSON 数组格式（裸 `*` 会让后端启动期解析失败）
+      ALLOWED_ORIGINS: '${ALLOWED_ORIGINS:-["*"]}'
+      ALLOWED_HOSTS: '${ALLOWED_HOSTS:-["*"]}'
       # ── AI 模型 API 密钥（可选，通过 .env 或 Web UI 配置） ──
       DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
       DASHSCOPE_ENABLED: "${DASHSCOPE_ENABLED:-false}"

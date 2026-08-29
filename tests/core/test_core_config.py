@@ -298,3 +298,64 @@ class TestProductionSecurityChecks:
         assert "ALLOWED_HOSTS" in stderr, (
             f"期望 stderr 含 ALLOWED_HOSTS 错误，实际:\n{stderr}"
         )
+
+    def test_docker_production_tolerates_bare_wildcard_env(self):
+        """一键部署事故回归：compose 回落默认值传裸 `*`（非 JSON），后端导入不得崩溃。
+
+        拓扑复刻 docker-compose.hub.nginx.yml：DEBUG 未设（默认 False → 生产）、
+        DOCKER_CONTAINER=true、ALLOWED_ORIGINS/ALLOWED_HOSTS 均为裸 `*`。
+        修复前 pydantic-settings 对 List[str] 按 JSON 解析抛 SettingsError，
+        后端容器在模块导入阶段即崩、无限重启。
+        """
+        rc, stdout, stderr = self._run_config_import({
+            "DEBUG": "false",
+            "DOCKER_CONTAINER": "true",
+            "ALLOWED_ORIGINS": "*",
+            "ALLOWED_HOSTS": "*",
+            "JWT_SECRET": "test-jwt-secret",
+            "CSRF_SECRET": "test-csrf-secret",
+        })
+        assert rc == 0, f"裸 '*' 应被宽容解析，但子进程退出码={rc}\nstderr:\n{stderr}"
+        assert "ALLOWED_HOSTS" in stderr and "*" in stderr, (
+            f"生产+Docker 下通配符应产生警告（而非报错），实际 stderr:\n{stderr}"
+        )
+
+
+class TestListFieldTolerantParsing:
+    """ALLOWED_ORIGINS/ALLOWED_HOSTS 宽容解析：JSON 数组 / 逗号分隔 / 单值均可。"""
+
+    def test_bare_asterisk(self):
+        """裸 `*` 解析为 ['*'] 而非抛 SettingsError（事故直接回归）"""
+        from app.core.config import Settings
+
+        s = Settings(ALLOWED_ORIGINS="*", ALLOWED_HOSTS="*")
+        assert s.ALLOWED_ORIGINS == ["*"]
+        assert s.ALLOWED_HOSTS == ["*"]
+
+    def test_comma_separated(self):
+        """逗号分隔字符串拆分为列表（配置域名时的友好写法）"""
+        from app.core.config import Settings
+
+        s = Settings(ALLOWED_ORIGINS="https://a.com, https://b.com")
+        assert s.ALLOWED_ORIGINS == ["https://a.com", "https://b.com"]
+
+    def test_json_array_unchanged(self):
+        """合法 JSON 数组语义不变，空白项被过滤"""
+        from app.core.config import Settings
+
+        s = Settings(ALLOWED_ORIGINS='["https://a.com", " "]')
+        assert s.ALLOWED_ORIGINS == ["https://a.com"]
+
+    def test_single_value(self):
+        """单值（如单个域名）包裹为单元素列表"""
+        from app.core.config import Settings
+
+        s = Settings(ALLOWED_HOSTS="example.com")
+        assert s.ALLOWED_HOSTS == ["example.com"]
+
+    def test_empty_string(self):
+        """空串解析为空列表而非抛错"""
+        from app.core.config import Settings
+
+        s = Settings(ALLOWED_ORIGINS="")
+        assert s.ALLOWED_ORIGINS == []

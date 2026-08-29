@@ -110,8 +110,8 @@ services:
       REFRESH_TOKEN_EXPIRE_DAYS: "30"
       CSRF_SECRET: ${CSRF_SECRET:?请在 .env 中设置 CSRF_SECRET}
       BCRYPT_ROUNDS: "12"
-      # CORS配置（允许 Nginx 代理）— 注意：字段名必须与 Settings.ALLOWED_ORIGINS 一致
-      ALLOWED_ORIGINS: "*"
+      # CORS配置（允许 Nginx 代理）— 注意：字段名必须与 Settings.ALLOWED_ORIGINS 一致，且必须是 JSON 数组格式
+      ALLOWED_ORIGINS: '["*"]'
       # AI模型API密钥（从.env文件读取，environment部分需要显式声明才能覆盖镜像内的占位符）
       DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY}"
       DASHSCOPE_ENABLED: "${DASHSCOPE_ENABLED:-false}"
@@ -135,7 +135,6 @@ services:
       AKSHARE_ENABLED: "${AKSHARE_ENABLED:-true}"
       BAOSTOCK_ENABLED: "${BAOSTOCK_ENABLED:-true}"
       FINNHUB_API_KEY: "${FINNHUB_API_KEY}"
-      ALPHA_VANTAGE_API_KEY: "${ALPHA_VANTAGE_API_KEY:-}"
       FINNHUB_ENABLED: "${FINNHUB_ENABLED:-false}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
       ANTHROPIC_ENABLED: "${ANTHROPIC_ENABLED:-false}"
