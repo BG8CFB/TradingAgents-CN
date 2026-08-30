@@ -3,6 +3,8 @@
 测试 /health, /healthz, /readyz 端点
 """
 
+import time
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -66,6 +68,13 @@ class TestHealthzEndpoint:
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
+    @pytest.mark.asyncio
+    async def test_healthz_alias_api_path_also_works(self, health_client):
+        """/api/healthz 是 /healthz 的别名路由（前端探测走 /api 前缀，vite 代理只转发 /api）。"""
+        resp = await health_client.get("/api/healthz")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
 
 class TestReadyzEndpoint:
     """测试 GET /readyz 就绪探针"""
@@ -97,3 +106,44 @@ class TestGetVersion:
         except PackageNotFoundError:
             pytest.skip("tradingagents 包未安装，无法验证版本一致性")
         assert get_version() == expected
+
+
+class TestVersionCache:
+    """get_version() TTL 缓存测试（模块级缓存，用例必须恢复现场避免污染其他测试）"""
+
+    def test_cache_hit_returns_cached_value_without_disk_read(self):
+        """TTL 内的调用直接返回缓存值，不再读 pyproject.toml"""
+        from app.routers import health
+
+        original = health._version_cache
+        try:
+            health._version_cache = ("cached-value", time.monotonic())
+            assert health.get_version() == "cached-value"
+        finally:
+            health._version_cache = original
+
+    def test_cache_expiry_rereads_real_version(self):
+        """缓存过期后重新读盘，返回真实版本而非陈旧缓存"""
+        from app.routers import health
+
+        original = health._version_cache
+        try:
+            health._version_cache = ("stale-value", time.monotonic() - health._VERSION_TTL_SECONDS - 1)
+            version = health.get_version()
+            assert version != "stale-value"
+            assert version == health._read_version()
+        finally:
+            health._version_cache = original
+
+    def test_repeated_calls_within_ttl_are_stable(self):
+        """TTL 内两次调用返回一致且缓存被填充"""
+        from app.routers import health
+
+        original = health._version_cache
+        try:
+            health._version_cache = None
+            first = health.get_version()
+            assert health._version_cache is not None
+            assert health.get_version() == first
+        finally:
+            health._version_cache = original

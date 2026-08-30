@@ -37,7 +37,6 @@ export interface AppState {
   // 系统信息
   version: string
   buildTime: string
-  apiVersion: string
 }
 
 export const useAppStore = defineStore('app', {
@@ -78,8 +77,7 @@ export const useAppStore = defineStore('app', {
     })() as AppState['preferences'],
 
     version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0+unknown',
-    buildTime: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString(),
-    apiVersion: ''
+    buildTime: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString()
   }),
 
   getters: {
@@ -99,17 +97,6 @@ export const useAppStore = defineStore('app', {
     // 当前页面标题
     currentPageTitle(): string {
       return this.currentRoute?.meta?.title as string || 'TradingAgents-CN'
-    },
-    
-    // 应用信息
-    appInfo(): Record<string, string> {
-      return {
-        version: this.version,
-        buildTime: this.buildTime,
-        apiVersion: this.apiVersion,
-        theme: this.theme,
-        language: this.language
-      }
     }
   },
 
@@ -224,7 +211,9 @@ export const useAppStore = defineStore('app', {
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 3000) // 3秒超时
 
-        const response = await fetch('/api/health', {
+        // 用纯内存 liveness 探针（/api/healthz），不碰盘、不依赖版本读取，
+        // 避免 informative /api/health 的读盘长尾把探测拖到超时误报断连
+        const response = await fetch('/api/healthz', {
           method: 'GET',
           signal: controller.signal
         })
@@ -244,37 +233,6 @@ export const useAppStore = defineStore('app', {
       }
     },
 
-    // 获取API版本信息
-    async fetchApiVersion() {
-      try {
-        // 使用 AbortController 实现超时
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 3000) // 3秒超时
-
-        const response = await fetch('/api/health', {
-          signal: controller.signal
-        })
-
-        clearTimeout(timeoutId)
-
-        if (response.ok) {
-          const data = await response.json()
-          this.apiVersion = data.version || 'unknown'
-          this.setApiConnected(true)
-        } else {
-          this.setApiConnected(false)
-        }
-      } catch (error) {
-        if ((error as Error).name === 'AbortError') {
-          console.warn('获取API版本超时')
-        } else {
-          console.warn('获取API版本失败:', error)
-        }
-        this.apiVersion = 'unknown'
-        this.setApiConnected(false)
-      }
-    },
-    
     // 重置应用状态
     resetAppState() {
       this.loading = false
