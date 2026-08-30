@@ -10,9 +10,12 @@ import pytest
 
 from app.engine.tools.builtin.calc import (
     CALC_ENFORCEMENT_PROMPT,
+    _BATCH_MAX_TASKS,
+    _BATCH_OPS,
     _eval_expression,
     _q4,
     bollinger,
+    calc_batch,
     calc_expression,
     calc_pnl,
     calc_tool_defs,
@@ -289,6 +292,7 @@ class TestToolDefs:
             "sharpe_ratio",
             "cagr",
             "bollinger",
+            "calc_batch",
         ]
         assert all(t.is_concurrency_safe for t in defs)
 
@@ -314,6 +318,125 @@ class TestToolDefs:
         defs = {t.name: t for t in calc_tool_defs()}
         result = defs["pct_change"].handler(10, 12)  # type: ignore[arg-type]
         assert "20.0000%" in result
+
+
+# ──────────────────────────────────────────────────────────────
+# 批量计算入口
+# ──────────────────────────────────────────────────────────────
+
+
+class TestCalcBatch:
+    def test_mixed_ops_with_ids(self):
+        out = calc_batch(
+            [
+                {"id": "涨幅", "op": "pct_change", "args": {"old": 1250, "new": 1291.5}},
+                {"id": "ma", "op": "moving_average", "args": {"prices": "1290,1301,1315", "window": 3}},
+                {"op": "calc_expression", "args": {"expression": "50 - 15 - 10"}},
+            ]
+        )
+        lines = out.split("\n")
+        assert len(lines) == 3
+        assert lines[0].startswith("[涨幅]") and "3.3200%" in lines[0]
+        assert lines[1].startswith("[ma]") and "1302.0000" in lines[1]
+        # 无 id 任务回退序号
+        assert lines[2].startswith("[3]") and "= 25.0000" in lines[2]
+
+    def test_single_failure_not_blocking(self):
+        out = calc_batch(
+            [
+                {"id": "ok", "op": "calc_expression", "args": {"expression": "1+1"}},
+                {"id": "div0", "op": "calc_expression", "args": {"expression": "1/0"}},
+                {"id": "bad_args", "op": "pct_change", "args": {"wrong": 1}},
+            ]
+        )
+        lines = out.split("\n")
+        assert len(lines) == 3
+        assert "[ok]" in lines[0] and "= 2.0000" in lines[0]
+        # 业务错误（除零）由单函数内部转文本回传
+        assert "[div0]" in lines[1] and "错误" in lines[1]
+        # 参数名错误（TypeError）由 calc_batch 兜底捕获
+        assert "[bad_args]" in lines[2] and "TypeError" in lines[2]
+
+    def test_unknown_op(self):
+        out = calc_batch(
+            [
+                {"op": "nope", "args": {}},
+                {"op": "cagr", "args": {"start_value": 100, "end_value": 200, "years": 2}},
+            ]
+        )
+        lines = out.split("\n")
+        assert "未知操作" in lines[0] and "cagr" in lines[0]
+        assert "41.4214%" in lines[1]
+
+    def test_invalid_tasks_payload(self):
+        assert "错误" in calc_batch([])
+        assert "错误" in calc_batch("not-a-list")
+        assert "错误" in calc_batch({"op": "cagr"})
+        # 超上限整批拒绝
+        tasks = [{"op": "calc_expression", "args": {"expression": "1+1"}}] * (_BATCH_MAX_TASKS + 1)
+        assert "不得超过" in calc_batch(tasks)
+        # 恰好等于上限可执行
+        ok = calc_batch(tasks[:_BATCH_MAX_TASKS])
+        assert ok.count("= 2.0000") == _BATCH_MAX_TASKS
+
+    def test_malformed_task_entries(self):
+        out = calc_batch(["bare-string", {"args": {"expression": "1+1"}}, {"op": "cagr", "args": ["not-dict"]}])
+        lines = out.split("\n")
+        assert "任务必须是对象" in lines[0]
+        assert "未知操作" in lines[1]
+        assert "args 必须为对象" in lines[2]
+
+    def test_empty_id_falls_back_to_index(self):
+        out = calc_batch([{"id": "", "op": "calc_expression", "args": {"expression": "2*3"}}])
+        assert out.startswith("[1]")
+
+    def test_batch_tooldef_schema(self):
+        # calc_batch 手写 schema：嵌套 items 必须完整（func_to_tooldef 只会给裸 array）
+        batch = {t.name: t for t in calc_tool_defs()}["calc_batch"]
+        items = batch.params_schema["properties"]["tasks"]["items"]
+        assert set(items["properties"]) == {"id", "op", "args"}
+        assert items["required"] == ["op"]
+        # enum 覆盖全部单函数工具
+        assert set(items["properties"]["op"]["enum"]) == {
+            f.__name__
+            for f in (
+                calc_expression,
+                pct_change,
+                position_size,
+                risk_reward,
+                calc_pnl,
+                compound,
+                max_drawdown,
+                var_95,
+                moving_average,
+                ema,
+                volatility,
+                sharpe_ratio,
+                cagr,
+                bollinger,
+            )
+        }
+        assert batch.params_schema["required"] == ["tasks"]
+        assert batch.is_concurrency_safe is True
+        assert batch.handler is calc_batch
+
+    def test_prompt_requires_batch_for_multiple(self):
+        # 批量规则必须显式写进强制 prompt（否则模型仍会逐条调用）
+        assert "calc_batch" in CALC_ENFORCEMENT_PROMPT
+        assert "2 个及以上" in CALC_ENFORCEMENT_PROMPT
+
+    def test_batch_docstring_covers_all_ops(self):
+        # _BATCH_OPS 自动跟随 _TOOL_FUNCS，但 docstring 的 op 清单是手写的：
+        # 新增计算函数若漏更新描述，AI 就不知道该 op 可用
+        doc = calc_batch.__doc__ or ""
+        for op_name in _BATCH_OPS:
+            assert op_name in doc, f"calc_batch 描述缺少 op: {op_name}"
+
+    def test_batch_docstring_covers_param_hints(self):
+        # 每个 op 的参数签名必须写进描述（AI 不必回翻 14 个单函数 schema）
+        doc = calc_batch.__doc__ or ""
+        for hint in ("expression", "prices", "window", "returns", "initial", "capital"):
+            assert hint in doc, f"calc_batch 描述缺少参数提示: {hint}"
 
 
 class TestQuantize:

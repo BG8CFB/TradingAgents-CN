@@ -4,6 +4,7 @@
 LLM 心算/金额计算易错，所有数值计算必须走本工具的确定性代码。
 - calc_expression：ast 白名单节点求值（禁 eval），支持 50% 百分比字面量
 - 金融函数：涨跌幅/仓位/盈亏比/盈亏/复利/最大回撤/VaR(95%)
+- calc_batch：批量入口，一次调用分发执行多个计算任务（op 同名单函数）
 - 精度：内部 Decimal，输出按语义 quantize 并附公式回显
 
 注册路径：build_analyst_specs 无条件追加 calc_tool_defs() 进 callable_tools，
@@ -17,6 +18,7 @@ import re
 from decimal import Decimal, ROUND_HALF_UP, getcontext
 from typing import List
 
+from app.llm.core.types import ToolDef
 from app.llm.tools.wrappers import func_to_tooldef
 
 logger = logging.getLogger(__name__)
@@ -160,7 +162,7 @@ def _eval_expression(expression: str) -> Decimal:
 
 
 def calc_expression(expression: str) -> str:
-    """精确计算数学表达式（四则/百分比/幂/开方），避免心算出错。支持 + - * / // % **、50% 百分比字面量，以及函数 abs/min/max/round/sqrt/exp/log/log10/log2。示例："(1291.5 - 1250) / 1250 * 100"、"50% * 80000"、"sqrt(144)"。"""
+    """精确计算单个数学表达式（四则/百分比/幂/开方），避免心算出错。支持 + - * / // % **、50% 百分比字面量，以及函数 abs/min/max/round/sqrt/exp/log/log10/log2。同一轮有 2 个及以上计算时改用 calc_batch 批量提交。示例："(1291.5 - 1250) / 1250 * 100"、"50% * 80000"、"sqrt(144)"。"""
     try:
         result = _eval_expression(expression)
     except (ValueError, SyntaxError, ZeroDivisionError, OverflowError) as e:
@@ -440,15 +442,118 @@ _TOOL_FUNCS = [
     bollinger,
 ]
 
+
+# ──────────────────────────────────────────────────────────────
+# 批量计算入口：一次工具调用完成同轮全部计算任务
+# ──────────────────────────────────────────────────────────────
+
+_BATCH_MAX_TASKS = 50  # 单批上限，防输出 token 爆炸（50 条结果约 5k 字符，8000 截断内）
+
+# op → 单函数实现；args 直接透传调用，复用全部现有校验/精度/错误处理
+_BATCH_OPS = {f.__name__: f for f in _TOOL_FUNCS}
+
+
+def calc_batch(tasks: list) -> str:
+    """批量精确计算：一次调用完成本轮全部计算任务，结果按 [id] 逐行回传。同一轮有 2 个及以上计算时必须用本工具一次性提交，禁止逐条调用单函数。
+    tasks 为任务数组（1-50 项），每项 {"id": "结果引用名（可省略，默认序号）", "op": "操作名", "args": {该操作的参数}}，args 与同名单函数工具的入参完全一致。可用 op 及参数：
+    - calc_expression(expression)：任意四则/百分比/幂/开方表达式，如 {"expression": "(1291.5-1250)/1250*100"}
+    - pct_change(old, new)：涨跌幅；cagr(start_value, end_value, years)：年化复合增长率
+    - position_size(capital, entry, stop, risk_pct)：风险定额仓位（A 股按手取整）；risk_reward(entry, target, stop)：盈亏比
+    - calc_pnl(entry_price, exit_price, qty, fee_rate)：含手续费盈亏；compound(principal, rate, periods, per_year)：复利终值
+    - moving_average(prices, window) / ema(prices, window) / bollinger(prices, window, num_std)：均线与布林带
+    - volatility(prices, periods_per_year) / sharpe_ratio(prices, risk_free_rate, periods_per_year)：年化波动率/夏普
+    - max_drawdown(prices)：最大回撤；var_95(returns, initial)：95% VaR
+    序列参数（prices/returns）均为逗号分隔字符串、时间正序，如 "1290,1301,1315"；var_95 的 returns 为日收益率百分数序列。
+    单任务出错不影响其余任务，错误以该条目回传。
+    示例：[{"id": "涨幅", "op": "pct_change", "args": {"old": 1250, "new": 1291.5}},
+           {"id": "ma", "op": "moving_average", "args": {"prices": "1290,1301,1315", "window": 3}},
+           {"op": "calc_expression", "args": {"expression": "50 - 15 - 10"}}]
+    """
+    if not isinstance(tasks, list):
+        return "错误：tasks 必须为数组"
+    if not tasks:
+        return "错误：tasks 不能为空"
+    if len(tasks) > _BATCH_MAX_TASKS:
+        return f"错误：单批任务数不得超过 {_BATCH_MAX_TASKS}，请拆分提交"
+    lines = []
+    for i, task in enumerate(tasks, 1):
+        label = f"[{task.get('id') or i}]" if isinstance(task, dict) else f"[{i}]"
+        if not isinstance(task, dict):
+            lines.append(f"{label} 错误：任务必须是对象（含 op 与 args）")
+            continue
+        op = task.get("op")
+        if not isinstance(op, str) or op not in _BATCH_OPS:
+            lines.append(f"{label} 错误：未知操作 {op!r}，可用：{', '.join(_BATCH_OPS)}")
+            continue
+        args = task.get("args", {})
+        if not isinstance(args, dict):
+            lines.append(f"{label} 错误：args 必须为对象")
+            continue
+        try:
+            lines.append(f"{label} {_BATCH_OPS[op](**args)}")
+        except Exception as e:  # noqa: BLE001 - 单任务失败不阻断整批，错误回传
+            lines.append(f"{label} 错误：{e.__class__.__name__}: {e}")
+    return "\n".join(lines)
+
+
+def _calc_batch_tooldef() -> ToolDef:
+    """calc_batch 的手写 ToolDef（func_to_tooldef 的类型映射不含嵌套 items，需精确 schema）"""
+    schema = {
+        "type": "object",
+        "properties": {
+            "tasks": {
+                "type": "array",
+                "description": "计算任务列表（1-50 项），把本轮全部计算一次性提交",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "结果引用名，可省略（默认用序号）",
+                        },
+                        "op": {
+                            "type": "string",
+                            "description": "操作名（同名单函数工具名）",
+                            "enum": list(_BATCH_OPS),
+                        },
+                        "args": {
+                            "type": "object",
+                            "description": (
+                                "该操作的参数对象，与同名单函数工具的入参一致，"
+                                '如 {"expression": "..."} 或 {"old": 1250, "new": 1291.5} '
+                                '或 {"prices": "1290,1301", "window": 2}'
+                            ),
+                        },
+                    },
+                    "required": ["op"],
+                },
+            }
+        },
+        "required": ["tasks"],
+    }
+    return ToolDef(
+        name="calc_batch",
+        description=calc_batch.__doc__ or "",
+        params_schema=schema,
+        handler=calc_batch,
+        is_concurrency_safe=True,
+    )
+
+
 # 强制走计算工具的 prompt 硬规则（build_analyst_specs 追加到每个分析师 system_prompt）
 CALC_ENFORCEMENT_PROMPT = """
 【数值计算强制规则（必须遵守）】
 1. 你输出的每一个衍生数值——涨跌幅、均线/均值、占比、评分加总、盈亏比、仓位、成本、回撤、波动率等——必须先调用计算工具取得结果，再写入思考或正文。
-2. 禁止心算：即使最简单的加减乘除（如 50 - 15 - 10）也必须调用 calc_expression。
-3. 反例：直接写出 "50 - 15 - 10 = 25" ❌。正例：调用 calc_expression("50 - 15 - 10") 并引用其输出 ✓。
+2. 禁止心算：即使最简单的加减乘除（如 50 - 15 - 10）也必须调用计算工具取得结果。
+3. 反例：直接写出 "50 - 15 - 10 = 25" ❌。正例：单项计算调用 calc_expression、多项计算合并进 calc_batch，引用工具回显的结果 ✓。
 4. 关键数值保留计算工具回显的公式便于溯源；未走计算工具的数值视为无效结论，会被质疑。
+5. 批量规则：同一轮有 2 个及以上计算任务时，必须合并为一次 calc_batch 调用一次性提交全部任务（数组上限 50），禁止逐条调用单函数；仅单个计算时直接用对应单函数。
 可用工具与用法：
-- calc_expression("50 - 15 - 10") / calc_expression("(1291.5-1250)/1250*100") —— 通用四则/百分比/幂/开方表达式
+- calc_batch(tasks=[...]) —— 批量计算（2 个以上计算必须用），一次提交全部任务：
+  calc_batch(tasks=[{"id":"涨幅","op":"pct_change","args":{"old":1250,"new":1291.5}},
+                    {"op":"calc_expression","args":{"expression":"50 - 15 - 10"}},
+                    {"op":"moving_average","args":{"prices":"1290,1301,1315","window":3}}])
+- calc_expression("50 - 15 - 10") / calc_expression("(1291.5-1250)/1250*100") —— 单个四则/百分比/幂/开方表达式
 - pct_change(old=1250, new=1291.5) —— 涨跌幅百分比
 - 序列型工具（价格/收益率序列用逗号分隔字符串，时间正序，如 "1290,1301,1315"）：
   moving_average(prices, window=20) —— MA5/MA10/MA20 等均线
@@ -465,4 +570,6 @@ CALC_ENFORCEMENT_PROMPT = """
 
 def calc_tool_defs() -> List:
     """全部计算工具的 ToolDef 列表（build_analyst_specs 注入 callable_tools）"""
-    return [func_to_tooldef(f, is_concurrency_safe=True) for f in _TOOL_FUNCS]
+    defs = [func_to_tooldef(f, is_concurrency_safe=True) for f in _TOOL_FUNCS]
+    defs.append(_calc_batch_tooldef())
+    return defs
