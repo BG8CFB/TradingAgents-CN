@@ -323,7 +323,11 @@ class FallbackRouter:
 
             # M1 修复：区分"adapter 不支持该域"与"数据质量差"。
             # 不支持的域不应触发熔断。
-            normalize_result = self._normalizer.normalize_with_status(raw_data, domain, adapter)
+            # normalize/validate 内部是 pandas 逐行处理（iterrows 等 CPU 密集逻辑），
+            # 直接跑在事件循环上会在全量同步期间阻塞所有并发请求 → 卸载到线程池
+            normalize_result = await asyncio.to_thread(
+                self._normalizer.normalize_with_status, raw_data, domain, adapter
+            )
             records = normalize_result.records
             if not records:
                 if normalize_result.status == "error":
@@ -339,7 +343,9 @@ class FallbackRouter:
                 )
                 return "failed", [], None
 
-            valid, errors = self._validator.validate(records, domain, market)
+            valid, errors = await asyncio.to_thread(
+                self._validator.validate, records, domain, market
+            )
 
             # 校验剔除的记录不等于源故障：仍记 success，但记录 warning 供排查
             dropped = len(records) - len(valid)
