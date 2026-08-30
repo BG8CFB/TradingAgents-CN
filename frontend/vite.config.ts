@@ -109,7 +109,11 @@ export default defineConfig({
         assetFileNames: '[ext]/[name]-[hash].[ext]',
         manualChunks: {
           'vue-vendor': ['vue', 'vue-router', 'pinia'],
-          'element-plus': ['element-plus'],
+          // 注意：不配置 element-plus 条目——对象式 manualChunks 会把
+          // 'element-plus' 入口的依赖闭包（全部组件）归入单一 chunk，
+          // 按需引入（子路径/resolver 导入）将完全失效且被首屏同步拉取。
+          // 去掉后 Rollup 自动提取共享部分，真正按使用量拆分
+          'element-icons': ['@element-plus/icons-vue'],
           'markdown': ['marked', 'dompurify'],
           'axios': ['axios'],
         }

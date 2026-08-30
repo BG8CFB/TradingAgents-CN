@@ -364,6 +364,9 @@
 </template>
 
 <script setup lang="ts">
+// 显式组件名：BasicLayout 的 keep-alive include 名单按组件名匹配，
+// script-setup 无显式名时推断名为文件名 index，缓存永不生效
+defineOptions({ name: 'StockScreening' })
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

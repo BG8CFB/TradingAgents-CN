@@ -1,30 +1,41 @@
 <template>
-  <div id="app" class="app-container">
-    <!-- 网络状态指示器 -->
-    <NetworkStatus />
+  <el-config-provider
+    :locale="zhCn"
+    size="default"
+    :z-index="3000"
+    :message="{ max: 3, grouping: true, duration: 3000 }"
+  >
+    <div id="app" class="app-container">
+      <!-- 网络状态指示器 -->
+      <NetworkStatus />
 
-    <!-- 主要内容区域 -->
-    <router-view v-slot="{ Component, route }">
-      <transition
-        :name="(route?.meta?.transition as string) || 'fade'"
-        mode="out-in"
-        appear
-      >
-        <component :is="Component" :key="route?.fullPath || 'default'" />
-      </transition>
-    </router-view>
+      <!-- 主要内容区域 -->
+      <router-view v-slot="{ Component, route }">
+        <transition
+          :name="(route?.meta?.transition as string) || 'fade'"
+          mode="out-in"
+          appear
+        >
+          <component :is="Component" :key="route?.fullPath || 'default'" />
+        </transition>
+      </router-view>
 
-    <!-- 配置向导 -->
-    <ConfigWizard
-      v-model="showConfigWizard"
-      @complete="handleWizardComplete"
-    />
-  </div>
+      <!-- 配置向导 -->
+      <ConfigWizard
+        v-model="showConfigWizard"
+        @complete="handleWizardComplete"
+      />
+    </div>
+  </el-config-provider>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+// 子路径导入避免拉入 element-plus 完整入口（878KB chunk 随路由按需加载，
+// 根组件若从 'element-plus' 入口导入会把大 chunk 拖回首屏同步链）
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { ElConfigProvider } from 'element-plus/es/components/config-provider/index'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import NetworkStatus from '@/components/NetworkStatus.vue'
 import { ApiClient } from '@/api/request'
 import { configApi } from '@/api/config'

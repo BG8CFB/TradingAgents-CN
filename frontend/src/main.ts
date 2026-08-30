@@ -1,13 +1,18 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
-import 'element-plus/dist/index.css'
+// Element Plus 模板组件由 unplugin-vue-components 按需自动导入（含组件样式）；
+// 此处只集中补命令式服务的样式——业务代码显式 import 的 ElMessage/ElMessageBox
+// 与 v-loading 指令不经过 resolver，样式不会自动注入，缺了会裸奔（无样式的消息框/遮罩）
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
+import 'element-plus/es/components/loading/style/css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
+// dayjs 全局中文 locale：ElDatePicker 等日期组件跟随 dayjs 显示中文
+dayjs.locale('zh-cn')
 
 import App from './App.vue'
 import router from './router'
@@ -33,19 +38,8 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 const pinia = createPinia()
 app.use(pinia)
 app.use(router)
-// 设置全局中文 locale（Element Plus）
-dayjs.locale('zh-cn')
-app.use(ElementPlus, {
-  size: 'default',
-  zIndex: 3000,
-  locale: zhCn,
-  // 配置消息提示
-  message: {
-    max: 3, // 最多同时显示3个消息
-    grouping: true, // 启用消息分组，相同内容的消息不会重复显示
-    duration: 3000, // 默认显示时长3秒
-  },
-})
+// Element Plus 组件 locale/size/zIndex/message 全局配置收敛在 App.vue 的
+// <el-config-provider>（按需引入模式下 app.use(ElementPlus) 已移除）
 
 // 注册全局组件
 setupGlobalComponents(app)
@@ -82,82 +76,76 @@ app.config.warnHandler = (msg, _vm, trace) => {
 
 // 初始化认证状态
 const initApp = async () => {
-  try {
-    // 在创建 authStore 之前先清理无效 token，保持 state 工厂纯净（仅读不写）
-    cleanupInvalidAuthStorage()
-    // 注入 router 实例，供 authStore.redirectToLogin 走 SPA 路由
-    setAppRouter(router)
+  // mount 前只做本地同步初始化（零网络 I/O）：
+  // 原实现 mount 前 await「后端连通探测(3s) → 认证检查(5s)」串行链，
+  // 后端慢/不可达时白屏最长 8 秒。网络检查全部移到 mount 后并行执行。
+  cleanupInvalidAuthStorage()
+  setAppRouter(router)
 
-    const authStore = useAuthStore()
-    const appStore = useAppStore()
+  const authStore = useAuthStore()
+  const appStore = useAppStore()
 
-    console.log('🔄 初始化应用状态...')
+  appStore.applyTheme()
+  console.log('🎨 主题已应用:', appStore.theme)
 
-    // 应用主题
-    appStore.applyTheme()
-    console.log('🎨 主题已应用:', appStore.theme)
+  // 设置网络状态监听
+  // main.ts 是 SPA 单例入口，应用生命周期内不卸载，监听器随进程退出回收，无需 removeEventListener
+  const handleOnline = () => {
+    console.log('🌐 网络已连接')
+    appStore.setOnlineStatus(true)
+    appStore.checkApiConnection()
+  }
 
-    // 设置网络状态监听
-    // main.ts 是 SPA 单例入口，应用生命周期内不卸载，监听器随进程退出回收，无需 removeEventListener
-    const handleOnline = () => {
-      console.log('🌐 网络已连接')
-      appStore.setOnlineStatus(true)
-      appStore.checkApiConnection()
+  const handleOffline = () => {
+    console.log('📱 网络已断开')
+    appStore.setOnlineStatus(false)
+    appStore.setApiConnected(false)
+  }
+
+  window.addEventListener('online', handleOnline)
+  window.addEventListener('offline', handleOffline)
+
+  app.mount('#app')
+  console.log('🚀 应用已挂载')
+
+  // mount 后并行执行网络初始化（fire-and-forget，不阻塞首屏渲染）。
+  // 路由守卫只读 isAuthenticated（state 工厂已从本地存储同步恢复），
+  // checkAuthStatus 网络超时不会改动状态，因此并行/失败均不影响已挂载页面
+  const authCheck = authStore.checkAuthStatus()
+  const authTimeout = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('认证检查超时')), 5000)
+  })
+  const apiCheck = appStore.checkApiConnection().catch(() => false)
+
+  await Promise.allSettled([
+    apiCheck,
+    Promise.race([authCheck, authTimeout]).catch((e) => {
+      console.warn('⚠️ 认证状态检查失败:', e)
+    }),
+  ])
+  console.log('✅ 启动期网络初始化完成')
+
+  // 已登录但浏览器 CSRF Cookie 丢失（如刚刷新页面或第三方 Cookie 被禁用）时，
+  // 主动通过 GET /api/auth/csrf-token 补刷；未登录则跳过，登录后会自动下发
+  if (authStore.isAuthenticated) {
+    setupTokenRefreshTimer()
+    try {
+      const { ensureCsrfToken } = await import('./api/csrf')
+      await ensureCsrfToken()
+    } catch (e) {
+      console.warn('⚠️ 启动时补刷 CSRF token 失败（不影响已登录状态）:', e)
     }
-
-    const handleOffline = () => {
-      console.log('📱 网络已断开')
-      appStore.setOnlineStatus(false)
-      appStore.setApiConnected(false)
-    }
-
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-
-    // 检查API连接状态
-    console.log('🔍 检查API连接状态...')
-    const apiConnected = await appStore.checkApiConnection()
-
-    if (apiConnected) {
-      console.log('✅ API连接正常，检查认证状态...')
-      // 检查本地存储的认证信息（设置较短的超时时间）
-      const checkPromise = authStore.checkAuthStatus()
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('认证检查超时')), 5000) // 5秒超时
-      })
-
-      await Promise.race([checkPromise, timeoutPromise])
-      console.log('✅ 认证状态初始化完成')
-
-      // 已登录但浏览器 CSRF Cookie 丢失（如刚刷新页面或第三方 Cookie 被禁用）时，
-      // 主动通过 GET /api/auth/csrf-token 补刷；未登录则跳过，登录后会自动下发
-      if (authStore.isAuthenticated) {
-        setupTokenRefreshTimer()
-        try {
-          const { ensureCsrfToken } = await import('./api/csrf')
-          await ensureCsrfToken()
-        } catch (e) {
-          console.warn('⚠️ 启动时补刷 CSRF token 失败（不影响已登录状态）:', e)
-        }
-      }
-    } else {
-      console.log('⚠️ API连接失败，跳过认证检查')
-    }
-  } catch (error) {
-    console.warn('⚠️ 应用初始化失败，但应用将继续启动:', error)
-    // 如果是网络错误，不影响应用启动
-    if ((error as any).code === 'ECONNABORTED' || (error as any).message?.includes('timeout')) {
-      console.log('📱 离线模式：应用将在没有后端连接的情况下启动')
-    }
-  } finally {
-    // 无论认证状态如何，都挂载应用
-    app.mount('#app')
-    console.log('🚀 应用已挂载')
   }
 }
 
 // 启动应用
-initApp()
+initApp().catch((error) => {
+  console.error('⚠️ 应用初始化异常:', error)
+  // 最后兜底：确保页面至少挂载出来，用户能看到具体错误而非白屏
+  if (!document.querySelector('#app')?.hasChildNodes()) {
+    app.mount('#app')
+  }
+})
 
 // 开发环境下的调试信息
 if (import.meta.env.DEV) {
