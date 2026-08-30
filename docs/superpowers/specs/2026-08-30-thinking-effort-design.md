@@ -1,7 +1,7 @@
 # 设计：模型级思考控制（thinking effort）
 
 - 日期：2026-08-30
-- 状态：设计已经用户确认，待实施
+- 状态：已实施（2026-08-30 首版；2026-08-31 按实测修订，见 §11）
 - 项目状态：开发中（用户口头确认），按标准可维护改动执行
 
 ## 1. 背景与目标
@@ -116,6 +116,10 @@ thinking_effort: Optional[str] = Field(
 
 ## 5. 运行时管道
 
+> 2026-08-31 修订：本节为首版方案，实施时改为「思考参数烙入客户端实例默认」
+>（对齐 temperature 惯例），消除压缩器/子代理/fallback 三处透传缺口。
+> 现行管道见 §11.3。
+
 数据流与 `max_tokens`/`temperature` 每模型参数完全同构：
 
 ```
@@ -164,8 +168,8 @@ llm_configs.thinking_effort / thinking_budget
 | `app/models/config.py` | `LLMConfig`/`LLMConfigRequest` 新增 `thinking_effort`（+校验）；Request 补 `thinking_budget` |
 | `app/llm/protocols/thinking.py` | 新建：方言判定 + canonical→方言映射（纯函数） |
 | `app/llm/core/base.py` | `chat`/`chat_stream` 签名加 `thinking_effort` |
-| `app/llm/core/factory.py` | `create_client` 加 `provider` 参数 |
-| `app/llm/providers.py` | `_CONFIG_FIELDS`、`ResolvedProvider`、`EngineClientBundle`、三处解析路径加字段；`build_client` 传 provider |
+| `app/llm/core/factory.py` | `create_client` 加 `provider` 参数（2026-08-31 再加 `thinking_budget/thinking_effort` 烙入实例） |
+| `app/llm/providers.py` | `_CONFIG_FIELDS`、`ResolvedProvider`、三处解析路径加字段；`build_client` 传 provider 与思考参数 |
 | `app/llm/protocols/anthropic_client.py` | 参数构建处接入 mapper（budget 换算，沿用现有 clamp 与 temperature=1） |
 | `app/llm/protocols/openai_client.py` | 删除「忽略」注释，接入 mapper（reasoning_effort / extra_body） |
 | `app/llm/runner.py` | `run_conversation` 加 `thinking_effort` 参数并透传 |
@@ -175,3 +179,55 @@ llm_configs.thinking_effort / thinking_budget
 | `frontend/src/views/Settings/ConfigManagement.vue` | 模型列表 💭 思考标识（LLMConfigDialog 的宿主视图） |
 | `app/services/config/system_service.py:524` | `_llm_sanitize_in` 的空值清洗字段列表加入 `thinking_effort`（导入路径拒绝 `""`，与 thinking_budget 同策略） |
 | `tests/` | mapper 单测、API 往返集成测试、协议客户端参数组装测试 |
+
+## 11. 2026-08-31 修订（实测驱动，用户拍板）
+
+### 11.1 两条根因（NAS 网关 vLLM + Qwen3.8-27B 三轮实测）
+
+1. **形状错配**：首版 Qwen 方言下发百炼形状（顶层 `enable_thinking` + `thinking_budget`），vLLM 完全静默无视——不报 400、照样思考，比报错更隐蔽；
+2. **方言不识别**：用户 DB 里该模型 `provider=openai`，`detect_dialect("openai", "Qwen3.8-27B")` 模式不匹配 → None → 不注入 → 「设置无效且无报错」。
+
+实测生效形状（详见项目记忆 local-framework-thinking-params）：
+
+| 控制 | 形状 | 效果 |
+|---|---|---|
+| 硬开关 | `chat_template_kwargs.enable_thinking=false` | 思考归零（1.1s 最快） |
+| 硬预算 | 顶层 `thinking_token_budget: N` | 剂量响应完美（10→18 / 30→88 / 200→198 字），唯一确定性控制 |
+| 软档位 | `chat_template_kwargs.reasoning_effort` | 仅 `low/medium/xhigh`（high 必 400，出自模型自带 Jinja2 模板）；梯度 xhigh ≫ low ≈ medium |
+
+### 11.2 方言收敛（用户决策：分厂商）
+
+删除 Kimi/GLM/Qwen/Gemini 方言，收敛为六类；框架方言以 provider 名判定、不做模型门控、不参与模型名兜底：
+
+| canonical | OpenAI 系 | DeepSeek | vLLM | llama.cpp | Ollama /v1 | Anthropic |
+|---|---|---|---|---|---|---|
+| off | gpt-5：`reasoning_effort=none`；o 系不支持→不注入 | 不支持→不注入 | ctk `enable_thinking=false` | ctk `enable_thinking=false` | 不支持→不注入 | 不发参数 |
+| minimal | `minimal` | →`low` | ctk `low` | ctk `low` | `low` | budget=1024 |
+| low | `low` | `low` | ctk `low` | ctk `low` | `low` | budget≈4k |
+| medium | `medium` | →`high` | ctk `medium` | ctk `medium` | `medium` | budget≈16k |
+| high | `high` | `high` | ctk `high`（Qwen3.8 模板→`xhigh`） | ctk `high` | `high` | budget≈32k |
+| max | `xhigh` | `max` | ctk `high`（Qwen3.8→`xhigh`） | ctk `high` | `high` | budget≈64k |
+| 显式 budget | 忽略 | 忽略 | 顶层 `thinking_token_budget`（硬上限） | 忽略（服务端 `--reasoning-budget`） | 忽略 | 覆盖换算值 |
+
+（ctk = `chat_template_kwargs`；Qwen3.8 系模型名把 high/max 归一到 xhigh，模板只收三档。）
+
+前端 ProviderDialog 预设同步收敛：OpenAI / Anthropic / DeepSeek / vLLM（本地）/ Ollama（本地）/ llama.cpp（本地）/ 自定义 OpenAI 兼容 / 自定义 Anthropic 协议。
+
+### 11.3 注入架构改为「烙入客户端实例」（对齐 temperature 惯例）
+
+首版方案（§5：bundle 字段 + 调用链透传）存在三个缺口：压缩器 `_summarize`、
+子代理 `run_conversation`、fallback 备模型均不透传思考参数。修订为与
+temperature 相同的实例默认值机制，三个缺口一次全消：
+
+```
+llm_configs.thinking_effort / thinking_budget
+  → ResolvedProvider（不变）
+  → build_client → create_client(..., thinking_budget=, thinking_effort=)
+  → 客户端实例默认值（OpenAILLMClient / AnthropicLLMClient 构造器烙入）
+  → chat/chat_stream 内：调用处显式传参优先，否则回落实例默认
+```
+
+配套调整：`EngineClientBundle` 删除 `thinking_*` 顶层字段；
+`invoker.py`/`agents.py` 调用点不再透传（getattr 兜底转发到 primary 客户端
+的同名属性，兼容残留读取）；`runner.run_conversation` 签名保留（显式传参
+仍可临时覆盖，不传即实例默认）。

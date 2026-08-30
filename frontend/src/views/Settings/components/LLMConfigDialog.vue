@@ -382,25 +382,35 @@ const contextWindowPlaceholder = computed(() => {
     : String(DEFAULT_CONTEXT_WINDOW)
 })
 
-// 思考强度档位的厂家映射提示（口径与后端 thinking.py 一致；仅作展示，实际注入由后端判定）
+// 思考强度档位的厂家映射提示（口径与后端 thinking.py 一致；仅作展示，实际注入由后端判定）。
+// 框架方言（vllm/llamacpp/ollama）按 provider 名判；云端方言按模型名判。
 const thinkingHint = computed(() => {
   const effort = formData.value.thinking_effort
   if (!effort) return '留空不注入思考参数，保持模型默认行为'
+  const provider = (formData.value.provider || '').toLowerCase()
   const name = (formData.value.model_name || '').split('/').pop()?.trim() || ''
+  if (provider === 'vllm') {
+    return 'vLLM：模板档位 + 可关思考（预算走 thinking_token_budget 硬上限）'
+  }
+  if (provider === 'llamacpp') {
+    return 'llama.cpp：模板档位 + 可关思考（预算须服务端 --reasoning-budget 配置）'
+  }
+  if (provider === 'ollama') {
+    return effort === 'off'
+      ? 'Ollama /v1 不支持关闭思考，将不注入参数'
+      : 'Ollama /v1：映射 reasoning_effort（低/中/高三档）'
+  }
   if (!name) return '选择模型后按厂家方言自动映射'
   if (/^(o[134](-mini|-preview)?\b|gpt-5)/i.test(name)) {
     return effort === 'off' && !/^gpt-5/i.test(name)
       ? 'o 系不支持关闭，将不注入参数'
       : '映射 OpenAI reasoning_effort'
   }
-  if (/deepseek-(v4|v3\.[12]|r1|reasoner)/i.test(name)) return '映射 DeepSeek reasoning_effort（medium→high）'
-  if (/kimi/i.test(name)) return '映射 Kimi reasoning_effort（不可关闭）'
-  if (/^glm-(4\.[5-9]\d*|5)/i.test(name)) {
-    if (/^glm-5\.3/i.test(name) && effort === 'off') return 'GLM-5.3 不可关闭，将不注入参数'
-    return /^glm-5\.[2-9]/i.test(name) ? '映射智谱 thinking.type + effort' : '映射智谱 thinking.type 开关'
+  if (/deepseek-(v4|v3\.[12]|r1|reasoner)/i.test(name)) {
+    return effort === 'off'
+      ? 'DeepSeek 思考模型不可关闭，将不注入参数'
+      : '映射 DeepSeek reasoning_effort（medium→high）'
   }
-  if (/^(qwen|qwq)/i.test(name)) return '映射通义 enable_thinking + thinking_budget'
-  if (/^gemini-(2\.5|3)/i.test(name)) return '映射 Gemini reasoning_effort（极限档回落高）'
   if (/^(claude|anthropic)/i.test(name)) return '按档位换算思考预算 budget_tokens'
   return '未识别思考模型，将不注入参数'
 })

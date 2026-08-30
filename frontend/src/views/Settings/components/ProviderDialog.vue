@@ -193,34 +193,11 @@ const openRegisterUrl = () => {
   }
 }
 
+// 预设厂家清单与后端思考方言（app/llm/protocols/thinking.py）对齐：
+// openai/deepseek/anthropic 三个云端 + vllm/ollama/llamacpp 三个本地推理框架
+// + 自定义（OpenAI 兼容 / Anthropic 协议）。千问/智谱/Kimi/Gemini 等方言
+// 已按 2026-08-31 决策移除，接入时须同步 thinking.py。
 const presetProviders = [
-  {
-    name: 'dashscope',
-    display_name: '阿里云百炼',
-    default_base_url: 'https://dashscope.aliyuncs.com/api/v1',
-    supported_features: ['chat', 'completion', 'embedding', 'function_calling', 'streaming'],
-    provider_type: 'llm',
-    register_url: 'https://account.aliyun.com/register/qr_register.htm',
-    register_guide: '如果您还没有阿里云账号，请先注册并开通百炼服务：'
-  },
-  {
-    name: '302ai',
-    display_name: '302.AI',
-    default_base_url: 'https://api.302.ai/v1',
-    supported_features: ['chat', 'completion', 'embedding', 'image', 'vision', 'function_calling', 'streaming'],
-    provider_type: 'llm',
-    register_url: 'https://share.302.ai/DUjftK',
-    register_guide: '如果您还没有 302.AI 账号，请先注册并获取 API Key：'
-  },
-  {
-    name: 'deepseek',
-    display_name: 'DeepSeek',
-    default_base_url: 'https://api.deepseek.com',
-    supported_features: ['chat', 'completion', 'function_calling', 'streaming'],
-    provider_type: 'llm',
-    register_url: 'https://platform.deepseek.com/sign_up',
-    register_guide: '如果您还没有 DeepSeek 账号，请先注册并获取 API Key：'
-  },
   {
     name: 'openai',
     display_name: 'OpenAI',
@@ -241,31 +218,49 @@ const presetProviders = [
     register_guide: '如果您还没有 Anthropic 账号，请先注册并获取 API Key：'
   },
   {
-    name: 'google',
-    display_name: 'Google AI',
-    default_base_url: 'https://generativelanguage.googleapis.com/v1',
-    supported_features: ['chat', 'completion', 'embedding', 'vision', 'function_calling', 'streaming'],
+    name: 'deepseek',
+    display_name: 'DeepSeek',
+    default_base_url: 'https://api.deepseek.com',
+    supported_features: ['chat', 'completion', 'function_calling', 'streaming'],
     provider_type: 'llm',
-    register_url: 'https://makersuite.google.com/app/apikey',
-    register_guide: '如果您还没有 Google AI 账号，请先登录并获取 API Key：'
+    register_url: 'https://platform.deepseek.com/sign_up',
+    register_guide: '如果您还没有 DeepSeek 账号，请先注册并获取 API Key：'
   },
   {
-    name: 'zhipu',
-    display_name: '智谱AI',
-    default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
+    name: 'vllm',
+    display_name: 'vLLM（本地）',
+    default_base_url: 'http://localhost:8000/v1',
+    supported_features: ['chat', 'completion', 'function_calling', 'streaming'],
+    provider_type: 'llm'
+  },
+  {
+    name: 'ollama',
+    display_name: 'Ollama（本地）',
+    default_base_url: 'http://localhost:11434/v1',
     supported_features: ['chat', 'completion', 'embedding', 'function_calling', 'streaming'],
-    provider_type: 'llm',
-    register_url: 'https://open.bigmodel.cn/login',
-    register_guide: '如果您还没有智谱AI账号，请先注册并获取 API Key：'
+    provider_type: 'llm'
   },
   {
-    name: 'baidu',
-    display_name: '百度智能云',
-    default_base_url: 'https://aip.baidubce.com',
-    supported_features: ['chat', 'completion', 'embedding', 'streaming'],
-    provider_type: 'llm',
-    register_url: 'https://login.bce.baidu.com/new-reg',
-    register_guide: '如果您还没有百度智能云账号，请先注册并开通文心一言服务：'
+    name: 'llamacpp',
+    display_name: 'llama.cpp（本地）',
+    default_base_url: 'http://localhost:8080/v1',
+    supported_features: ['chat', 'completion', 'embedding', 'function_calling', 'streaming'],
+    provider_type: 'llm'
+  },
+  {
+    name: 'custom-openai',
+    display_name: '自定义（OpenAI 兼容）',
+    default_base_url: '',
+    supported_features: ['chat', 'completion', 'function_calling', 'streaming'],
+    provider_type: 'llm'
+  },
+  {
+    name: 'custom-anthropic',
+    display_name: '自定义（Anthropic 协议）',
+    default_base_url: '',
+    protocol: 'anthropic',
+    supported_features: ['chat', 'completion', 'function_calling', 'streaming'],
+    provider_type: 'llm'
   }
 ]
 
@@ -333,6 +328,20 @@ const handlePresetChange = (presetName: string) => {
 
   const preset = presetProviders.find(p => p.name === presetName)
   if (preset) {
+    // 自定义预设只带协议与能力集，厂家ID/名称/端点由用户填写
+    // （custom-* 不是真实厂家名，写入 DB 会污染方言判定与显示）
+    if (preset.name.startsWith('custom-')) {
+      formData.value = {
+        name: '',
+        display_name: '',
+        default_base_url: '',
+        protocol: preset.protocol || '',
+        supported_features: preset.supported_features,
+        provider_type: preset.provider_type,
+        is_active: true
+      }
+      return
+    }
     formData.value = {
       ...preset,
       is_active: true

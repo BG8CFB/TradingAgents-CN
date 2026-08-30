@@ -232,8 +232,8 @@ async def run_analyst(
             max_turns=spec.max_tool_calls,
             max_tokens=bundle.max_tokens if bundle else None,
             temperature=bundle.temperature if bundle else None,
-            thinking_budget=bundle.thinking_budget if bundle else None,
-            thinking_effort=bundle.thinking_effort if bundle else None,
+            # 思考参数已随客户端实例化烙入（providers.build_client），此处不透传；
+            # fallback 备模型亦用自己的思考配置（切换即跟随，不串味）
             fallback_client=bundle.fallback if bundle else None,
             retry_times=bundle.retry_times if bundle else None,
             compact_config=compact_config,

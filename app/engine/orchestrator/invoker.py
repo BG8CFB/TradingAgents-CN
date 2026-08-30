@@ -79,8 +79,8 @@ async def run_agent_turn(
         max_turns=1,
         max_tokens=eff_max_tokens,
         temperature=eff_temperature,
-        thinking_budget=bundle.thinking_budget if bundle is not None else None,
-        thinking_effort=bundle.thinking_effort if bundle is not None else None,
+        # 思考参数已随客户端实例化烙入（providers.build_client），此处不透传；
+        # fallback 备模型亦用自己的思考配置（切换即跟随，不串味）
         fallback_client=fallback,
         retry_times=retries,
         compact_config=compact_config,

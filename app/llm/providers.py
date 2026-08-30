@@ -66,8 +66,6 @@ class EngineClientBundle:
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
     context_window: Optional[int] = None
-    thinking_budget: Optional[int] = None  # >0 开启推理思考（透传 run_conversation）
-    thinking_effort: Optional[str] = None  # canonical 思考档位（透传 run_conversation）
     upper_limit: Optional[int] = None  # 截断升级封顶（limits.py 解析）
     max_concurrency: Optional[int] = None  # 模型级并发上限（None=不限）
     _meta: Dict[str, Any] = field(default_factory=dict)
@@ -180,7 +178,11 @@ def resolve_from_env(protocol_hint: str = "anthropic") -> ResolvedProvider:
 
 
 def build_client(resolved: ResolvedProvider) -> BaseLLMClient:
-    """ResolvedProvider → 协议客户端（每模型参数随实例化烙入）"""
+    """ResolvedProvider → 协议客户端（每模型参数随实例化烙入，含思考参数）。
+
+    思考参数烙入实例默认后：压缩器/子代理等内部调用自动继承，
+    fallback 切换时备模型用自己的思考配置（互不串味）。
+    """
     return create_client(
         resolved.protocol,
         model=resolved.model,
@@ -189,6 +191,8 @@ def build_client(resolved: ResolvedProvider) -> BaseLLMClient:
         max_tokens=resolved.max_tokens,
         timeout=resolved.timeout,
         temperature=resolved.temperature,
+        thinking_budget=resolved.thinking_budget,
+        thinking_effort=resolved.thinking_effort,
         provider=resolved.provider,
     )
 
@@ -365,8 +369,6 @@ async def _resolve_role_bundle(
         max_tokens=bundle_max_tokens,
         temperature=resolved.temperature,
         context_window=bundle_context_window,
-        thinking_budget=resolved.thinking_budget,
-        thinking_effort=resolved.thinking_effort,
         upper_limit=limits_.upper_limit,
         max_concurrency=resolved.max_concurrency,
         _meta={"limit_key": f"{provider}|{resolved.model}".strip('|').lower(), "model": resolved.model},
@@ -447,8 +449,6 @@ async def resolve_task_override_bundle(
         max_tokens=resolved.max_tokens,
         temperature=resolved.temperature,
         context_window=resolved.context_window,
-        thinking_budget=resolved.thinking_budget,
-        thinking_effort=resolved.thinking_effort,
         upper_limit=limits_.upper_limit,
         max_concurrency=resolved.max_concurrency,
         _meta={"limit_key": f"{prov}|{model}".strip('|').lower(), "model": model},

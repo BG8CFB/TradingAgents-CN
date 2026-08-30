@@ -40,14 +40,13 @@ export const THINKING_EFFORT_OPTIONS: ThinkingEffortOption[] = [
 
 // 模型名 → 推荐档位（新增模型时智能预填；仅新增时生效，编辑不覆盖已有值）。
 // 与后端 thinking.py 的方言能力门控同口径：非思考模型不预填。
+// 千问/智谱/Kimi/Gemini 已随方言移除（2026-08-31），gpt-oss 为本地框架常载模型。
 const THINKING_MODEL_PATTERNS: { pattern: RegExp; effort: string }[] = [
   { pattern: /^(o1|o3|o4)(-mini|-preview)?$/i, effort: 'high' },
   { pattern: /^gpt-5/i, effort: 'medium' },
+  { pattern: /^gpt-oss/i, effort: 'high' },
   { pattern: /deepseek-(v4|v3\.1[.\d]*|r1|reasoner)/i, effort: 'high' },
-  { pattern: /kimi/i, effort: 'high' },
-  { pattern: /^glm-(4\.[5-9]\d*|5)/i, effort: 'high' },
-  { pattern: /^(qwen|qwq).*?(thinking|plus|max|turbo)/i, effort: 'medium' },
-  { pattern: /^gemini-(2\.5|3)/i, effort: 'medium' },
+  { pattern: /^qwen/i, effort: 'medium' },
   { pattern: /^(claude|anthropic)/i, effort: 'medium' },
 ]
 

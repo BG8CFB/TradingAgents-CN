@@ -68,6 +68,8 @@ class OpenAILLMClient(BaseLLMClient):
         timeout: float = 300.0,
         max_tokens: int = DEFAULT_MAX_TOKENS,  # 兜底默认（单一源头 llm_defaults）
         temperature: Optional[float] = None,
+        thinking_budget: Optional[int] = None,
+        thinking_effort: Optional[str] = None,
         provider: Optional[str] = None,
     ):
         from openai import AsyncOpenAI
@@ -76,6 +78,11 @@ class OpenAILLMClient(BaseLLMClient):
         self.max_tokens = max_tokens
         # 实例级默认温度（数据库每模型配置烙入；调用处显式传参可覆盖）
         self.temperature = temperature
+        # 实例级默认思考参数（数据库每模型配置烙入；调用处显式传参可覆盖）。
+        # 烙入实例后压缩器/子代理/fallback 等内部调用自动继承，无需透传。
+        # 预算仅 vLLM 方言消费（顶层 thinking_token_budget 硬上限）
+        self.thinking_budget = thinking_budget
+        self.thinking_effort = thinking_effort
         # 厂家标识（数据库 provider 名），思考档位方言判定（thinking.py）
         self.provider = provider or ""
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
@@ -195,7 +202,7 @@ class OpenAILLMClient(BaseLLMClient):
         tools: Optional[List[ToolDef]] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-        thinking_budget: Optional[int] = None,  # OpenAI 兼容无原生预算参数；档位经 thinking_effort 方言映射
+        thinking_budget: Optional[int] = None,
         thinking_effort: Optional[str] = None,
         **kwargs,
     ) -> ChatResponse:
@@ -209,9 +216,15 @@ class OpenAILLMClient(BaseLLMClient):
         eff_temp = temperature if temperature is not None else self.temperature
         if eff_temp is not None:
             params["temperature"] = eff_temp
-        # 须在 params.update(kwargs) 之前（extra_body 合并不覆盖调用方值）
+        # 须在 params.update(kwargs) 之前（extra_body 合并不覆盖调用方值）；
+        # 调用处未显式传思考参数时回落实例默认（烙入的每模型配置）
         merge_openai_thinking_params(
-            params, kwargs, provider=self.provider, model=self.model, effort=thinking_effort
+            params,
+            kwargs,
+            provider=self.provider,
+            model=self.model,
+            effort=thinking_effort if thinking_effort is not None else self.thinking_effort,
+            budget=thinking_budget if thinking_budget is not None else self.thinking_budget,
         )
         params.update(kwargs)
         try:
@@ -228,7 +241,7 @@ class OpenAILLMClient(BaseLLMClient):
         tools: Optional[List[ToolDef]] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-        thinking_budget: Optional[int] = None,  # OpenAI 兼容无原生预算参数；档位经 thinking_effort 方言映射
+        thinking_budget: Optional[int] = None,
         thinking_effort: Optional[str] = None,
         **kwargs,
     ) -> AsyncIterator[StreamEvent]:
@@ -244,9 +257,15 @@ class OpenAILLMClient(BaseLLMClient):
         eff_temp = temperature if temperature is not None else self.temperature
         if eff_temp is not None:
             params["temperature"] = eff_temp
-        # 须在 params.update(kwargs) 之前（extra_body 合并不覆盖调用方值）
+        # 须在 params.update(kwargs) 之前（extra_body 合并不覆盖调用方值）；
+        # 调用处未显式传思考参数时回落实例默认（烙入的每模型配置）
         merge_openai_thinking_params(
-            params, kwargs, provider=self.provider, model=self.model, effort=thinking_effort
+            params,
+            kwargs,
+            provider=self.provider,
+            model=self.model,
+            effort=thinking_effort if thinking_effort is not None else self.thinking_effort,
+            budget=thinking_budget if thinking_budget is not None else self.thinking_budget,
         )
         params.update(kwargs)
 
