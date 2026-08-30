@@ -200,6 +200,7 @@ async def _execute_news_refresh(symbol: Optional[str]):
             from app.worker.scheduler_setup import get_scheduler_engine
             engine = get_scheduler_engine()
             if engine:
-                engine.trigger_job("cn", "news")
+                # 修复既存缺陷：此处原为不带 await 的 trigger_job 调用（协程从未执行）
+                engine.run_job_now("CN", "news")
     except Exception as e:
         logger.error(f"❌ 后台新闻刷新失败: {e}")

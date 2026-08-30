@@ -25,6 +25,8 @@ export interface RequestConfig extends AxiosRequestConfig {
   loadingText?: string
   retryCount?: number  // 重试次数
   retryDelay?: number  // 重试延迟（毫秒）
+  /** 非幂等请求（POST 等）默认不自动重试；确需重试的调用方显式传 true */
+  retryNonIdempotent?: boolean
   /** 显式跳过 CSRF Token 注入（用于登录/注册/获取 CSRF token 本身等"无 token 也能调"的端点） */
   skipCsrf?: boolean
   /** 内部标志：已通过 ensureCsrfToken 补刷过 CSRF Token，防止 403 无限循环 */
@@ -462,6 +464,14 @@ const shouldRetry = async (config: RequestConfig | undefined, error: AxiosError)
   // 如果已经重试过指定次数，不再重试
   if (currentRetry >= retryCount) {
     console.log(`🔄 已达到最大重试次数 (${retryCount})，停止重试`)
+    return false
+  }
+
+  // 非幂等方法（POST/PUT/DELETE/PATCH）默认不自动重试：
+  // 网络错误/超时下请求可能已到达后端并被执行，盲目重试会重复触发
+  // 同步任务、重复提交表单。确需重试的调用方显式传 retryNonIdempotent: true。
+  const method = (config.method || 'get').toLowerCase()
+  if (!['get', 'head', 'options'].includes(method) && config.retryNonIdempotent !== true) {
     return false
   }
 

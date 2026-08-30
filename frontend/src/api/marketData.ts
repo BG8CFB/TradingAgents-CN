@@ -128,6 +128,32 @@ export interface PaginatedResult<T> {
   page_size: number
 }
 
+/** 调度监控的运行中任务快照（内存态，进程重启后为空） */
+export interface RunningSyncTask {
+  task_id: string
+  market?: string
+  domain?: string
+  started_at?: string
+  elapsed_ms?: number
+  is_timeout?: boolean
+}
+
+/** POST /sync/{domain} 响应：后台执行立即返回的触发标识 */
+export interface SyncTriggerResult {
+  market: string
+  domain: string
+  task_id: string
+  job_id?: string
+  mode: string
+  status: 'triggered' | 'already_running' | 'failed'
+  triggered: boolean
+}
+
+/** GET /sync/status 响应：分页检查点 + 运行中任务快照 */
+export interface SyncStatusResult extends PaginatedResult<SyncCheckpoint> {
+  running: RunningSyncTask[]
+}
+
 export interface CapabilityMatrix {
   [domain: string]: {
     [source: string]: string
@@ -193,11 +219,11 @@ export function updateSourcePriority(market: MarketCode, domain: string, priorit
 // ── Sync ──
 
 export function triggerSync(market: MarketCode, domain: string, mode = 'incremental') {
-  return ApiClient.post(`${base(market)}/sync/${domain}`, { domain, mode })
+  return ApiClient.post<SyncTriggerResult>(`${base(market)}/sync/${domain}`, { domain, mode })
 }
 
 export function getSyncStatus(market: MarketCode, params: { page?: number; page_size?: number; domain?: string; trigger?: string }) {
-  return ApiClient.get<PaginatedResult<SyncCheckpoint>>(`${base(market)}/sync/status`, params)
+  return ApiClient.get<SyncStatusResult>(`${base(market)}/sync/status`, params)
 }
 
 export function getSyncEvents(market: MarketCode, params: { page?: number; page_size?: number; domain?: string; event_type?: string }) {

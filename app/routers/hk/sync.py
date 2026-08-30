@@ -104,21 +104,44 @@ async def trigger_sync_by_domain(
     request: SyncTriggerRequest,
     user: dict = Depends(require_admin),
 ):
-    """手动触发指定域的同步（需管理员权限）"""
+    """手动触发指定域的同步（需管理员权限，后台执行立即返回）"""
     if domain not in _VALID_SYNC_DOMAINS:
         return fail(message=f"不支持的域: {domain}", code=400)
+    if request.mode not in ("incremental", "full"):
+        return fail(message=f"不支持的同步模式: {request.mode}", code=400)
 
     try:
         from app.worker.scheduler_setup import get_scheduler_engine
         engine = get_scheduler_engine()
         if engine:
-            job_id = await engine.trigger_job("HK", domain)
-            return ok(data={"domain": domain, "job_id": job_id, "triggered": bool(job_id)})
+            # 后台执行立即返回：分钟~小时级的同步不能占用请求生命周期（axios 60s 必超时）
+            result = engine.run_job_now(
+                _MARKET, domain, mode=request.mode, source=request.source
+            )
+            return ok(data={
+                "market": _MARKET,
+                "domain": domain,
+                "task_id": result["task_id"],
+                "job_id": result["job_id"],
+                "mode": request.mode,
+                "status": result["status"],
+                "triggered": result["status"] != "failed",
+            })
 
         di = DataInterface.get_instance()
-        task_id = await di.trigger_sync(_MARKET, domain)
-        return ok(data={"domain": domain, "task_id": task_id, "triggered": True})
+        task_id = await di.trigger_sync(
+            _MARKET, domain, mode=request.mode, source=request.source
+        )
+        return ok(data={
+            "market": _MARKET,
+            "domain": domain,
+            "task_id": task_id,
+            "mode": request.mode,
+            "status": "triggered",
+            "triggered": True,
+        })
     except Exception as e:
+        logger.error(f"触发同步失败 {domain}: {e}", exc_info=True)
         return fail(message=f"同步失败: {e}", code=500)
 
 
@@ -130,9 +153,11 @@ async def get_hk_sync_status(
     trigger: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
+    """获取同步任务状态（含调度监控的运行中任务快照）"""
     try:
         di = DataInterface.get_instance()
         status = await di.get_sync_status(_MARKET, domain, trigger=trigger)
+        running = await di.get_running_sync_tasks(_MARKET)
 
         items = status if isinstance(status, list) else [status] if status else []
         total = len(items)
@@ -141,6 +166,7 @@ async def get_hk_sync_status(
 
         return ok(data={
             "items": paginated,
+            "running": running,
             "total": total,
             "page": page,
             "page_size": page_size,

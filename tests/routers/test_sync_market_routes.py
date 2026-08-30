@@ -7,6 +7,8 @@
 - 预置真实管理员用户文档（含真实密码哈希）+ 真实 JWT，走完整 get_current_user/require_admin 流程
 """
 
+import asyncio
+
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
@@ -142,6 +144,19 @@ async def us_client(inject_sim_db):
         DataInterface.reset_instance()
 
 
+class _StubSyncJob:
+    """注入 SchedulerEngine 的极轻 Job：后台执行立即成功，验证 run_job_now 通路。"""
+
+    def __init__(self):
+        self.sync_mode = "incremental"
+        self.preferred_source = None
+        self.dependencies = []
+        self.force_sync = False
+
+    async def execute(self):
+        return {"status": "success"}
+
+
 # ---------------------------------------------------------------------------
 # 港股路由测试
 # ---------------------------------------------------------------------------
@@ -187,6 +202,8 @@ class TestHKSyncStatus:
         assert body["success"] is True
         assert "items" in body["data"]
         assert "total" in body["data"]
+        # 调度监控运行态快照：始终是数组（monitor 未运行为空数组）
+        assert isinstance(body["data"].get("running"), list)
 
     @pytest.mark.asyncio
     async def test_sync_status_with_domain_filter(self, hk_client, inject_sim_db):
@@ -197,6 +214,80 @@ class TestHKSyncStatus:
 
         resp = await hk_client.get("/api/hk/data/sync/status?domain=daily_quotes")
         assert resp.status_code == 200
+
+
+class TestHKSyncTrigger:
+    """港股同步触发路由：后台执行立即返回 + 参数校验。"""
+
+    @pytest.mark.asyncio
+    async def test_trigger_via_scheduler_engine_returns_immediately(self, hk_client, inject_sim_db):
+        """engine 分支：POST 立即返回，task_id 严格位于 data 内。"""
+        from app.data.scheduler.engine import SchedulerEngine
+
+        original_instance = SchedulerEngine._instance
+        engine = SchedulerEngine() if original_instance is None else original_instance
+        engine._registry.register("daily_quotes", "HK", _StubSyncJob)
+        engine._job_configs[("HK", "daily_quotes")] = {}
+        SchedulerEngine._instance = engine
+        try:
+            resp = await hk_client.post(
+                "/api/hk/data/sync/daily_quotes",
+                json={"domain": "daily_quotes", "mode": "full", "source": "akshare"},
+            )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["success"] is True
+            data = body["data"]
+            assert data["task_id"] == "HK:daily_quotes"
+            assert data["job_id"] == "hk_daily_quotes"
+            assert data["mode"] == "full"
+            assert data["status"] in ("triggered", "already_running")
+            assert data["triggered"] is True
+            # 等待后台任务收尾，避免悬挂协程
+            await asyncio.sleep(0.2)
+        finally:
+            SchedulerEngine._instance = original_instance
+
+    @pytest.mark.asyncio
+    async def test_trigger_invalid_mode_rejected(self, hk_client, inject_sim_db):
+        resp = await hk_client.post(
+            "/api/hk/data/sync/daily_quotes",
+            json={"domain": "daily_quotes", "mode": "delta"},
+        )
+        body = resp.json()
+        assert body["success"] is False
+        assert body["code"] == 400
+
+    @pytest.mark.asyncio
+    async def test_trigger_unknown_domain_rejected(self, hk_client, inject_sim_db):
+        resp = await hk_client.post(
+            "/api/hk/data/sync/unknown_domain",
+            json={"domain": "unknown_domain", "mode": "incremental"},
+        )
+        body = resp.json()
+        assert body["success"] is False
+        assert body["code"] == 400
+
+    @pytest.mark.asyncio
+    async def test_trigger_fallback_branch_still_succeeds(self, hk_client, inject_sim_db):
+        """engine 不可用时走 di.trigger_sync 降级分支，仍立即返回。"""
+        from app.data.scheduler.engine import SchedulerEngine
+
+        original_instance = SchedulerEngine._instance
+        SchedulerEngine._instance = None
+        try:
+            resp = await hk_client.post(
+                "/api/hk/data/sync/daily_quotes",
+                json={"domain": "daily_quotes", "mode": "incremental"},
+            )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["success"] is True
+            assert body["data"]["task_id"]  # 非空标识
+            assert body["data"]["mode"] == "incremental"
+            assert body["data"]["triggered"] is True
+        finally:
+            SchedulerEngine._instance = original_instance
 
 
 class TestHKSyncEvents:
@@ -251,6 +342,22 @@ class TestUSSyncStatus:
     async def test_sync_status_returns_200(self, us_client, inject_sim_db):
         resp = await us_client.get("/api/us/data/sync/status")
         assert resp.status_code == 200
+        body = resp.json()
+        assert isinstance(body["data"].get("running"), list)
+
+
+class TestUSSyncTrigger:
+    """美股同步触发路由参数校验（结构与港股路由同构，完整断言见 HK 侧）。"""
+
+    @pytest.mark.asyncio
+    async def test_trigger_invalid_mode_rejected(self, us_client, inject_sim_db):
+        resp = await us_client.post(
+            "/api/us/data/sync/daily_quotes",
+            json={"domain": "daily_quotes", "mode": "delta"},
+        )
+        body = resp.json()
+        assert body["success"] is False
+        assert body["code"] == 400
 
 
 class TestUSSyncEvents:

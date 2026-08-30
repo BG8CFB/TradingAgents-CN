@@ -1,5 +1,6 @@
 """调度引擎 — 基于 APScheduler。"""
 
+import asyncio
 import logging
 import os
 import threading
@@ -144,7 +145,13 @@ class SchedulerEngine:
         return job
 
     async def _run_job_with_dependencies(
-        self, market: str, domain: str, visited: set[str], force: bool = False
+        self,
+        market: str,
+        domain: str,
+        visited: set[str],
+        force: bool = False,
+        mode: Optional[str] = None,
+        source: Optional[str] = None,
     ) -> None:
         node_key = f"{market}:{domain}"
         if node_key in visited:
@@ -165,6 +172,7 @@ class SchedulerEngine:
                     continue
             # M13 修复：force 只应用于目标域，递归依赖用 force=False，
             # 避免手动触发时依赖域跳过非交易日检查。
+            # mode/source 同理：依赖域回落 schedule.yaml 默认，不被手动触发覆盖。
             await self._run_job_with_dependencies(market, dep, visited, force=False)
 
         logger.debug("执行调度: %s/%s", market, domain)
@@ -181,8 +189,12 @@ class SchedulerEngine:
 
         try:
             job_instance = job_entry["class"]()
-            job_instance.sync_mode = job_conf.get("mode", "incremental")
-            job_instance.preferred_source = job_conf.get("source")
+            # mode/source 为手动触发时调用方传入的覆盖值（None=用 schedule.yaml 默认），
+            # 仅作用于目标域（依赖递归不传，见上方 M13 注释）
+            job_instance.sync_mode = mode or job_conf.get("mode", "incremental")
+            job_instance.preferred_source = (
+                source if source is not None else job_conf.get("source")
+            )
             job_instance.dependencies = list(job_conf.get("depends_on", []) or [])
             job_instance.force_sync = force
             result = await job_instance.execute()
@@ -231,17 +243,98 @@ class SchedulerEngine:
             logger.debug(f"获取 SchedulerMonitor 失败: {e}")
         return None
 
-    async def trigger_job(self, market: str, domain: str) -> str:
-        """手动触发任务。"""
+    async def trigger_job(
+        self,
+        market: str,
+        domain: str,
+        mode: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> str:
+        """手动触发任务（阻塞等待执行完成；HTTP 端点请用 run_job_now）。"""
         market = market.upper()
         job_id = f"{market.lower()}_{domain}"
         if self._registry.get_job(domain, market):
             try:
-                await self._run_job_with_dependencies(market, domain, set(), force=True)
+                await self._run_job_with_dependencies(
+                    market, domain, set(), force=True, mode=mode, source=source
+                )
                 return job_id
             except Exception as e:
                 logger.error("手动触发失败 %s: %s", job_id, e)
         return ""
+
+    def run_job_now(
+        self,
+        market: str,
+        domain: str,
+        mode: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> Dict:
+        """手动触发任务并立即返回（同步方法），同步在后台执行。
+
+        与 trigger_job（阻塞跑完）不同：分钟~小时级的同步不能占用
+        HTTP 请求生命周期，执行交给 TaskRegistry 后台任务
+        （critical=False，进程 shutdown 时 cancel）。
+
+        目标域已在运行时返回 already_running（幂等，不重复执行），
+        避免异步化后重复触发导致同域并发同步。检查与注册之间存在
+        非原子窗口，手动触发场景可接受，不引入分布式锁。
+        """
+        from app.core.task_registry import task_registry
+
+        market = market.upper()
+        task_id = f"{market}:{domain}"
+        job_id = f"{market.lower()}_{domain}"
+        if not self._registry.get_job(domain, market):
+            logger.warning("手动触发未注册任务: %s", task_id)
+            return {"task_id": task_id, "job_id": job_id, "status": "failed"}
+
+        monitor = self._get_monitor()
+        if monitor and any(
+            r["task_id"] == task_id for r in monitor.get_running_tasks()
+        ):
+            logger.info("手动触发跳过（已在执行中）: %s", task_id)
+            return {"task_id": task_id, "job_id": job_id, "status": "already_running"}
+
+        task_registry.register(
+            self._run_job_with_shutdown_compensation(market, domain, mode, source),
+            name=f"manual_sync_{job_id}",
+            critical=False,
+        )
+        return {"task_id": task_id, "job_id": job_id, "status": "triggered"}
+
+    async def _run_job_with_shutdown_compensation(
+        self, market: str, domain: str, mode: Optional[str], source: Optional[str]
+    ) -> None:
+        """执行同步；被 cancel 时补写 SYNC_FAILED 终态事件后重新抛出。
+
+        TaskRegistry 非 critical 任务在 shutdown 时被直接 cancel，而
+        BaseSyncJob.execute 与 _run_job_with_dependencies 的 except Exception
+        均捕不到 CancelledError（BaseException），否则会留下无终态的
+        SYNC_START 事件。
+        """
+        try:
+            await self._run_job_with_dependencies(
+                market, domain, set(), force=True, mode=mode, source=source
+            )
+        except asyncio.CancelledError:
+            logger.warning("手动同步被取消（进程 shutdown）: %s/%s", market, domain)
+            try:
+                from app.data.storage.mongo.repositories.metadata_repo import (
+                    MetadataRepo,
+                )
+
+                await MetadataRepo().insert_event(
+                    {
+                        "event_type": "SYNC_FAILED",
+                        "market": market,
+                        "domain": domain,
+                        "error": "cancelled: process shutdown",
+                    }
+                )
+            except Exception as e:
+                logger.warning("写入取消补偿事件失败 %s/%s: %s", market, domain, e)
+            raise
 
     def get_job_status(self, job_id: str) -> Optional[Dict]:
         job = self._scheduler.get_job(job_id)

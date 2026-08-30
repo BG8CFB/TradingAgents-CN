@@ -32,6 +32,22 @@ class BrokenJob:
         raise RuntimeError("init failed")
 
 
+class RecordingJob:
+    """记录引擎注入的 sync_mode / preferred_source 的 Job（按执行顺序追加到类列表）。"""
+
+    instances: list = []
+
+    def __init__(self):
+        self.sync_mode = "incremental"
+        self.preferred_source = None
+        self.dependencies = []
+        self.force_sync = False
+        RecordingJob.instances.append(self)
+
+    async def execute(self):
+        return {"status": "success"}
+
+
 # ---------------------------------------------------------------------------
 # 引擎启停测试
 # ---------------------------------------------------------------------------
@@ -227,6 +243,112 @@ class TestTriggerJob:
         assert await scheduler_engine.trigger_job("CN", "daily_quotes") == "cn_daily_quotes"
         assert await scheduler_engine.trigger_job("HK", "daily_quotes") == "hk_daily_quotes"
         assert await scheduler_engine.trigger_job("US", "daily_quotes") == "us_daily_quotes"
+
+
+# ---------------------------------------------------------------------------
+# mode / source 手动触发覆盖测试
+# ---------------------------------------------------------------------------
+class TestModeSourceOverride:
+    """手动触发的 mode/source 仅覆盖目标域，依赖域回落 schedule.yaml 默认。"""
+
+    def setup_method(self):
+        RecordingJob.instances.clear()
+
+    @pytest.mark.asyncio
+    async def test_trigger_job_mode_overrides_target_domain(self, scheduler_engine):
+        scheduler_engine._registry.register("daily_quotes", "CN", RecordingJob)
+        scheduler_engine._job_configs[("CN", "daily_quotes")] = {
+            "mode": "incremental",
+            "source": "tushare",
+        }
+        await scheduler_engine.trigger_job(
+            "CN", "daily_quotes", mode="full", source="akshare"
+        )
+        job = RecordingJob.instances[-1]
+        assert job.sync_mode == "full"
+        assert job.preferred_source == "akshare"
+
+    @pytest.mark.asyncio
+    async def test_yaml_defaults_when_no_override(self, scheduler_engine):
+        scheduler_engine._registry.register("daily_quotes", "CN", RecordingJob)
+        scheduler_engine._job_configs[("CN", "daily_quotes")] = {
+            "mode": "full",
+            "source": "tushare",
+        }
+        await scheduler_engine.trigger_job("CN", "daily_quotes")
+        job = RecordingJob.instances[-1]
+        assert job.sync_mode == "full"
+        assert job.preferred_source == "tushare"
+
+    @pytest.mark.asyncio
+    async def test_dependency_domain_keeps_yaml_defaults(self, scheduler_engine):
+        """依赖域不被覆盖（与 force 只作用于目标域的 M13 语义对齐）；依赖先于目标执行。"""
+        scheduler_engine._registry.register("daily_quotes", "CN", RecordingJob)
+        scheduler_engine._registry.register("trade_calendar", "CN", RecordingJob)
+        scheduler_engine._job_configs[("CN", "daily_quotes")] = {
+            "mode": "incremental",
+            "depends_on": ["trade_calendar"],
+        }
+        scheduler_engine._job_configs[("CN", "trade_calendar")] = {
+            "mode": "incremental",
+            "source": "tushare",
+        }
+        await scheduler_engine.trigger_job(
+            "CN", "daily_quotes", mode="full", source="akshare"
+        )
+        dep_job = RecordingJob.instances[0]
+        target_job = RecordingJob.instances[1]
+        assert dep_job.sync_mode == "incremental"
+        assert dep_job.preferred_source == "tushare"
+        assert target_job.sync_mode == "full"
+        assert target_job.preferred_source == "akshare"
+
+
+# ---------------------------------------------------------------------------
+# run_job_now 测试（后台执行 + 立即返回 + already_running 防重）
+# ---------------------------------------------------------------------------
+class TestRunJobNow:
+    """run_job_now：注册后台任务立即返回，同域运行中时幂等返回 already_running。"""
+
+    def setup_method(self):
+        RecordingJob.instances.clear()
+
+    @pytest.mark.asyncio
+    async def test_returns_triggered_and_executes_in_background(self, scheduler_engine):
+        scheduler_engine._registry.register("daily_quotes", "CN", RecordingJob)
+        scheduler_engine._job_configs[("CN", "daily_quotes")] = {}
+        result = scheduler_engine.run_job_now("CN", "daily_quotes", mode="full")
+        assert result["status"] == "triggered"
+        assert result["task_id"] == "CN:daily_quotes"
+        assert result["job_id"] == "cn_daily_quotes"
+        # 后台任务由本测试的事件循环调度执行
+        await asyncio.sleep(0.2)
+        assert any(j.sync_mode == "full" for j in RecordingJob.instances)
+
+    @pytest.mark.asyncio
+    async def test_unregistered_domain_returns_failed(self, scheduler_engine):
+        result = scheduler_engine.run_job_now("CN", "unknown_domain")
+        assert result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_already_running_skips_execution(self, scheduler_engine):
+        """同域已在运行（监控内存态）时幂等返回，不重复执行。"""
+        from app.data.scheduler.monitors import SchedulerMonitor
+
+        monitor = SchedulerMonitor()
+        original_running = monitor._running
+        # 不启动监控线程，仅激活运行态查询路径（_get_monitor 检查 _running）
+        monitor._running = True
+        monitor.on_task_start("CN", "daily_quotes")
+        try:
+            scheduler_engine._registry.register("daily_quotes", "CN", RecordingJob)
+            result = scheduler_engine.run_job_now("CN", "daily_quotes")
+            assert result["status"] == "already_running"
+            assert result["task_id"] == "CN:daily_quotes"
+            assert RecordingJob.instances == []
+        finally:
+            monitor.on_task_complete("CN", "daily_quotes", success=True)
+            monitor._running = original_running
 
 
 # ---------------------------------------------------------------------------

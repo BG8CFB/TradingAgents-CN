@@ -175,8 +175,18 @@ class DataInterface:
 
     # ── 同步管理 ──
 
-    async def trigger_sync(self, market: str, domain: str) -> str:
-        """手动触发同步任务。优先走注入的回调，降级走调度引擎，最终降级走记录事件。"""
+    async def trigger_sync(
+        self,
+        market: str,
+        domain: str,
+        mode: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> str:
+        """手动触发同步任务。优先走注入的回调，降级走调度引擎，最终降级走记录事件。
+
+        mode/source 为调用方指定的覆盖值（incremental/full），
+        仅在调度引擎分支生效；回调分支由回调方自行决定是否接收。
+        """
         from datetime import datetime, timezone
 
         task_id = (
@@ -198,16 +208,16 @@ class DataInterface:
             except Exception as e:
                 logger.warning(f"回调触发失败: {e}")
 
-        # 降级：尝试调度引擎
+        # 降级：尝试调度引擎（后台执行，立即返回标识）
         try:
             from app.worker.scheduler_setup import get_scheduler_engine
 
             engine = get_scheduler_engine()
             if engine:
-                job_id = await engine.trigger_job(market, domain)
-                if job_id:
-                    logger.info(f"通过调度引擎触发同步: {job_id}")
-                    return job_id
+                result = engine.run_job_now(market, domain, mode=mode, source=source)
+                if result.get("status") in ("triggered", "already_running"):
+                    logger.info(f"通过调度引擎触发同步: {result['task_id']}")
+                    return result["task_id"]
         except Exception as e:
             logger.warning(f"调度引擎触发失败，降级到直接同步: {e}")
 
@@ -223,6 +233,26 @@ class DataInterface:
         )
         logger.info(f"记录同步事件（降级模式）: {task_id}")
         return task_id
+
+    async def get_running_sync_tasks(self, market: str) -> List[Dict]:
+        """查询调度监控中当前运行中的同步任务（内存快照，进程重启后为空）。
+
+        供 /sync/status 端点向前端暴露运行态：检查点只在任务收尾写入，
+        没有这个快照前端无法感知「同步进行中」。
+        """
+        try:
+            from app.data.scheduler.monitors import SchedulerMonitor
+
+            monitor = SchedulerMonitor()
+            if not getattr(monitor, "_running", False):
+                return []
+            return [
+                r for r in monitor.get_running_tasks()
+                if r.get("task_id", "").startswith(f"{market}:")
+            ]
+        except Exception as e:
+            logger.debug(f"获取运行中同步任务失败: {e}")
+            return []
 
     async def get_sync_status(
         self, market: str, domain: Optional[str] = None,

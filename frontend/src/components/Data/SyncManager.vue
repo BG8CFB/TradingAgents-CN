@@ -56,11 +56,12 @@
     </div>
 
     <!-- 同步进度提示 -->
-    <div v-if="syncProgress.show" class="sync-progress panel">
+    <div v-if="syncProgress.show || polling" class="sync-progress panel">
       <div class="progress-body">
         <el-icon :size="16" class="spin"><Loading /></el-icon>
-        <span>{{ syncProgress.text }}</span>
-        <el-tag size="small" type="info">{{ syncProgress.done }}/{{ syncProgress.total }}</el-tag>
+        <span v-if="polling">同步任务后台执行中，每 {{ POLL_INTERVAL_MS / 1000 }} 秒自动刷新状态...</span>
+        <span v-else>{{ syncProgress.text }}</span>
+        <el-tag v-if="!polling" size="small" type="info">{{ syncProgress.done }}/{{ syncProgress.total }}</el-tag>
       </div>
     </div>
 
@@ -158,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Clock, Document, Promotion, Loading, Timer, CopyDocument, VideoPlay, Warning } from '@element-plus/icons-vue'
 import {
@@ -233,8 +234,9 @@ async function handleSync() {
     if (syncDomain.value === '__all__') {
       await doSyncAll(syncMode.value)
     } else {
-      await triggerSync(props.market, syncDomain.value, syncMode.value)
+      const res = await triggerSync(props.market, syncDomain.value, syncMode.value)
       ElMessage.success(`${domainLabel(syncDomain.value)} 同步已触发`)
+      if (res.data?.task_id) startPolling([res.data.task_id])
       loadStatus()
       loadEvents()
     }
@@ -259,19 +261,71 @@ async function doSyncAll(mode: 'incremental' | 'full') {
   syncProgress.value = { show: true, text: '正在同步...', done: 0, total: domains.length }
 
   let successCount = 0
+  const taskIds: string[] = []
   for (let i = 0; i < domains.length; i++) {
     syncProgress.value.text = `正在同步 ${domainLabel(domains[i])}...`
     syncProgress.value.done = i
     try {
-      await triggerSync(props.market, domains[i], mode)
+      const res = await triggerSync(props.market, domains[i], mode)
       successCount++
+      if (res.data?.task_id) taskIds.push(res.data.task_id)
     } catch { /* 继续下一个 */ }
   }
 
   syncProgress.value.show = false
   ElMessage.success(`${successCount}/${domains.length} 个数据域同步已触发`)
+  if (taskIds.length > 0) startPolling(taskIds)
   loadStatus()
   loadEvents()
+}
+
+// ── 触发后轮询：同步改为后台执行，前端靠轮询感知进度与终态 ──
+
+const POLL_INTERVAL_MS = 5000
+const POLL_HARD_CAP_MS = 30 * 60 * 1000
+
+const polling = ref(false)
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollStartedAt = 0
+/** 等待离开 running 快照的触发标识（setInterval 首次触发在 5s 后，天然满足「至少一轮」） */
+let watchedTaskIds = new Set<string>()
+
+function startPolling(taskIds: string[]) {
+  watchedTaskIds = new Set([...watchedTaskIds, ...taskIds])
+  if (pollTimer) return
+  pollStartedAt = Date.now()
+  polling.value = true
+  pollTimer = setInterval(pollOnce, POLL_INTERVAL_MS)
+}
+
+async function pollOnce() {
+  try {
+    const res = await getSyncStatus(props.market, { page: page.value, page_size: 20 })
+    if (res.success) {
+      checkpoints.value = res.data?.items || []
+      totalCheckpoints.value = res.data?.total || 0
+      const runningIds = new Set((res.data?.running || []).map(r => r.task_id))
+      const allDone = [...watchedTaskIds].every(id => !runningIds.has(id))
+      if (allDone) {
+        stopPolling()
+        await loadEvents()
+        ElMessage.success('同步任务已结束，状态已刷新')
+        return
+      }
+    }
+    loadEvents()
+  } catch { /* 单轮失败静默继续，下一轮重试 */ }
+  // 硬上限：防监控内存态残留导致轮询永不停止
+  if (Date.now() - pollStartedAt > POLL_HARD_CAP_MS) stopPolling()
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  polling.value = false
+  watchedTaskIds = new Set()
 }
 
 async function loadStatus() {
@@ -300,6 +354,7 @@ async function loadEvents() {
 }
 
 watch(() => props.market, () => {
+  stopPolling()
   checkpoints.value = []
   events.value = []
   loadDomains()
@@ -308,6 +363,8 @@ watch(() => props.market, () => {
 })
 
 onMounted(() => { loadDomains(); loadStatus(); loadEvents() })
+
+onUnmounted(stopPolling)
 </script>
 
 <style scoped lang="scss">
