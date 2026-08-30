@@ -409,9 +409,20 @@ async def create_database_indexes(db):
             await reports.create_index([("stock_symbol", 1), ("created_at", -1)])
             await reports.create_index([("created_at", -1)])
             await reports.create_index([("market_type", 1)])
+            # 用户维度报告列表（reports_service 按 user_id 过滤 + created_at 倒序分页）
+            await reports.create_index([("user_id", 1), ("created_at", -1)])
             logger.info("✅ analysis_reports 集合索引创建完成")
         except Exception as e:
             logger.warning(f"⚠️ 创建 analysis_reports 索引失败: {e}")
+
+        # === 操作日志集合索引（列表排序/用户过滤/定时清理） ===
+        try:
+            op_logs = db["operation_logs"]
+            await op_logs.create_index([("timestamp", -1)])
+            await op_logs.create_index([("user_id", 1), ("timestamp", -1)])
+            logger.info("✅ operation_logs 集合索引创建完成")
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 operation_logs 索引失败: {e}")
 
         # === 系统配置集合索引 ===
         try:
