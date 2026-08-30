@@ -217,6 +217,37 @@ NGINX_PORT=9090 docker compose -f docker-compose.hub.nginx.yml up -d
 >
 > 详细部署说明请参考 [deploy/README.md](./deploy/README.md)。
 
+### 源码热更新（已部署服务器快速迭代）
+
+适用于已按上述方式用镜像部署的服务器（如 NAS 演示站）：本地改完代码后**跳过 镜像构建/推送/拉取 链路**，一条命令把源码推到服务器，后端秒级热重载、前端即时生效，全程不停容器。
+
+#### 一次性启用
+
+在**本地仓库根目录**执行（需配置 SSH 免密登录到目标服务器）：
+
+```bash
+# 1. 上传覆盖层到服务器部署目录（替换下例中的 NAS 目录）
+scp docker-compose.hub.dev.yml NAS:/vol1/1000/System/DockerYml/TradingAgents-CN/
+
+# 2. 首次同步源码（自动构建前端并传输）
+bash scripts/sync_nas.sh
+
+# 3. 在服务器上用覆盖层重启 backend/frontend（数据卷不受影响）
+ssh NAS "cd /vol1/1000/System/DockerYml/TradingAgents-CN && \
+  docker compose -f docker-compose.hub.nginx.yml -f docker-compose.hub.dev.yml up -d backend frontend"
+```
+
+#### 日常更新
+
+```bash
+bash scripts/sync_nas.sh                      # 前端重新构建 + 后端/前端全量同步
+SYNC_FRONTEND=0 bash scripts/sync_nas.sh     # 只同步后端代码（最快路径）
+```
+
+脚本同步 `app/` → 服务器 `src/app/`（uvicorn `--reload` 自动重载）、`frontend/dist/` → `src/frontend-dist/`（nginx 直接待生效）；目标目录用 `NAS_HOST` / `NAS_DIR` 环境变量可指向其他服务器。
+
+> **边界**: 新增/升级 Python 依赖仍需走镜像构建链路（改 `pyproject.toml` 后重建镜像）；`config/` 为命名卷不随源码同步。回滚 = 去掉 `-f docker-compose.hub.dev.yml` 重新 `up -d`，即回到镜像内代码。
+
 ### 本地开发
 
 适用于参与代码贡献或二次开发的开发者。

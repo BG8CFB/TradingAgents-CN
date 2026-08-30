@@ -1,0 +1,41 @@
+# NAS 源码热更新覆盖层 — 配合 scripts/sync_nas.sh 使用
+#
+# 用途：建立「本地源码 → NAS」快速更新通道，跳过 镜像构建/推送/registry 拉取 链路。
+#   backend  : bind mount ./src/app 覆盖镜像内代码，uvicorn --reload 热重载（秒级生效）
+#   frontend : bind mount ./src/frontend-dist 覆盖镜像内静态资源，nginx 直接生效
+#
+# 用法（NAS 部署目录下）：
+#   docker compose -f docker-compose.hub.nginx.yml -f docker-compose.hub.dev.yml up -d backend frontend
+#
+# 约束与边界：
+#   - 仅覆盖代码与前端产物；新增/升级 pip 依赖仍需走镜像构建链路（改 pyproject.toml 后需重建镜像）
+#   - config 保持命名卷（Web UI 运行时改的 mcp.json 等不被动）；源码中 config/ 变更不自动生效
+#   - 数据卷（mongodb_data/redis_data/runtime/config）不受影响
+#   - 回滚 = 去掉本文件重新 up（回到镜像内代码）
+#
+# 安全边界（与基础文件一致，不引入新暴露面）：
+#   - backend/frontend 仅 expose 无宿主端口，唯一入口是 nginx 的 ${NGINX_PORT}
+#   - FastAPI /docs、/redoc、/openapi.json 经 nginx 落到前端 SPA fallback，外部不可达
+
+services:
+  backend:
+    volumes:
+      - ./src/app:/app/app
+    # command 只覆盖 CMD，不覆盖 ENTRYPOINT（docker-entrypoint.sh 仍以 appuser 执行）
+    # 基础文件的容器 CMD 不带 --reload，源码热更新必须在此显式开启
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - /app/app
+
+  frontend:
+    volumes:
+      - ./src/frontend-dist:/usr/share/nginx/html:ro

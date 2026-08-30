@@ -91,6 +91,7 @@ cd frontend && npm install
 |--------------|------|----------|
 | `docker-compose.dev.yml` | Development (hot-reload, HMR) | **默认** — 始终优先使用 |
 | `docker-compose.build.yml` | Production (Nginx, built images) | 用户明确说"生产部署" |
+| `docker-compose.hub.nginx.yml` + `docker-compose.hub.dev.yml` | 已部署服务器（如 NAS）源码热更新 | 更新远程演示站：本地跑 `bash scripts/sync_nas.sh`（backend 经 uvicorn `--reload` 秒级生效，frontend dist 经 nginx 即时生效）。约束：新增 pip 依赖仍需走镜像链路；`config/` 命名卷不随源码同步 |
 
 ### 开发模式热重载机制（重要）
 
