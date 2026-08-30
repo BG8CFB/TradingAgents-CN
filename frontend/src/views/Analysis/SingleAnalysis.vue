@@ -456,9 +456,15 @@ const fetchAnalysts = async () => {
         icon: getAnalystIcon(mode.slug),
         slug: mode.slug
       }))
-      // 不再设置硬编码默认值，保持用户选择
+      // 默认勾选：取配置中 default_selected 的智能体；配置未声明任何默认值时全选兜底。
+      // 用户已保存的偏好（onMounted 后段回填）优先于此默认值。
       if (analysisForm.selectedAnalysts.length === 0) {
-        analysisForm.selectedAnalysts = []
+        const hasExplicitDefaults = res.data.customModes.some(
+          (mode) => typeof mode.default_selected === 'boolean'
+        )
+        analysisForm.selectedAnalysts = hasExplicitDefaults
+          ? res.data.customModes.filter((mode) => mode.default_selected).map((mode) => mode.slug)
+          : analysts.value.map((a) => a.id)
       }
     } else {
       analysts.value = []

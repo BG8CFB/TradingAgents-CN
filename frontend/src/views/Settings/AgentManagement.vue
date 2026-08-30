@@ -53,6 +53,9 @@
             <div class="agent-item__name">{{ mode.name || '未命名智能体' }}</div>
             <div class="agent-item__slug">{{ mode.slug || '未设置 slug' }}</div>
             <div v-if="activePhase === 1" class="agent-item__chips">
+              <el-tag v-if="mode.default_selected" size="small" type="success" effect="plain">
+                默认选中
+              </el-tag>
               <el-tag v-if="mode.data_tools?.length" size="small" effect="plain">
                 数据 ×{{ mode.data_tools.length }}
               </el-tag>
@@ -88,6 +91,9 @@
               </el-row>
               <el-form-item label="描述">
                 <el-input v-model="currentMode.description" placeholder="简要描述（可选），默认使用 slug" />
+              </el-form-item>
+              <el-form-item v-if="activePhase === 1" label="默认选中">
+                <el-switch v-model="defaultSelectedSwitch" active-text="发起分析时默认勾选" />
               </el-form-item>
             </el-form>
           </el-card>
@@ -247,6 +253,14 @@ const skillRestricted = computed({
   },
 })
 
+// 「默认选中」开关（仅 phase1）：发起分析页初始化勾选状态
+const defaultSelectedSwitch = computed({
+  get: () => currentMode.value?.default_selected === true,
+  set: (on: boolean) => {
+    if (currentMode.value) currentMode.value.default_selected = on
+  },
+})
+
 const normalizeMode = (mode?: PhaseAgentMode, isNew = false): UiPhaseAgentMode => ({
   uiKey: (mode as UiPhaseAgentMode)?.uiKey || createUiKey(),
   slug: mode?.slug || '',
@@ -256,6 +270,7 @@ const normalizeMode = (mode?: PhaseAgentMode, isNew = false): UiPhaseAgentMode =
   data_tools: Array.isArray(mode?.data_tools) ? [...mode.data_tools!] : [],
   mcp_tools: Array.isArray(mode?.mcp_tools) ? [...mode.mcp_tools!] : null as unknown as string[],
   skills: Array.isArray(mode?.skills) ? [...mode.skills!] : null as unknown as string[],
+  default_selected: mode?.default_selected === true,
   isNew,
 })
 
@@ -363,6 +378,8 @@ const savePhaseConfig = async () => {
         }
         if (activePhase.value === 1) {
           item.data_tools = mode.data_tools?.length ? Array.from(new Set(mode.data_tools)) : []
+          // 显式落盘 true/false；分析页据此初始化勾选（false = 明确不默认勾选）
+          item.default_selected = mode.default_selected === true
           // 空列表 / 未开启限制 = 默认全部可用，存 null
           if (mode.mcp_tools != null && mode.mcp_tools.length) {
             item.mcp_tools = Array.from(new Set(mode.mcp_tools))

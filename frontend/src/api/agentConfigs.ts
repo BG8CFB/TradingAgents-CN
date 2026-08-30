@@ -14,6 +14,8 @@ export interface PhaseAgentMode {
   data_tools?: string[]
   mcp_tools?: string[]
   skills?: string[]
+  /** 发起分析时默认勾选（仅 phase1 有语义；缺省 = 不勾选） */
+  default_selected?: boolean
 }
 
 export interface PhaseAgentConfig {

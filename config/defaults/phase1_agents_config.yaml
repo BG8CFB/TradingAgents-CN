@@ -12,6 +12,7 @@
 customModes:
   - slug: financial-news-analyst
     name: 财经新闻分析师
+    default_selected: true
     icon: "📰"
     tool_key: "news"
     tools:
@@ -386,6 +387,7 @@ customModes:
     source: global
   - slug: china-market-analyst
     name: 中国市场分析师
+    default_selected: true
     icon: "🇨🇳"
     tool_key: "market"
     tools:
@@ -823,6 +825,7 @@ customModes:
     source: global
   - slug: market-analyst
     name: 市场技术分析师
+    default_selected: true
     icon: "📊"
     tool_key: "market"
     tools:
@@ -1236,6 +1239,7 @@ customModes:
     source: global
   - slug: social-media-analyst
     name: 社交媒体和投资情绪分析师
+    default_selected: true
     icon: "💬"
     tool_key: "social"
     tools:
@@ -1740,6 +1744,7 @@ customModes:
     source: global
   - slug: short-term-capital-analyst
     name: 短线资金分析师
+    default_selected: true
     icon: "💸"
     tool_key: "market"
     tools:

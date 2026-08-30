@@ -4,6 +4,7 @@
 配置模型（2026-08 工具体系拆分后）：
 - data_tools: 预注入数据源 id 列表（代码控制，启动时预取注入上下文）
 - mcp_tools / skills: 可调用工具限制集合；缺省/空 = 默认全部可用
+- default_selected: 发起分析时默认勾选（仅 phase1 有语义）
 - 内置工具（calc）全员默认，不经配置
 """
 
@@ -27,6 +28,7 @@ from app.core.response import safe_error_message
 # 导入动态分析师工厂，用于清除配置缓存
 try:
     from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+
     DYNAMIC_ANALYST_AVAILABLE = True
 except ImportError:
     DYNAMIC_ANALYST_AVAILABLE = False
@@ -70,9 +72,7 @@ class AgentMode(BaseModel):
     slug: str = Field(..., description="唯一标识", min_length=1)
     name: str = Field(..., description="显示名称", min_length=1)
     roleDefinition: str = Field(..., description="System Prompt", min_length=1)
-    description: Optional[str] = Field(
-        default=None, description="简要描述（默认使用 slug）"
-    )
+    description: Optional[str] = Field(default=None, description="简要描述（默认使用 slug）")
     data_tools: Optional[List[str]] = Field(
         default=None,
         description="预注入数据源 id 列表（缺省/空 = 不注入任何数据源）",
@@ -84,6 +84,10 @@ class AgentMode(BaseModel):
     skills: Optional[List[str]] = Field(
         default=None,
         description="Skill 入口限制集合；缺省/空 = 默认全部可用",
+    )
+    default_selected: Optional[bool] = Field(
+        default=None,
+        description="发起分析时默认勾选该智能体（仅 phase1 有语义；true/false 落盘，缺省 = 不勾选）",
     )
 
     @field_validator("slug", "name", "roleDefinition")
