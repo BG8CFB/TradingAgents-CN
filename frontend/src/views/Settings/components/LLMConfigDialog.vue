@@ -155,6 +155,22 @@
             />
             <div class="form-tip">同时在途请求数上限（进程内灵活占位）</div>
           </div>
+          <div class="param-cell">
+            <div class="param-label">思考强度</div>
+            <el-select
+              v-model="formData.thinking_effort"
+              placeholder="默认"
+              class="param-input"
+            >
+              <el-option
+                v-for="opt in THINKING_EFFORT_OPTIONS"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+            <div class="form-tip">{{ thinkingHint }}</div>
+          </div>
         </div>
       </el-form-item>
 
@@ -188,7 +204,7 @@
               :step="1024"
               placeholder="留空不开启"
             />
-            <div class="form-tip">Anthropic 协议推理思考预算（≥1024 且小于单次输出上限）；开启后过程视图可见思考内容。OpenAI 兼容协议忽略此参数</div>
+            <div class="form-tip">仅 Anthropic 协议生效：显式预算优先于思考强度档位换算（留空则按档位换算）；开启后过程视图可见思考内容</div>
           </el-form-item>
 
           <el-divider content-position="left">定价配置</el-divider>
@@ -271,6 +287,8 @@ import {
   DEFAULT_RETRY_TIMES,
   MAX_TOKENS_MAX,
   DEFAULT_CONTEXT_WINDOW,
+  THINKING_EFFORT_OPTIONS,
+  suggestThinkingEffort,
 } from '@/constants/llmDefaults'
 
 interface Props {
@@ -306,6 +324,7 @@ const defaultFormData = {
   context_window: undefined as number | undefined,
   temperature: DEFAULT_TEMPERATURE,
   thinking_budget: undefined as number | undefined,
+  thinking_effort: '' as string,
   timeout: DEFAULT_TIMEOUT,
   retry_times: DEFAULT_RETRY_TIMES,
   max_concurrency: 5,
@@ -361,6 +380,29 @@ const contextWindowPlaceholder = computed(() => {
   return info?.context_length && info.context_length > 0
     ? String(info.context_length)
     : String(DEFAULT_CONTEXT_WINDOW)
+})
+
+// 思考强度档位的厂家映射提示（口径与后端 thinking.py 一致；仅作展示，实际注入由后端判定）
+const thinkingHint = computed(() => {
+  const effort = formData.value.thinking_effort
+  if (!effort) return '留空不注入思考参数，保持模型默认行为'
+  const name = (formData.value.model_name || '').split('/').pop()?.trim() || ''
+  if (!name) return '选择模型后按厂家方言自动映射'
+  if (/^(o[134](-mini|-preview)?\b|gpt-5)/i.test(name)) {
+    return effort === 'off' && !/^gpt-5/i.test(name)
+      ? 'o 系不支持关闭，将不注入参数'
+      : '映射 OpenAI reasoning_effort'
+  }
+  if (/deepseek-(v4|v3\.[12]|r1|reasoner)/i.test(name)) return '映射 DeepSeek reasoning_effort（medium→high）'
+  if (/kimi/i.test(name)) return '映射 Kimi reasoning_effort（不可关闭）'
+  if (/^glm-(4\.[5-9]\d*|5)/i.test(name)) {
+    if (/^glm-5\.3/i.test(name) && effort === 'off') return 'GLM-5.3 不可关闭，将不注入参数'
+    return /^glm-5\.[2-9]/i.test(name) ? '映射智谱 thinking.type + effort' : '映射智谱 thinking.type 开关'
+  }
+  if (/^(qwen|qwq)/i.test(name)) return '映射通义 enable_thinking + thinking_budget'
+  if (/^gemini-(2\.5|3)/i.test(name)) return '映射 Gemini reasoning_effort（极限档回落高）'
+  if (/^(claude|anthropic)/i.test(name)) return '按档位换算思考预算 budget_tokens'
+  return '未识别思考模型，将不注入参数'
 })
 
 const loadModelCatalog = async () => {
@@ -478,6 +520,12 @@ const handleModelSelect = async (modelCode: string) => {
   // 无论列表选择还是自定义输入，都同步到 formData
   formData.value.model_name = modelCode
 
+  // 新增模式：按模型名智能预填思考强度（思考模型给推荐档，非思考模型回到不干预；
+  // 编辑模式不覆盖已保存配置）
+  if (!isEdit.value) {
+    formData.value.thinking_effort = suggestThinkingEffort(modelCode)
+  }
+
   const selectedModel = modelOptions.value.find(m => m.value === modelCode)
   if (selectedModel) {
     // 列表中存在的模型：自动填充显示名称、价格等
@@ -517,6 +565,7 @@ watch(
         suitable_roles: config.suitable_roles || [],
         context_window: config.context_window ?? undefined,
         thinking_budget: config.thinking_budget ?? undefined,
+        thinking_effort: config.thinking_effort || '',
         max_concurrency: config.max_concurrency ?? 5,
       }
       modelOptions.value = getModelOptions(config.provider)
@@ -551,6 +600,7 @@ watch(
           suitable_roles: props.config.suitable_roles || [],
           context_window: props.config.context_window ?? undefined,
           thinking_budget: props.config.thinking_budget ?? undefined,
+          thinking_effort: props.config.thinking_effort || '',
           max_concurrency: props.config.max_concurrency ?? 5,
         }
         modelOptions.value = getModelOptions(props.config.provider)
@@ -604,6 +654,9 @@ const handleSubmit = async () => {
     }
 
     const submitData = { ...formData.value } as any
+
+    // 思考档位空串 → null（未设置语义；后端校验同样容忍空串，此处保证库内不留空串）
+    submitData.thinking_effort = submitData.thinking_effort || null
 
     if ('api_key' in submitData) {
       delete submitData.api_key

@@ -224,6 +224,13 @@
                       <div class="model-name-cell">
                         <div class="model-display-name">
                           {{ row.model_display_name || row.model_name }}
+                          <el-tooltip
+                            v-if="row.thinking_effort"
+                            :content="`思考强度: ${thinkingEffortLabel(row.thinking_effort)}`"
+                            placement="top"
+                          >
+                            <el-tag size="small" type="warning" class="thinking-badge">💭</el-tag>
+                          </el-tooltip>
                         </div>
                         <div v-if="row.model_display_name" class="model-code-text">{{ row.model_name }}</div>
                       </div>
@@ -992,7 +999,12 @@ import {
   DEFAULT_TEMPERATURE,
   DEFAULT_TIMEOUT,
   DEFAULT_RETRY_TIMES,
+  THINKING_EFFORT_OPTIONS,
 } from '@/constants/llmDefaults'
+
+// 思考档位值 → 中文标签（模型列表 💭 徽标 tooltip 用）
+const thinkingEffortLabel = (value: string): string =>
+  THINKING_EFFORT_OPTIONS.find(o => o.value === value)?.label || value
 
 // 响应式数据
 const activeTab = ref('providers')

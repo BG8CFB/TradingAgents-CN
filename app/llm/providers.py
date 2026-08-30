@@ -39,13 +39,16 @@ class ResolvedProvider:
     api_key: str
     base_url: Optional[str]
     source: str  # "db" | "env"
+    # 厂家名（数据库 provider 字段）：烙入客户端实例，思考档位方言判定用
+    provider: Optional[str] = None
     # 每模型参数（来自"添加模型"表单，缺省回退协议客户端默认值）
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
     timeout: Optional[int] = None
     retry_times: Optional[int] = None
     context_window: Optional[int] = None
-    thinking_budget: Optional[int] = None  # >0 开启推理思考（Anthropic opt-in）
+    thinking_budget: Optional[int] = None  # >0 开启推理思考（Anthropic opt-in，优先于档位换算）
+    thinking_effort: Optional[str] = None  # canonical 思考档位（thinking.py 方言映射）
     max_concurrency: Optional[int] = None  # 模型级并发上限（同时在途请求数）
 
 
@@ -64,6 +67,7 @@ class EngineClientBundle:
     temperature: Optional[float] = None
     context_window: Optional[int] = None
     thinking_budget: Optional[int] = None  # >0 开启推理思考（透传 run_conversation）
+    thinking_effort: Optional[str] = None  # canonical 思考档位（透传 run_conversation）
     upper_limit: Optional[int] = None  # 截断升级封顶（limits.py 解析）
     max_concurrency: Optional[int] = None  # 模型级并发上限（None=不限）
     _meta: Dict[str, Any] = field(default_factory=dict)
@@ -122,12 +126,14 @@ def resolve_provider(
         api_key=api_key,
         base_url=base_url,
         source="db",
+        provider=cfg.get("provider"),
         max_tokens=cfg.get("max_tokens"),
         temperature=cfg.get("temperature"),
         timeout=cfg.get("timeout"),
         retry_times=cfg.get("retry_times"),
         context_window=cfg.get("context_window"),
         thinking_budget=cfg.get("thinking_budget"),
+        thinking_effort=cfg.get("thinking_effort"),
         max_concurrency=cfg.get("max_concurrency"),
     )
 
@@ -152,6 +158,9 @@ def _resolve_fallback(
                     or defaults.get("default_base_url") or None
                 ),
                 source="db",
+                provider=cfg.get("provider"),
+                thinking_budget=cfg.get("thinking_budget"),
+                thinking_effort=cfg.get("thinking_effort"),
             )
     return None
 
@@ -180,6 +189,7 @@ def build_client(resolved: ResolvedProvider) -> BaseLLMClient:
         max_tokens=resolved.max_tokens,
         timeout=resolved.timeout,
         temperature=resolved.temperature,
+        provider=resolved.provider,
     )
 
 
@@ -192,7 +202,7 @@ _CONFIG_FIELDS = (
     "enabled", "suitable_roles", "priority",
     # 每模型参数（表单采集，此前未消费）
     "max_tokens", "temperature", "timeout", "retry_times", "context_window",
-    "thinking_budget", "max_concurrency",
+    "thinking_budget", "thinking_effort", "max_concurrency",
 )
 
 
@@ -356,6 +366,7 @@ async def _resolve_role_bundle(
         temperature=resolved.temperature,
         context_window=bundle_context_window,
         thinking_budget=resolved.thinking_budget,
+        thinking_effort=resolved.thinking_effort,
         upper_limit=limits_.upper_limit,
         max_concurrency=resolved.max_concurrency,
         _meta={"limit_key": f"{provider}|{resolved.model}".strip('|').lower(), "model": resolved.model},
@@ -417,12 +428,14 @@ async def resolve_task_override_bundle(
         api_key=api_key or inherit.get("api_key") or defaults.get("api_key") or "",
         base_url=base_url or inherit.get("api_base") or defaults.get("default_base_url") or None,
         source="engine-config",
+        provider=prov,
         max_tokens=db_max or limits_.max_tokens,
         temperature=inherit.get("temperature"),
         timeout=inherit.get("timeout"),
         retry_times=inherit.get("retry_times"),
         context_window=db_window or limits_.context_window,
         thinking_budget=inherit.get("thinking_budget"),
+        thinking_effort=inherit.get("thinking_effort"),
         max_concurrency=inherit.get("max_concurrency"),
     )
     if not resolved.api_key:
@@ -435,6 +448,7 @@ async def resolve_task_override_bundle(
         temperature=resolved.temperature,
         context_window=resolved.context_window,
         thinking_budget=resolved.thinking_budget,
+        thinking_effort=resolved.thinking_effort,
         upper_limit=limits_.upper_limit,
         max_concurrency=resolved.max_concurrency,
         _meta={"limit_key": f"{prov}|{model}".strip('|').lower(), "model": model},

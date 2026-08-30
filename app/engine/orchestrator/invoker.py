@@ -80,6 +80,7 @@ async def run_agent_turn(
         max_tokens=eff_max_tokens,
         temperature=eff_temperature,
         thinking_budget=bundle.thinking_budget if bundle is not None else None,
+        thinking_effort=bundle.thinking_effort if bundle is not None else None,
         fallback_client=fallback,
         retry_times=retries,
         compact_config=compact_config,

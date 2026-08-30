@@ -5,7 +5,7 @@
 from datetime import datetime
 from app.utils.timezone import now_tz
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict, field_serializer
+from pydantic import BaseModel, Field, ConfigDict, field_serializer, field_validator
 from enum import Enum
 from bson import ObjectId
 from app.constants.llm_defaults import (
@@ -13,8 +13,18 @@ from app.constants.llm_defaults import (
     DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT,
     DEFAULT_RETRY_TIMES,
+    THINKING_EFFORT_LEVELS,
 )
 from .user import PyObjectId
+
+
+def validate_thinking_effort(v: Optional[str]) -> Optional[str]:
+    """思考档位校验（LLMConfig 与 LLMConfigRequest 共用）；空串视为未设置"""
+    if v is None or v == "":
+        return None
+    if v not in THINKING_EFFORT_LEVELS:
+        raise ValueError(f"thinking_effort 必须是 {list(THINKING_EFFORT_LEVELS)} 之一或留空")
+    return v
 
 
 class ModelProvider(str, Enum):
@@ -229,7 +239,13 @@ class LLMConfig(BaseModel):
         default=None,
         ge=1024,
         le=128000,
-        description="推理思考预算 token 数（Anthropic extended thinking；>0 开启，留空不开启。OpenAI 兼容协议忽略此参数）"
+        description="推理思考预算 token 数（仅 Anthropic 协议生效且优先于档位换算；OpenAI 兼容协议的数值由档位换算，不消费此参数）"
+    )
+    thinking_effort: Optional[str] = Field(
+        default=None,
+        description="思考强度档位：None=不干预(不注入思考参数)；off=显式关闭；"
+                    "minimal/low/medium/high=max=开启并设定强度。协议层按厂家方言映射，"
+                    "见 app/llm/protocols/thinking.py"
     )
     timeout: int = Field(default=DEFAULT_TIMEOUT, description="请求超时时间(秒)")
     retry_times: int = Field(default=DEFAULT_RETRY_TIMES, description="重试次数")
@@ -255,6 +271,8 @@ class LLMConfig(BaseModel):
         default_factory=lambda: ["both"],
         description="适用角色: analyst(一阶段分析师), debate(辩论推理), both(两者都适合)"
     )
+
+    _validate_effort = field_validator("thinking_effort")(validate_thinking_effort)
 
 
 class DataSourceConfig(BaseModel):
@@ -395,6 +413,9 @@ class LLMConfigRequest(BaseModel):
     api_base: Optional[str] = None
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=1, le=128000)
     context_window: Optional[int] = Field(default=None, ge=1, le=10_000_000)
+    # 与 LLMConfig 同语义（此前缺失导致前端表单的思考预算提交即被丢弃，已修复）
+    thinking_budget: Optional[int] = Field(default=None, ge=1024, le=128000)
+    thinking_effort: Optional[str] = None
     temperature: float = DEFAULT_TEMPERATURE
     timeout: int = DEFAULT_TIMEOUT
     retry_times: int = DEFAULT_RETRY_TIMES
@@ -415,6 +436,14 @@ class LLMConfigRequest(BaseModel):
 
     # 模型用途分类
     suitable_roles: List[str] = Field(default_factory=lambda: ["both"])
+
+    _validate_effort = field_validator("thinking_effort")(validate_thinking_effort)
+
+    @field_validator("thinking_budget", mode="before")
+    @classmethod
+    def _budget_empty_to_none(cls, v):
+        """空表单输入（空串）视为未设置，与 thinking_effort 的空串容忍一致"""
+        return None if v == "" else v
 
 
 class DataSourceConfigRequest(BaseModel):

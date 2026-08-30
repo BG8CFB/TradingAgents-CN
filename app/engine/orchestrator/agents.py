@@ -233,6 +233,7 @@ async def run_analyst(
             max_tokens=bundle.max_tokens if bundle else None,
             temperature=bundle.temperature if bundle else None,
             thinking_budget=bundle.thinking_budget if bundle else None,
+            thinking_effort=bundle.thinking_effort if bundle else None,
             fallback_client=bundle.fallback if bundle else None,
             retry_times=bundle.retry_times if bundle else None,
             compact_config=compact_config,

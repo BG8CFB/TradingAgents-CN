@@ -33,6 +33,7 @@ from ..core.types import (
     Usage,
 )
 from ..tools.pairing import ensure_pairing
+from .thinking import resolve_anthropic_thinking_budget
 
 logger = logging.getLogger("app.llm.protocols.anthropic")
 
@@ -93,6 +94,7 @@ class AnthropicLLMClient(BaseLLMClient):
         timeout: float = 300.0,
         max_tokens: int = DEFAULT_MAX_TOKENS,  # anthropic 必填参数的兜底默认
         temperature: Optional[float] = None,
+        provider: Optional[str] = None,
     ):
         from anthropic import AsyncAnthropic
 
@@ -100,6 +102,8 @@ class AnthropicLLMClient(BaseLLMClient):
         self.max_tokens = max_tokens
         # 实例级默认温度（数据库每模型配置烙入；调用处显式传参可覆盖）
         self.temperature = temperature
+        # 厂家标识（数据库 provider 名，思考方言判定；Anthropic 协议本身不用）
+        self.provider = provider or ""
         # 火山 Ark 兼容 x-api-key 与 Authorization Bearer，SDK 默认走 x-api-key
         self._client = AsyncAnthropic(api_key=api_key, base_url=base_url, timeout=timeout)
 
@@ -176,6 +180,7 @@ class AnthropicLLMClient(BaseLLMClient):
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         thinking_budget: Optional[int] = None,
+        thinking_effort: Optional[str] = None,
         **kwargs,
     ) -> ChatResponse:
         params: Dict[str, Any] = {
@@ -190,7 +195,8 @@ class AnthropicLLMClient(BaseLLMClient):
         eff_temp = temperature if temperature is not None else self.temperature
         if eff_temp is not None:
             params["temperature"] = eff_temp
-        _apply_thinking(params, thinking_budget, max_tokens or self.max_tokens)
+        budget = resolve_anthropic_thinking_budget(thinking_effort, thinking_budget)
+        _apply_thinking(params, budget, max_tokens or self.max_tokens)
         params.update(kwargs)
         try:
             resp = await self._client.messages.create(**params)
@@ -207,6 +213,7 @@ class AnthropicLLMClient(BaseLLMClient):
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         thinking_budget: Optional[int] = None,
+        thinking_effort: Optional[str] = None,
         **kwargs,
     ) -> AsyncIterator[StreamEvent]:
         params: Dict[str, Any] = {
@@ -221,7 +228,8 @@ class AnthropicLLMClient(BaseLLMClient):
         eff_temp = temperature if temperature is not None else self.temperature
         if eff_temp is not None:
             params["temperature"] = eff_temp
-        _apply_thinking(params, thinking_budget, max_tokens or self.max_tokens)
+        budget = resolve_anthropic_thinking_budget(thinking_effort, thinking_budget)
+        _apply_thinking(params, budget, max_tokens or self.max_tokens)
         params.update(kwargs)
 
         # SSE 事件装配（参考 claude-code claude.ts 的事件处理）：

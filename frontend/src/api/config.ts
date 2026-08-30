@@ -41,7 +41,8 @@ export interface LLMConfig {
   max_tokens: number
   context_window?: number | null  // 上下文窗口（输入侧，与 max_tokens 单次输出上限是两个概念；留空继承模型目录）
   temperature: number
-  thinking_budget?: number | null  // 推理思考预算（Anthropic opt-in；>0 开启，留空不开启；OpenAI 兼容协议忽略）
+  thinking_budget?: number | null  // 思考预算（仅 Anthropic 协议生效；显式值优先于档位换算，留空按档位换算）
+  thinking_effort?: string | null  // 思考强度档位 off/minimal/low/medium/high/max；空=不干预（后端按厂家方言映射）
   timeout: number
   retry_times: number
   max_concurrency?: number  // 模型并发上限（同时在途请求数，进程内灵活占位；默认 5）
@@ -431,6 +432,9 @@ export const validateLLMConfig = (config: Partial<LLMConfig>): string[] => {
   if (config.max_tokens && config.max_tokens <= 0) errors.push('最大Token数必须大于0')
   if (config.temperature && (config.temperature < 0 || config.temperature > 2)) {
     errors.push('温度参数必须在0-2之间')
+  }
+  if (config.thinking_effort && !['off', 'minimal', 'low', 'medium', 'high', 'max'].includes(config.thinking_effort)) {
+    errors.push('思考强度必须是 off/minimal/low/medium/high/max 之一或留空')
   }
 
   return errors

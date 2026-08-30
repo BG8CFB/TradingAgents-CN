@@ -25,6 +25,7 @@ def create_client(
     max_tokens: Optional[int] = None,
     timeout: Optional[float] = None,
     temperature: Optional[float] = None,
+    provider: Optional[str] = None,
 ) -> BaseLLMClient:
     """
     创建 LLM 客户端。
@@ -37,6 +38,7 @@ def create_client(
         config:  完整配置对象（测试/多套环境用）
         max_tokens / timeout / temperature: 每模型参数（数据库"添加模型"配置），
             缺省回退 .env 层默认值；temperature 存为实例默认，调用处可覆盖
+        provider: 厂家标识（如 "openai"/"deepseek"/"zhipu"），思考方言判定用
     """
     if protocol not in VALID_PROTOCOLS:
         raise ValueError(f"未知协议: {protocol}，可选: {VALID_PROTOCOLS}")
@@ -58,6 +60,7 @@ def create_client(
             timeout=timeout if timeout is not None else cfg.timeout,
             max_tokens=max_tokens if max_tokens is not None else cfg.max_tokens,
             temperature=temperature,
+            provider=provider,
         )
 
     from ..protocols.openai_client import OpenAILLMClient
@@ -69,4 +72,5 @@ def create_client(
         timeout=timeout if timeout is not None else cfg.timeout,
         max_tokens=max_tokens if max_tokens is not None else cfg.max_tokens,
         temperature=temperature,
+        provider=provider,
     )

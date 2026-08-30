@@ -28,6 +28,7 @@ class BaseLLMClient(ABC):
     """协议无关的 LLM 客户端接口"""
 
     protocol: str = ""  # "anthropic" | "openai"
+    provider: str = ""  # 厂家标识（数据库 llm_configs.provider，思考方言判定用）
 
     @abstractmethod
     async def chat(
@@ -38,7 +39,8 @@ class BaseLLMClient(ABC):
         tools: Optional[List[ToolDef]] = None,
         max_tokens: Optional[int] = None,  # None=用客户端实例烙入值
         temperature: Optional[float] = None,
-        thinking_budget: Optional[int] = None,  # >0 开启推理思考（Anthropic opt-in；OpenAI 侧忽略）
+        thinking_budget: Optional[int] = None,  # Anthropic 思考预算（显式值优先于档位换算）
+        thinking_effort: Optional[str] = None,  # canonical 思考档位（thinking.py 方言映射）
         **kwargs,
     ) -> ChatResponse:
         """非流式对话。system 以独立参数传入（两种协议均为顶层概念）。"""
@@ -52,7 +54,8 @@ class BaseLLMClient(ABC):
         tools: Optional[List[ToolDef]] = None,
         max_tokens: Optional[int] = None,  # None=用客户端实例烙入值
         temperature: Optional[float] = None,
-        thinking_budget: Optional[int] = None,  # >0 开启推理思考（Anthropic opt-in；OpenAI 侧忽略）
+        thinking_budget: Optional[int] = None,  # Anthropic 思考预算（显式值优先于档位换算）
+        thinking_effort: Optional[str] = None,  # canonical 思考档位（thinking.py 方言映射）
         **kwargs,
     ) -> AsyncIterator[StreamEvent]:
         """流式对话。yield StreamEvent；最后一条 type=="message" 携带完整 ChatResponse。"""

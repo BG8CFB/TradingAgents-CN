@@ -25,3 +25,9 @@ DEFAULT_LLM_FIELD_FALLBACKS: dict[str, int | float] = {
     "retry_times": DEFAULT_RETRY_TIMES,
     "context_window": DEFAULT_CONTEXT_WINDOW,
 }
+
+# 思考强度档位（canonical 枚举，前端 frontend/src/constants/llmDefaults.ts 同步）。
+# 语义：None/未设置=不干预（不注入任何思考参数，与历史行为一致）；
+#       off=显式关闭思考；minimal/low/medium/high/max=开启并设定强度。
+# 各厂家方言映射见 app/llm/protocols/thinking.py
+THINKING_EFFORT_LEVELS: tuple[str, ...] = ("off", "minimal", "low", "medium", "high", "max")
