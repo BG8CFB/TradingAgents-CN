@@ -23,6 +23,21 @@ logger = logging.getLogger("app.llm.mcp")
 
 CONNECT_TIMEOUT = 30.0  # 秒，参考 claude-code
 LOCAL_CONNECT_CONCURRENCY = 3
+STREAMABLE_HTTP_READ_TIMEOUT = 300.0  # 秒，与 mcp SDK 默认 sse_read_timeout 对齐
+
+
+def _build_streamable_http_client(headers: Optional[Dict[str, str]]):
+    """构造 streamable-http 传输用的 HTTP 客户端。
+
+    mcp >= 2.0 的 streamable_http_client 不再接受 headers 参数，改由调用方传入
+    http_client；httpx2 是 mcp 2.x 的官方依赖。
+    """
+    import httpx2
+
+    return httpx2.AsyncClient(
+        headers=dict(headers or {}) or None,
+        timeout=httpx2.Timeout(STREAMABLE_HTTP_READ_TIMEOUT, connect=CONNECT_TIMEOUT),
+    )
 
 
 class MCPManager:
@@ -87,10 +102,13 @@ class MCPManager:
         return session
 
     async def _connect_http(self, stack: AsyncExitStack, cfg: MCPServerConfig) -> ClientSession:
-        from mcp.client.streamable_http import streamablehttp_client
+        # mcp >= 2.0：streamablehttp_client → streamable_http_client，
+        # headers 参数移除（改由 http_client 承载），返回值由 3 元组变为 2 元组
+        from mcp.client.streamable_http import streamable_http_client
 
-        transport = await stack.enter_async_context(streamablehttp_client(cfg.url, headers=cfg.headers or None))
-        read_stream, write_stream, _ = transport
+        http_client = await stack.enter_async_context(_build_streamable_http_client(cfg.headers))
+        transport = await stack.enter_async_context(streamable_http_client(cfg.url, http_client=http_client))
+        read_stream, write_stream = transport
         session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
         await session.initialize()
         return session
