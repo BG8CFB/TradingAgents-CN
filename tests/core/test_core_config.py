@@ -250,13 +250,20 @@ class TestProductionSecurityChecks:
     """
 
     def _run_config_import(self, env: dict):
-        """在子进程中执行 `import app.core.config`，返回 (returncode, stdout, stderr)。"""
+        """在子进程中执行 `import app.core.config`，返回 (returncode, stdout, stderr)。
+
+        编码契约：子进程注入 -X utf8 使 stdio 输出 UTF-8（Windows 默认 GBK，
+        中文警告会以 GBK 字节写出）；父进程显式 utf-8 + errors=replace 解码，
+        与父进程自身运行模式（是否 -X utf8）解耦，残留字节不致解码崩溃。
+        """
         import subprocess
         result = subprocess.run(
-            [sys.executable, "-c", "import app.core.config"],
+            [sys.executable, "-X", "utf8", "-c", "import app.core.config"],
             env={**os.environ, **env},
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=PROJECT_ROOT,
         )
         return result.returncode, result.stdout, result.stderr
