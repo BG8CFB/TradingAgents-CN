@@ -167,7 +167,7 @@ const openDocs = () => {
       }
 
       .el-button--primary {
-        background: white;
+        background: var(--el-bg-color);
         color: var(--el-color-primary);
         border: none;
 

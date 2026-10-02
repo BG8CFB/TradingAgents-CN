@@ -434,7 +434,7 @@ onMounted(loadConfig)
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: #fff;
+    background: var(--el-bg-color);
     padding: 12px 16px;
     border-radius: 8px;
     border: 1px solid #ffcdd2;
@@ -443,9 +443,9 @@ onMounted(loadConfig)
       display: flex;
       align-items: center;
       gap: 10px;
-      .alert-source { font-weight: 700; color: #333; }
-      .alert-arrow { color: #999; }
-      .alert-domain { font-size: 13px; color: #666; background: #f5f7fa; padding: 2px 8px; border-radius: 4px; }
+      .alert-source { font-weight: 700; color: var(--el-text-color-primary); }
+      .alert-arrow { color: var(--el-text-color-secondary); }
+      .alert-domain { font-size: 13px; color: var(--el-text-color-regular); background: var(--el-fill-color-light); padding: 2px 8px; border-radius: 4px; }
     }
 
     .alert-metrics {
@@ -558,7 +558,7 @@ onMounted(loadConfig)
     .priority-step {
       display: flex;
       align-items: center;
-      background: #fff;
+      background: var(--el-bg-color);
       border: 1px solid var(--el-border-color);
       border-radius: 6px;
       padding: 4px 10px;

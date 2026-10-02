@@ -333,7 +333,7 @@ const openArticle = (articleId: string) => {
   }
   .hero-orb-1 {
     width: 300px; height: 300px;
-    background: #fff;
+    background: var(--el-bg-color);
     top: -80px; left: 10%;
     animation: orbFloat 8s ease-in-out infinite;
   }
@@ -345,7 +345,7 @@ const openArticle = (articleId: string) => {
   }
   .hero-orb-3 {
     width: 150px; height: 150px;
-    background: #fff;
+    background: var(--el-bg-color);
     top: 20%; right: 30%;
     animation: orbFloat 12s ease-in-out infinite;
   }

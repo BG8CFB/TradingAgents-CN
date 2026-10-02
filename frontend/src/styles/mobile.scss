@@ -1,0 +1,207 @@
+/**
+ * 移动端全局响应式补丁
+ * 断点：768px（与 BasicLayout 的 isMobile 判断一致）
+ * 原则：不动 PC 端任何样式；移动端只做"可用性"适配——
+ *   多栏堆叠、表格可横滑、弹窗全屏化、表单纵向、触控目标放大
+ */
+
+@media (max-width: 768px) {
+  /* ── 页面容器 ───────────────────────────── */
+  .page-container,
+  .view-container,
+  .page-content {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .page-title,
+  .section-title {
+    font-size: 18px !important;
+    word-break: break-word;
+  }
+
+  .page-description,
+  .section-description {
+    font-size: 13px !important;
+  }
+
+  /* ── Element Plus 弹窗：移动端近全屏 ────── */
+  .el-dialog {
+    width: 94vw !important;
+    max-width: 94vw !important;
+    margin: 3vh auto !important;
+
+    .el-dialog__body {
+      max-height: 70vh;
+      overflow-y: auto;
+      padding: 16px !important;
+    }
+  }
+
+  .el-message-box {
+    width: 92vw !important;
+    max-width: 92vw !important;
+  }
+
+  .el-drawer {
+    --el-drawer-size: 88vw !important;
+  }
+
+  /* ── 表格：横向可滑动，不被挤压变形 ────── */
+  .el-table {
+    font-size: 12px;
+
+    .el-table__cell {
+      padding: 6px 4px !important;
+    }
+  }
+
+  .el-card {
+    .el-card__header {
+      padding: 12px 14px !important;
+    }
+    .el-card__body {
+      padding: 14px !important;
+    }
+  }
+
+  /* ── 表单：label 与控件上下排列 ─────────── */
+  .el-form--inline {
+    .el-form-item {
+      display: block !important;
+      margin-right: 0 !important;
+      width: 100%;
+
+      .el-form-item__content {
+        margin-left: 0 !important;
+      }
+
+      .el-input,
+      .el-select,
+      .el-date-editor,
+      .el-input-number {
+        width: 100% !important;
+      }
+    }
+  }
+
+  .el-form-item__label {
+    line-height: 1.4 !important;
+  }
+
+  /* 桌面表单在移动端 label 置顶 */
+  .el-form:not(.el-form--label-top) {
+    .el-form-item__label {
+      display: block;
+      float: none;
+      text-align: left;
+      width: auto !important;
+      padding-bottom: 4px;
+    }
+    .el-form-item__content {
+      margin-left: 0 !important;
+    }
+  }
+
+  /* ── 按钮组：允许换行 ───────────────────── */
+  .el-button + .el-button {
+    margin-left: 8px;
+  }
+
+  .header-actions,
+  .action-bar,
+  .toolbar,
+  .filter-bar,
+  .operation-bar {
+    flex-wrap: wrap !important;
+    gap: 8px;
+
+    .el-button {
+      margin-left: 0 !important;
+    }
+  }
+
+  /* ── 栅格：移动端全部堆叠为单列 ─────────── */
+  .el-row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .el-col {
+    margin-bottom: 12px;
+  }
+
+  /* 常见的桌面栅格在移动端强制全宽（span 24） */
+  .el-col-xs-0 {
+    display: block !important;
+  }
+
+  @for $i from 1 through 23 {
+    .el-col-#{$i} {
+      max-width: 100%;
+      flex: 0 0 100%;
+    }
+  }
+
+  /* ── Tabs：允许横向滚动 ─────────────────── */
+  .el-tabs__nav-wrap {
+    overflow-x: auto;
+
+    &::after {
+      height: 1px;
+    }
+  }
+
+  /* ── 描述列表：键值上下排列 ─────────────── */
+  .el-descriptions {
+    .el-descriptions__label,
+    .el-descriptions__content {
+      font-size: 12px !important;
+    }
+  }
+
+  /* ── 统计卡片数值防溢出 ─────────────────── */
+  .stat-number,
+  .metric-value,
+  .stat-value {
+    font-size: 22px !important;
+  }
+
+  /* ── 代码块/报告：横向滚动 ───────────────── */
+  pre,
+  code,
+  .markdown-body pre {
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 12px;
+  }
+
+  /* ── 回到顶部按钮位置 ───────────────────── */
+  .el-backtop {
+    right: 16px !important;
+    bottom: 16px !important;
+  }
+
+  /* ── 分页：允许换行紧凑 ──────────────────── */
+  .el-pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 8px;
+
+    .el-pagination__sizes,
+    .el-pagination__jump {
+      margin-left: 0 !important;
+    }
+  }
+}
+
+/* 小屏（≤480px）进一步收紧 */
+@media (max-width: 480px) {
+  .page-title {
+    font-size: 16px !important;
+  }
+
+  .el-dialog .el-dialog__body {
+    padding: 12px !important;
+  }
+}

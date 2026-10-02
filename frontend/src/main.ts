@@ -22,6 +22,7 @@ import { useAppStore } from './stores/app'
 import { setupTokenRefreshTimer } from './utils/auth'
 import './styles/index.scss'
 import './styles/dark-theme.scss'
+import './styles/mobile.scss'
 
 // Vite 编译期注入的应用版本号（来源：frontend/package.json，与 pyproject.toml 保持一致）
 declare const __APP_VERSION__: string

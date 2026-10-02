@@ -145,7 +145,7 @@ const goBack = () => {
 }
 
 .suggestions {
-  background: white;
+  background: var(--el-bg-color);
   border-radius: 12px;
   padding: 32px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);

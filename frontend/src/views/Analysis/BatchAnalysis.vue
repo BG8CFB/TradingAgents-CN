@@ -1156,7 +1156,7 @@ const submitBatchAnalysis = async () => {
       }
 
       &.enabled {
-        background: #fff;
+        background: var(--el-bg-color);
         border-color: #C5A55A;
         box-shadow: 0 4px 12px rgba(197, 165, 90, 0.1);
 

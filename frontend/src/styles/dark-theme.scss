@@ -134,3 +134,74 @@ html.dark {
     }
   }
 }
+
+/* ===== 暗色可读性兜底补丁（2026-10-02） ===== */
+html.dark {
+  // 次要/辅助文字统一提亮一档（部分组件用 secondary 显示正文，原色过暗）
+  .el-table .cell,
+  .el-descriptions__content,
+  .el-form-item__label,
+  .el-checkbox__label,
+  .el-radio__label {
+    color: var(--el-text-color-regular);
+  }
+
+  // placeholder 在暗底上可见
+  .el-input__inner::placeholder,
+  .el-textarea__inner::placeholder {
+    color: var(--el-text-color-placeholder) !important;
+    opacity: 1;
+  }
+
+  // 禁用态不至于完全看不见
+  .el-button.is-disabled,
+  .el-input.is-disabled .el-input__inner {
+    color: var(--el-text-color-placeholder) !important;
+  }
+
+  // 弹出层（下拉/日期/选择器）背景统一
+  .el-popper.is-light,
+  .el-select-dropdown,
+  .el-picker-panel {
+    background-color: var(--el-bg-color-overlay) !important;
+    border-color: var(--el-border-color) !important;
+  }
+
+  // 阴影在暗色下改用深色光晕，避免白卡片发光感
+  .el-card,
+  .el-message-box,
+  .el-dialog {
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5) !important;
+  }
+
+  // 表格 hover/斑马纹与底色拉开层次
+  .el-table {
+    --el-table-row-hover-bg-color: var(--el-fill-color);
+    --el-table-tr-bg-color: var(--el-bg-color);
+  }
+
+  // markdown 报告区文字
+  .markdown-body,
+  .report-content,
+  .analysis-report {
+    color: var(--el-text-color-regular);
+
+    h1, h2, h3, h4, h5, h6, strong {
+      color: var(--el-text-color-primary);
+    }
+
+    code {
+      background: var(--el-fill-color);
+      color: var(--el-text-color-primary);
+    }
+
+    pre {
+      background: var(--el-fill-color-light) !important;
+    }
+
+    blockquote {
+      color: var(--el-text-color-secondary);
+      border-left-color: var(--el-border-color);
+    }
+  }
+}
