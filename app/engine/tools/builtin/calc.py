@@ -144,9 +144,24 @@ def _normalize_percent(expr: str) -> str:
     return re.sub(r"(\d+(?:\.\d+)?)%", r"(\1/100)", expr)
 
 
+# 打码数字特征：数字+连续 3 个及以上星号+数字（如 3****22）。
+# 注意与合法幂运算区分：** 恰为 2 个星号（如 3**2），不在此列。
+_MASKED_NUMBER_RE = re.compile(r"\d\s*\*{3,}\s*\d")
+_MASKED_HINT = (
+    "检测到打码数字（含 *** 星号）。工具参数中的数字必须从原始数据逐字符精确抄写，"
+    "严禁打码/脱敏/星号替换。请回到数据原文找到完整数值重新提交。"
+)
+
+
+def _reject_masked(text: str) -> None:
+    if isinstance(text, str) and _MASKED_NUMBER_RE.search(text):
+        raise ValueError(_MASKED_HINT)
+
+
 def _eval_expression(expression: str) -> Decimal:
     if not isinstance(expression, str) or not expression.strip():
         raise ValueError("表达式不能为空")
+    _reject_masked(expression)
     if len(expression) > _EXPR_MAX_LEN:
         raise ValueError(f"表达式过长（>{_EXPR_MAX_LEN} 字符）")
     if "__" in expression:
@@ -256,6 +271,7 @@ def compound(principal: float, rate: float, periods: float, per_year: float = 1)
 def _parse_series(values: str) -> List[Decimal]:
     if not isinstance(values, str) or not values.strip():
         raise ValueError("序列不能为空")
+    _reject_masked(values)
     parts = [p.strip() for p in values.split(",") if p.strip()]
     if len(parts) < 2:
         raise ValueError("序列至少需要 2 个逗号分隔的数值")
@@ -543,6 +559,7 @@ def _calc_batch_tooldef() -> ToolDef:
 # 强制走计算工具的 prompt 硬规则（build_analyst_specs 追加到每个分析师 system_prompt）
 CALC_ENFORCEMENT_PROMPT = """
 【数值计算强制规则（必须遵守）】
+0. 数字抄写铁律：传入工具参数的每一个数字必须逐字符精确抄写数据原文（如成交量 3123935），严禁任何形式的打码、脱敏、星号替换（如 3****35）、四舍五入或省略。含星号的计算会被工具拒绝并要求重算。
 1. 你输出的每一个衍生数值——涨跌幅、均线/均值、占比、评分加总、盈亏比、仓位、成本、回撤、波动率等——必须先调用计算工具取得结果，再写入思考或正文。
 2. 禁止心算：即使最简单的加减乘除（如 50 - 15 - 10）也必须调用计算工具取得结果。
 3. 反例：直接写出 "50 - 15 - 10 = 25" ❌。正例：单项计算调用 calc_expression、多项计算合并进 calc_batch，引用工具回显的结果 ✓。

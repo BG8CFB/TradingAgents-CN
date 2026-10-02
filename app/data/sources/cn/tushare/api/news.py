@@ -137,7 +137,7 @@ def _finalize(
         return _deduplicate_and_sort(news_list, limit)
     filtered = [
         n for n in news_list
-        if _publish_time_in_range(n.get("publish_time"), start_date, end_date)
+        if n.get("_targeted") or _publish_time_in_range(n.get("publish_time"), start_date, end_date)
     ]
     return _deduplicate_and_sort(filtered, limit)
 
@@ -212,6 +212,10 @@ async def _fetch_targeted_news(
             "data_source": "tushare",
             "original_source": "em_notice",
             "symbol": clean,
+            # 公告 API 返回的本来就是"该股最新 N 条公告"，发布日期由公司披露节奏决定，
+            # 增量拉取的日期窗口（如近 7 天）会把历史公告全部误杀——标记跳过日期过滤。
+            # 该字段仅进程内流转：adapter/normalizer 按白名单字段取列，不会写入 MongoDB。
+            "_targeted": True,
         })
 
     if results:

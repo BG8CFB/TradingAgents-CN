@@ -134,15 +134,43 @@ def _format_news_list(news_list: list, source_label: str = None) -> str:
         report += "\n"
 
         if content:
-            if len(content) > 1000 and "===" in content:
-                report += content
-            else:
-                content_preview = content[:500] + "..." if len(content) > 500 else content
-                report += f"{content_preview}\n\n"
+            # 内容全量返回，不截断：新闻正文是分析师的信息源，截断会丢关键事实
+            report += f"{content}\n\n"
 
         report += "---\n\n"
 
     return report
+
+
+def _fetch_market_news(max_results: int) -> list:
+    """读取市场快讯兜底（symbol 为空的全市场新闻），来源标注为市场新闻。"""
+    try:
+        from app.data.core.interface import DataInterface
+        from app.core.async_utils import run_async
+
+        di = DataInterface.get_instance()
+        result = run_async(di.read("CN", "news", filters={"limit": max_results}))
+        data = result.get("data")
+        if not data or not isinstance(data, list):
+            return []
+        out = []
+        for item in data[:max_results]:
+            out.append(
+                {
+                    "title": item.get("title", "无标题"),
+                    "content": item.get("content", "") or item.get("summary", ""),
+                    "source": f"{item.get('data_source', item.get('source', '未知'))} (市场新闻,非个股)",
+                    "publish_time": item.get("publish_time", now_utc()),
+                    "sentiment": item.get("sentiment", "neutral"),
+                    "url": item.get("url", ""),
+                }
+            )
+        if out:
+            logger.info(f"[新闻工具] 市场新闻兜底: {len(out)} 条")
+        return out
+    except Exception as e:
+        logger.warning(f"[新闻工具] 市场新闻兜底失败: {e}")
+        return []
 
 
 def get_stock_news(stock_code: str, max_results: int = 10) -> str:
@@ -174,6 +202,14 @@ def get_stock_news(stock_code: str, max_results: int = 10) -> str:
                 source_label = "聚合数据"
 
             return format_tool_result(success_result(_format_news_list(news_list, source_label)))
+
+        # 兜底：个股新闻无数据时，回退到市场快讯（库里大量新闻挂在空 symbol 下），
+        # 让分析师至少有市场面信息可用，而不是直接 no_data 结束。
+        market_news = _fetch_market_news(max_results)
+        if market_news:
+            return format_tool_result(success_result(
+                _format_news_list(market_news, f"市场新闻兜底（未找到 {stock_code} 个股新闻）")
+            ))
 
         return format_tool_result(
             no_data_result(message=f"未找到 {stock_code} 的新闻数据", suggestion="这是正常状态，不要重试或尝试其他参数")

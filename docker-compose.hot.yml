@@ -1,0 +1,25 @@
+# 源码热更新覆盖层 —— 叠加在 docker-compose.build.yml 之上
+# 后端: bind mount ./app 覆盖镜像内代码 + uvicorn --reload 秒级热重载
+# 前端: bind mount ./frontend/dist 覆盖镜像内静态产物
+# 用法: docker compose -p tradingagents-cn -f docker-compose.build.yml -f docker-compose.hot.yml up -d
+# 注意: 新增/升级 pip 依赖仍需重建镜像（改 pyproject.toml 后）；前端改代码需重新 npm run build
+services:
+  backend:
+    volumes:
+      - ./app:/app/app
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - /app/app
+
+  frontend:
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
