@@ -47,6 +47,7 @@ os.environ.setdefault("REDIS_ENABLED", "true")
 # Event loop 配置
 # ============================================================
 
+
 @pytest.fixture(scope="session")
 def event_loop() -> Generator:
     """创建 session 级别的事件循环"""
@@ -88,6 +89,7 @@ def _restore_settings_debug():
 
     try:
         from app.data.config import load_yaml
+
         load_yaml.cache_clear()
     except Exception:
         pass
@@ -97,6 +99,7 @@ def _restore_settings_debug():
     _settings.DEBUG = _INITIAL_DEBUG
     try:
         from app.data.config import load_yaml
+
         load_yaml.cache_clear()
     except Exception:
         pass
@@ -106,10 +109,12 @@ def _restore_settings_debug():
 # 核心模块 Fixtures
 # ============================================================
 
+
 @pytest.fixture
 def settings():
     """获取配置实例"""
     from app.core.config import get_settings
+
     return get_settings()
 
 
@@ -117,10 +122,12 @@ def settings():
 # DB/Redis 可用性检测与模拟数据 Fixtures
 # ============================================================
 
+
 def _check_mongodb_available() -> bool:
     """检测 MongoDB 是否可用"""
     try:
         import pymongo
+
         client = pymongo.MongoClient(
             os.environ.get("MONGODB_HOST", "localhost"),
             int(os.environ.get("MONGODB_PORT", "27017")),
@@ -139,6 +146,7 @@ def _check_redis_available() -> bool:
     """检测 Redis 是否可用"""
     try:
         import redis
+
         r = redis.Redis(
             host=os.environ.get("REDIS_HOST", "localhost"),
             port=int(os.environ.get("REDIS_PORT", "6379")),
@@ -192,6 +200,7 @@ def redis_available():
 # ============================================================
 
 import os as _os
+
 _sys_path_test = _os.path.dirname(_os.path.abspath(__file__))
 if _sys_path_test not in sys.path:
     sys.path.insert(0, _sys_path_test)
@@ -230,10 +239,12 @@ def inject_sim_db(sim_db):
 # Auth Fixtures
 # ============================================================
 
+
 @pytest.fixture
 def auth_service():
     """获取 AuthService 类"""
     from app.services.auth_service import AuthService
+
     return AuthService
 
 
@@ -293,6 +304,7 @@ def normal_user_data():
 # FastAPI Test Client
 # ============================================================
 
+
 @pytest_asyncio.fixture
 async def client():
     """创建测试 HTTP 客户端（直接使用实际 app，跳过 lifespan）
@@ -330,6 +342,7 @@ async def authed_client(client, admin_token, admin_user_data):
         return admin_user_data
 
     from app.main import app
+
     app.dependency_overrides[get_current_user] = override_get_current_user
     client.headers.update({"Authorization": f"Bearer {admin_token}"})
     yield client
@@ -379,12 +392,12 @@ async def user_client(client, inject_sim_db, normal_user_data):
         except Exception as exc:
             # 收紧异常类型：仅吞 PyMongo/Motor 错误，其他异常向上抛避免掩盖测试问题
             import motor.errors
+
             if not isinstance(exc, motor.errors.PyMongoError):
                 raise
             import logging
-            logging.getLogger(__name__).debug(
-                "user_client cleanup 删除用户失败: %s", exc
-            )
+
+            logging.getLogger(__name__).debug("user_client cleanup 删除用户失败: %s", exc)
 
 
 @pytest_asyncio.fixture
@@ -424,12 +437,12 @@ async def admin_client(client, inject_sim_db, admin_user_data):
             await inject_sim_db.users.delete_many({"username": admin_user_data["username"]})
         except Exception as exc:
             import motor.errors
+
             if not isinstance(exc, motor.errors.PyMongoError):
                 raise
             import logging
-            logging.getLogger(__name__).debug(
-                "admin_client cleanup 删除用户失败: %s", exc
-            )
+
+            logging.getLogger(__name__).debug("admin_client cleanup 删除用户失败: %s", exc)
 
 
 @pytest_asyncio.fixture
@@ -445,6 +458,7 @@ async def anon_client(client):
 # ============================================================
 # 通用测试数据 Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def sample_stock_data():
@@ -478,6 +492,7 @@ def sample_analysis_task():
 # ============================================================
 # Engine 测试数据 Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def sample_agent_state():
@@ -524,43 +539,10 @@ def sample_agent_state():
     }
 
 
-@pytest.fixture
-def sample_yaml_config(tmp_path):
-    """创建临时 YAML 配置文件"""
-    import yaml
-    config = {
-        "customModes": [
-            {
-                "slug": "market-analyst",
-                "name": "市场技术分析师",
-                "roleDefinition": "你是一个市场技术分析专家",
-                "tools": ["get_stock_data"],
-            },
-            {
-                "slug": "fundamentals-analyst",
-                "name": "基本面分析师",
-                "roleDefinition": "你是一个基本面分析专家",
-                "tools": ["get_stock_fundamentals"],
-            },
-        ],
-        "agents": [
-            {
-                "slug": "news-analyst",
-                "name": "新闻分析师",
-                "roleDefinition": "你是一个新闻分析专家",
-                "tools": ["get_stock_news"],
-            },
-        ],
-    }
-    config_path = tmp_path / "phase1_agents_config.yaml"
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config, f, allow_unicode=True)
-    return str(config_path)
-
-
 # ============================================================
 # Pytest 配置
 # ============================================================
+
 
 def pytest_configure(config):
     """pytest 配置"""

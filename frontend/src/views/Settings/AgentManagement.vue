@@ -3,113 +3,188 @@
     <!-- 顶栏 -->
     <div class="page-header">
       <div class="page-title">
-        <h2 class="title">智能体配置</h2>
-        <el-tag size="small" type="info" effect="plain">phase{{ activePhase }}</el-tag>
-        <span v-if="phaseConfigPath" class="config-path" :title="phaseConfigPath">{{ phaseConfigPath }}</span>
+        <h2 class="title">智能体管理</h2>
+        <span class="subtitle">提示词与工具契约库；执行属性（类型/记忆槽）在工作流编辑器维护</span>
       </div>
       <div class="page-actions">
-        <el-select v-model="activePhase" size="small" style="width: 180px" @change="fetchPhaseConfig">
+        <el-select v-model="filterPhase" size="small" style="width: 200px" @change="fetchList">
+          <el-option :value="0" label="全部阶段" />
           <el-option :value="1" label="第一阶段 · 分析师" />
           <el-option :value="2" label="第二阶段 · 多空辩论" />
           <el-option :value="3" label="第三阶段 · 风险管理" />
         </el-select>
-        <el-button size="small" :loading="phaseLoading" @click="fetchPhaseConfig">
+        <el-button size="small" :loading="loading" @click="fetchList">
           <el-icon><Refresh /></el-icon>&nbsp;刷新
         </el-button>
-        <el-button v-if="activePhase === 1" size="small" type="primary" @click="addAgent">
+        <el-button size="small" type="primary" @click="addAgent">
           <el-icon><Plus /></el-icon>&nbsp;新增智能体
         </el-button>
       </div>
     </div>
 
-    <el-alert
-      v-if="!phaseFileExists"
-      type="warning"
-      :closable="false"
-      show-icon
-      title="配置文件不存在"
-      description="未找到对应 phase 的 YAML 文件，保存后将自动创建。"
-      class="page-alert"
-    />
-
     <!-- 主体：左列表 + 右编辑区 -->
-    <el-container v-loading="phaseLoading" class="page-body">
+    <el-container v-loading="loading" class="page-body">
       <el-aside width="280px" class="agent-aside">
         <el-card shadow="never" class="aside-card">
           <template #header>
             <div class="aside-head">
-              <span>智能体列表</span>
-              <span class="aside-count">{{ modes.length }}</span>
+              <span>智能体库</span>
+              <span class="aside-count">{{ visibleItems.length }}</span>
             </div>
           </template>
-          <el-empty v-if="!modes.length" description="暂无智能体" :image-size="60" />
+          <el-empty v-if="!visibleItems.length && !editForm?.isNew" description="暂无智能体" :image-size="60" />
           <div
-            v-for="mode in modes"
-            :key="mode.uiKey"
+            v-for="item in visibleItems"
+            :key="item.slug"
             class="agent-item"
-            :class="{ 'is-active': mode.uiKey === activeUiKey }"
-            @click="activeUiKey = mode.uiKey"
+            :class="{ 'is-active': item.slug === activeSlug }"
+            @click="selectAgent(item.slug)"
           >
-            <div class="agent-item__name">{{ mode.name || '未命名智能体' }}</div>
-            <div class="agent-item__slug">{{ mode.slug || '未设置 slug' }}</div>
-            <div v-if="activePhase === 1" class="agent-item__chips">
-              <el-tag v-if="mode.default_selected" size="small" type="success" effect="plain">
+            <div class="agent-item__name">{{ item.spec.name || item.slug }}</div>
+            <div class="agent-item__slug">{{ item.slug }}</div>
+            <div class="agent-item__chips">
+              <el-tag v-if="item.builtin" size="small" type="info" effect="plain">内置</el-tag>
+              <el-tag v-if="item.referenced_by?.length" size="small" effect="plain" title="被工作流引用">
+                引用 ×{{ item.referenced_by.length }}
+              </el-tag>
+              <el-tag v-if="item.spec.default_selected" size="small" type="success" effect="plain">
                 默认选中
               </el-tag>
-              <el-tag v-if="mode.data_tools?.length" size="small" effect="plain">
-                数据 ×{{ mode.data_tools.length }}
+              <el-tag v-if="item.spec.data_tools?.length" size="small" effect="plain">
+                数据 ×{{ item.spec.data_tools.length }}
               </el-tag>
-              <el-tag v-if="mode.mcp_tools?.length" size="small" type="warning" effect="plain">
-                MCP ×{{ mode.mcp_tools.length }}
+              <el-tag v-if="item.spec.mcp_tools?.length" size="small" type="warning" effect="plain">
+                MCP ×{{ item.spec.mcp_tools.length }}
               </el-tag>
-              <el-tag v-if="mode.skills?.length" size="small" type="danger" effect="plain">
-                Skill ×{{ mode.skills.length }}
+              <el-tag v-if="item.spec.skills?.length" size="small" type="danger" effect="plain">
+                Skill ×{{ item.spec.skills.length }}
               </el-tag>
             </div>
+          </div>
+          <!-- 新建中的条目（尚未落库） -->
+          <div v-if="editForm?.isNew" class="agent-item is-active is-new">
+            <div class="agent-item__name">{{ editForm.name || '未命名智能体' }}</div>
+            <div class="agent-item__slug">{{ editForm.slug || '未设置 slug（新建）' }}</div>
           </div>
         </el-card>
       </el-aside>
 
       <el-main class="agent-main">
-        <el-empty v-if="!currentMode" description="请在左侧选择一个智能体" />
+        <el-empty v-if="!editForm" description="请在左侧选择一个智能体" />
         <template v-else>
-          <!-- 基本信息卡 -->
+          <!-- 内置只读横幅 -->
+          <el-alert
+            v-if="editForm.builtin"
+            type="info"
+            :closable="false"
+            show-icon
+            class="page-alert"
+            title="内置智能体（只读）— 复制（fork）为自定义副本后可编辑提示词与工具"
+          />
+
+          <!-- 基本信息 -->
           <el-card shadow="never" class="edit-card">
-            <template #header><span class="card-title">基本信息</span></template>
-            <el-form label-width="90px" label-position="left">
+            <template #header>
+              <div class="card-head-row">
+                <span class="card-title">基本信息</span>
+                <el-tag v-if="editForm.referenced_by?.length" size="small" effect="plain">
+                  被 {{ editForm.referenced_by.length }} 个工作流引用
+                </el-tag>
+              </div>
+            </template>
+            <el-form label-width="90px" label-position="left" :disabled="readonly">
               <el-row :gutter="16">
-                <el-col :span="12">
+                <el-col :span="8">
                   <el-form-item label="slug" required>
-                    <el-input v-model="currentMode.slug" placeholder="唯一标识，必填" :disabled="!currentMode.isNew" />
+                    <el-input v-model="editForm.slug" placeholder="唯一标识" :disabled="!editForm.isNew" />
                   </el-form-item>
                 </el-col>
-                <el-col :span="12">
+                <el-col :span="8">
                   <el-form-item label="名称" required>
-                    <el-input v-model="currentMode.name" placeholder="显示名称，必填" />
+                    <el-input v-model="editForm.name" placeholder="显示名称" @input="markDirty" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="8">
+                  <el-form-item label="阶段" required>
+                    <el-select v-model="editForm.phase" :disabled="!editForm.isNew" @change="markDirty">
+                      <el-option :value="1" label="第一阶段 · 分析师" />
+                      <el-option :value="2" label="第二阶段 · 多空辩论" />
+                      <el-option :value="3" label="第三阶段 · 风险管理" />
+                    </el-select>
                   </el-form-item>
                 </el-col>
               </el-row>
               <el-form-item label="描述">
-                <el-input v-model="currentMode.description" placeholder="简要描述（可选），默认使用 slug" />
+                <el-input v-model="editForm.description" placeholder="简要描述（可选）" @input="markDirty" />
               </el-form-item>
-              <el-form-item v-if="activePhase === 1" label="默认选中">
-                <el-switch v-model="defaultSelectedSwitch" active-text="发起分析时默认勾选" />
+              <el-form-item v-if="editForm.phase === 1" label="默认选中">
+                <el-switch v-model="editForm.default_selected" active-text="发起分析时默认勾选" @change="markDirty" />
               </el-form-item>
             </el-form>
+            <div v-if="editForm.referenced_by?.length" class="ref-list">
+              引用它的自定义工作流：{{ editForm.referenced_by.join('、') }}
+            </div>
           </el-card>
 
-          <!-- 工具配置卡（仅 phase1） -->
-          <el-card v-if="activePhase === 1" shadow="never" class="edit-card">
+          <!-- 输入契约（只读展示：改契约会触发编译期拒绝，由工作流编辑器/接口层维护） -->
+          <el-card v-if="editForm.template_inputs?.length" shadow="never" class="edit-card">
+            <template #header><span class="card-title">输入契约（template_inputs）</span></template>
+            <el-table :data="editForm.template_inputs" size="small" border>
+              <el-table-column prop="slot" label="槽位" width="200" />
+              <el-table-column label="必需来源键">
+                <template #default="{ row }">
+                  <template v-if="row.required_sources?.length">
+                    <el-tag v-for="src in row.required_sources" :key="src" size="small" class="src-tag">
+                      {{ src }}
+                    </el-tag>
+                  </template>
+                  <span v-else class="no-src">—</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+
+          <!-- 工具配置（仅分析师；内置只读展示） -->
+          <el-card v-if="editForm.phase === 1" shadow="never" class="edit-card">
             <template #header><span class="card-title">工具配置</span></template>
 
-            <el-tabs v-model="activeToolTab">
+            <!-- 内置只读：标签平铺（ToolSelector 无禁用态，编辑视图仅自定义条目渲染） -->
+            <div v-if="readonly" class="readonly-tools">
+              <div class="readonly-tools__row">
+                <span class="readonly-tools__label">预注入数据源</span>
+                <template v-if="editForm.data_tools?.length">
+                  <el-tag v-for="t in editForm.data_tools" :key="t" size="small" class="src-tag">{{ t }}</el-tag>
+                </template>
+                <span v-else class="no-src">—</span>
+              </div>
+              <div class="readonly-tools__row">
+                <span class="readonly-tools__label">MCP 工具</span>
+                <template v-if="editForm.mcp_tools?.length">
+                  <el-tag v-for="t in editForm.mcp_tools" :key="t" size="small" type="warning" class="src-tag">
+                    {{ t }}
+                  </el-tag>
+                </template>
+                <span v-else class="no-src">不限制（默认全部可用）</span>
+              </div>
+              <div class="readonly-tools__row">
+                <span class="readonly-tools__label">技能</span>
+                <template v-if="editForm.skills?.length">
+                  <el-tag v-for="t in editForm.skills" :key="t" size="small" type="danger" class="src-tag">
+                    {{ t }}
+                  </el-tag>
+                </template>
+                <span v-else class="no-src">不限制（默认全部可用）</span>
+              </div>
+            </div>
+
+            <el-tabs v-else v-model="activeToolTab">
               <el-tab-pane label="数据工具" name="datasource">
                 <div class="tab-hint">
                   预注入数据源：分析师启动时由系统预取并注入上下文（AI 不可主动调用）。
                   不勾选 = 该智能体不注入任何数据。
                 </div>
                 <ToolSelector
-                  v-model="currentMode.data_tools"
+                  v-model="editForm.data_tools"
                   :tools="toolsByKind.datasource"
                   :loading="toolsLoading"
                   empty-text="暂无数据源"
@@ -128,11 +203,12 @@
                 />
                 <ToolSelector
                   v-if="mcpRestricted"
-                  v-model="currentMode.mcp_tools"
+                  :model-value="editForm.mcp_tools || []"
                   :tools="toolsByKind.mcp"
                   :loading="toolsLoading"
                   empty-text="暂无 MCP 工具（需先配置 MCP 服务器）"
                   empty-hint="未勾选 = 全部 MCP 工具"
+                  @update:model-value="setMcpTools"
                 />
               </el-tab-pane>
 
@@ -147,11 +223,12 @@
                 />
                 <ToolSelector
                   v-if="skillRestricted"
-                  v-model="currentMode.skills"
+                  :model-value="editForm.skills || []"
                   :tools="toolsByKind.skill"
                   :loading="toolsLoading"
                   empty-text="暂无已安装技能"
                   empty-hint="未勾选 = 全部技能"
+                  @update:model-value="setSkills"
                 />
               </el-tab-pane>
 
@@ -166,112 +243,121 @@
             </el-tabs>
           </el-card>
 
-          <!-- 系统提示词卡 -->
+          <!-- 系统提示词 -->
           <el-card shadow="never" class="edit-card">
             <template #header><span class="card-title">系统提示词（roleDefinition）</span></template>
             <el-input
-              v-model="currentMode.roleDefinition"
+              v-model="editForm.roleDefinition"
               type="textarea"
               :rows="14"
               class="prompt-editor"
               placeholder="系统提示词，必填"
               maxlength="20000"
               show-word-limit
+              :disabled="readonly"
+              @input="markDirty"
             />
           </el-card>
 
           <!-- 底部操作 -->
           <div class="edit-actions">
-            <el-button type="danger" plain v-if="activePhase === 1" @click="removeAgent">删除智能体</el-button>
-            <el-button type="primary" :loading="phaseSaving" @click="savePhaseConfig">保存配置</el-button>
+            <el-button v-if="editForm.builtin" type="primary" plain :loading="forking" @click="openForkDialog">
+              复制为自定义副本
+            </el-button>
+            <template v-else>
+              <el-popconfirm
+                title="确定删除该智能体吗？被工作流引用时删除会被拒绝。"
+                confirm-button-text="删除"
+                cancel-button-text="取消"
+                @confirm="removeAgent"
+              >
+                <template #reference>
+                  <el-button type="danger" plain :loading="deleting">删除智能体</el-button>
+                </template>
+              </el-popconfirm>
+              <el-button type="primary" :loading="saving" :disabled="readonly" @click="saveAgent">
+                保存
+              </el-button>
+            </template>
           </div>
         </template>
       </el-main>
     </el-container>
+
+    <!-- fork 对话框 -->
+    <el-dialog v-model="forkDialogVisible" title="复制为自定义副本" width="460px" :close-on-click-modal="false">
+      <el-form label-width="80px" label-position="left">
+        <el-form-item label="新 slug" required>
+          <el-input v-model="forkForm.new_slug" placeholder="唯一标识" />
+        </el-form-item>
+        <el-form-item label="名称" required>
+          <el-input v-model="forkForm.name" placeholder="显示名称" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="forkDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="forking" @click="doFork">复制</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { Refresh, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { agentConfigApi, type PhaseAgentMode } from '@/api/agentConfigs'
+import { agentApi, type AgentListItem, type AgentSpecDto } from '@/api/workflows'
 import { toolsApi } from '@/api/tools'
 import type { UnifiedTool, ToolKind } from '@/types/tools'
 import ToolSelector, { type ToolOption } from '@/components/Settings/ToolSelector.vue'
 
-type UiPhaseAgentMode = PhaseAgentMode & {
-  uiKey: string
-  isNew?: boolean
+/** 编辑模型：AgentSpecDto 摊平 + 库层元数据（phase/builtin/引用） */
+interface EditForm {
+  slug: string
+  name: string
+  description: string
+  roleDefinition: string
+  phase: number
+  default_selected: boolean
   data_tools: string[]
-  mcp_tools: string[]
-  skills: string[]
+  mcp_tools: string[] | null
+  skills: string[] | null
+  template_inputs: { slot: string; required_sources?: string[] }[]
+  builtin: boolean
+  isNew: boolean
+  referenced_by: string[]
 }
 
-const createUiKey = () => `agent-${Date.now()}-${Math.random().toString(16).slice(2)}`
-
-// ── 阶段配置状态 ──
-const activePhase = ref(1)
-const modes = ref<UiPhaseAgentMode[]>([])
-const phaseLoading = ref(false)
-const phaseSaving = ref(false)
-const phaseFileExists = ref(true)
-const phaseConfigPath = ref('')
-const activeUiKey = ref('')
+const loading = ref(false)
+const saving = ref(false)
+const deleting = ref(false)
+const forking = ref(false)
+const filterPhase = ref(0)
+const items = ref<AgentListItem[]>([])
+const activeSlug = ref('')
+const dirty = ref(false)
 const activeToolTab = ref('datasource')
+
+const forkDialogVisible = ref(false)
+const forkForm = reactive({ new_slug: '', name: '' })
+
+const editForm = ref<EditForm | null>(null)
+
+const readonly = computed(() => editForm.value?.builtin === true && !editForm.value.isNew)
+const visibleItems = computed(() =>
+  filterPhase.value ? items.value.filter((i) => i.phase === filterPhase.value) : items.value,
+)
 
 // ── 工具清单 ──
 const toolOptions = ref<ToolOption[]>([])
 const toolsLoading = ref(false)
 
 const toolsByKind = computed<Record<ToolKind, ToolOption[]>>(() => {
-  const grouped: Record<ToolKind, ToolOption[]> = {
-    datasource: [],
-    builtin: [],
-    skill: [],
-    mcp: [],
-  }
+  const grouped: Record<ToolKind, ToolOption[]> = { datasource: [], builtin: [], skill: [], mcp: [] }
   for (const tool of toolOptions.value) {
     if (tool.kind) grouped[tool.kind].push(tool)
   }
   return grouped
-})
-
-const currentMode = computed(() => modes.value.find((m) => m.uiKey === activeUiKey.value) || null)
-
-// 「限制」开关：字段为 null/undefined = 不限制（默认全部可用）
-const mcpRestricted = computed({
-  get: () => currentMode.value?.mcp_tools != null,
-  set: (on: boolean) => {
-    if (currentMode.value) currentMode.value.mcp_tools = on ? [...(currentMode.value.mcp_tools || [])] : null as unknown as string[]
-  },
-})
-const skillRestricted = computed({
-  get: () => currentMode.value?.skills != null,
-  set: (on: boolean) => {
-    if (currentMode.value) currentMode.value.skills = on ? [...(currentMode.value.skills || [])] : null as unknown as string[]
-  },
-})
-
-// 「默认选中」开关（仅 phase1）：发起分析页初始化勾选状态
-const defaultSelectedSwitch = computed({
-  get: () => currentMode.value?.default_selected === true,
-  set: (on: boolean) => {
-    if (currentMode.value) currentMode.value.default_selected = on
-  },
-})
-
-const normalizeMode = (mode?: PhaseAgentMode, isNew = false): UiPhaseAgentMode => ({
-  uiKey: (mode as UiPhaseAgentMode)?.uiKey || createUiKey(),
-  slug: mode?.slug || '',
-  name: mode?.name || '',
-  roleDefinition: mode?.roleDefinition || '',
-  description: mode?.description || '',
-  data_tools: Array.isArray(mode?.data_tools) ? [...mode.data_tools!] : [],
-  mcp_tools: Array.isArray(mode?.mcp_tools) ? [...mode.mcp_tools!] : null as unknown as string[],
-  skills: Array.isArray(mode?.skills) ? [...mode.skills!] : null as unknown as string[],
-  default_selected: mode?.default_selected === true,
-  isNew,
 })
 
 const fetchToolOptions = async () => {
@@ -294,122 +380,275 @@ const fetchToolOptions = async () => {
   }
 }
 
-const fetchPhaseConfig = async () => {
-  phaseLoading.value = true
+// 「限制」开关：字段为 null = 不限制（默认全部可用）
+const mcpRestricted = computed({
+  get: () => editForm.value?.mcp_tools != null,
+  set: (on: boolean) => {
+    if (editForm.value) {
+      editForm.value.mcp_tools = on ? [...(editForm.value.mcp_tools || [])] : null
+      markDirty()
+    }
+  },
+})
+const skillRestricted = computed({
+  get: () => editForm.value?.skills != null,
+  set: (on: boolean) => {
+    if (editForm.value) {
+      editForm.value.skills = on ? [...(editForm.value.skills || [])] : null
+      markDirty()
+    }
+  },
+})
+
+const markDirty = () => {
+  dirty.value = true
+}
+
+const setMcpTools = (v: string[]) => {
+  if (!editForm.value) return
+  editForm.value.mcp_tools = v
+  markDirty()
+}
+
+const setSkills = (v: string[]) => {
+  if (!editForm.value) return
+  editForm.value.skills = v
+  markDirty()
+}
+
+const toEditForm = (item: AgentListItem): EditForm => ({
+  slug: item.slug,
+  name: item.spec.name || '',
+  description: item.spec.description || '',
+  roleDefinition: item.spec.roleDefinition || '',
+  phase: item.phase,
+  default_selected: item.spec.default_selected === true,
+  data_tools: Array.isArray(item.spec.data_tools) ? [...item.spec.data_tools] : [],
+  mcp_tools: Array.isArray(item.spec.mcp_tools) ? [...item.spec.mcp_tools!] : null,
+  skills: Array.isArray(item.spec.skills) ? [...item.spec.skills!] : null,
+  template_inputs: (item.spec.template_inputs || []).map((t) => ({
+    slot: t.slot,
+    required_sources: t.required_sources ? [...t.required_sources] : [],
+  })),
+  builtin: item.builtin,
+  isNew: false,
+  referenced_by: item.referenced_by || [],
+})
+
+const fetchList = async () => {
+  loading.value = true
   try {
-    const res = await agentConfigApi.getPhase(activePhase.value)
-    const data = res.data
-    phaseFileExists.value = data?.exists ?? false
-    phaseConfigPath.value = data?.path || ''
-    modes.value = (data?.customModes || []).map((item) => normalizeMode(item, false))
-    activeUiKey.value = modes.value[0]?.uiKey || ''
-    if (data && data.exists === false) {
-      ElMessage.info(`phase${activePhase.value} 配置文件不存在，保存后将自动创建`)
+    const res = await agentApi.list(filterPhase.value || undefined)
+    items.value = res.data?.agents || []
+    // 当前选中条目刷新元数据（引用计数等）
+    if (activeSlug.value) {
+      const fresh = items.value.find((i) => i.slug === activeSlug.value)
+      if (fresh && editForm.value && !editForm.value.isNew && !dirty.value) {
+        editForm.value = toEditForm(fresh)
+      }
     }
   } catch (error) {
-    console.error('获取阶段配置失败', error)
-    ElMessage.error('获取阶段配置失败')
+    console.error('获取智能体列表失败', error)
+    ElMessage.error('获取智能体列表失败')
   } finally {
-    phaseLoading.value = false
+    loading.value = false
   }
 }
 
-const addAgent = () => {
-  const item = normalizeMode(undefined, true)
-  modes.value.push(item)
-  activeUiKey.value = item.uiKey
-}
-
-const removeAgent = async () => {
-  const mode = currentMode.value
-  if (!mode) return
+const confirmDiscard = async (): Promise<boolean> => {
+  if (!dirty.value) return true
   try {
-    await ElMessageBox.confirm(
-      `确定要删除智能体「${mode.name || mode.slug}」吗？此操作将立即保存配置。`,
-      '删除确认',
-      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
-    )
-    const index = modes.value.findIndex((m) => m.uiKey === mode.uiKey)
-    if (index >= 0) modes.value.splice(index, 1)
-    activeUiKey.value = modes.value[0]?.uiKey || ''
-    await savePhaseConfig()
-  } catch (error) {
-    if (error !== 'cancel') console.error(error)
+    await ElMessageBox.confirm('当前编辑内容尚未保存，切换将丢失。确定切换吗？', '未保存的修改', {
+      confirmButtonText: '丢弃并切换',
+      cancelButtonText: '继续编辑',
+      type: 'warning',
+    })
+    return true
+  } catch {
+    return false
   }
 }
 
-const validateModes = () => {
-  const slugSet = new Set<string>()
-  for (let i = 0; i < modes.value.length; i++) {
-    const mode = modes.value[i]
-    const slug = mode.slug?.trim()
-    if (!slug) {
-      ElMessage.error(`第 ${i + 1} 个智能体缺少 slug`)
-      return false
-    }
-    if (slugSet.has(slug)) {
-      ElMessage.error(`slug "${slug}" 重复，请保持唯一`)
-      return false
-    }
-    slugSet.add(slug)
-    if (!mode.name?.trim()) {
-      ElMessage.error(`slug "${slug}" 缺少名称`)
-      return false
-    }
-    if (!mode.roleDefinition?.trim()) {
-      ElMessage.error(`slug "${slug}" 缺少 roleDefinition`)
-      return false
-    }
+const selectAgent = async (slug: string) => {
+  if (slug === activeSlug.value) return
+  if (!(await confirmDiscard())) return
+  const item = items.value.find((i) => i.slug === slug)
+  if (!item) return
+  activeSlug.value = slug
+  editForm.value = toEditForm(item)
+  dirty.value = false
+  activeToolTab.value = 'datasource'
+}
+
+const addAgent = async () => {
+  if (!(await confirmDiscard())) return
+  activeSlug.value = ''
+  editForm.value = {
+    slug: '',
+    name: '',
+    description: '',
+    roleDefinition: '',
+    phase: filterPhase.value || 1,
+    default_selected: false,
+    data_tools: [],
+    mcp_tools: null,
+    skills: null,
+    template_inputs: [],
+    builtin: false,
+    isNew: true,
+    referenced_by: [],
+  }
+  dirty.value = true
+  activeToolTab.value = 'datasource'
+}
+
+const validateForm = (): boolean => {
+  const form = editForm.value
+  if (!form) return false
+  if (!form.slug.trim()) {
+    ElMessage.error('slug 为必填')
+    return false
+  }
+  if (!/^[a-z0-9][a-z0-9-_]*$/.test(form.slug.trim())) {
+    ElMessage.error('slug 仅限小写字母、数字、-、_')
+    return false
+  }
+  if (!form.name.trim()) {
+    ElMessage.error('名称为必填')
+    return false
+  }
+  if (!form.roleDefinition.trim()) {
+    ElMessage.error('roleDefinition 为必填')
+    return false
   }
   return true
 }
 
-const savePhaseConfig = async () => {
-  if (!validateModes()) return
-  phaseSaving.value = true
-  try {
-    const payload = {
-      customModes: modes.value.map((mode) => {
-        const item: PhaseAgentMode = {
-          slug: mode.slug.trim(),
-          name: mode.name.trim(),
-          roleDefinition: mode.roleDefinition,
-          description: mode.description || mode.slug,
-        }
-        if (activePhase.value === 1) {
-          item.data_tools = mode.data_tools?.length ? Array.from(new Set(mode.data_tools)) : []
-          // 显式落盘 true/false；分析页据此初始化勾选（false = 明确不默认勾选）
-          item.default_selected = mode.default_selected === true
-          // 空列表 / 未开启限制 = 默认全部可用，存 null
-          if (mode.mcp_tools != null && mode.mcp_tools.length) {
-            item.mcp_tools = Array.from(new Set(mode.mcp_tools))
-          }
-          if (mode.skills != null && mode.skills.length) {
-            item.skills = Array.from(new Set(mode.skills))
-          }
-        }
-        return item
-      }),
+const buildSpecPayload = (): AgentSpecDto & { phase: number } => {
+  const form = editForm.value!
+  const payload: AgentSpecDto & { phase: number } = {
+    slug: form.slug.trim(),
+    name: form.name.trim(),
+    description: form.description || form.slug.trim(),
+    roleDefinition: form.roleDefinition,
+    phase: form.phase,
+  }
+  if (form.phase === 1) {
+    payload.data_tools = form.data_tools?.length ? Array.from(new Set(form.data_tools)) : []
+    payload.default_selected = form.default_selected === true
+    if (form.mcp_tools != null && form.mcp_tools.length) {
+      payload.mcp_tools = Array.from(new Set(form.mcp_tools))
     }
-    await agentConfigApi.savePhase(activePhase.value, payload)
-    ElMessage.success('阶段配置已保存')
-    await fetchPhaseConfig()
+    if (form.skills != null && form.skills.length) {
+      payload.skills = Array.from(new Set(form.skills))
+    }
+  }
+  return payload
+}
+
+const saveAgent = async () => {
+  if (!validateForm()) return
+  const form = editForm.value!
+  saving.value = true
+  try {
+    if (form.isNew) {
+      await agentApi.create(buildSpecPayload())
+      ElMessage.success('智能体已创建')
+    } else {
+      await agentApi.update(form.slug, buildSpecPayload())
+      ElMessage.success('智能体已保存')
+    }
+    activeSlug.value = form.slug.trim()
+    dirty.value = false
+    await fetchList()
+    const fresh = items.value.find((i) => i.slug === activeSlug.value)
+    if (fresh) editForm.value = toEditForm(fresh)
   } catch (error) {
-    console.error('保存阶段配置失败', error)
-    ElMessage.error('保存阶段配置失败')
+    console.error('保存智能体失败', error)
   } finally {
-    phaseSaving.value = false
+    saving.value = false
   }
 }
 
-// 阶段切换后重置 tab
-watch(activePhase, () => {
-  activeToolTab.value = 'datasource'
-})
+/** 409 被引用时的 detail.referenced_by（FastAPI HTTPException detail 经 axios response 透传） */
+const extractReferencedBy = (error: unknown): string[] => {
+  const detail = (error as { response?: { data?: { detail?: { referenced_by?: string[] } } } })?.response?.data?.detail
+  return detail?.referenced_by || []
+}
+
+const removeAgent = async () => {
+  const form = editForm.value
+  if (!form || form.isNew) {
+    editForm.value = null
+    return
+  }
+  deleting.value = true
+  try {
+    await agentApi.remove(form.slug)
+    ElMessage.success('智能体已删除')
+    activeSlug.value = ''
+    editForm.value = null
+    dirty.value = false
+    await fetchList()
+  } catch (error) {
+    const refs = extractReferencedBy(error)
+    if (refs.length) {
+      ElMessageBox.alert(
+        `该智能体正被以下工作流引用，无法删除：${refs.join('、')}。请先在对应工作流中移除引用。`,
+        '删除被拒绝',
+        { type: 'warning' },
+      ).catch(() => undefined)
+    }
+    console.error('删除智能体失败', error)
+  } finally {
+    deleting.value = false
+  }
+}
+
+const openForkDialog = () => {
+  const form = editForm.value
+  if (!form) return
+  forkForm.new_slug = `${form.slug}-copy`
+  forkForm.name = `${form.name || form.slug}（副本）`
+  forkDialogVisible.value = true
+}
+
+const doFork = async () => {
+  const form = editForm.value
+  if (!form) return
+  const newSlug = forkForm.new_slug.trim()
+  if (!newSlug || !forkForm.name.trim()) {
+    ElMessage.warning('新 slug 与名称为必填')
+    return
+  }
+  if (!/^[a-z0-9][a-z0-9-_]*$/.test(newSlug)) {
+    ElMessage.warning('slug 仅限小写字母、数字、-、_')
+    return
+  }
+  forking.value = true
+  try {
+    await agentApi.fork(form.slug, { new_slug: newSlug, name: forkForm.name.trim() })
+    ElMessage.success('副本已创建')
+    forkDialogVisible.value = false
+    activeSlug.value = newSlug
+    dirty.value = false
+    await fetchList()
+    const fresh = items.value.find((i) => i.slug === newSlug)
+    if (fresh) editForm.value = toEditForm(fresh)
+  } catch (error) {
+    console.error('复制智能体失败', error)
+  } finally {
+    forking.value = false
+  }
+}
 
 onMounted(() => {
   fetchToolOptions()
-  fetchPhaseConfig()
+  fetchList().then(() => {
+    if (items.value.length && !activeSlug.value) {
+      selectAgent(items.value[0].slug)
+    }
+  })
 })
 </script>
 
@@ -435,8 +674,8 @@ onMounted(() => {
 
 .page-title {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -446,13 +685,9 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.config-path {
+.subtitle {
   color: var(--el-text-color-secondary);
   font-size: 12px;
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .page-actions {
@@ -467,7 +702,7 @@ onMounted(() => {
 }
 
 .page-alert {
-  margin-top: 12px;
+  margin-bottom: 12px;
 }
 
 /* ── 主体 ── */
@@ -519,6 +754,10 @@ onMounted(() => {
   &.is-active {
     background-color: var(--el-color-primary-light-9);
   }
+
+  &.is-new {
+    border: 1px dashed var(--el-color-primary);
+  }
 }
 
 .agent-item__name {
@@ -558,9 +797,45 @@ onMounted(() => {
   }
 }
 
+.card-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .card-title {
   font-size: 13px;
   font-weight: 600;
+}
+
+.ref-list {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.src-tag {
+  margin-right: 4px;
+}
+
+.no-src {
+  color: var(--el-text-color-secondary);
+}
+
+.readonly-tools {
+  &__row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  &__label {
+    width: 110px;
+    flex-shrink: 0;
+    color: var(--el-text-color-regular);
+    font-size: 13px;
+  }
 }
 
 .tab-hint {

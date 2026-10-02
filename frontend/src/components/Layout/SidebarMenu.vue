@@ -19,6 +19,7 @@
         <span>行情中心</span>
       </template>
       <el-menu-item index="/screening">股票筛选</el-menu-item>
+      <el-menu-item index="/ai-chat">AI 选股助手</el-menu-item>
       <el-menu-item index="/favorites">我的自选</el-menu-item>
     </el-sub-menu>
 
@@ -75,6 +76,7 @@
         <el-menu-item index="/settings/mcp">MCP 管理</el-menu-item>
         <el-menu-item index="/settings/skills">技能管理</el-menu-item>
         <el-menu-item index="/settings/agents">智能体管理</el-menu-item>
+        <el-menu-item index="/settings/workflows">工作流管理</el-menu-item>
         <el-menu-item index="/settings/cache">缓存管理</el-menu-item>
         <el-menu-item index="/settings/usage">使用统计</el-menu-item>
       </el-sub-menu>

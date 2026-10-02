@@ -3,7 +3,6 @@
 from .builder import (
     build_recall_rounds,
     build_researcher_trigger,
-    collect_reports,
     context_prefix,
     inject_report_messages,
     report_display_names,
@@ -14,7 +13,6 @@ from .parts import REFLECTION_SYSTEM_PROMPT, SUMMARY_SYSTEM_PROMPT
 __all__ = [
     "build_recall_rounds",
     "build_researcher_trigger",
-    "collect_reports",
     "context_prefix",
     "inject_report_messages",
     "report_display_names",

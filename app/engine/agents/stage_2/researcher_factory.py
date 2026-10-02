@@ -17,12 +17,19 @@ from typing import Literal
 from app.llm.core.types import Message, Role
 import logging
 from app.engine.agents.utils.agent_config import load_agent_config, resolve_company_name
-from app.engine.orchestrator.invoker import run_agent_turn
+from app.engine.orchestrator.invoker import run_node_turn
 
 logger = logging.getLogger("default")
 
-# Stage 2 内部报告 key — 防止同轮泄漏
-_STAGE2_REPORT_KEYS = frozenset({"bull_researcher", "bear_researcher"})
+# 消费集声明化（P3 §4.6）：基础报告 = 工作流 stage.inputs 的 analyst_reports 槽
+# （executor 阶段开始快照写入 state["_stage_inputs"]；黑名单动态收集已退役）
+
+
+def _stage_reports(state) -> dict:
+    """本阶段 analyst_reports 槽取值（缺声明/缺键 → 空 dict，prompt 走无报告分支）"""
+    resolved = state.get("_stage_inputs") or {}
+    return resolved.get("analyst_reports") or {}
+
 
 # ── 辩手配置表 ──────────────────────────────────────────────────────────────
 
@@ -79,72 +86,104 @@ _SIDE_CONFIG = {
     },
 }
 
+# 内置侧的「被称呼名」（group 模式注入历史时对内置对手的称呼；取对方视角的
+# counterpart_label：bull 被称为看涨分析师、bear 被称为看跌分析师，与缺省
+# 路径文案口径一致——缺省路径文案取自己条目的 counterpart_role_label）
+_BUILTIN_SIDE_TAGS = {"bull": "看涨分析师", "bear": "看跌分析师"}
 
 
-def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
+def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull", *, group=None):
     """
     创建 Stage 2 研究员节点（看涨/看跌辩手）。
 
     Args:
-        llm: LangChain LLM 实例
-        memory: 金融记忆实例（目前未在辩手逻辑中使用，保留接口兼容）
+        llm: LLM 客户端实例
+        memory: 金融记忆实例
         side: "bull" 或 "bear"
+        group: 辩论组拓扑上下文（P4-a N 方泛化，orchestrator.workflow.debate.DebateGroup）。
+            缺省 None = 内置双方行为（per_turn=2 / investment_debate_state / investment 视图）；
+            传入时 per_turn = len(sides)、state_key / 报告视图 / 对手集合按组拓扑驱动，
+            内置对手的文案仍查本表（与缺省路径逐字一致）
 
     Returns:
-        可注册到 LangGraph 的节点函数
+        节点执行函数
     """
     if side not in _SIDE_CONFIG:
         raise ValueError(f"未知的辩手方向: {side!r}，期望 'bull' 或 'bear'")
 
     cfg = _SIDE_CONFIG[side]
-    counter_cfg = _SIDE_CONFIG[cfg["counterpart"]]
     emoji = cfg["emoji"]
     label = cfg["label"]
+
+    # 组拓扑参数（group 缺省 = 内置双方硬编码值，两条路径行为等价）
+    state_key = group.state_key if group is not None else "investment_debate_state"
+    per_turn = group.per_turn if group is not None else 2
+
+    # 历史注入对手列表：内置侧查表保持措辞逐字一致，自定义侧用组内显示标签
+    if group is not None:
+        opponents = [
+            (
+                opp_key,
+                (
+                    f"【回顾】这是对手（{_BUILTIN_SIDE_TAGS[opp_key]}）在【{{phase}}】提出的观点："
+                    if opp_key in _SIDE_CONFIG
+                    else f"【回顾】这是对手（{opp_label}）在【{{phase}}】提出的观点："
+                ),
+            )
+            for opp_key, opp_label in group.opponents_of(cfg["round_key"])
+        ]
+        opponent_keys = [opp_key for opp_key, _ in opponents]
+    else:
+        counter_cfg = _SIDE_CONFIG[cfg["counterpart"]]
+        opponents = [
+            (
+                counter_cfg["round_key"],
+                f"【回顾】这是{cfg['counterpart_role_label']}在【{{phase}}】提出的观点：",
+            )
+        ]
+        opponent_keys = [counter_cfg["round_key"]]
 
     async def researcher_node(state) -> dict:
         logger.debug(f"{emoji} [DEBUG] ===== {label}研究员节点开始 =====")
 
-        investment_debate_state = state.get("investment_debate_state", {})
+        investment_debate_state = state.get(state_key, {})
 
         try:
             # 初始化多轮状态（rounds 单一数据源，轮次/报告经派生视图读取）
-            from app.engine.orchestrator.state import (
-                current_round_index as calc_round_index,
-                investment_report_content as view_report,
-            )
+            from app.engine.orchestrator.state import current_round_index as calc_round_index
 
-            current_round_index = calc_round_index(investment_debate_state, 2)
+            if group is not None:
+                view_report = group.report_view
+            else:
+                from app.engine.orchestrator.state import investment_report_content as view_report
+
+            current_round_index = calc_round_index(investment_debate_state, per_turn)
             max_rounds = investment_debate_state.get("max_rounds", 2)
             rounds = investment_debate_state.get("rounds", [])
 
-            # ── 1. 获取所有第一阶段基础报告 ──────────────────────────────
-            from app.engine.prompts.builder import collect_reports, report_display_names
+            # ── 1. 获取所有第一阶段基础报告（stage.inputs 声明化消费）────
+            from app.engine.prompts.builder import report_display_names
 
-            all_reports = collect_reports(state, exclude_ids=_STAGE2_REPORT_KEYS)
+            all_reports = _stage_reports(state)
 
             display_names = report_display_names()
 
             # ── 2. 获取股票信息 ─────────────────────────────────────────
             ticker = state.get("company_of_interest", "Unknown")
             from app.utils.stock_utils import StockUtils
+
             market_info = StockUtils.get_market_info(ticker)
 
             company_name = await resolve_company_name(ticker, market_info)
             currency = market_info["currency_name"]
             currency_symbol = market_info["currency_symbol"]
 
-            logger.info(
-                f"{emoji} [{label}研究员] 当前轮次: "
-                f"{current_round_index}/{max_rounds}, 股票: {company_name}"
-            )
+            logger.info(f"{emoji} [{label}研究员] 当前轮次: {current_round_index}/{max_rounds}, 股票: {company_name}")
 
             # ── 3. 构建 System Prompt ──────────────────────────────────
             base_prompt = load_agent_config(cfg["slug"])
             if not base_prompt:
-                error_msg = (
-                    f"❌ 未找到 {cfg['slug']} 智能体配置，"
-                    "请检查 phase2_agents_config.yaml 文件。"
-                )
+                error_msg = f"❌ 未找到 {cfg['slug']} 智能体配置，请检查 agent_specs 智能体库（DB）。"
                 logger.error(error_msg)
                 raise ValueError(error_msg)
 
@@ -161,7 +200,8 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             # ── 4. 注入 Stage 1 报告（<report> 边界符包裹，防止 prompt 注入）──
             messages.extend(
                 inject_report_messages(
-                    all_reports, display_names,
+                    all_reports,
+                    display_names,
                     header_template="这是【{name}】：",
                 )
             )
@@ -169,29 +209,20 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             # ── 4.5 历史记忆注入（写读对称：反思写入的相似情景经验） ──
             from app.engine.agents.utils.memory import fetch_memory_brief
 
-            memory_brief = await fetch_memory_brief(
-                memory, "\n\n".join(r for r in all_reports.values() if r)
-            )
+            memory_brief = await fetch_memory_brief(memory, "\n\n".join(r for r in all_reports.values() if r))
             if memory_brief and not memory_brief.startswith("暂无"):
-                messages.append(
-                    Message(role=Role.USER, content=f"=== 历史交易反思（类似情景） ===\n{memory_brief}")
-                )
+                messages.append(Message(role=Role.USER, content=f"=== 历史交易反思（类似情景） ===\n{memory_brief}"))
 
             # ── 5. 注入辩论历史上下文 ──────────────────────────────────
             if current_round_index > 0:
-                logger.info(
-                    f"{emoji} [{label}研究员] 注入历史辩论上下文 "
-                    f"(Rounds 0 to {current_round_index - 1})"
-                )
+                logger.info(f"{emoji} [{label}研究员] 注入历史辩论上下文 (Rounds 0 to {current_round_index - 1})")
                 messages.extend(
                     build_recall_rounds(
-                        rounds, current_round_index,
+                        rounds,
+                        current_round_index,
                         self_key=cfg["round_key"],
                         self_prefix_fmt=f"【回顾】这是我在【{{phase}}】建立的{cfg['self_role_label']}：",
-                        opponents=[(
-                            counter_cfg["round_key"],
-                            f"【回顾】这是{cfg['counterpart_role_label']}在【{{phase}}】提出的观点：",
-                        )],
+                        opponents=opponents,
                     )
                 )
 
@@ -199,23 +230,31 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             has_counter_latest = bool(
                 current_round_index > 0
                 and current_round_index - 1 < len(rounds)
-                and counter_cfg["round_key"] in rounds[current_round_index - 1]
+                and any(k in rounds[current_round_index - 1] for k in opponent_keys)
             )
             trigger_msg = build_researcher_trigger(
-                cfg["trigger_initial"], current_round_index, max_rounds,
+                cfg["trigger_initial"],
+                current_round_index,
+                max_rounds,
                 counter_latest=has_counter_latest,
             )
 
-            # ── 7. 执行推理（统一会话循环：压缩/截断恢复/fallback/事件流）──
-            content = await run_agent_turn(
-                llm, messages, trigger_msg,
+            # ── 7. 执行推理（统一会话循环 + submit_report 提交协议）──
+            #    debater 工具白名单 = 仅 submit_report（纯提交、无信息获取，
+            #    同轮辩手能力严格对齐）；提交内容落 rounds[side]，不写黑板主键
+            submission = await run_node_turn(
+                llm,
+                messages,
+                trigger_msg,
                 system=system,
+                node_type="debater",
                 task_id=state.get("task_id") or "",
                 agent_key=f"researcher_{side}",
-                phase="research",
+                phase=group.event_phase if group is not None else "research",
                 user_id=state.get("user_id") or "",
                 event_sink=state.get("_event_sink"),
             )
+            content = submission.content
 
             # H-2: 空响应降级 — LLM 返回空内容时使用占位文本
             if not content.strip():
@@ -225,11 +264,9 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             # 清洗内容：去除一级标题和含"分析报告"的二级标题
             lines = content.strip().split("\n")
             cleaned_lines = [
-                line for line in lines
-                if not (
-                    line.strip().startswith("# ")
-                    or (line.strip().startswith("## ") and "分析报告" in line)
-                )
+                line
+                for line in lines
+                if not (line.strip().startswith("# ") or (line.strip().startswith("## ") and "分析报告" in line))
             ]
             content = "\n".join(cleaned_lines).strip()
 
@@ -237,27 +274,21 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             from app.engine.orchestrator.state import append_round
 
             new_investment_debate_state = dict(investment_debate_state)
-            append_round(new_investment_debate_state, cfg["round_key"], content, 2)
+            append_round(new_investment_debate_state, cfg["round_key"], content, per_turn)
             report_content = view_report(new_investment_debate_state, side)
 
             # ── 9. 保存报告文件 ────────────────────────────────────────
             try:
                 from app.core.config import settings
                 import os
+
                 report_dir = os.path.join(settings.runtime_dir, "results")
                 os.makedirs(report_dir, exist_ok=True)
                 safe_name = re.sub(r'[\\/:*?"<>|]', "_", company_name or "unknown")
-                filename = os.path.join(
-                    report_dir, f"{cfg['report_file_prefix']}_{safe_name}.md"
-                )
+                filename = os.path.join(report_dir, f"{cfg['report_file_prefix']}_{safe_name}.md")
                 tmp_filename = filename + ".tmp"
                 with open(tmp_filename, "w", encoding="utf-8") as f:
-                    f.write(
-                        cfg["file_header"].format(
-                            company_name=company_name, ticker=ticker
-                        )
-                        + "\n\n"
-                    )
+                    f.write(cfg["file_header"].format(company_name=company_name, ticker=ticker) + "\n\n")
                     f.write(f"> 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                     f.write(f"> 货币单位：{currency}\n\n")
                     f.write(report_content)
@@ -269,22 +300,22 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull"):
             # ── 10. 状态返回（history/current_response 等由 export_legacy_state 派生）──
 
             return {
-                "investment_debate_state": new_investment_debate_state,
+                state_key: new_investment_debate_state,
                 "reports": {cfg["report_key"]: report_content},
             }
 
         except Exception as e:
-            logger.error(
-                f"{emoji} ❌ [{label}研究员] 节点执行异常: {e}", exc_info=True
-            )
+            logger.error(f"{emoji} ❌ [{label}研究员] 节点执行异常: {e}", exc_info=True)
             error_content = f"❌ {label}研究员节点执行失败：{e}"
             new_investment_debate_state = dict(investment_debate_state)
-            new_investment_debate_state.update({
-                "current_response": error_content,
-                "latest_speaker": cfg["speaker"],
-            })
+            new_investment_debate_state.update(
+                {
+                    "current_response": error_content,
+                    "latest_speaker": cfg["speaker"],
+                }
+            )
             return {
-                "investment_debate_state": new_investment_debate_state,
+                state_key: new_investment_debate_state,
                 "reports": {cfg["report_key"]: error_content},
             }
 

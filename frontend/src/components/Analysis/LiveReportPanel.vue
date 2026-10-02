@@ -6,9 +6,20 @@
           v-for="r in store.reports"
           :key="r.key"
           :name="r.key"
-          :label="r.title"
           lazy
         >
+          <template #label>
+            <span class="report-tab-label">
+              {{ r.title }}
+              <el-tooltip
+                v-if="r.submission === 'fallback_text'"
+                content="模型未调用提交工具，正文由回复文本降级生成"
+                placement="bottom"
+              >
+                <el-tag size="small" type="warning" effect="plain" class="fallback-tag">降级</el-tag>
+              </el-tooltip>
+            </span>
+          </template>
           <!-- eslint-disable-next-line vue/no-v-html -- DOMPurify 消毒后的 markdown HTML（memoize 缓存） -->
           <div class="report-body md-bubble chat-md" v-html="cachedMarkdown(r.content)"></div>
         </el-tab-pane>
@@ -72,6 +83,16 @@ const emptyText = computed(() =>
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+.report-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fallback-tag {
+  transform: scale(0.85);
 }
 
 .report-body {

@@ -304,6 +304,14 @@ async def main():
     from app.core.logging_config import setup_logging
     setup_logging()
 
+    # 工作流/智能体种子同步（幂等；失败不阻断——store 读取自带种子降级）
+    try:
+        from app.engine.orchestrator.workflow import seeder as workflow_seeder
+
+        workflow_seeder.sync_all()
+    except Exception as e:
+        logger.warning(f"⚠️ 工作流种子同步失败（读取将降级本地种子）: {e}", exc_info=True)
+
     # 创建并启动Worker
     worker = AnalysisWorker()
 

@@ -18,7 +18,7 @@ def main():
     # 阶段1智能体需从配置文件加载，避免硬编码
     selected_analysts = [a.get("slug") for a in DynamicAnalystFactory.get_all_agents() if a.get("slug")]
     if not selected_analysts:
-        raise ValueError("未找到阶段1智能体配置，请先在 phase1_agents_config.yaml 中添加。")
+        raise ValueError("未找到阶段1智能体配置，请检查 agent_specs 智能体库（DB）。")
 
     # Initialize with custom config
     ta = AnalysisRuntime(selected_analysts=selected_analysts, debug=True, config=config)

@@ -99,7 +99,8 @@ class TestPipelineOrderingRealLLM:
             )
             return await run_pipeline(
                 deps, "000001", "2024-12-31",
-                selected_analysts=["market"],
+                # 市场技术 + 短线资金 = required 槽（裁掉任一会被编译期拒绝）
+                selected_analysts=["market", "short_term_capital"],
             )
 
         state = asyncio.run(_run())

@@ -9,10 +9,16 @@ import { request, type ApiResponse } from './request'
 export interface SingleAnalysisRequest {
   symbol?: string  // 主字段：6位股票代码
   stock_code?: string  // 兼容字段（已废弃）
+  /** 工作流通用化：任务级工作流（缺省 = 默认工作流） */
+  workflow_slug?: string
   parameters?: {
     market_type?: string
     analysis_date?: string
     selected_analysts?: string[]
+    /** 工作流通用化：选中节点（优先于 selected_analysts） */
+    selected_nodes?: string[]
+    /** 工作流通用化：optional 阶段开关/轮次（优先于 phaseN_* 旧映射） */
+    stage_overrides?: Record<string, { enabled?: boolean; rounds?: number }>
     custom_prompt?: string
     include_sentiment?: boolean
     include_risk?: boolean

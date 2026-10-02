@@ -1,8 +1,12 @@
 """
 测试 Reflector 反思模块（agents/postprocess/reflector.py，async 统一调用路径）
 
-业务逻辑测试：测试 prompt 构造和状态提取逻辑（记录型 BaseLLMClient 替身驱动真实
-run_agent_turn → run_conversation 代码路径，非 mock 框架）
+P4-b 起反思为声明驱动单入口 reflect_component（旧 5 个按内置槽读死键的专用
+方法已删除；各槽位输入派生的等价测试见 tests/engine/workflow/
+test_p4b_terminal_contract.py 的 TestReflectionInput / TestReflectAndRemember）。
+
+业务逻辑测试：prompt 构造、situation 注入、空输入/失败降级（记录型
+BaseLLMClient 替身驱动真实 run_agent_turn → run_conversation 代码路径）
 LLM 集成测试：标记 @pytest.mark.ai，使用真实 API
 """
 
@@ -86,13 +90,11 @@ class RecordingLLM(BaseLLMClient):
         self.calls = []
         self.response_content = response_content
 
-    async def chat(self, messages, *, system=None, tools=None, max_tokens=4096,
-                   temperature=None, **kwargs):
+    async def chat(self, messages, *, system=None, tools=None, max_tokens=4096, temperature=None, **kwargs):
         self.calls.append({"messages": list(messages), "system": system})
         return _chat_response(self.response_content)
 
-    async def chat_stream(self, messages, *, system=None, tools=None, max_tokens=4096,
-                          temperature=None, **kwargs):
+    async def chat_stream(self, messages, *, system=None, tools=None, max_tokens=4096, temperature=None, **kwargs):
         resp = await self.chat(messages, system=system)
         yield StreamEvent("message", response=resp)
 
@@ -150,14 +152,17 @@ class TestExtractCurrentSituation:
         assert result == ""
 
 
-class TestReflectOnComponent:
-    """测试组件反思（使用 RecordingLLM 验证 prompt 构造）"""
+class TestReflectComponent:
+    """声明驱动单入口（P4-b）：prompt 构造 / situation 注入 / 降级语义"""
 
     async def test_calls_llm_with_correct_structure(self):
         llm = RecordingLLM()
+        memory = RecordingMemory()
         r = Reflector(llm)
-        await r._reflect_on_component("BULL", "看涨报告", "市场情况", "盈利5%")
+        state = {"market_report": "市场情况"}
+        wrote = await r.reflect_component("BULL", "看涨报告", state, "盈利5%", memory)
 
+        assert wrote is True
         assert len(llm.calls) == 1
         call = llm.calls[0]
         # system 走独立参数（新层契约），包含静态反思 prompt
@@ -169,81 +174,62 @@ class TestReflectOnComponent:
         assert msg.role == Role.USER
         assert "盈利5%" in msg.content
         assert "看涨报告" in msg.content
-
-
-class TestReflectBullResearcher:
-    async def test_extracts_bull_history_and_updates_memory(self, sample_agent_state):
-        llm = RecordingLLM()
-        memory = RecordingMemory()
-        r = Reflector(llm)
-        await r.reflect_bull_researcher(sample_agent_state, "盈利5%", memory)
-
-        assert len(llm.calls) == 1
+        assert "市场情况" in msg.content  # situation（*_report 顶层键）注入同一 prompt
+        # 反思结论写入记忆库（situation, lesson) 二元组
         assert len(memory.situations) == 1
         assert isinstance(memory.situations[0], tuple)
+        assert memory.situations[0][1] == "反思结果：需要改进风险控制"
 
-    async def test_uses_investment_debate_state(self, sample_agent_state):
+    async def test_component_key_used_for_token_attribution(self):
+        """component_key 进入 agent_key（自定义节点 = slug，token 用量归属可区分）"""
         llm = RecordingLLM()
         r = Reflector(llm)
-        await r.reflect_bull_researcher(sample_agent_state, "盈利5%", RecordingMemory())
+        await r.reflect_component("macro-debater", "宏观发言史", {}, "盈利5%", RecordingMemory())
+        assert len(llm.calls) == 1
 
-        human_msg = llm.calls[0]["messages"][0].content
-        assert "看好市场" in human_msg
-
-
-class TestReflectBearResearcher:
-    async def test_extracts_bear_history(self, sample_agent_state):
+    async def test_empty_report_skips(self):
+        """空输入跳过（P4-b 行为变更：不再对空历史发起无意义反思调用）"""
         llm = RecordingLLM()
         r = Reflector(llm)
-        await r.reflect_bear_researcher(sample_agent_state, "亏损3%", RecordingMemory())
+        wrote = await r.reflect_component("BULL", "", {}, "盈利5%", RecordingMemory())
+        assert wrote is False
+        assert llm.calls == []
 
-        human_msg = llm.calls[0]["messages"][0].content
-        assert "看空市场" in human_msg
-
-
-class TestReflectTrader:
-    async def test_extracts_trader_investment_plan(self, sample_agent_state):
-        sample_agent_state["trader_investment_plan"] = "建议买入100股"
+    async def test_none_memory_skips(self):
         llm = RecordingLLM()
         r = Reflector(llm)
-        await r.reflect_trader(sample_agent_state, "盈利5%", RecordingMemory())
+        wrote = await r.reflect_component("BULL", "看涨报告", {}, "盈利5%", None)
+        assert wrote is False
+        assert llm.calls == []
 
-        human_msg = llm.calls[0]["messages"][0].content
-        assert "建议买入100股" in human_msg
+    async def test_llm_failure_returns_false_without_write(self):
+        """反思 LLM 调用失败：返回 False、不写记忆（异常不外抛）"""
 
+        class FailingLLM(RecordingLLM):
+            async def chat(self, messages, **kwargs):
+                raise RuntimeError("provider down")
 
-class TestReflectInvestJudge:
-    async def test_extracts_judge_decision_from_investment(self, sample_agent_state):
-        llm = RecordingLLM()
+        llm = FailingLLM()
+        memory = RecordingMemory()
         r = Reflector(llm)
-        await r.reflect_invest_judge(sample_agent_state, "盈利5%", RecordingMemory())
-
-        human_msg = llm.calls[0]["messages"][0].content
-        assert "裁决结果" in human_msg
-
-
-class TestReflectRiskManager:
-    async def test_extracts_judge_decision_from_risk(self, sample_agent_state):
-        llm = RecordingLLM()
-        r = Reflector(llm)
-        await r.reflect_risk_manager(sample_agent_state, "亏损3%", RecordingMemory())
-
-        human_msg = llm.calls[0]["messages"][0].content
-        assert "风控裁决" in human_msg
+        wrote = await r.reflect_component("BULL", "看涨报告", {}, "盈利5%", memory)
+        assert wrote is False
+        assert memory.situations == []
 
 
 class TestReflectorWithRealLLM:
     """使用真实 LLM API 的反思测试（app/llm 新层客户端）"""
 
     @pytest.mark.ai
-    async def test_reflect_bull_with_real_llm(self, sample_agent_state):
+    async def test_reflect_component_with_real_llm(self, sample_agent_state):
         llm = _build_real_llm_client()
         if llm is None:
             pytest.skip("无可用 LLM 凭据（DEEPSEEK_API_KEY 或 ARK_API_KEY）")
 
         r = Reflector(llm)
         memory = RecordingMemory()
-        await r.reflect_bull_researcher(sample_agent_state, "盈利5%", memory)
+        wrote = await r.reflect_component("BULL", "看涨发言史：看好市场", sample_agent_state, "盈利5%", memory)
 
+        assert wrote is True
         assert len(memory.situations) == 1
         assert len(memory.situations[0]) == 2

@@ -4,10 +4,8 @@
 # data-access-exempt: 系统配置导入导出（system_configs 应用层集合）
 
 import logging
-from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-import yaml
 
 from app.core.database import get_mongo_db
 from app.models.config import (
@@ -35,7 +33,7 @@ EXPORTABLE_COLLECTIONS = [
     "platform_configs",
 ]
 
-# Agent 配置阶段与文件名映射
+# Agent 配置阶段清单（值为旧 YAML 文件名，仅作历史标识；读写已切 agent_specs 集合）
 AGENT_PHASE_FILES = {
     1: "phase1_agents_config.yaml",
     2: "phase2_agents_config.yaml",
@@ -331,51 +329,37 @@ class SystemService:
             for k, v in settings.items()
         }
 
-    @staticmethod
-    def _get_agent_config_dir() -> Path:
-        """获取 Agent 配置文件目录"""
-        from app.core.env import get_env
-        env_dir = get_env("AGENT_CONFIG_DIR")
-        if env_dir:
-            path = Path(env_dir)
-            if path.exists():
-                return path
-        project_root = Path(__file__).resolve().parents[3]
-        return project_root / "config" / "agents"
-
     def _read_agent_yaml(self, phase: int) -> Optional[Dict[str, Any]]:
-        """读取指定阶段的 Agent YAML 配置"""
-        filename = AGENT_PHASE_FILES.get(phase)
-        if not filename:
-            return None
-        config_path = self._get_agent_config_dir() / filename
-        if not config_path.exists():
-            logger.warning(f"Agent 配置文件不存在: {config_path}")
+        """读取指定阶段的智能体库（agent_specs 集合；返回值保持导出格式兼容）"""
+        if phase not in AGENT_PHASE_FILES:
             return None
         try:
-            with config_path.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            return data
+            from app.engine.orchestrator.workflow import store
+
+            specs = store.list_agent_specs(phase)
+            if not specs:
+                return None
+            return {"customModes": specs}
         except Exception as e:
-            logger.error(f"读取 Agent 配置失败 [{config_path}]: {e}")
+            logger.error(f"读取智能体库失败 [phase={phase}]: {e}")
             return None
 
     def _write_agent_yaml(self, phase: int, data: Dict[str, Any]) -> bool:
-        """写入指定阶段的 Agent YAML 配置"""
-        filename = AGENT_PHASE_FILES.get(phase)
-        if not filename:
+        """写入指定阶段的智能体库（全量覆盖语义见 store.replace_phase_agent_specs）"""
+        if phase not in AGENT_PHASE_FILES:
             return False
-        config_path = self._get_agent_config_dir() / filename
         try:
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = config_path.with_suffix(".tmp")
-            with tmp_path.open("w", encoding="utf-8") as f:
-                yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
-            tmp_path.replace(config_path)
-            logger.info(f"Agent 配置已写入: {config_path}")
+            from app.engine.orchestrator.workflow import store
+
+            modes = data.get("customModes") if isinstance(data, dict) else None
+            if not isinstance(modes, list):
+                logger.warning(f"导入 Agent 配置 phase={phase} 缺少 customModes 列表，跳过")
+                return False
+            store.replace_phase_agent_specs(phase, modes)
+            logger.info(f"Agent 配置已写入 agent_specs (phase={phase})")
             return True
         except Exception as e:
-            logger.error(f"写入 Agent 配置失败 [{config_path}]: {e}")
+            logger.error(f"写入智能体库失败 [phase={phase}]: {e}")
             return False
 
     # ---------- 导出 ----------
@@ -612,19 +596,17 @@ class SystemService:
     async def migrate_legacy_config(self) -> bool:
         """从 YAML/JSON 文件迁移配置到数据库（内联实现，不依赖外部脚本）"""
         try:
-            project_root = Path(__file__).resolve().parents[3]
             migrated_items: List[str] = []
 
-            # 1. 迁移 config/agents/*.yaml → 确认文件存在（YAML 本身就是 Agent 的真相来源）
-            agents_dir = project_root / "config" / "agents"
-            if agents_dir.exists():
-                phase_count = 0
-                for phase in AGENT_PHASE_FILES:
-                    yaml_path = agents_dir / AGENT_PHASE_FILES[phase]
-                    if yaml_path.exists():
-                        phase_count += 1
-                if phase_count:
-                    migrated_items.append(f"agent YAML 已就绪 ({phase_count} 个阶段)")
+            # 1. 智能体库：seed-to-DB 后由 seeder 负责（启动时幂等同步，
+            #    首次迁移保留旧 YAML 用户修改），此处仅确认集合注入状态
+            try:
+                from app.engine.orchestrator.workflow import seeder
+
+                seeder.sync_all()
+                migrated_items.append("agent_specs 种子已同步")
+            except Exception as e:
+                logger.warning(f"智能体库种子同步检查失败: {e}")
 
             # 2. 刷新
             await self._post_import_reload()

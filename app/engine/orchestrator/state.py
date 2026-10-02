@@ -10,7 +10,7 @@
 - 派生视图对旧形状输入兼容（测试与历史数据可直接喂入）。
 """
 
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Callable, Dict, List, Optional, TypedDict
 
 import logging
 
@@ -106,6 +106,16 @@ _RISK_SECTION_TITLES = {
     "neutral": ("## 初始观点：中性策略", "## 第 {round} 轮辩论：中性派观点"),
 }
 
+# 内置侧的 argument 标签权威表（side_key → 标签）：编译期记忆反思声明
+# （MemoryReflection.label）与下方通用侧历史视图共用同一口径
+SIDE_ARGUMENT_TAGS: Dict[str, str] = {
+    "bull": _INV_SIDE_ARGS["bull"][0],
+    "bear": _INV_SIDE_ARGS["bear"][0],
+    "risky": _RISK_SIDE_ARGS["risky"][0],
+    "safe": _RISK_SIDE_ARGS["safe"][0],
+    "neutral": _RISK_SIDE_ARGS["neutral"][0],
+}
+
 
 # ── 通用派生视图 ────────────────────────────────────────────────────────────
 
@@ -132,11 +142,7 @@ def append_round(ds: Dict[str, Any], side_key: str, content: str, per_turn: int)
 
 
 def _argument(side_key: str, arg_tag: str, round_idx: int, content: str) -> str:
-    prefix = (
-        f"# 【{arg_tag} - 初始报告】"
-        if round_idx == 0
-        else f"# 【{arg_tag} - 第 {round_idx} 轮辩论】"
-    )
+    prefix = f"# 【{arg_tag} - 初始报告】" if round_idx == 0 else f"# 【{arg_tag} - 第 {round_idx} 轮辩论】"
     return f"{prefix}\n{content}"
 
 
@@ -261,6 +267,55 @@ def risk_current_response(ds: Optional[Dict[str, Any]], side: str) -> str:
     return _latest_content(ds, side)
 
 
+# ── 通用 N 方辩论视图（P4-a：自定义辩论组，side 集合不受内置两/三方限制）──
+
+
+def _generic_report_from(section_label: str, ds: Optional[Dict[str, Any]], side_key: str) -> str:
+    """通用分节模板：初始轮「初始观点」/ 辩论轮「第 N 轮辩论」，标签 = side 显示名"""
+    if not ds:
+        return ""
+    parts: List[str] = []
+    for i, content in enumerate(_side_contents(ds, side_key)):
+        title = f"## 初始观点：{section_label}" if i == 0 else f"## 第 {i} 轮辩论：{section_label} 发言"
+        parts.append(f"\n\n{title}\n\n{content}")
+    return "".join(parts)
+
+
+def generic_report_content(ds: Optional[Dict[str, Any]], side: str) -> str:
+    """无标签回退版（REPORT_VIEWS 注册占位；side_key 原样作标签）。
+
+    正常路径走 make_generic_report_content 按 sides 元数据物化带标签视图。
+    """
+    return _generic_report_from(side, ds, side)
+
+
+def make_generic_report_content(side_labels: Dict[str, str]) -> Callable[[Optional[Dict], str], str]:
+    """通用视图工厂：side_key → 显示标签（辩手 node_name），闭包物化视图函数。
+
+    未知 side_key 回退 side_key 原文作标签（防御性，不应发生——sides 由编译期冻结）。
+    """
+    labels = dict(side_labels)
+
+    def view(ds: Optional[Dict[str, Any]], side_key: str) -> str:
+        return _generic_report_from(labels.get(side_key, side_key), ds, side_key)
+
+    return view
+
+
+def side_history_labeled(ds: Optional[Dict[str, Any]], side_key: str, label: str) -> str:
+    """通用侧发言史（P4-b 反思输入）：argument 前缀用显式标签。
+
+    内置侧传 SIDE_ARGUMENT_TAGS 对应标签时与 investment/risk_side_history
+    逐字一致（同一 _side_argument 派生路径）；自定义辩论侧用 node_name 作标签，
+    使回测反思对 N 方辩论组同样可用。
+    """
+    if not ds:
+        return ""
+    side_args = {side_key: (label, "", "")}
+    parts = _side_argument(side_args, side_key, ds)
+    return "".join(("\n" + p if i else p) for i, p in enumerate(parts))
+
+
 # ── 初始状态构造 ────────────────────────────────────────────────────────────
 
 
@@ -281,12 +336,8 @@ def create_initial_state(
         "trade_date": str(trade_date),
         "task_id": task_id,
         "user_id": user_id or "",  # 任务发起者（token 用量统计归属）
-        "investment_debate_state": InvestmentDebateState(
-            rounds=[], count=0, max_rounds=2, judge_decision=""
-        ),
-        "risk_debate_state": RiskDebateState(
-            rounds=[], count=0, max_rounds=3, latest_speaker="", judge_decision=""
-        ),
+        "investment_debate_state": InvestmentDebateState(rounds=[], count=0, max_rounds=2, judge_decision=""),
+        "risk_debate_state": RiskDebateState(rounds=[], count=0, max_rounds=3, latest_speaker="", judge_decision=""),
         "reports": {},
         "errors": [],
         # Trader / Judge / Summary 输出字段（与旧 AgentState 一致）
@@ -328,15 +379,17 @@ def export_legacy_state(state: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(ids, dict):
         legacy_ids = dict(ids)
         if ids.get("rounds"):
-            legacy_ids.update({
-                "history": investment_history(ids),
-                "current_response": investment_current_response(ids),
-                "current_round_index": current_round_index(ids, 2),
-                "bull_history": investment_side_history(ids, "bull"),
-                "bear_history": investment_side_history(ids, "bear"),
-                "bull_report_content": investment_report_content(ids, "bull"),
-                "bear_report_content": investment_report_content(ids, "bear"),
-            })
+            legacy_ids.update(
+                {
+                    "history": investment_history(ids),
+                    "current_response": investment_current_response(ids),
+                    "current_round_index": current_round_index(ids, 2),
+                    "bull_history": investment_side_history(ids, "bull"),
+                    "bear_history": investment_side_history(ids, "bear"),
+                    "bull_report_content": investment_report_content(ids, "bull"),
+                    "bear_report_content": investment_report_content(ids, "bear"),
+                }
+            )
         else:
             legacy_ids.setdefault("history", "")
             legacy_ids.setdefault("current_response", "")
@@ -355,22 +408,15 @@ def export_legacy_state(state: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(rds, dict):
         legacy_rds = dict(rds)
         if rds.get("rounds"):
-            legacy_rds.update({
-                "history": risk_history(rds),
-                "current_round_index": current_round_index(rds, 3),
-                **{
-                    _RISK_SIDE_ARGS[s][3]: risk_current_response(rds, s)
-                    for s in _RISK_SIDE_ORDER
-                },
-                **{
-                    _RISK_SIDE_ARGS[s][1]: risk_side_history(rds, s)
-                    for s in _RISK_SIDE_ORDER
-                },
-                **{
-                    _RISK_SIDE_ARGS[s][2]: risk_report_content(rds, s)
-                    for s in _RISK_SIDE_ORDER
-                },
-            })
+            legacy_rds.update(
+                {
+                    "history": risk_history(rds),
+                    "current_round_index": current_round_index(rds, 3),
+                    **{_RISK_SIDE_ARGS[s][3]: risk_current_response(rds, s) for s in _RISK_SIDE_ORDER},
+                    **{_RISK_SIDE_ARGS[s][1]: risk_side_history(rds, s) for s in _RISK_SIDE_ORDER},
+                    **{_RISK_SIDE_ARGS[s][2]: risk_report_content(rds, s) for s in _RISK_SIDE_ORDER},
+                }
+            )
         else:
             for side in _RISK_SIDE_ORDER:
                 _, hk, rk, ck = _RISK_SIDE_ARGS[side]

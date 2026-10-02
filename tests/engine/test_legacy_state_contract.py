@@ -59,6 +59,9 @@ TOP_LEVEL_KEYS = {
     "trader_investment_plan",
     "investment_plan",
     "final_trade_decision",
+    # 2026-09 编排重构：run_pipeline 出口必含执行计划快照（compile 后写入；
+    # 服务层提取存任务文档 workflow_snapshot 字段后对外剥离）
+    "_plan_snapshot",
 }
 
 
@@ -102,8 +105,23 @@ class TestExportedLegacyContract:
     """出口契约：export_legacy_state 重建的旧键形状与旧版完全一致"""
 
     def test_top_level_keys(self, state):
+        # 快照键在 run_pipeline 出口必在（本 fixture 为初始 state，显式注入后再断言全集）
+        state["_plan_snapshot"] = {
+            "workflow_slug": "default-4stage",
+            "spec_version": 1,
+            "spec_hash": "sha256:test",
+            "params": {},
+            "compiled_at": "2026-09-14T00:00:00+00:00",
+        }
         exported = export_legacy_state(state)
         assert TOP_LEVEL_KEYS <= set(exported.keys())
+
+    def test_plan_snapshot_passthrough(self, state):
+        """执行计划快照原样透传（浅拷贝导出，内容不被 export 改写）"""
+        snap = {"workflow_slug": "default-4stage", "spec_hash": "sha256:x", "params": {"a": 1}, "compiled_at": "t"}
+        state["_plan_snapshot"] = snap
+        exported = export_legacy_state(state)
+        assert exported["_plan_snapshot"] == snap
 
     def test_investment_debate_keys(self, state):
         exported = export_legacy_state(state)

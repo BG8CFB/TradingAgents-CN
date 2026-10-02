@@ -7,10 +7,8 @@ Agent 配置与工具函数
 import os
 import re
 import tempfile
-import yaml
 from typing import Optional
 
-from app.core.env import get_env
 import logging
 from app.utils.stock_utils import StockUtils
 
@@ -89,46 +87,10 @@ def build_stage3_report_path(task_id: Optional[str], ticker: str, report_slug: s
 
 
 def _find_agent_entry(slug: str) -> Optional[dict]:
-    """在 phase1-3 YAML 配置中按 slug 查找智能体条目，未找到返回 None。"""
-    env_dir = get_env("AGENT_CONFIG_DIR")
-    agents_dirs = []
+    """在智能体库（agent_specs 集合，DB 权威 + 种子降级）中按 slug 查找，未找到返回 None。"""
+    from app.engine.orchestrator.workflow import store
 
-    if env_dir and os.path.exists(env_dir):
-        agents_dirs.append(env_dir)
-    else:
-        # 从本文件（app/engine/agents/utils/）向上探测项目根的 config/agents，
-        # 避免固定层级 dirname 在不同安装布局下定位到错误目录
-        probe = os.path.dirname(os.path.abspath(__file__))
-        for _ in range(8):
-            candidate = os.path.join(probe, "config", "agents")
-            if os.path.exists(candidate):
-                agents_dirs.append(candidate)
-                break
-            nxt = os.path.dirname(probe)
-            if nxt == probe:
-                break
-            probe = nxt
-
-    config_files = [
-        "phase1_agents_config.yaml",
-        "phase2_agents_config.yaml",
-        "phase3_agents_config.yaml",
-    ]
-
-    for agents_dir in agents_dirs:
-        for config_file in config_files:
-            yaml_path = os.path.join(agents_dir, config_file)
-            if not os.path.exists(yaml_path):
-                continue
-
-            with open(yaml_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f) or {}
-
-            for key in ("customModes", "agents"):
-                for agent in config.get(key, []) or []:
-                    if agent.get("slug") == slug:
-                        return agent
-    return None
+    return store.get_agent_spec(slug)
 
 
 def load_agent_config(slug: str) -> str:

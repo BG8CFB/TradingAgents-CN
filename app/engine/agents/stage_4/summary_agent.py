@@ -1,6 +1,6 @@
 import json
 import logging
-from app.engine.orchestrator.invoker import run_agent_turn
+from app.engine.orchestrator.invoker import run_node_turn
 
 logger = logging.getLogger("default")
 
@@ -9,10 +9,15 @@ logger = logging.getLogger("default")
 from app.engine.prompts.parts import SUMMARY_SYSTEM_PROMPT as SYSTEM_PROMPT  # noqa: E402
 
 
-
 # 结构完整性兜底默认值
 _DEFAULT_STRUCTURED_DATA = {
-    "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A", "support_level": "N/A", "resistance_level": "N/A"},
+    "key_indicators": {
+        "entry_price": "N/A",
+        "target_price": "N/A",
+        "stop_loss": "N/A",
+        "support_level": "N/A",
+        "resistance_level": "N/A",
+    },
     "model_confidence": 0,
     "risk_assessment": {"level": "Low", "score": 0.0, "description": "生成失败"},
     "analysis_summary": "系统错误：无法生成分析摘要",
@@ -80,16 +85,14 @@ def _build_user_message(
     if missing_labels:
         parts.append(
             f"注：以下输入数据缺失：{'、'.join(missing_labels)}。"
-            "请基于现有有效数据正常生成总结，缺失项对应字段填 \"N/A\"，"
+            '请基于现有有效数据正常生成总结，缺失项对应字段填 "N/A"，'
             "并在 risk_assessment.description 中简要注明数据缺失。"
         )
     parts.append(f"<trader_plan>{_truncate(trader_plan, 1500)}</trader_plan>")
     parts.append(f"<final_decision>{_truncate(final_decision, 1500)}</final_decision>")
     parts.append(f"<market_report>{_truncate(market_report, 500)}</market_report>")
     parts.append(f"<news_report>{_truncate(news_report, 500)}</news_report>")
-    parts.append(
-        f"<fundamentals_report>{_truncate(fundamentals_report, 500)}</fundamentals_report>"
-    )
+    parts.append(f"<fundamentals_report>{_truncate(fundamentals_report, 500)}</fundamentals_report>")
     parts.append(f"<sentiment_report>{_truncate(sentiment_report, 500)}</sentiment_report>")
     parts.append(f"<risk_debate>{_truncate(risk_debate_history, 1500)}</risk_debate>")
     if other_reports:
@@ -104,37 +107,39 @@ def create_summary_agent(llm):
     """
     创建结构化总结智能体，负责生成前端展示所需的 JSON 数据
     """
+
     async def summary_node(state):
         logger.info("📊 [Summary Agent] 开始生成结构化总结数据...")
 
-        # 1. 收集所有上下文信息
+        # 1. 收集上下文（stage.inputs 声明化消费，P3 §4.6：输入可见性 =
+        #    声明集；analyst_reports 槽枚举本工作流约定的分析师报告清单）
         company_name = state.get("company_of_interest", "Unknown")
 
-        # 动态发现所有 *_report 字段，自动支持新添加的分析师报告
-        all_reports = {}
-        for key in state.keys():
-            if key.endswith("_report") and state[key]:
-                all_reports[key] = state[key]
+        stage_inputs = state.get("_stage_inputs") or {}
+        all_reports = stage_inputs.get("analyst_reports") or {}
 
-        # 核心报告（兼容旧代码）
-        market_report = state.get("market_report", "")
-        news_report = state.get("news_report", "")
-        fundamentals_report = state.get("fundamentals_report", "")
-        sentiment_report = state.get("sentiment_report", "")
+        # 核心报告（固定四槽，缺项走输入体检的缺失占位）
+        market_report = all_reports.get("market_report", "")
+        news_report = all_reports.get("news_report", "")
+        fundamentals_report = all_reports.get("fundamentals_report", "")
+        sentiment_report = all_reports.get("sentiment_report", "")
 
-        # 交易计划与最终决策
-        trader_plan = state.get("trader_investment_plan", "")
-        final_decision = state.get("final_trade_decision", "")
+        # 交易计划与最终决策（field 槽）
+        trader_plan = stage_inputs.get("trader_plan") or ""
+        final_decision = stage_inputs.get("final_decision") or ""
 
-        # 辩论历史（canonical state 无 history 存储，经派生视图读取；旧形状透传）
+        # 辩论历史（槽绑定 debate_state 整体；canonical 无 history 存储，
+        # 经派生视图读取；旧形状透传）
         from app.engine.orchestrator.state import risk_history
 
-        risk_debate_history = risk_history(state.get("risk_debate_state"))
+        risk_debate_history = risk_history(stage_inputs.get("risk_debate_history"))
 
-        # 其他动态报告（剔除核心 4 个避免重复）
+        # 其他报告（槽内清单剔除核心 4 个避免重复）
         other_reports = {
-            k: v for k, v in all_reports.items()
-            if k not in (
+            k: v
+            for k, v in all_reports.items()
+            if k
+            not in (
                 "market_report",
                 "news_report",
                 "fundamentals_report",
@@ -169,17 +174,21 @@ def create_summary_agent(llm):
         # 输入全为空（如上游未产出任何报告）时不短路，仍交给 LLM 按
         # SYSTEM_PROMPT 的真实性检查处理，保持既有空态行为不变。
         non_empty_inputs = [
-            t for t in (
-                trader_plan, final_decision, market_report, news_report,
-                fundamentals_report, sentiment_report, risk_debate_history or "",
+            t
+            for t in (
+                trader_plan,
+                final_decision,
+                market_report,
+                news_report,
+                fundamentals_report,
+                sentiment_report,
+                risk_debate_history or "",
                 *other_reports.values(),
-            ) if t
+            )
+            if t
         ]
         if non_empty_inputs and all(_is_invalid_report(t) for t in non_empty_inputs):
-            logger.warning(
-                f"⚠️ [Summary Agent] 全部输入无效（{missing_labels}），"
-                "跳过 LLM 调用，直接返回失败结构"
-            )
+            logger.warning(f"⚠️ [Summary Agent] 全部输入无效（{missing_labels}），跳过 LLM 调用，直接返回失败结构")
             return {
                 "structured_summary": {
                     **_DEFAULT_STRUCTURED_DATA,
@@ -207,71 +216,93 @@ def create_summary_agent(llm):
             missing_labels=missing_labels,
         )
 
-        # 3. 调用 LLM（统一会话循环：压缩/截断恢复/fallback/事件流）
+        # 3. 调用 LLM（submit_report 提交协议：structured_summary 的 8 字段
+        #    schema 前置到工具参数，字段级校验由工具层强制；模型未调用工具 →
+        #    fallback_text 降级，正文 JSON 解析降为 fallback 分支）
         try:
-            content = (
-                await run_agent_turn(
-                    llm,
-                    [],
-                    user_prompt,
-                    system=SYSTEM_PROMPT,
-                    task_id=state.get("task_id") or "",
-                    agent_key="summary",
-                    phase="summary",
-                    user_id=state.get("user_id") or "",
-                    event_sink=state.get("_event_sink"),
-                )
-            ).strip()
-            
-            # 清理可能的 markdown 标记
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.endswith("```"):
-                content = content[:-3]
-            content = content.strip()
-            
-            # 解析 JSON
-            structured_data = json.loads(content)
+            submission = await run_node_turn(
+                llm,
+                [],
+                user_prompt,
+                system=SYSTEM_PROMPT,
+                node_type="summarizer",
+                task_id=state.get("task_id") or "",
+                agent_key="summary",
+                phase="summary",
+                user_id=state.get("user_id") or "",
+                event_sink=state.get("_event_sink"),
+            )
 
-            # 结构完整性校验：LLM 可能返回合法 JSON 但缺少必需字段
-            required_keys = {
-                "key_indicators", "model_confidence", "risk_assessment",
-                "analysis_summary", "investment_recommendation", "final_signal",
-            }
-            missing = required_keys - set(structured_data.keys())
-            if missing:
-                logger.warning(
-                    f"⚠️ [Summary Agent] LLM 返回 JSON 缺少必需字段: {missing}，"
-                    "使用兜底值补齐"
-                )
-                structured_data = _ensure_required_fields(structured_data)
+            if submission.fields:
+                # structured 提交：字段经工具 schema 校验并规范化（§4.7 表）
+                structured_data = dict(submission.fields)
+                structured_data.setdefault("analysis_reference", [])
+            else:
+                # fallback_text 提交：解析正文 JSON（原兜底链的唯一存留分支）
+                content = submission.content.strip()
 
-            logger.info(f"✅ [Summary Agent] 成功生成结构化数据: {list(structured_data.keys())}")
-            
+                # 清理可能的 markdown 标记
+                if content.startswith("```json"):
+                    content = content[7:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                content = content.strip()
+
+                # 解析 JSON
+                structured_data = json.loads(content)
+
+                # 结构完整性校验：LLM 可能返回合法 JSON 但缺少必需字段
+                required_keys = {
+                    "key_indicators",
+                    "model_confidence",
+                    "risk_assessment",
+                    "analysis_summary",
+                    "investment_recommendation",
+                    "final_signal",
+                }
+                missing = required_keys - set(structured_data.keys())
+                if missing:
+                    logger.warning(f"⚠️ [Summary Agent] LLM 返回 JSON 缺少必需字段: {missing}，使用兜底值补齐")
+                    structured_data = _ensure_required_fields(structured_data)
+
+            logger.info(f"✅ [Summary Agent] 成功生成结构化数据（{submission.source}）: {list(structured_data.keys())}")
+
         except json.JSONDecodeError as e:
             logger.error(f"❌ [Summary Agent] JSON 解析失败: {e}")
             logger.error(f"   原始内容: {content}")
             # 回退默认值
             structured_data = {
-                "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A", "support_level": "N/A", "resistance_level": "N/A"},
+                "key_indicators": {
+                    "entry_price": "N/A",
+                    "target_price": "N/A",
+                    "stop_loss": "N/A",
+                    "support_level": "N/A",
+                    "resistance_level": "N/A",
+                },
                 "model_confidence": 50,
                 "risk_assessment": {"level": "Medium", "score": 5.0, "description": "解析失败，使用默认值"},
                 "analysis_summary": "JSON解析失败，无法生成分析摘要",
                 "investment_recommendation": "暂无建议",
                 "analysis_reference": [],
-                "final_signal": "Hold"
+                "final_signal": "Hold",
             }
         except Exception as e:
             logger.error(f"❌ [Summary Agent] 生成失败: {e}", exc_info=True)
             # 即使失败也要返回空字典，防止图执行中断
             structured_data = {
-                "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A", "support_level": "N/A", "resistance_level": "N/A"},
+                "key_indicators": {
+                    "entry_price": "N/A",
+                    "target_price": "N/A",
+                    "stop_loss": "N/A",
+                    "support_level": "N/A",
+                    "resistance_level": "N/A",
+                },
                 "model_confidence": 0,
                 "risk_assessment": {"level": "Low", "score": 0.0, "description": "生成失败"},
                 "analysis_summary": "系统错误：无法生成分析摘要",
                 "investment_recommendation": "暂无建议",
                 "analysis_reference": [],
-                "final_signal": "Hold"
+                "final_signal": "Hold",
             }
 
         return {"structured_summary": structured_data}

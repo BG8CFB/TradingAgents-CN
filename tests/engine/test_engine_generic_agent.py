@@ -78,54 +78,14 @@ class TestBuildStage3ReportPath:
 
 
 class TestLoadAgentConfig:
-    def test_finds_slug_in_config(self, tmp_path):
-        """应从临时配置文件中加载 agent 配置"""
-        import yaml
-        config_content = {
-            "customModes": [
-                {
-                    "slug": "market-analyst",
-                    "roleDefinition": "你是市场分析师",
-                },
-            ],
-        }
-        config_path = tmp_path / "phase1_agents_config.yaml"
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config_content, f, allow_unicode=True)
+    """load_agent_config 读智能体库（agent_specs 集合 / 种子降级，2026-09 DB 化）"""
 
-        original = os.environ.get("AGENT_CONFIG_DIR")
-        try:
-            os.environ["AGENT_CONFIG_DIR"] = str(tmp_path)
-            result = load_agent_config("market-analyst")
-            assert "市场分析师" in result
-        finally:
-            if original is not None:
-                os.environ["AGENT_CONFIG_DIR"] = original
-            else:
-                os.environ.pop("AGENT_CONFIG_DIR", None)
+    def test_finds_slug_in_library(self, mongodb_available):
+        """库内 slug 应返回其 roleDefinition（种子条目）"""
+        result = load_agent_config("market-analyst")
+        assert result != ""
 
-    def test_returns_empty_for_unknown_slug(self, tmp_path):
+    def test_returns_empty_for_unknown_slug(self, mongodb_available):
         """未知的 slug 应返回空字符串"""
-        import yaml
-        config_content = {
-            "customModes": [
-                {
-                    "slug": "market-analyst",
-                    "roleDefinition": "你是市场分析师",
-                },
-            ],
-        }
-        config_path = tmp_path / "phase1_agents_config.yaml"
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config_content, f, allow_unicode=True)
-
-        original = os.environ.get("AGENT_CONFIG_DIR")
-        try:
-            os.environ["AGENT_CONFIG_DIR"] = str(tmp_path)
-            result = load_agent_config("nonexistent-analyst")
-            assert result == ""
-        finally:
-            if original is not None:
-                os.environ["AGENT_CONFIG_DIR"] = original
-            else:
-                os.environ.pop("AGENT_CONFIG_DIR", None)
+        result = load_agent_config("nonexistent-analyst")
+        assert result == ""

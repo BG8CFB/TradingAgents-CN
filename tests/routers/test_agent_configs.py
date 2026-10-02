@@ -1,12 +1,10 @@
-"""agent-configs 路由：新配置模型校验 + YAML 落盘往返（真实 I/O，无 mock）"""
+"""agent-configs 路由：新配置模型校验 + DB 落库往返（真实 I/O，无 mock）"""
 
-import yaml
+import pytest
 
 from app.routers.agent_configs import (
     AgentConfigPayload,
     AgentMode,
-    _dump_modes,
-    _load_modes,
 )
 
 
@@ -49,34 +47,47 @@ def test_payload_dump_strips_legacy_keys():
     assert data["data_tools"] == ["daily_quotes", "news"]
 
 
-def test_yaml_roundtrip_preserves_new_fields(tmp_path):
+@pytest.fixture
+def agent_specs_store(mongodb_available):
+    """独占 agent_specs 集合：用例前清空，用例后清空（种子降级保底其他测试）。"""
+    from app.engine.orchestrator.workflow import store
+
+    store.invalidate_store_cache()
+    store._db()[store.AGENT_SPECS_COLLECTION].delete_many({})
+    store.invalidate_store_cache()
+    yield store
+    store._db()[store.AGENT_SPECS_COLLECTION].delete_many({})
+    store.invalidate_store_cache()
+
+
+def _dump_entries(store, mode_dicts):
+    """走路由同款落库路径（replace_phase_agent_specs）"""
+    store.replace_phase_agent_specs(1, mode_dicts)
+
+
+def test_db_roundtrip_preserves_new_fields(agent_specs_store):
+    store = agent_specs_store
     mode = _make_mode(mcp_tools=["fetch"], skills=None)
     mode_dict = mode.model_dump(exclude_none=True)
     mode_dict["description"] = mode.slug
 
-    config_path = tmp_path / "phase1_agents_config.yaml"
-    _dump_modes(config_path, [mode_dict])
-
-    loaded = _load_modes(config_path)
+    _dump_entries(store, [mode_dict])
+    loaded = store.list_agent_specs(phase=1)
     assert len(loaded) == 1
     assert loaded[0]["data_tools"] == ["daily_quotes", "news"]
     assert loaded[0]["mcp_tools"] == ["fetch"]
     assert "skills" not in loaded[0]
 
-    # 语义层再校验：yaml 原生往返一致
-    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    assert raw["customModes"][0]["slug"] == "test-analyst"
 
-
-def test_default_selected_roundtrip(tmp_path):
-    """default_selected：true/false 落盘保留，缺省（None）不落盘"""
+def test_default_selected_roundtrip(agent_specs_store):
+    """default_selected：true/false 落库保留，缺省（None）不落库"""
+    store = agent_specs_store
     on = _make_mode(default_selected=True)
     on_dict = on.model_dump(exclude_none=True)
     assert on_dict["default_selected"] is True
 
-    config_path = tmp_path / "phase1_agents_config.yaml"
-    _dump_modes(config_path, [on_dict])
-    loaded = _load_modes(config_path)
+    _dump_entries(store, [on_dict])
+    loaded = store.list_agent_specs(phase=1)
     assert loaded[0]["default_selected"] is True
 
     off = _make_mode(default_selected=False)
@@ -86,22 +97,11 @@ def test_default_selected_roundtrip(tmp_path):
     assert "default_selected" not in unset.model_dump(exclude_none=True)
 
 
-def test_phase1_config_default_selected_set():
-    """实际 phase1 配置：5 个短线分析师默认选中，基本面不默认选中（短线工作流）"""
-    from pathlib import Path
+def test_phase1_default_selected_set():
+    """phase1 智能体库：5 个短线分析师默认选中，基本面不默认选中（短线工作流）"""
+    from app.engine.orchestrator.workflow import seeds
 
-    from app.routers.agent_configs import CONFIG_DIR, _load_modes
-
-    config_path = CONFIG_DIR / "phase1_agents_config.yaml"
-    if not Path(config_path).exists():
-        # AGENT_CONFIG_DIR 指向外部目录时跳过仓库内置配置断言
-        import os
-
-        if os.environ.get("AGENT_CONFIG_DIR"):
-            return
-        raise AssertionError(f"phase1 配置不存在: {config_path}")
-
-    modes = {m["slug"]: m for m in _load_modes(config_path)}
+    modes = {e["spec"]["slug"]: e["spec"] for e in seeds.load_agent_seeds() if e["phase"] == 1}
     expected_on = {
         "market-analyst",
         "short-term-capital-analyst",

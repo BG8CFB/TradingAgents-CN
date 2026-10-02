@@ -1,0 +1,1434 @@
+{
+ "g1_full": {
+  "agent_event_seqs": {
+   "china_market": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "financial_news": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "market": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "research_manager": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "researcher_bear": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "researcher_bull": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_neutral": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_risky": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_safe": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_manager": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "short_term_capital": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "social_media": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "summary": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ],
+   "trader": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ]
+  },
+  "agent_starts": [
+   [
+    "analysts",
+    "china_market"
+   ],
+   [
+    "analysts",
+    "financial_news"
+   ],
+   [
+    "analysts",
+    "market"
+   ],
+   [
+    "analysts",
+    "short_term_capital"
+   ],
+   [
+    "analysts",
+    "social_media"
+   ],
+   [
+    "research",
+    "research_manager"
+   ],
+   [
+    "research",
+    "researcher_bear"
+   ],
+   [
+    "research",
+    "researcher_bear"
+   ],
+   [
+    "research",
+    "researcher_bull"
+   ],
+   [
+    "research",
+    "researcher_bull"
+   ],
+   [
+    "risk",
+    "risk_debater_neutral"
+   ],
+   [
+    "risk",
+    "risk_debater_neutral"
+   ],
+   [
+    "risk",
+    "risk_debater_risky"
+   ],
+   [
+    "risk",
+    "risk_debater_risky"
+   ],
+   [
+    "risk",
+    "risk_debater_safe"
+   ],
+   [
+    "risk",
+    "risk_debater_safe"
+   ],
+   [
+    "risk",
+    "risk_manager"
+   ],
+   [
+    "summary",
+    "summary"
+   ],
+   [
+    "trader",
+    "trader"
+   ]
+  ],
+  "decision": {
+   "final_trade_decision_nonempty": true,
+   "investment_plan_nonempty": true,
+   "structured_summary_nonempty": true,
+   "trader_investment_plan_nonempty": true
+  },
+  "investment_debate": {
+   "count": 4,
+   "current_round_index": 2,
+   "judge_decision_nonempty": true,
+   "latest_speaker": "",
+   "max_rounds": 2,
+   "rounds_sides": [
+    [
+     "bear",
+     "bull"
+    ],
+    [
+     "bear",
+     "bull"
+    ]
+   ]
+  },
+  "node_timings_keys": [
+   "Bear Researcher",
+   "Bull Researcher",
+   "China_Market Analyst",
+   "Financial_News Analyst",
+   "Market Analyst",
+   "Neutral Analyst",
+   "Research Manager",
+   "Risk Judge",
+   "Risky Analyst",
+   "Safe Analyst",
+   "Short_Term_Capital Analyst",
+   "Social_Media Analyst",
+   "Summary Agent",
+   "Trader"
+  ],
+  "phase_first_seen": [
+   "analysts",
+   "research",
+   "trader",
+   "risk",
+   "summary"
+  ],
+  "reports_keys": [
+   "bear_researcher",
+   "bull_researcher",
+   "china_market_report",
+   "financial_news_report",
+   "market_report",
+   "neutral_analyst",
+   "research_team_decision",
+   "risk_manager_decision",
+   "risky_analyst",
+   "safe_analyst",
+   "short_term_capital_report",
+   "social_media_report"
+  ],
+  "risk_debate": {
+   "count": 6,
+   "current_round_index": 2,
+   "judge_decision_nonempty": true,
+   "latest_speaker": "neutral",
+   "max_rounds": 2,
+   "rounds_sides": [
+    [
+     "neutral",
+     "risky",
+     "safe"
+    ],
+    [
+     "neutral",
+     "risky",
+     "safe"
+    ]
+   ]
+  },
+  "state_top_keys": [
+   "china_market_report",
+   "company_of_interest",
+   "errors",
+   "final_trade_decision",
+   "financial_news_report",
+   "fundamentals_report",
+   "investment_debate_state",
+   "investment_plan",
+   "market_report",
+   "messages",
+   "node_timings",
+   "reports",
+   "risk_debate_state",
+   "sender",
+   "short_term_capital_report",
+   "social_media_report",
+   "structured_summary",
+   "task_id",
+   "trade_date",
+   "trader_investment_plan",
+   "user_id"
+  ]
+ },
+ "g2_research_only": {
+  "agent_event_seqs": {
+   "china_market": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "financial_news": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "market": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "research_manager": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "researcher_bear": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "researcher_bull": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "short_term_capital": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "social_media": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "summary": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ],
+   "trader": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ]
+  },
+  "agent_starts": [
+   [
+    "analysts",
+    "china_market"
+   ],
+   [
+    "analysts",
+    "financial_news"
+   ],
+   [
+    "analysts",
+    "market"
+   ],
+   [
+    "analysts",
+    "short_term_capital"
+   ],
+   [
+    "analysts",
+    "social_media"
+   ],
+   [
+    "research",
+    "research_manager"
+   ],
+   [
+    "research",
+    "researcher_bear"
+   ],
+   [
+    "research",
+    "researcher_bear"
+   ],
+   [
+    "research",
+    "researcher_bull"
+   ],
+   [
+    "research",
+    "researcher_bull"
+   ],
+   [
+    "summary",
+    "summary"
+   ],
+   [
+    "trader",
+    "trader"
+   ]
+  ],
+  "decision": {
+   "final_trade_decision_nonempty": false,
+   "investment_plan_nonempty": true,
+   "structured_summary_nonempty": true,
+   "trader_investment_plan_nonempty": true
+  },
+  "investment_debate": {
+   "count": 4,
+   "current_round_index": 2,
+   "judge_decision_nonempty": true,
+   "latest_speaker": "",
+   "max_rounds": 2,
+   "rounds_sides": [
+    [
+     "bear",
+     "bull"
+    ],
+    [
+     "bear",
+     "bull"
+    ]
+   ]
+  },
+  "node_timings_keys": [
+   "Bear Researcher",
+   "Bull Researcher",
+   "China_Market Analyst",
+   "Financial_News Analyst",
+   "Market Analyst",
+   "Research Manager",
+   "Short_Term_Capital Analyst",
+   "Social_Media Analyst",
+   "Summary Agent",
+   "Trader"
+  ],
+  "phase_first_seen": [
+   "analysts",
+   "research",
+   "trader",
+   "summary"
+  ],
+  "reports_keys": [
+   "bear_researcher",
+   "bull_researcher",
+   "china_market_report",
+   "financial_news_report",
+   "market_report",
+   "research_team_decision",
+   "short_term_capital_report",
+   "social_media_report"
+  ],
+  "risk_debate": {
+   "count": 0,
+   "current_round_index": 0,
+   "judge_decision_nonempty": false,
+   "latest_speaker": "",
+   "max_rounds": 3,
+   "rounds_sides": []
+  },
+  "state_top_keys": [
+   "china_market_report",
+   "company_of_interest",
+   "errors",
+   "final_trade_decision",
+   "financial_news_report",
+   "fundamentals_report",
+   "investment_debate_state",
+   "investment_plan",
+   "market_report",
+   "messages",
+   "node_timings",
+   "reports",
+   "risk_debate_state",
+   "sender",
+   "short_term_capital_report",
+   "social_media_report",
+   "structured_summary",
+   "task_id",
+   "trade_date",
+   "trader_investment_plan",
+   "user_id"
+  ]
+ },
+ "g3_risk_only": {
+  "agent_event_seqs": {
+   "china_market": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "financial_news": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "market": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_neutral": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_risky": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_safe": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_manager": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "short_term_capital": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "social_media": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "summary": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ],
+   "trader": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ]
+  },
+  "agent_starts": [
+   [
+    "analysts",
+    "china_market"
+   ],
+   [
+    "analysts",
+    "financial_news"
+   ],
+   [
+    "analysts",
+    "market"
+   ],
+   [
+    "analysts",
+    "short_term_capital"
+   ],
+   [
+    "analysts",
+    "social_media"
+   ],
+   [
+    "risk",
+    "risk_debater_neutral"
+   ],
+   [
+    "risk",
+    "risk_debater_neutral"
+   ],
+   [
+    "risk",
+    "risk_debater_risky"
+   ],
+   [
+    "risk",
+    "risk_debater_risky"
+   ],
+   [
+    "risk",
+    "risk_debater_safe"
+   ],
+   [
+    "risk",
+    "risk_debater_safe"
+   ],
+   [
+    "risk",
+    "risk_manager"
+   ],
+   [
+    "summary",
+    "summary"
+   ],
+   [
+    "trader",
+    "trader"
+   ]
+  ],
+  "decision": {
+   "final_trade_decision_nonempty": true,
+   "investment_plan_nonempty": false,
+   "structured_summary_nonempty": true,
+   "trader_investment_plan_nonempty": true
+  },
+  "investment_debate": {
+   "count": 0,
+   "current_round_index": 0,
+   "judge_decision_nonempty": false,
+   "latest_speaker": "",
+   "max_rounds": 2,
+   "rounds_sides": []
+  },
+  "node_timings_keys": [
+   "China_Market Analyst",
+   "Financial_News Analyst",
+   "Market Analyst",
+   "Neutral Analyst",
+   "Risk Judge",
+   "Risky Analyst",
+   "Safe Analyst",
+   "Short_Term_Capital Analyst",
+   "Social_Media Analyst",
+   "Summary Agent",
+   "Trader"
+  ],
+  "phase_first_seen": [
+   "analysts",
+   "trader",
+   "risk",
+   "summary"
+  ],
+  "reports_keys": [
+   "china_market_report",
+   "financial_news_report",
+   "market_report",
+   "neutral_analyst",
+   "risk_manager_decision",
+   "risky_analyst",
+   "safe_analyst",
+   "short_term_capital_report",
+   "social_media_report"
+  ],
+  "risk_debate": {
+   "count": 6,
+   "current_round_index": 2,
+   "judge_decision_nonempty": true,
+   "latest_speaker": "neutral",
+   "max_rounds": 2,
+   "rounds_sides": [
+    [
+     "neutral",
+     "risky",
+     "safe"
+    ],
+    [
+     "neutral",
+     "risky",
+     "safe"
+    ]
+   ]
+  },
+  "state_top_keys": [
+   "china_market_report",
+   "company_of_interest",
+   "errors",
+   "final_trade_decision",
+   "financial_news_report",
+   "fundamentals_report",
+   "investment_debate_state",
+   "investment_plan",
+   "market_report",
+   "messages",
+   "node_timings",
+   "reports",
+   "risk_debate_state",
+   "sender",
+   "short_term_capital_report",
+   "social_media_report",
+   "structured_summary",
+   "task_id",
+   "trade_date",
+   "trader_investment_plan",
+   "user_id"
+  ]
+ },
+ "g4_subset_minimal": {
+  "agent_event_seqs": {
+   "market": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "research_manager": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "researcher_bear": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "researcher_bull": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_neutral": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_risky": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_safe": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_manager": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "short_term_capital": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "summary": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ],
+   "trader": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ]
+  },
+  "agent_starts": [
+   [
+    "analysts",
+    "market"
+   ],
+   [
+    "analysts",
+    "short_term_capital"
+   ],
+   [
+    "research",
+    "research_manager"
+   ],
+   [
+    "research",
+    "researcher_bear"
+   ],
+   [
+    "research",
+    "researcher_bear"
+   ],
+   [
+    "research",
+    "researcher_bull"
+   ],
+   [
+    "research",
+    "researcher_bull"
+   ],
+   [
+    "risk",
+    "risk_debater_neutral"
+   ],
+   [
+    "risk",
+    "risk_debater_neutral"
+   ],
+   [
+    "risk",
+    "risk_debater_risky"
+   ],
+   [
+    "risk",
+    "risk_debater_risky"
+   ],
+   [
+    "risk",
+    "risk_debater_safe"
+   ],
+   [
+    "risk",
+    "risk_debater_safe"
+   ],
+   [
+    "risk",
+    "risk_manager"
+   ],
+   [
+    "summary",
+    "summary"
+   ],
+   [
+    "trader",
+    "trader"
+   ]
+  ],
+  "decision": {
+   "final_trade_decision_nonempty": true,
+   "investment_plan_nonempty": true,
+   "structured_summary_nonempty": true,
+   "trader_investment_plan_nonempty": true
+  },
+  "investment_debate": {
+   "count": 4,
+   "current_round_index": 2,
+   "judge_decision_nonempty": true,
+   "latest_speaker": "",
+   "max_rounds": 2,
+   "rounds_sides": [
+    [
+     "bear",
+     "bull"
+    ],
+    [
+     "bear",
+     "bull"
+    ]
+   ]
+  },
+  "node_timings_keys": [
+   "Bear Researcher",
+   "Bull Researcher",
+   "Market Analyst",
+   "Neutral Analyst",
+   "Research Manager",
+   "Risk Judge",
+   "Risky Analyst",
+   "Safe Analyst",
+   "Short_Term_Capital Analyst",
+   "Summary Agent",
+   "Trader"
+  ],
+  "phase_first_seen": [
+   "analysts",
+   "research",
+   "trader",
+   "risk",
+   "summary"
+  ],
+  "reports_keys": [
+   "bear_researcher",
+   "bull_researcher",
+   "market_report",
+   "neutral_analyst",
+   "research_team_decision",
+   "risk_manager_decision",
+   "risky_analyst",
+   "safe_analyst",
+   "short_term_capital_report"
+  ],
+  "risk_debate": {
+   "count": 6,
+   "current_round_index": 2,
+   "judge_decision_nonempty": true,
+   "latest_speaker": "neutral",
+   "max_rounds": 2,
+   "rounds_sides": [
+    [
+     "neutral",
+     "risky",
+     "safe"
+    ],
+    [
+     "neutral",
+     "risky",
+     "safe"
+    ]
+   ]
+  },
+  "state_top_keys": [
+   "china_market_report",
+   "company_of_interest",
+   "errors",
+   "final_trade_decision",
+   "financial_news_report",
+   "fundamentals_report",
+   "investment_debate_state",
+   "investment_plan",
+   "market_report",
+   "messages",
+   "node_timings",
+   "reports",
+   "risk_debate_state",
+   "sender",
+   "short_term_capital_report",
+   "social_media_report",
+   "structured_summary",
+   "task_id",
+   "trade_date",
+   "trader_investment_plan",
+   "user_id"
+  ]
+ },
+ "g5_submit_protocol": {
+  "agent_event_seqs": {
+   "market": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "report_ready",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ],
+   "research_manager": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "report_ready",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ],
+   "researcher_bear": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "researcher_bull": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_neutral": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_risky": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_debater_safe": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready",
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress",
+    "report_ready"
+   ],
+   "risk_manager": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "report_ready",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ],
+   "short_term_capital": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "report_ready",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ],
+   "summary": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ],
+   "trader": [
+    "agent_start",
+    "llm_request",
+    "llm_response",
+    "tool_call",
+    "tool_result",
+    "llm_request",
+    "llm_response",
+    "agent_end",
+    "progress"
+   ]
+  },
+  "agent_starts": [
+   [
+    "analysts",
+    "market"
+   ],
+   [
+    "analysts",
+    "short_term_capital"
+   ],
+   [
+    "research",
+    "research_manager"
+   ],
+   [
+    "research",
+    "researcher_bear"
+   ],
+   [
+    "research",
+    "researcher_bear"
+   ],
+   [
+    "research",
+    "researcher_bull"
+   ],
+   [
+    "research",
+    "researcher_bull"
+   ],
+   [
+    "risk",
+    "risk_debater_neutral"
+   ],
+   [
+    "risk",
+    "risk_debater_neutral"
+   ],
+   [
+    "risk",
+    "risk_debater_risky"
+   ],
+   [
+    "risk",
+    "risk_debater_risky"
+   ],
+   [
+    "risk",
+    "risk_debater_safe"
+   ],
+   [
+    "risk",
+    "risk_debater_safe"
+   ],
+   [
+    "risk",
+    "risk_manager"
+   ],
+   [
+    "summary",
+    "summary"
+   ],
+   [
+    "trader",
+    "trader"
+   ]
+  ],
+  "decision": {
+   "final_trade_decision_nonempty": true,
+   "investment_plan_nonempty": true,
+   "structured_summary_nonempty": true,
+   "trader_investment_plan_nonempty": true
+  },
+  "investment_debate": {
+   "count": 4,
+   "current_round_index": 2,
+   "judge_decision_nonempty": true,
+   "latest_speaker": "",
+   "max_rounds": 2,
+   "rounds_sides": [
+    [
+     "bear",
+     "bull"
+    ],
+    [
+     "bear",
+     "bull"
+    ]
+   ]
+  },
+  "node_timings_keys": [
+   "Bear Researcher",
+   "Bull Researcher",
+   "Market Analyst",
+   "Neutral Analyst",
+   "Research Manager",
+   "Risk Judge",
+   "Risky Analyst",
+   "Safe Analyst",
+   "Short_Term_Capital Analyst",
+   "Summary Agent",
+   "Trader"
+  ],
+  "phase_first_seen": [
+   "analysts",
+   "research",
+   "trader",
+   "risk",
+   "summary"
+  ],
+  "reports_keys": [
+   "bear_researcher",
+   "bull_researcher",
+   "market_report",
+   "neutral_analyst",
+   "research_team_decision",
+   "risk_manager_decision",
+   "risky_analyst",
+   "safe_analyst",
+   "short_term_capital_report"
+  ],
+  "risk_debate": {
+   "count": 6,
+   "current_round_index": 2,
+   "judge_decision_nonempty": true,
+   "latest_speaker": "neutral",
+   "max_rounds": 2,
+   "rounds_sides": [
+    [
+     "neutral",
+     "risky",
+     "safe"
+    ],
+    [
+     "neutral",
+     "risky",
+     "safe"
+    ]
+   ]
+  },
+  "state_top_keys": [
+   "china_market_report",
+   "company_of_interest",
+   "errors",
+   "final_decision_signal",
+   "final_trade_decision",
+   "financial_news_report",
+   "fundamentals_report",
+   "investment_debate_state",
+   "investment_plan",
+   "market_report",
+   "messages",
+   "node_timings",
+   "reports",
+   "risk_debate_state",
+   "sender",
+   "short_term_capital_report",
+   "social_media_report",
+   "structured_summary",
+   "task_id",
+   "trade_date",
+   "trader_decision_signal",
+   "trader_investment_plan",
+   "user_id"
+  ]
+ }
+}

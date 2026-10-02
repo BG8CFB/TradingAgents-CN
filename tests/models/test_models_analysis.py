@@ -130,6 +130,18 @@ class TestAnalysisParameters:
         assert params.mcp_enabled is True
         assert len(params.mcp_tool_ids) == 2
 
+    def test_workflow_generalization_fields(self):
+        """P5-c 工作流通用化新字段：selected_nodes / stage_overrides（缺省 None 旧路径不变）"""
+        assert AnalysisParameters().selected_nodes is None
+        assert AnalysisParameters().stage_overrides is None
+
+        params = AnalysisParameters(
+            selected_nodes=["market-analyst", "news-analyst"],
+            stage_overrides={"research_debate": {"enabled": True, "rounds": 2}},
+        )
+        assert params.selected_nodes == ["market-analyst", "news-analyst"]
+        assert params.stage_overrides["research_debate"]["rounds"] == 2
+
 
 # ---------------------------------------------------------------------------
 # AnalysisResult
@@ -382,6 +394,12 @@ class TestSingleAnalysisRequest:
         params = AnalysisParameters(market_type="港股")
         req = SingleAnalysisRequest(symbol="00700", parameters=params)
         assert req.parameters.market_type == "港股"
+
+    def test_workflow_slug_optional(self):
+        """P5-c：workflow_slug 缺省 None（回落默认工作流），显式传入透传"""
+        assert SingleAnalysisRequest(symbol="000001").workflow_slug is None
+        req = SingleAnalysisRequest(symbol="000001", workflow_slug="my-custom-flow")
+        assert req.workflow_slug == "my-custom-flow"
 
 
 # ---------------------------------------------------------------------------

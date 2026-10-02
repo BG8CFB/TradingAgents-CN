@@ -1,9 +1,9 @@
-
 import os
 import time
 
 # 导入统一日志系统
 import logging
+
 logger = logging.getLogger("default")
 
 from app.llm.core.types import Message, Role  # noqa: E402 (intentional late import)
@@ -12,10 +12,11 @@ from app.engine.agents.utils.agent_config import (  # noqa: E402 (intentional la
     load_agent_config,
     resolve_company_name,
 )
-from app.engine.orchestrator.invoker import run_agent_turn  # noqa: E402 (intentional late import)
+from app.engine.orchestrator.invoker import run_node_turn  # noqa: E402 (intentional late import)
 
-# Stage 3 内部报告 key（收集时排除，避免自我重复注入）
-_STAGE3_INTERNAL_KEYS = frozenset({"risky_analyst", "safe_analyst", "neutral_analyst"})
+# 消费集声明化（P3 §4.6）：基础报告 = 工作流 stage.inputs 的 analyst_reports 槽、
+# 交易员计划 = trader_plan field 槽（辩论三方经辩论卷宗注入；黑名单已退役）
+
 
 def create_risk_manager(llm, memory):
     async def risk_manager_node(state) -> dict:
@@ -24,14 +25,14 @@ def create_risk_manager(llm, memory):
         risk_debate_state = state.get("risk_debate_state", {})
 
         try:
-            # 1. 获取所有基础报告（prompt 组装层统一收集/注入）
+            # 1. 获取基础报告（stage.inputs 声明化消费）
             from app.engine.prompts.builder import (
-                collect_reports,
                 context_prefix as build_context_prefix,
                 inject_report_messages,
             )
 
-            all_reports = collect_reports(state, exclude_ids=_STAGE3_INTERNAL_KEYS)
+            stage_inputs = state.get("_stage_inputs") or {}
+            all_reports = stage_inputs.get("analyst_reports") or {}
 
             # 2. 获取累积的辩论报告（rounds 单一数据源，派生视图读取）
             from app.engine.orchestrator.state import risk_report_content
@@ -40,48 +41,41 @@ def create_risk_manager(llm, memory):
             safe_report = risk_report_content(risk_debate_state, "safe") or "（无保守报告）"
             neutral_report = risk_report_content(risk_debate_state, "neutral") or "（无中性报告）"
 
-            # 获取交易员计划 (Target)
-            trader_plan = state.get("trader_investment_plan")
-            if not trader_plan:
-                 trader_plan = state.get("investment_plan", "")
-                 if not trader_plan:
-                     trader_plan = all_reports.get("research_team_decision", "（未找到交易员计划）")
+            # 获取交易员计划（trader_plan field 槽；trader 恒执行故通常有值）
+            trader_plan = stage_inputs.get("trader_plan") or "（未找到交易员计划）"
 
             # 3. 获取股票信息
-            ticker = state.get('company_of_interest', 'Unknown')
+            ticker = state.get("company_of_interest", "Unknown")
             from app.utils.stock_utils import StockUtils
+
             market_info = StockUtils.get_market_info(ticker)
 
             company_name = await resolve_company_name(ticker, market_info)
-            currency = market_info['currency_name']
+            currency = market_info["currency_name"]
 
             # 4. 构建 Prompt
             base_prompt = load_agent_config("risk-manager")
 
             if not base_prompt:
-                 error_msg = "❌ 未找到 risk-manager 智能体配置，请检查 phase3_agents_config.yaml 文件。"
-                 logger.error(error_msg)
-                 raise ValueError(error_msg)
+                error_msg = "❌ 未找到 risk-manager 智能体配置，请检查 agent_specs 智能体库（DB）。"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
             context_prefix = build_context_prefix(ticker, company_name, currency)
             system_prompt = context_prefix + "\n\n" + base_prompt
             system = system_prompt
             messages = inject_report_messages(
-                all_reports, {},
+                all_reports,
+                {},
                 header_template="=== 基础资料：{name} ===",
             )
 
             # 裁决前注入相似情景历史记忆（写读对称）
             from app.engine.agents.utils.memory import fetch_memory_brief
 
-            memory_brief = await fetch_memory_brief(
-                memory, f"{trader_plan}\n\n{risky_report}\n\n{safe_report}"
-            )
+            memory_brief = await fetch_memory_brief(memory, f"{trader_plan}\n\n{risky_report}\n\n{safe_report}")
             if memory_brief and not memory_brief.startswith("暂无"):
-                messages.append(
-                    Message(role=Role.USER,
-                        content=f"=== 历史风控反思（类似情景） ===\n{memory_brief}"
-                    ))
+                messages.append(Message(role=Role.USER, content=f"=== 历史风控反思（类似情景） ===\n{memory_brief}"))
                 logger.info("👔 [Risk Manager] 已注入历史风控记忆")
 
             # 注入完整辩论卷宗（均为上游 LLM 输出，用 <report> 边界符防护）
@@ -119,17 +113,23 @@ def create_risk_manager(llm, memory):
 """
             logger.info("👔 [Risk Manager] 开始生成最终风控裁决报告...")
 
-            # 5. 执行推理（统一会话循环：压缩/截断恢复/fallback/事件流）
-            #    辩论卷宗作为本轮 user_message 传入，不重复进 history
-            final_content = await run_agent_turn(
-                llm, messages, user_content,
+            # 5. 执行推理（统一会话循环 + submit_report 提交协议）
+            #    终端节点（最终决策产出）：结构化决策参数 → final_decision_signal
+            final_submission = await run_node_turn(
+                llm,
+                messages,
+                user_content,
                 system=system,
+                node_type="terminal",
+                report_key="risk_manager_decision",
+                state=state,
                 task_id=state.get("task_id") or "",
                 agent_key="risk_manager",
                 phase="risk",
                 user_id=state.get("user_id") or "",
                 event_sink=state.get("_event_sink"),
             )
+            final_content = final_submission.content
 
             # H-2: 空响应降级 — LLM 返回空内容时使用占位文本
             if not final_content.strip():
@@ -156,17 +156,21 @@ def create_risk_manager(llm, memory):
 
             # 7. 更新状态（canonical：仅裁决结论，其余键由 export_legacy_state 派生）
             new_risk_debate_state = dict(risk_debate_state)
-            new_risk_debate_state.update({
-                "judge_decision": final_content,
-            })
+            new_risk_debate_state.update(
+                {
+                    "judge_decision": final_content,
+                }
+            )
 
-            return {
+            update = {
                 "risk_debate_state": new_risk_debate_state,
                 "final_trade_decision": final_content,
-                "reports": {
-                    "risk_manager_decision": final_content
-                }
+                "reports": {"risk_manager_decision": final_content},
             }
+            # 终端结构化决策字段 → 信号提取一手来源（§4.8；fallback 不写本键）
+            if final_submission.fields:
+                update["final_decision_signal"] = dict(final_submission.fields)
+            return update
 
         except Exception:
             logger.error(
@@ -174,13 +178,13 @@ def create_risk_manager(llm, memory):
                 exc_info=True,
             )
             # 降级状态：保留上游 risk_debate_state 原值，仅写入错误说明
-            fallback_content = (
-                "⚠️ 首席风控官节点执行异常，未能生成有效裁决报告。"
-            )
+            fallback_content = "⚠️ 首席风控官节点执行异常，未能生成有效裁决报告。"
             new_risk_debate_state = dict(risk_debate_state)
-            new_risk_debate_state.update({
-                "judge_decision": fallback_content,
-            })
+            new_risk_debate_state.update(
+                {
+                    "judge_decision": fallback_content,
+                }
+            )
             return {
                 "risk_debate_state": new_risk_debate_state,
                 "final_trade_decision": fallback_content,

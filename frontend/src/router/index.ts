@@ -112,6 +112,29 @@ const routes: RouteRecordRaw[] = [
   },
 
   {
+    path: '/ai-chat',
+    name: 'AiChat',
+    component: () => import('@/layouts/BasicLayout.vue'),
+    meta: {
+      title: 'AI 选股助手',
+      icon: 'ChatDotRound',
+      requiresAuth: true,
+      transition: 'slide-up'
+    },
+    children: [
+      {
+        path: '',
+        name: 'AiChatHome',
+        component: () => import('@/views/AiChat/index.vue'),
+        meta: {
+          title: 'AI 选股助手',
+          requiresAuth: true
+        }
+      }
+    ]
+  },
+
+  {
     path: '/favorites',
     name: 'Favorites',
     component: () => import('@/layouts/BasicLayout.vue'),
@@ -346,6 +369,24 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Settings/AgentManagement.vue'),
         meta: {
           title: '智能体管理',
+          requiresAuth: true
+        }
+      },
+      {
+        path: 'workflows',
+        name: 'WorkflowManagement',
+        component: () => import('@/views/Settings/WorkflowManagement.vue'),
+        meta: {
+          title: '工作流管理',
+          requiresAuth: true
+        }
+      },
+      {
+        path: 'workflows/:slug/edit',
+        name: 'WorkflowEditor',
+        component: () => import('@/views/Settings/WorkflowEditor.vue'),
+        meta: {
+          title: '工作流编辑',
           requiresAuth: true
         }
       },

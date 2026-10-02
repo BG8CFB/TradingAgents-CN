@@ -105,28 +105,54 @@ def _base_state():
 
 # ===== Stage 4: Summary Agent =====
 
+
+def _summary_state(
+    reports: dict | None = None,
+    *,
+    trader_plan: str = "",
+    final_decision: str = "",
+    risk_debate_state: dict | None = None,
+) -> dict:
+    """构造 summary 节点入参（_stage_inputs = executor 阶段开始快照形状，P3-f）"""
+    risk_debate_state = risk_debate_state if risk_debate_state is not None else {}
+    return {
+        "company_of_interest": "000001",
+        "risk_debate_state": risk_debate_state,
+        "_stage_inputs": {
+            "analyst_reports": reports or {},
+            "trader_plan": trader_plan,
+            "final_decision": final_decision,
+            "risk_debate_history": risk_debate_state,
+        },
+    }
+
+
 class TestSummaryAgentBehavior:
     @pytest.mark.asyncio
     async def test_collects_all_report_fields(self):
-        llm = RecordingLLM(json.dumps({
-            "key_indicators": {"entry_price": "12.5", "target_price": "15", "stop_loss": "11"},
-            "model_confidence": 75,
-            "risk_assessment": {"level": "Medium", "score": 5.0, "description": "中等风险"},
-            "analysis_summary": "综合分析",
-            "investment_recommendation": "建议买入",
-            "analysis_reference": [],
-            "final_signal": "Buy",
-        }))
+        llm = RecordingLLM(
+            json.dumps(
+                {
+                    "key_indicators": {"entry_price": "12.5", "target_price": "15", "stop_loss": "11"},
+                    "model_confidence": 75,
+                    "risk_assessment": {"level": "Medium", "score": 5.0, "description": "中等风险"},
+                    "analysis_summary": "综合分析",
+                    "investment_recommendation": "建议买入",
+                    "analysis_reference": [],
+                    "final_signal": "Buy",
+                }
+            )
+        )
         node = create_summary_agent(llm)
-        state = {
-            "company_of_interest": "000001",
-            "market_report": "市场报告",
-            "news_report": "新闻报告",
-            "fundamentals_report": "基本面报告",
-            "trader_investment_plan": "买入计划",
-            "risk_debate_state": {"history": "辩论历史"},
-            "reports": {},
-        }
+        state = _summary_state(
+            {
+                "market_report": "市场报告",
+                "news_report": "新闻报告",
+                "fundamentals_report": "基本面报告",
+            },
+            trader_plan="买入计划",
+            risk_debate_state={"history": "辩论历史"},
+        )
         result = await node(state)
         assert "structured_summary" in result
         assert result["structured_summary"]["model_confidence"] == 75
@@ -136,8 +162,7 @@ class TestSummaryAgentBehavior:
     async def test_handles_json_decode_error(self):
         llm = RecordingLLM("not valid json")
         node = create_summary_agent(llm)
-        state = {"company_of_interest": "000001", "risk_debate_state": {}}
-        result = await node(state)
+        result = await node(_summary_state())
         assert "structured_summary" in result
         assert result["structured_summary"]["model_confidence"] == 50
         assert result["structured_summary"]["final_signal"] == "Hold"
@@ -149,33 +174,36 @@ class TestSummaryAgentBehavior:
                 raise RuntimeError("LLM 服务不可用")
 
         node = create_summary_agent(FailingLLM())
-        state = {"company_of_interest": "000001", "risk_debate_state": {}}
-        result = await node(state)
+        result = await node(_summary_state())
         assert "structured_summary" in result
         assert result["structured_summary"]["model_confidence"] == 0
 
     @pytest.mark.asyncio
     async def test_cleans_markdown_json(self):
-        llm = RecordingLLM('```json\n{"key_indicators": {}, "model_confidence": 80, "risk_assessment": {"level": "Low", "score": 3.0, "description": "低风险"}, "analysis_summary": "测试", "investment_recommendation": "持有", "analysis_reference": [], "final_signal": "Hold"}\n```')
+        llm = RecordingLLM(
+            '```json\n{"key_indicators": {}, "model_confidence": 80, "risk_assessment": {"level": "Low", "score": 3.0, "description": "低风险"}, "analysis_summary": "测试", "investment_recommendation": "持有", "analysis_reference": [], "final_signal": "Hold"}\n```'
+        )
         node = create_summary_agent(llm)
-        state = {"company_of_interest": "000001", "risk_debate_state": {}}
-        result = await node(state)
+        result = await node(_summary_state())
         assert result["structured_summary"]["model_confidence"] == 80
 
     @pytest.mark.asyncio
     async def test_empty_state_defaults(self):
-        llm = RecordingLLM(json.dumps({
-            "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A"},
-            "model_confidence": 0,
-            "risk_assessment": {"level": "Low", "score": 0.0, "description": "无数据"},
-            "analysis_summary": "数据获取失败",
-            "investment_recommendation": "无建议",
-            "analysis_reference": [],
-            "final_signal": "Hold",
-        }))
+        llm = RecordingLLM(
+            json.dumps(
+                {
+                    "key_indicators": {"entry_price": "N/A", "target_price": "N/A", "stop_loss": "N/A"},
+                    "model_confidence": 0,
+                    "risk_assessment": {"level": "Low", "score": 0.0, "description": "无数据"},
+                    "analysis_summary": "数据获取失败",
+                    "investment_recommendation": "无建议",
+                    "analysis_reference": [],
+                    "final_signal": "Hold",
+                }
+            )
+        )
         node = create_summary_agent(llm)
-        state = {"company_of_interest": "Unknown", "risk_debate_state": {}}
-        result = await node(state)
+        result = await node(_summary_state())
         assert result["structured_summary"]["model_confidence"] == 0
 
     @pytest.mark.asyncio
@@ -184,23 +212,31 @@ class TestSummaryAgentBehavior:
 
         用独特标记词避免与 SYSTEM_PROMPT 静态字段描述词冲突。
         """
-        llm = RecordingLLM(json.dumps({
-            "key_indicators": {}, "model_confidence": 60,
-            "risk_assessment": {"level": "Medium", "score": 5.0, "description": "test"},
-            "analysis_summary": "test", "investment_recommendation": "test",
-            "analysis_reference": [], "final_signal": "Hold",
-        }))
+        llm = RecordingLLM(
+            json.dumps(
+                {
+                    "key_indicators": {},
+                    "model_confidence": 60,
+                    "risk_assessment": {"level": "Medium", "score": 5.0, "description": "test"},
+                    "analysis_summary": "test",
+                    "investment_recommendation": "test",
+                    "analysis_reference": [],
+                    "final_signal": "Hold",
+                }
+            )
+        )
         node = create_summary_agent(llm)
-        state = {
-            "company_of_interest": "000001",
-            "market_report": "MARKET_DETAIL_MARKER",
-            "news_report": "NEWS_MARKER",
-            "trader_investment_plan": "TRADER_PLAN_MARKER",
-            "final_trade_decision": "FINAL_DECISION_MARKER",
-            "risk_debate_state": {"history": "DEBATE_MARKER"},
-            "sentiment_report": "SENTIMENT_MARKER",
-            "custom_report": "CUSTOM_MARKER",
-        }
+        state = _summary_state(
+            {
+                "market_report": "MARKET_DETAIL_MARKER",
+                "news_report": "NEWS_MARKER",
+                "sentiment_report": "SENTIMENT_MARKER",
+                "custom_report": "CUSTOM_MARKER",
+            },
+            trader_plan="TRADER_PLAN_MARKER",
+            final_decision="FINAL_DECISION_MARKER",
+            risk_debate_state={"history": "DEBATE_MARKER"},
+        )
         # 不接受 result：仅用 llm.calls 验证 prompt 构造
         await node(state)
 
@@ -236,13 +272,14 @@ class TestStageAgentsWithRealLLM:
             pytest.skip("无可用 LLM 凭据（DEEPSEEK_API_KEY 或 ARK_API_KEY）")
 
         node = create_summary_agent(llm)
-        state = {
-            "company_of_interest": "000001",
-            "market_report": "市场技术指标显示上升趋势",
-            "fundamentals_report": "基本面稳健",
-            "trader_investment_plan": "建议买入",
-            "risk_debate_state": {"history": "辩论已完成"},
-        }
+        state = _summary_state(
+            {
+                "market_report": "市场技术指标显示上升趋势",
+                "fundamentals_report": "基本面稳健",
+            },
+            trader_plan="建议买入",
+            risk_debate_state={"history": "辩论已完成"},
+        )
         result = await node(state)
         assert "structured_summary" in result
         assert "final_signal" in result["structured_summary"]

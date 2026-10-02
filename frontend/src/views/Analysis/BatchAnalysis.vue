@@ -132,31 +132,27 @@
                     placeholder="描述本次批量分析的目的和背景（可选）"
                   />
                 </el-form-item>
+
+                <el-form-item label="工作流">
+                  <WorkflowSelector v-model="workflowSlug" />
+                </el-form-item>
               </div>
 
               <!-- 分析师选择 -->
               <div class="form-section">
                 <h4 class="section-title">👥 分析师团队</h4>
                 <div class="analysts-selection">
-                  <el-checkbox-group v-model="batchForm.analysts" class="analysts-group">
-                    <div
-                      v-for="analyst in analysts"
-                      :key="analyst.id"
-                      class="analyst-option"
-                    >
-                      <el-checkbox :label="analyst.id" class="analyst-checkbox">
-                        <div class="analyst-info">
-                          <span class="analyst-name">
-                            <el-icon style="margin-right: 4px; vertical-align: middle;">
-                                <component :is="resolveIcon(analyst.icon)" />
-                            </el-icon>
-                            {{ analyst.name }}
-                          </span>
-                          <span class="analyst-desc">{{ analyst.description }}</span>
-                        </div>
-                      </el-checkbox>
-                    </div>
-                  </el-checkbox-group>
+                  <NodeSelectGrid
+                    v-if="workflowSpec"
+                    :spec="workflowSpec"
+                    :selected="batchForm.analysts"
+                    :agents="analysts"
+                    :display-names="stageAgentNames"
+                    :validation-errors="runErrors"
+                    :disabled-stage-ids="skippedStageIds"
+                    @update:selected="onSelectedNodesChange"
+                  />
+                  <el-skeleton v-else :rows="3" animated />
                 </div>
               </div>
 
@@ -170,50 +166,19 @@
                   </div>
                 </div>
                 
-                <div class="phases-grid">
-                  <div 
-                    v-for="phase in PHASES" 
-                    :key="phase.id" 
-                    class="phase-card"
-                    :class="{ enabled: getPhaseConfig(phase.name)?.enabled }"
-                  >
-                    <div class="phase-header">
-                      <div class="phase-title-row">
-                        <div class="phase-title">{{ phase.title }}</div>
-                        <el-switch
-                          :model-value="getPhaseConfig(phase.name)?.enabled"
-                          @update:model-value="(val: boolean | string | number) => { if (getPhaseConfig(phase.name)) getPhaseConfig(phase.name).enabled = val as boolean }"
-                          :disabled="phase.id === 4"
-                        />
-                      </div>
-                      <div class="phase-desc">{{ phase.description }}</div>
-                    </div>
-
-                    <div class="phase-body" v-if="getPhaseConfig(phase.name)?.enabled">
-                      <div class="phase-agents">
-                        <span class="label">参与角色:</span>
-                        <div class="agent-tags">
-                          <el-tag v-for="agent in phase.agents" :key="agent" size="small" type="info" effect="plain">
-                            {{ stageAgentNames[agent] || agent }}
-                          </el-tag>
-                        </div>
-                      </div>
-
-                      <!-- 第四阶段固定执行1次，不显示辩论轮次设置 -->
-                      <div class="phase-rounds" v-if="phase.hasDebateRounds !== false">
-                        <span class="label">辩论轮次:</span>
-                        <el-input-number
-                          :model-value="getPhaseConfig(phase.name)?.debateRounds"
-                          @update:model-value="(val: number | undefined) => { if (getPhaseConfig(phase.name)) getPhaseConfig(phase.name).debateRounds = val || 1 }"
-                          :min="phase.minRounds"
-                          :max="phase.maxRounds"
-                          size="small"
-                          controls-position="right"
-                        />
-                      </div>
-                    </div>
-                  </div>
+                <div v-if="workflowSpec" class="phases-grid">
+                  <StageSwitches
+                    :spec-stages="workflowSpec.stages"
+                    :spec-nodes="workflowSpec.nodes"
+                    :states="stageStates"
+                    @update:states="onStageStatesChange"
+                  />
                 </div>
+                <RunPlanPreview
+                  v-if="workflowSpec"
+                  :plan="runPlan"
+                  :spec-stages="workflowSpec.stages"
+                />
               </div>
 
               <!-- 操作按钮 -->
@@ -326,14 +291,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { 
-  Files, TrendCharts, Check, Close, Timer, Loading,
-  Document, Histogram, ChatDotRound, DataAnalysis, Wallet, Money, InfoFilled, WarningFilled
-} from '@element-plus/icons-vue'
+import { Files, TrendCharts, Check, Close, Timer } from '@element-plus/icons-vue'
 import { normalizeAnalystIds } from '@/constants/analysts'
-import { PHASES, estimateTotalTime } from '@/constants/phases'
+import WorkflowSelector from '@/components/Workflow/WorkflowSelector.vue'
+import StageSwitches, { type StageState } from '@/components/Workflow/StageSwitches.vue'
+import NodeSelectGrid from '@/components/Workflow/NodeSelectGrid.vue'
+import RunPlanPreview from '@/components/Workflow/RunPlanPreview.vue'
+import { workflowApi, type ValidateRunResult, type WorkflowSpecDto } from '@/api/workflows'
+import { loadStageToggles, saveStageToggles } from '@/utils/stageToggleMemory'
 import { configApi } from '@/api/config'
 import { mcpApi } from '@/api/mcp'
 import { agentConfigApi } from '@/api/agentConfigs'
@@ -368,16 +335,7 @@ const invalidCodes = ref<string[]>([])
 const analysts = ref<Analyst[]>([])
 const loadingAnalysts = ref(false)
 
-// 解决图标组件
-const resolveIcon = (name: string) => {
-  const icons: Record<string, any> = {
-    Files, TrendCharts, Check, Close, Timer, Loading,
-    Document, Histogram, ChatDotRound, DataAnalysis, Wallet, Money, InfoFilled, WarningFilled
-  }
-  return icons[name] || InfoFilled
-}
-
-// 分析师图标映射
+// 分析师图标映射（返回图标名，由 NodeSelectGrid 解析渲染）
 const getAnalystIcon = (slug: string) => {
   const map: Record<string, string> = {
     'financial-news-analyst': 'Document',
@@ -441,6 +399,11 @@ const fetchAnalysts = async () => {
     batchForm.analysts = []
   } finally {
     loadingAnalysts.value = false
+    // 竞态兜底：工作流 spec 先于分析师列表到达时，pool 裁剪在此补跑
+    if (workflowSpec.value && batchForm.analysts.length) {
+      const prunable = prunableSlugs(workflowSpec.value)
+      batchForm.analysts = batchForm.analysts.filter((s) => prunable.has(s))
+    }
   }
 }
 
@@ -462,42 +425,163 @@ const batchForm = reactive({
   description: '',
   analysts: [] as string[],  // 将在 onMounted 中加载
   mcpTools: [] as string[],
-  language: 'zh-CN',
-  phases: {
-    phase2: { enabled: false, debateRounds: 2 },
-    phase3: { enabled: false, debateRounds: 1 },
-    phase4: { enabled: true, debateRounds: 1 }
-  }
+  language: 'zh-CN'
 })
 
-// 辅助函数：安全获取阶段配置（避免模板中的类型索引问题）
-const getPhaseConfig = (phaseName: string) => {
-  return (batchForm.phases as Record<string, { enabled: boolean; debateRounds: number }>)[phaseName]
+// ── 工作流通用化状态（P5-e）──
+// 工作流选择 + spec 驱动的阶段开关；旧 phaseN_* 字段由 stageStates 映射兼容发送
+const workflowSlug = ref('')
+const workflowSpec = ref<WorkflowSpecDto | null>(null)
+const stageStates = ref<Record<string, StageState>>({})
+const runErrors = ref<string[]>([])
+const runPlan = ref<ValidateRunResult['plan'] | undefined>(undefined)
+
+/** 被跳过的组（optional 且未启用）：NodeSelectGrid 灰显其成员选择 */
+const skippedStageIds = computed(() =>
+  (workflowSpec.value?.stages || [])
+    .filter((s) => s.optional && stageStates.value[s.id]?.enabled !== true)
+    .map((s) => s.id),
+)
+
+/** 可裁剪成员 = 各 parallel_batch 阶段的成员（pool → 全体分析师；显式枚举 → refs） */
+const prunableSlugs = (spec: WorkflowSpecDto): Set<string> => {
+  const prunable = new Set<string>()
+  for (const stage of spec.stages) {
+    if (stage.mode !== 'parallel_batch') continue
+    if (stage.pool) {
+      for (const a of analysts.value) prunable.add(a.slug)
+    } else {
+      for (const ref of stage.nodes || []) prunable.add(ref.ref)
+    }
+  }
+  return prunable
 }
 
-// 归一化阶段配置：交易员始终执行，阶段2/3 可独立开关
-const buildPhasePayload = (phases: any) => {
-  const phase2Enabled = phases.phase2.enabled
-  const phase3Enabled = phases.phase3.enabled
-  // 交易员始终执行，phase4 始终为 true
-  const phase4Enabled = true
+/** 加载工作流 spec：重置阶段开关（optional 阶段取用户上次记忆，缺省关闭；
+ * 轮数取记忆 ?? spec 声明），并把已选分析师裁剪到新工作流的可裁剪集合 */
+const applyWorkflowSpec = (spec: WorkflowSpecDto) => {
+  workflowSpec.value = spec
+  const remembered = loadStageToggles(spec.slug)
+  const nextStates: Record<string, StageState> = {}
+  for (const stage of spec.stages) {
+    if (stage.optional) {
+      const memo = remembered[stage.id]
+      nextStates[stage.id] = {
+        enabled: memo?.enabled ?? false,
+        rounds: memo?.rounds ?? stage.rounds ?? 1,
+      }
+    }
+  }
+  stageStates.value = nextStates
+  saveStageToggles(
+    spec.slug,
+    nextStates,
+    spec.stages.filter((s) => s.optional).map((s) => s.id),
+  )
 
-  return {
-    phase2_enabled: phase2Enabled,
-    phase2_debate_rounds: phase2Enabled ? phases.phase2.debateRounds : 0,
-    phase3_enabled: phase3Enabled,
-    phase3_debate_rounds: phase3Enabled ? phases.phase3.debateRounds : 0,
-    phase4_enabled: phase4Enabled,
-    phase4_debate_rounds: 1
+  const prunable = prunableSlugs(spec)
+  batchForm.analysts = batchForm.analysts.filter((s) => prunable.has(s))
+  scheduleValidateRun()
+}
+
+const fetchWorkflowSpec = async (slug: string) => {
+  if (!slug) return
+  try {
+    const res = await workflowApi.get(slug)
+    applyWorkflowSpec(res.data.workflow)
+  } catch (error) {
+    console.error('获取工作流详情失败', error)
+    workflowSpec.value = null
+    runErrors.value = ['工作流加载失败，请刷新重试']
   }
 }
 
-// 估算总耗时
+watch(workflowSlug, (slug) => {
+  runErrors.value = []
+  runPlan.value = undefined
+  fetchWorkflowSpec(slug)
+})
+
+// 裁剪可行性校验（轻量编译 validate-run）：勾选/开关变化后防抖触发
+let validateRunTimer: ReturnType<typeof setTimeout> | null = null
+const scheduleValidateRun = () => {
+  if (validateRunTimer) clearTimeout(validateRunTimer)
+  validateRunTimer = setTimeout(validateRun, 400)
+}
+
+const validateRun = async () => {
+  if (!workflowSlug.value || !workflowSpec.value) return
+  try {
+    const res = await workflowApi.validateRun({
+      workflow_slug: workflowSlug.value,
+      selected_nodes: batchForm.analysts,
+      stage_overrides: buildStageOverrides(),
+    })
+    runErrors.value = res.data?.valid ? [] : res.data?.errors || []
+    runPlan.value = res.data?.plan
+  } catch (error) {
+    // 校验接口异常不阻塞提交（后端提交时仍会校验）
+    console.error('裁剪校验失败', error)
+  }
+}
+
+const onSelectedNodesChange = (slugs: string[]) => {
+  batchForm.analysts = slugs
+  scheduleValidateRun()
+}
+
+const onStageStatesChange = (states: Record<string, StageState>) => {
+  stageStates.value = states
+  if (workflowSpec.value) {
+    saveStageToggles(
+      workflowSpec.value.slug,
+      states,
+      workflowSpec.value.stages.filter((s) => s.optional).map((s) => s.id),
+    )
+  }
+  scheduleValidateRun()
+}
+
+/** 新参数 stage_overrides：optional 阶段的开关与轮次（优先于旧 phaseN_* 映射） */
+const buildStageOverrides = (): Record<string, { enabled?: boolean; rounds?: number }> => {
+  const overrides: Record<string, { enabled?: boolean; rounds?: number }> = {}
+  for (const [stageId, state] of Object.entries(stageStates.value)) {
+    const stage = workflowSpec.value?.stages.find((s) => s.id === stageId)
+    const entry: { enabled?: boolean; rounds?: number } = { enabled: state.enabled }
+    if (stage?.mode === 'debate') entry.rounds = state.rounds
+    overrides[stageId] = entry
+  }
+  return overrides
+}
+
+/** 旧 API 契约兼容映射：内置 stage id → phaseN_* 字段（自定义 stage 只走 stage_overrides） */
+const buildPhasePayload = () => {
+  const research = stageStates.value['research_debate']
+  const risk = stageStates.value['risk_debate']
+  return {
+    phase2_enabled: research?.enabled === true,
+    phase2_debate_rounds: research?.enabled ? research.rounds : 0,
+    phase3_enabled: risk?.enabled === true,
+    phase3_debate_rounds: risk?.enabled ? risk.rounds : 0,
+    phase4_enabled: true,
+    phase4_debate_rounds: 1,
+  }
+}
+
+// 估算总耗时（分钟）：spec 驱动，批量总耗时 = 单只耗时 × 股票数
 const estimatedTotalTime = computed(() => {
-  // 批量分析总耗时 = 单只股票耗时 * 股票数量
-  const perStockTime = estimateTotalTime(batchForm.phases)
+  const spec = workflowSpec.value
+  if (!spec) return 0
+  let perStock = 5
+  for (const stage of spec.stages) {
+    const state = stageStates.value[stage.id]
+    const enabled = stage.optional ? state?.enabled === true : true
+    if (!enabled) continue
+    if (stage.mode === 'debate') perStock += 3 * (state?.rounds ?? stage.rounds ?? 1) + 1
+    else if (stage.mode === 'single') perStock += 2
+  }
   const stockCount = stockCodes.value.length || 1
-  return perStockTime * stockCount
+  return perStock * stockCount
 })
 
 // 阶段开关已独立：Phase 2（辩论）和 Phase 3（风险辩论）可分别开关，交易员始终执行
@@ -664,6 +748,11 @@ const submitBatchAnalysis = async () => {
     return
   }
 
+  if (runErrors.value.length) {
+    ElMessage.error(`当前选择不满足工作流依赖：${runErrors.value[0]}`)
+    return
+  }
+
   try {
     await ElMessageBox.confirm(
       `确定要提交批量分析任务吗？\n批次：${batchForm.title}\n股票数量：${stockCodes.value.length}只`,
@@ -678,12 +767,12 @@ const submitBatchAnalysis = async () => {
     submitting.value = true
 
     // 准备批量分析请求参数（真实API调用）
-    const phasePayload = buildPhasePayload(batchForm.phases)
     const batchRequest = {
       title: batchForm.title,
       description: batchForm.description,
       symbols: symbols.value,
       stock_codes: symbols.value,  // 兼容字段
+      workflow_slug: workflowSlug.value || undefined,
       parameters: {
         // 若全部代码可识别为同一市场则携带；否则省略让后端自行判断
         market_type: (() => {
@@ -691,12 +780,14 @@ const submitBatchAnalysis = async () => {
           return markets.size === 1 ? Array.from(markets)[0] : undefined
         })(),
         selected_analysts: normalizeAnalystIds(batchForm.analysts), // 确保使用英文ID
+        selected_nodes: normalizeAnalystIds(batchForm.analysts),
+        stage_overrides: buildStageOverrides(),
         language: batchForm.language,
         analyst_model: modelSettings.value.analystModel,
         debate_model: modelSettings.value.debateModel,
 
-        // 阶段配置（按顺序依赖）
-        ...phasePayload,
+        // 阶段配置（按顺序依赖，旧契约兼容）
+        ...buildPhasePayload(),
         // MCP工具
         mcp_tools: batchForm.mcpTools
       }

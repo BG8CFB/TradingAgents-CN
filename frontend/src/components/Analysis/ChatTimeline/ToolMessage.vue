@@ -1,8 +1,9 @@
 <template>
-  <div class="chat-item tool-item" :class="{ 'is-error': msg.isError }">
+  <div class="chat-item tool-item" :class="{ 'is-error': msg.isError, 'is-submission': msg.isSubmission }">
     <div class="tool-head" @click="expanded = !expanded">
       <el-icon class="tool-expand-icon" :class="{ expanded }"><ArrowRight /></el-icon>
-      <span class="tool-name">{{ msg.name }}</span>
+      <span v-if="msg.isSubmission" class="tool-name submission-name">📄 提交报告</span>
+      <span v-else class="tool-name">{{ msg.name }}</span>
       <span v-if="!msg.hasResult" class="tool-pending">
         <el-icon class="is-spinning"><Loading /></el-icon>
       </span>
@@ -10,15 +11,27 @@
       <el-tag v-if="msg.isError" type="danger" size="small" effect="plain">错误</el-tag>
     </div>
     <div v-show="expanded" class="tool-detail">
-      <div v-if="msg.input" class="tool-block">
-        <div class="tool-block-label">参数</div>
-        <pre class="tool-pre">{{ msg.input }}</pre>
-      </div>
+      <template v-if="msg.isSubmission">
+        <div v-if="msg.submissionContent" class="tool-block">
+          <div class="tool-block-label">报告正文</div>
+          <pre class="tool-pre">{{ submissionContentPreview }}</pre>
+        </div>
+        <div v-if="msg.input" class="tool-block">
+          <div class="tool-block-label">结构化参数</div>
+          <pre class="tool-pre">{{ msg.input }}</pre>
+        </div>
+      </template>
+      <template v-else>
+        <div v-if="msg.input" class="tool-block">
+          <div class="tool-block-label">参数</div>
+          <pre class="tool-pre">{{ msg.input }}</pre>
+        </div>
+      </template>
       <div v-if="msg.output" class="tool-block">
         <div class="tool-block-label">结果</div>
         <pre class="tool-pre" :class="{ 'is-error-text': msg.isError }">{{ msg.output }}</pre>
       </div>
-      <div v-if="!msg.input && !msg.output && msg.hasResult" class="tool-block tool-empty">
+      <div v-if="!msg.input && !msg.output && !msg.submissionContent && msg.hasResult" class="tool-block tool-empty">
         （无输出）
       </div>
     </div>
@@ -26,12 +39,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ArrowRight, Loading } from '@element-plus/icons-vue'
-import type { ToolChatMessage } from './buildChatMessages'
+import { truncateText, type ToolChatMessage } from './buildChatMessages'
 
-defineProps<{ msg: ToolChatMessage }>()
+const props = defineProps<{ msg: ToolChatMessage }>()
 const expanded = ref(false)
+
+/** 提交正文预览（完整报告看实时报告 tab；卡内为核对视图，长文截断） */
+const SUBMISSION_PREVIEW_MAX = 2000
+const submissionContentPreview = computed(() =>
+  truncateText(props.msg.submissionContent, SUBMISSION_PREVIEW_MAX),
+)
 </script>
 
 <style scoped>
@@ -44,6 +63,14 @@ const expanded = ref(false)
 }
 
 .tool-item.is-error { border-color: var(--el-color-danger-light-5); }
+
+/* 提交报告卡（submit_report 专属变体）：主色描边区分普通工具调用 */
+.tool-item.is-submission { border-color: var(--el-color-primary-light-5); }
+
+.submission-name {
+  font-family: inherit;
+  color: var(--el-color-primary);
+}
 
 .tool-head {
   display: flex;

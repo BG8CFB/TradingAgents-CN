@@ -1,29 +1,25 @@
 """
-按阶段读写智能体 YAML 配置 (phase1-3)
+按阶段读写智能体库（agent_specs 集合，DB 权威）
 
 配置模型（2026-08 工具体系拆分后）：
 - data_tools: 预注入数据源 id 列表（代码控制，启动时预取注入上下文）
 - mcp_tools / skills: 可调用工具限制集合；缺省/空 = 默认全部可用
 - default_selected: 发起分析时默认勾选（仅 phase1 有语义）
 - 内置工具（calc）全员默认，不经配置
+
+存储（2026-09 工作流通用化）：YAML 存放退役，读写走
+app.engine.orchestrator.workflow.store（tombstone / builtin 语义在 store 层）。
 """
 
 import logging
-from pathlib import Path
 from typing import List, Optional
 
-try:  # 可选文件锁，避免并发写损坏
-    from filelock import FileLock
-except Exception:  # pragma: no cover - 兼容未安装 filelock
-    FileLock = None  # type: ignore
-from contextlib import nullcontext
-
-import yaml
 from fastapi import APIRouter, Depends, HTTPException, Path as FastAPIPath
 from pydantic import BaseModel, Field, field_validator
 
 from app.routers.auth_db import get_current_user, require_admin
 from app.core.response import safe_error_message
+from app.engine.orchestrator.workflow import store
 
 # 导入动态分析师工厂，用于清除配置缓存
 try:
@@ -37,24 +33,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent-configs", tags=["Agent Configs"])
 
-from app.core.env import get_env  # noqa: E402 (intentional late import)
-
-
-def _get_config_dir() -> Path:
-    # 1. 优先从环境变量读取
-    env_dir = get_env("AGENT_CONFIG_DIR")
-    if env_dir:
-        path = Path(env_dir)
-        if path.exists():
-            return path
-
-    # 2. 默认使用项目根目录下的 config/agents (用户自定义配置)
-    project_root = Path(__file__).resolve().parents[2]
-    config_agents_dir = project_root / "config" / "agents"
-    return config_agents_dir
-
-
-CONFIG_DIR = _get_config_dir()
 MAX_MODES = 200
 # 现有阶段配置中的提示词已远超 4k，为避免合法配置被拒绝，将上限提升
 # 如需更严格控制，可改为从配置文件读取或按环境变量覆盖
@@ -155,35 +133,9 @@ class AgentConfigPayload(BaseModel):
         return v
 
 
-def _config_path(phase: int) -> Path:
-    return CONFIG_DIR / f"phase{phase}_agents_config.yaml"
-
-
-def _load_modes(config_path: Path) -> List[dict]:
-    with config_path.open("r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-
-    modes = data.get("customModes", []) or []
-    if not isinstance(modes, list):
-        raise ValueError("customModes 必须为列表")
-    return modes
-
-
-def _dump_modes(config_path: Path, modes: List[dict]) -> None:
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = config_path.with_suffix(".tmp")
-    payload = {"customModes": modes}
-    lock_ctx = FileLock(str(config_path) + ".lock") if FileLock is not None else nullcontext()
-    with lock_ctx:
-        with tmp_path.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(
-                payload,
-                f,
-                allow_unicode=True,
-                sort_keys=False,
-                default_flow_style=False,
-            )
-        tmp_path.replace(config_path)
+def _storage_path_label(phase: int) -> str:
+    """存储位置描述（UI 展示用；DB 时代无文件路径）"""
+    return f"mongodb:agent_specs?phase={phase}"
 
 
 @router.get("/{phase}")
@@ -193,25 +145,15 @@ async def get_agent_config(
 ):
     """
     读取指定阶段的智能体配置。
-    文件不存在时返回 exists=False，前端可提示。
+    阶段无条目且库未注入（如 phase4 无种子）时返回 exists=False，前端可提示。
     """
-    config_path = _config_path(phase)
-    if not config_path.exists():
-        return {
-            "success": True,
-            "data": {
-                "phase": phase,
-                "exists": False,
-                "customModes": [],
-                "path": str(config_path),
-            },
-            "message": f"{config_path.name} 不存在",
-        }
-
     try:
-        modes = _load_modes(config_path)
+        modes = store.list_agent_specs(phase)
+        injected = store.agent_collection_initialized()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=safe_error_message(exc, "读取配置失败"))
+
+    exists = bool(modes) or injected
 
     # 迁移容错：剥离历史冗余键，旧 tools 归一化到 data_tools/skills
     normalized: List[dict] = []
@@ -227,11 +169,11 @@ async def get_agent_config(
         "success": True,
         "data": {
             "phase": phase,
-            "exists": True,
+            "exists": exists,
             "customModes": normalized,
-            "path": str(config_path),
+            "path": _storage_path_label(phase),
         },
-        "message": "ok",
+        "message": "ok" if exists else f"phase {phase} 无智能体配置",
     }
 
 
@@ -242,9 +184,9 @@ async def save_agent_config(
     user: dict = Depends(require_admin),
 ):
     """
-    保存/覆盖指定阶段的配置。
+    保存/覆盖指定阶段的配置（全量覆盖语义：不在 payload 的内置条目转 tombstone，
+    用户条目物理删除——规则见 store.replace_phase_agent_specs）。
     - 校验 slug 唯一
-    - 允许缺失文件，写入时自动创建
     - data_tools 中未知 id 仅告警不阻断（数据源注册表可能尚未初始化）
     """
     slugs = [mode.slug for mode in payload.customModes]
@@ -275,20 +217,25 @@ async def save_agent_config(
             logger.warning(f"⚠️ [agent-configs] 未知数据源 id（已保存但不会注入）: {unknown}")
         normalized_modes.append(data)
 
-    config_path = _config_path(phase)
     try:
-        _dump_modes(config_path, normalized_modes)
+        store.replace_phase_agent_specs(phase, normalized_modes)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=safe_error_message(exc, "写入配置失败"))
 
-    # 🔥 关键修复：保存配置后清除 DynamicAnalystFactory 的缓存
-    # 这样新添加的智能体配置才能在分析任务中被正确加载
+    # 🔥 保存配置后清除智能体库与 AgentRegistry 的缓存
+    # 这样新添加的智能体配置才能在分析任务中被正确加载（registry 含显示名/别名索引）
     if DYNAMIC_ANALYST_AVAILABLE:
         try:
             DynamicAnalystFactory.clear_cache()
             logger.info(f"✅ 已清除智能体配置缓存 (phase={phase})")
         except Exception as e:
             logger.warning(f"⚠️ 清除智能体配置缓存失败: {e}")
+    try:
+        from app.engine.orchestrator.registry import clear_registry_cache
+
+        clear_registry_cache()
+    except Exception as e:  # noqa: BLE001 - registry 缓存清理失败不影响配置保存
+        logger.warning(f"⚠️ 清除 registry 缓存失败: {e}")
 
     return {
         "success": True,
@@ -296,7 +243,7 @@ async def save_agent_config(
             "phase": phase,
             "exists": True,
             "customModes": normalized_modes,
-            "path": str(config_path),
+            "path": _storage_path_label(phase),
         },
         "message": "saved",
     }

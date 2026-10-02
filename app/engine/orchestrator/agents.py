@@ -224,6 +224,28 @@ async def run_analyst(
             effective_tools = [*spec.callable_tools, dispatch]
             logger.info(f"🤖 [{spec.name}] 已装配子代理工具 dispatch_agent")
 
+        # submit_report 提交协议（P3 §4.6b）：分析师工具集 = 现有工具 + 唯一
+        # 提交入口；提交即时写黑板并发 report_ready（报告 tab 精确锚点）。
+        # 报告内容以提交为准；未提交 → final_text 降级（fallback_text 标记）
+        from app.engine.orchestrator.workflow.submission import (
+            SubmissionBox,
+            finalize_submission,
+            make_submit_report_tool,
+        )
+
+        report_key = f"{spec.internal_key}_report"
+        submit_box = SubmissionBox()
+        submit_tool = make_submit_report_tool(
+            submit_box,
+            node_type="analyst",
+            report_key=report_key,
+            state=state,
+            event_sink=event_sink,
+            agent_key=agent_key,
+            phase="analysts",
+        )
+        effective_tools = [*(effective_tools or []), submit_tool]
+
         result = await run_conversation(
             bundle.primary if bundle else client,
             task_message,
@@ -247,7 +269,9 @@ async def run_analyst(
             enable_skill_listing=spec.enable_skill_listing,
         )
 
-        final_report = result.final_text.strip()
+        # 提交取值优先级：submit_report 结构化提交 > final_text 降级（§4.6b）
+        submission = finalize_submission(submit_box, final_text=result.final_text)
+        final_report = submission.content.strip()
         if not final_report:
             final_report = "⚠️ 分析师未生成有效报告（LLM 返回空响应）。"
 
@@ -257,9 +281,9 @@ async def run_analyst(
             logger.info(
                 f"✅ [{spec.name}] 分析完成: {result.turns} 轮, "
                 f"{result.tool_calls_executed} 工具调用, 报告 {len(final_report)} 字符"
+                f"（{submission.source}）"
             )
 
-        report_key = f"{spec.internal_key}_report"
         return {
             report_key: final_report,
             "messages": [Message(role=Role.ASSISTANT, content=final_report)],

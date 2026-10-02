@@ -13,6 +13,7 @@ from app.utils.timezone import now_tz
 
 class AnalysisStatus(str, Enum):
     """分析状态枚举"""
+
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -22,6 +23,7 @@ class AnalysisStatus(str, Enum):
 
 class BatchStatus(str, Enum):
     """批次状态枚举"""
+
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -32,6 +34,7 @@ class BatchStatus(str, Enum):
 
 class AnalysisParameters(BaseModel):
     """分析参数模型"""
+
     market_type: str = "A股"
     analysis_date: Optional[datetime] = None
     selected_analysts: List[str] = Field(default_factory=list)
@@ -51,6 +54,15 @@ class AnalysisParameters(BaseModel):
     phase4_enabled: bool = True  # 交易员始终执行
     phase4_debate_rounds: int = 1
 
+    # 工作流通用化新参数（P5-c）：优先于上方 phaseN_* 旧字段，旧字段保留兼容映射
+    selected_nodes: Optional[List[str]] = Field(
+        default=None, description="选中节点（phase1 pool 子集，保序；优先于 selected_analysts）"
+    )
+    stage_overrides: Optional[Dict[str, Dict[str, Any]]] = Field(
+        default=None,
+        description="阶段覆盖 {stage_id: {enabled/rounds/concurrency}}，优先于 phaseN_* 旧字段",
+    )
+
     # MCP工具
     mcp_enabled: bool = Field(default=False, description="是否启用 MCP 工具")
     mcp_tools: List[str] = Field(default_factory=list, description="兼容旧字段：MCP 工具ID列表")
@@ -64,6 +76,7 @@ class AnalysisParameters(BaseModel):
 
 class AnalysisResult(BaseModel):
     """分析结果模型"""
+
     analysis_id: Optional[str] = None
     summary: Optional[str] = None
     recommendation: Optional[str] = None
@@ -80,6 +93,7 @@ class AnalysisResult(BaseModel):
 
 class AnalysisTask(BaseModel):
     """分析任务模型"""
+
     id: Optional[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
     task_id: str = Field(..., description="任务唯一标识")
     batch_id: Optional[str] = None
@@ -95,58 +109,54 @@ class AnalysisTask(BaseModel):
     created_at: datetime = Field(default_factory=now_tz)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    
+
     # 执行信息
     worker_id: Optional[str] = None
     parameters: AnalysisParameters = Field(default_factory=AnalysisParameters)
     result: Optional[AnalysisResult] = None
-    
+
     # 重试机制
     retry_count: int = 0
     max_retries: int = 3
     last_error: Optional[str] = None
-    
-    model_config = ConfigDict(
-        populate_by_name=True,
-        arbitrary_types_allowed=True
-    )
+
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
 
 
 class AnalysisBatch(BaseModel):
     """分析批次模型"""
+
     id: Optional[PyObjectId] = Field(default_factory=ObjectId, alias="_id")
     batch_id: str = Field(..., description="批次唯一标识")
     user_id: PyObjectId
     title: str = Field(..., description="批次标题")
     description: Optional[str] = None
     status: BatchStatus = BatchStatus.PENDING
-    
+
     # 任务统计
     total_tasks: int = 0
     completed_tasks: int = 0
     failed_tasks: int = 0
     cancelled_tasks: int = 0
     progress: int = Field(default=0, ge=0, le=100, description="整体进度 0-100")
-    
+
     # 时间戳
     created_at: datetime = Field(default_factory=now_tz)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    
+
     # 配置参数
     parameters: AnalysisParameters = Field(default_factory=AnalysisParameters)
-    
+
     # 结果摘要
     results_summary: Optional[Dict[str, Any]] = None
-    
-    model_config = ConfigDict(
-        populate_by_name=True,
-        arbitrary_types_allowed=True
-    )
+
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
 
 
 class StockInfo(BaseModel):
     """股票信息模型"""
+
     symbol: str = Field(..., description="6位股票代码")
     code: Optional[str] = Field(None, description="股票代码(已废弃,使用symbol)")
     name: str = Field(..., description="股票名称")
@@ -160,10 +170,13 @@ class StockInfo(BaseModel):
 
 # API请求/响应模型
 
+
 class SingleAnalysisRequest(BaseModel):
     """单股分析请求"""
+
     symbol: Optional[str] = Field(None, description="6位股票代码")
     stock_code: Optional[str] = Field(None, description="股票代码(已废弃,使用symbol)")
+    workflow_slug: Optional[str] = Field(None, description="工作流 slug（缺省=默认工作流，由工作流管理页设置）")
     parameters: Optional[AnalysisParameters] = None
 
     @model_validator(mode="after")
@@ -173,9 +186,7 @@ class SingleAnalysisRequest(BaseModel):
         对比 AddFavoriteRequest 的 model_validator 做法：不允许两个符号字段
         同时为空，避免创建无意义空符号分析任务浪费后台资源。
         """
-        if not (self.symbol and self.symbol.strip()) and not (
-            self.stock_code and self.stock_code.strip()
-        ):
+        if not (self.symbol and self.symbol.strip()) and not (self.stock_code and self.stock_code.strip()):
             raise ValueError("symbol 和 stock_code 不能同时为空，至少提供一个")
         return self
 
@@ -186,10 +197,14 @@ class SingleAnalysisRequest(BaseModel):
 
 class BatchAnalysisRequest(BaseModel):
     """批量分析请求"""
+
     title: str = Field(..., description="批次标题")
     description: Optional[str] = None
     symbols: Optional[List[str]] = Field(None, min_length=1, max_length=10, description="股票代码列表（最多10个）")
-    stock_codes: Optional[List[str]] = Field(None, min_length=1, max_length=10, description="股票代码列表(已废弃,使用symbols，最多10个)")
+    stock_codes: Optional[List[str]] = Field(
+        None, min_length=1, max_length=10, description="股票代码列表(已废弃,使用symbols，最多10个)"
+    )
+    workflow_slug: Optional[str] = Field(None, description="工作流 slug（缺省=默认工作流，由工作流管理页设置）")
     parameters: Optional[AnalysisParameters] = None
 
     def get_symbols(self) -> List[str]:
@@ -199,6 +214,7 @@ class BatchAnalysisRequest(BaseModel):
 
 class AnalysisTaskResponse(BaseModel):
     """分析任务响应"""
+
     task_id: str
     batch_id: Optional[str]
     symbol: str
@@ -211,7 +227,7 @@ class AnalysisTaskResponse(BaseModel):
     completed_at: Optional[datetime]
     result: Optional[AnalysisResult]
 
-    @field_serializer('created_at', 'started_at', 'completed_at')
+    @field_serializer("created_at", "started_at", "completed_at")
     def serialize_datetime(self, dt: Optional[datetime], _info) -> Optional[str]:
         """序列化 datetime 为 ISO 8601 格式，保留时区信息"""
         if dt:
@@ -221,6 +237,7 @@ class AnalysisTaskResponse(BaseModel):
 
 class AnalysisBatchResponse(BaseModel):
     """分析批次响应"""
+
     batch_id: str
     title: str
     description: Optional[str]
@@ -231,15 +248,17 @@ class AnalysisBatchResponse(BaseModel):
     progress: int
     created_at: datetime
     completed_at: Optional[datetime]
-    
-    @field_serializer('created_at', 'completed_at')
+
+    @field_serializer("created_at", "completed_at")
     def serialize_datetime(self, dt: Optional[datetime], _info) -> Optional[str]:
         if dt:
             return dt.isoformat()
         return None
 
+
 class AnalysisHistoryQuery(BaseModel):
     """分析历史查询参数"""
+
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=10, ge=1, le=100)
     symbol: Optional[str] = None

@@ -12,6 +12,8 @@ export interface AgentReport {
   key: string
   title: string
   content: string
+  /** 提交来源（P3 submit_report 协议）：structured = 工具参数提交；fallback_text = 回复文本降级；'' = 旧事件无标记 */
+  submission: 'structured' | 'fallback_text' | ''
 }
 
 /** 计数式实时进度（来自 agent_event 流中的 progress 事件，完成驱动） */
@@ -219,17 +221,29 @@ export const useAnalysisProcessStore = defineStore('analysisProcess', () => {
       )
       if (idx >= 0) pendingMessages.value.splice(idx, 1)
     } else if (ev.event_type === 'report_ready') {
-      // 智能体报告就绪：按 report_key 去重、按到达序追加（WS 实时与回放重建共用此路径）
+      // 智能体报告就绪：按 report_key 去重、按到达序追加（WS 实时与回放重建共用此路径）。
+      // 同 key 重复到达 → 就地更新内容（辩手报告为累积视图，逐轮发言刷新；
+      // 提交来源标记随最新事件覆盖，旧事件无标记时保留原值）
       const p = (ev.payload ?? {}) as Record<string, unknown>
       const key = typeof p.report_key === 'string' && p.report_key
         ? p.report_key
         : `${ev.agent_key}:${ev.seq}`
-      if (!seenReportKeys.has(key)) {
+      const content = typeof p.content === 'string' ? p.content : ''
+      const submission =
+        p.submission === 'structured' || p.submission === 'fallback_text' ? p.submission : ''
+      if (seenReportKeys.has(key)) {
+        const existing = reports.value.find(r => r.key === key)
+        if (existing) {
+          existing.content = content
+          if (submission) existing.submission = submission
+        }
+      } else {
         seenReportKeys.add(key)
         reports.value.push({
           key,
           title: typeof p.title === 'string' && p.title ? p.title : key,
-          content: typeof p.content === 'string' ? p.content : '',
+          content,
+          submission,
         })
       }
     }

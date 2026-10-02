@@ -51,6 +51,10 @@ export interface ToolChatMessage {
   isError: boolean
   toolUseId: string | null
   hasResult: boolean
+  /** submit_report 提交卡（P3 §5.2⑥）：专属「提交报告」卡渲染 */
+  isSubmission: boolean
+  /** 提交的报告正文（input.content；非提交卡为空串） */
+  submissionContent: string
 }
 
 export interface ToolGroupChatMessage {
@@ -87,6 +91,22 @@ export type ChatMessage =
 
 /** 连续同名工具折叠组的最少成员数（2 个起才折叠） */
 const TOOL_GROUP_MIN = 2
+
+/** 提交工具名（P3 submit_report 协议，专属卡渲染） */
+const SUBMIT_TOOL_NAME = 'submit_report'
+
+/** 解析 submit_report 提交参数：返回 [报告正文, 结构化参数文本] */
+function parseSubmissionInput(p: Record<string, unknown>): { content: string; fields: string } {
+  const raw = p.input ?? p.arguments ?? p.parameters
+  if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>
+    const content = typeof obj.content === 'string' ? obj.content : ''
+    const fields = { ...obj }
+    delete fields.content
+    return { content, fields: truncateText(fields) }
+  }
+  return { content: '', fields: '' }
+}
 
 function payload(ev: AgentEvent): Record<string, unknown> {
   return ev.payload ?? {}
@@ -246,16 +266,20 @@ export function buildChatMessages(evs: AgentEvent[]): ChatMessage[] {
           : typeof p.name === 'string' ? p.name
           : 'unknown_tool'
         const toolUseId = typeof p.tool_use_id === 'string' ? p.tool_use_id : null
+        const isSubmission = name === SUBMIT_TOOL_NAME
+        const sub = isSubmission ? parseSubmissionInput(p) : { content: '', fields: '' }
         messages.push({
           kind: 'tool',
           id: `e${ev.seq}`,
           name,
-          input: truncateText(p.input ?? p.arguments ?? p.parameters ?? ''),
+          input: isSubmission ? sub.fields : truncateText(p.input ?? p.arguments ?? p.parameters ?? ''),
           output: '',
           durationMs: null,
           isError: false,
           toolUseId,
           hasResult: false,
+          isSubmission,
+          submissionContent: sub.content,
         })
         registerPending(name, toolUseId)
         break
@@ -288,6 +312,8 @@ export function buildChatMessages(evs: AgentEvent[]): ChatMessage[] {
             isError: result.isError,
             toolUseId,
             hasResult: true,
+            isSubmission: name === SUBMIT_TOOL_NAME,
+            submissionContent: '',
           })
         }
         break

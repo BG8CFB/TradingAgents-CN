@@ -27,9 +27,29 @@ from app.core.database import init_db, close_db
 from app.core.logging_config import setup_logging
 from app.core.response import safe_error_message
 import jwt as _jwt
-from app.routers import auth_db as auth, analysis, screening, health, favorites, config, reports, database, operation_logs, tags, news_data, usage_statistics, model_capabilities, cache, logs
+from app.routers import (
+    auth_db as auth,
+    analysis,
+    screening,
+    health,
+    favorites,
+    config,
+    reports,
+    database,
+    operation_logs,
+    tags,
+    news_data,
+    usage_statistics,
+    model_capabilities,
+    cache,
+    logs,
+)
 from app.routers import mcp, tools
+from app.routers import chat as chat_router
+from app.routers import registry as registry_router
 from app.routers import agent_configs
+from app.routers import agents as agents_router
+from app.routers import workflows as workflows_router
 from app.routers import skills as skills_router
 from app.routers import stocks as stocks_router
 from app.routers import notifications as notifications_router
@@ -46,7 +66,7 @@ def _sanitize_url(url: str) -> str:
 
     例如: http://user:pass@proxy:8080 -> http://***@proxy:8080
     """
-    return re.sub(r'://([^@:]+):([^@]+)@', r'://***@', url)
+    return re.sub(r"://([^@:]+):([^@]+)@", r"://***@", url)
 
 
 async def _print_config_summary(logger):
@@ -78,7 +98,7 @@ async def _print_config_summary(logger):
                 env_file_found = True
                 # 显示文件的前几行（使用共享脱敏函数）
                 try:
-                    with open(env_file, 'r', encoding='utf-8') as f:
+                    with open(env_file, "r", encoding="utf-8") as f:
                         lines = f.readlines()[:5]  # 只读前5行
                         logger.info("     Preview (first 5 lines):")
                         for i, raw_line in enumerate(lines, 1):
@@ -88,29 +108,30 @@ async def _print_config_summary(logger):
                     logger.warning(f"     Could not preview file: {e}")
             else:
                 logger.info(f"  ❌ Not found: {env_file}")
-        
+
         if not env_file_found:
             logger.warning("⚠️  No .env file found in checked locations")
-        
+
         # Pydantic Settings 配置加载状态
         logger.info("⚙️  Pydantic Settings Configuration:")
         logger.info(f"  • Settings class: {settings.__class__.__name__}")
         logger.info(f"  • Config source: {getattr(settings.model_config, 'env_file', 'Not specified')}")
         logger.info(f"  • Encoding: {getattr(settings.model_config, 'env_file_encoding', 'Not specified')}")
-        
+
         # 显示一些关键配置值的来源（环境变量 vs 默认值）
-        key_settings = ['HOST', 'PORT', 'DEBUG', 'MONGODB_HOST', 'REDIS_HOST']
+        key_settings = ["HOST", "PORT", "DEBUG", "MONGODB_HOST", "REDIS_HOST"]
         logger.info("  • Key settings sources:")
         for setting_name in key_settings:
             env_var_name = setting_name
             from app.core.env import get_env
+
             env_value = get_env(env_var_name)
             config_value = getattr(settings, setting_name, None)
             if env_value is not None:
                 logger.info(f"    - {setting_name}: from environment variable ({config_value})")
             else:
                 logger.info(f"    - {setting_name}: using default value ({config_value})")
-        
+
         # 环境信息
         env = "Production" if settings.is_production else "Development"
         logger.info(f"Environment: {env}")
@@ -128,7 +149,7 @@ async def _print_config_summary(logger):
                 logger.info(f"  HTTPS_PROXY: {_sanitize_url(settings.HTTPS_PROXY)}")
             if settings.NO_PROXY:
                 # 只显示前3个域名
-                no_proxy_list = settings.NO_PROXY.split(',')
+                no_proxy_list = settings.NO_PROXY.split(",")
                 if len(no_proxy_list) <= 3:
                     logger.info(f"  NO_PROXY: {settings.NO_PROXY}")
                 else:
@@ -140,6 +161,7 @@ async def _print_config_summary(logger):
         # 检查大模型配置
         try:
             from app.services.config_service import config_service
+
             config = await config_service.get_system_config()
             if config and config.llm_configs:
                 enabled_llms = [llm for llm in config.llm_configs if llm.enabled]
@@ -182,6 +204,7 @@ async def _init_database(logger):
 
     from app.services.user_service import user_service
     from app.core.database import get_mongo_db
+
     user_service.set_database(get_mongo_db())
     logger.info("✅ UserService 数据库连接已初始化")
 
@@ -196,6 +219,7 @@ async def _init_secrets(logger):
     """
     try:
         from app.services.secret_service import SecretService
+
         secrets = await SecretService.ensure_secrets()
         if secrets:
             logger.info(f"✅ 安全密钥已就绪（{len(secrets)} 个）")
@@ -209,12 +233,14 @@ async def _init_secrets(logger):
 async def _init_system_defaults(logger):
     """系统首次启动初始化（默认用户/配置）"""
     from app.services.system_init_service import SystemInitService
+
     await SystemInitService.initialize_system()
 
 
 async def _migrate_protocol_to_providers(logger):
     """一次性迁移：模型级 protocol 回填到厂家级（幂等，失败不阻断启动）"""
     from app.services.config.llm_service import LLMService
+
     result = await LLMService().migrate_model_protocol_to_providers()
     if result.get("migrated_providers") or result.get("cleaned_configs"):
         logger.info(f"🔄 协议字段上移厂家级迁移完成: {result}")
@@ -224,6 +250,7 @@ async def _init_config_bridge(logger):
     """将数据库配置桥接到环境变量"""
     try:
         from app.core.config_bridge import bridge_config_to_env
+
         bridge_success = await asyncio.wait_for(bridge_config_to_env(), timeout=30)
         if not bridge_success:
             logger.warning("⚠️  配置桥接未成功完成，TradingAgents 将使用 .env 文件中的配置")
@@ -237,9 +264,11 @@ async def _apply_dynamic_settings(logger):
     """从 ConfigProvider 读取动态设置并应用"""
     try:
         from app.services.config_provider import provider as config_provider
+
         eff = await config_provider.get_effective_system_settings()
 
         from app.engine.config.runtime_settings import set_cached_settings
+
         set_cached_settings(eff)
 
         desired_level = str(eff.get("log_level", "INFO")).upper()
@@ -248,6 +277,7 @@ async def _apply_dynamic_settings(logger):
             logging.getLogger(name).setLevel(desired_level)
         try:
             from app.middleware.operation_log_middleware import set_operation_log_enabled
+
             set_operation_log_enabled(bool(eff.get("enable_monitoring", True)))
         except Exception as e:
             logging.getLogger(__name__).debug(f"设置操作日志开关失败: {e}")
@@ -267,6 +297,7 @@ async def _init_scheduler(logger):
     # H1 修复：此前 SchedulerMonitor.start() 从未被调用，导致 _get_monitor()
     # 永远返回 None，手动触发并发保护、超时检测、统计全部失效。
     from app.data.scheduler.monitors import SchedulerMonitor
+
     monitor = SchedulerMonitor()
     monitor.start(apscheduler)
     logger.info("✅ 调度任务监控已启动（超时检测 + 统计 + 并发保护）")
@@ -328,9 +359,7 @@ def _check_default_secrets(logger: logging.Logger):
                 f"  请在 .env 中设置强随机密钥后重试。\n"
                 f"{'!' * 70}"
             )
-            raise RuntimeError(
-                f"{env_key} 在生产模式下使用了不安全默认值，启动被拒绝"
-            )
+            raise RuntimeError(f"{env_key} 在生产模式下使用了不安全默认值，启动被拒绝")
         logger.warning(
             f"{'!' * 70}\n"
             f"  SECURITY WARNING: {env_key} is using a default/docker value!\n"
@@ -349,18 +378,16 @@ async def lifespan(app: FastAPI):
         import asyncio as _asyncio
         from concurrent.futures import ThreadPoolExecutor
         from app.core.config import settings as _settings
+
         loop = _asyncio.get_running_loop()
-        loop.set_default_executor(
-            ThreadPoolExecutor(max_workers=_settings.ASYNC_THREAD_POOL_SIZE)
-        )
-        logger.info(
-            f"🔧 默认异步线程池上限: {_settings.ASYNC_THREAD_POOL_SIZE}"
-        )
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=_settings.ASYNC_THREAD_POOL_SIZE))
+        logger.info(f"🔧 默认异步线程池上限: {_settings.ASYNC_THREAD_POOL_SIZE}")
     except Exception as e:
         logger.warning(f"⚠️ 设置默认线程池上限失败: {e}")
 
     # 验证启动配置
     from app.core.startup_validator import validate_startup_config
+
     validate_startup_config()
 
     # 安全检查：默认密钥告警
@@ -373,20 +400,34 @@ async def lifespan(app: FastAPI):
     # - lifespan 在已运行的 loop 中执行，get_event_loop() 在 Python 3.12+ 抛 DeprecationWarning
     # - get_event_loop() 在没有 running loop 时会创建新 loop，但 lifespan 不会用它
     from app.core.async_utils import set_main_loop
+
     set_main_loop(asyncio.get_running_loop())
 
     # 注入主循环给 token 用量记录器（跨线程 fire-and-forget 写 Mongo，模式同 analysis_events）
     from app.services.token_usage_recorder import token_usage_recorder
+
     token_usage_recorder.set_server_loop(asyncio.get_running_loop())
 
     await _init_secrets(logger)
     await _init_system_defaults(logger)
+
+    # ==================== 工作流/智能体种子同步（幂等） ====================
+    # agent_specs / workflow_specs 注入与升级；首次迁移会保留旧 YAML 中的用户修改。
+    # 失败不阻断启动——store 读取路径自带本地种子降级。
+    try:
+        from app.engine.orchestrator.workflow import seeder as workflow_seeder
+
+        workflow_seeder.sync_all()
+    except Exception as e:
+        logger.warning(f"⚠️ 工作流种子同步失败（读取将降级本地种子）: {e}", exc_info=True)
+
     await _migrate_protocol_to_providers(logger)
     await _init_config_bridge(logger)
     await _apply_dynamic_settings(logger)
 
     # 启动 Redis 自愈协程（限流中间件依赖）
     from app.middleware.rate_limit import start_redis_recovery_loop, stop_redis_recovery_loop
+
     start_redis_recovery_loop()
 
     # 显示配置摘要
@@ -412,6 +453,7 @@ async def lifespan(app: FastAPI):
 
     # ==================== 数据源健康监控 ====================
     from app.data.monitoring.source_health import SourceHealthMonitor
+
     health_monitor = SourceHealthMonitor()
     health_monitor.start()
     logger.info("✅ 数据源健康监控已启动（每 30s 刷入 MongoDB）")
@@ -423,6 +465,7 @@ async def lifespan(app: FastAPI):
         from app.engine.tools.skill.dependency_installer import (
             ensure_all_skills_dependencies,
         )
+
         result = await ensure_all_skills_dependencies()
         logger.info(
             f"✅ Skill 依赖检查完成: total={result['total']}, "
@@ -439,6 +482,7 @@ async def lifespan(app: FastAPI):
         # 0a. 停止 Redis 自愈协程
         try:
             from app.middleware.rate_limit import stop_redis_recovery_loop
+
             stop_redis_recovery_loop()
         except Exception as e:
             logger.warning(f"Redis 自愈协程停止失败: {e}")
@@ -454,6 +498,7 @@ async def lifespan(app: FastAPI):
         # 这里仅关闭 MCP 连接
         try:
             from app.llm.mcp import service as mcp_service
+
             await mcp_service.shutdown()
             logger.info("🛑 MCP 连接已关闭")
         except Exception as e:
@@ -462,6 +507,7 @@ async def lifespan(app: FastAPI):
         # 3. 停止调度监控（必须在调度器之前停止）
         try:
             from app.data.scheduler.monitors import SchedulerMonitor
+
             monitor = SchedulerMonitor()
             monitor.stop()
             logger.info("🛑 调度任务监控已停止")
@@ -479,6 +525,7 @@ async def lifespan(app: FastAPI):
         # 4. 关闭分析服务线程池
         try:
             from app.services.analysis_service import get_analysis_service
+
             svc = get_analysis_service()
             svc._shutdown_pool(wait=True)
             logger.info("🛑 Analysis service thread pool stopped")
@@ -489,6 +536,7 @@ async def lifespan(app: FastAPI):
         # 必须在 close_db 之前，否则 critical 任务写入会失败
         try:
             from app.core.task_registry import task_registry
+
             await task_registry.shutdown(timeout=5.0)
             stats = task_registry.get_stats()
             logger.info(
@@ -510,15 +558,12 @@ app = FastAPI(
     version=get_version(),
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # 安全中间件
 if not settings.DEBUG:
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=settings.ALLOWED_HOSTS
-    )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
 # CORS中间件
 # 安全说明：allow_headers 使用显式白名单而非 ["*"]，避免与 allow_credentials=True
@@ -541,6 +586,7 @@ app.add_middleware(
 # CSRF 双提交 Cookie 校验中间件
 # 必须在 OperationLogMiddleware 之前注册（CSRF 失败的请求不应被记录为业务操作）
 from app.middleware.csrf import CSRFMiddleware  # noqa: E402
+
 app.add_middleware(CSRFMiddleware)
 
 # 操作日志中间件
@@ -548,13 +594,16 @@ app.add_middleware(OperationLogMiddleware)
 
 # 速率限制中间件（在操作日志之后注册 = 在操作日志之前执行）
 from app.middleware.rate_limit import RateLimitMiddleware, QuotaMiddleware  # noqa: E402
+
 app.add_middleware(QuotaMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 
 # 请求ID/Trace-ID 中间件（需作为最外层，放在函数式中间件之后）
 from app.middleware.request_id import RequestIDMiddleware  # noqa: E402
+
 app.add_middleware(RequestIDMiddleware)
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -569,35 +618,23 @@ async def global_exception_handler(request: Request, exc: Exception):
                 "error": {
                     "code": "VALIDATION_ERROR",
                     "message": safe_error_message(exc, "请求参数无效"),
-                    "request_id": request_id
+                    "request_id": request_id,
                 }
-            }
+            },
         )
 
     if isinstance(exc, PermissionError):
         logging.warning(f"Permission denied: {exc}")
         return JSONResponse(
             status_code=403,
-            content={
-                "error": {
-                    "code": "PERMISSION_DENIED",
-                    "message": "权限不足",
-                    "request_id": request_id
-                }
-            }
+            content={"error": {"code": "PERMISSION_DENIED", "message": "权限不足", "request_id": request_id}},
         )
 
     if isinstance(exc, FileNotFoundError):
         logging.warning(f"Resource not found: {exc}")
         return JSONResponse(
             status_code=404,
-            content={
-                "error": {
-                    "code": "RESOURCE_NOT_FOUND",
-                    "message": "请求的资源不存在",
-                    "request_id": request_id
-                }
-            }
+            content={"error": {"code": "RESOURCE_NOT_FOUND", "message": "请求的资源不存在", "request_id": request_id}},
         )
 
     logging.error(f"Unhandled exception: {exc}", exc_info=True)
@@ -607,9 +644,9 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
                 "message": "Internal server error occurred",
-                "request_id": request_id
+                "request_id": request_id,
             }
-        }
+        },
     )
 
 
@@ -619,13 +656,7 @@ async def jwt_expired_handler(request: Request, exc: _jwt.ExpiredSignatureError)
     request_id = getattr(request.state, "request_id", None)
     return JSONResponse(
         status_code=401,
-        content={
-            "error": {
-                "code": "TOKEN_EXPIRED",
-                "message": "登录已过期，请重新登录",
-                "request_id": request_id
-            }
-        }
+        content={"error": {"code": "TOKEN_EXPIRED", "message": "登录已过期，请重新登录", "request_id": request_id}},
     )
 
 
@@ -635,13 +666,7 @@ async def jwt_invalid_handler(request: Request, exc: _jwt.InvalidTokenError):
     request_id = getattr(request.state, "request_id", None)
     return JSONResponse(
         status_code=401,
-        content={
-            "error": {
-                "code": "TOKEN_INVALID",
-                "message": "认证信息无效",
-                "request_id": request_id
-            }
-        }
+        content={"error": {"code": "TOKEN_INVALID", "message": "认证信息无效", "request_id": request_id}},
     )
 
 
@@ -656,9 +681,9 @@ async def runtime_error_handler(request: Request, exc: RuntimeError):
             "error": {
                 "code": "RUNTIME_ERROR",
                 "message": safe_error_message(exc, "服务暂时不可用"),
-                "request_id": request_id
+                "request_id": request_id,
             }
-        }
+        },
     )
 
 
@@ -680,12 +705,19 @@ app.include_router(operation_logs.router)
 app.include_router(logs.router)
 # 系统配置只读摘要
 from app.routers import system_config as system_config_router  # noqa: E402
+
 app.include_router(system_config_router.router)
 app.include_router(mcp.router)
 # 统一工具清单
 app.include_router(tools.router)
+# AI 问答选股助手
+app.include_router(chat_router.router)
 # 按阶段编辑智能体配置
 app.include_router(agent_configs.router)
+app.include_router(workflows_router.router)
+app.include_router(agents_router.router)
+# 智能体身份注册表（显示名单单一来源）
+app.include_router(registry_router.router)
 
 # Skill 管理
 app.include_router(skills_router.router)
@@ -722,7 +754,7 @@ async def root():
         "name": "TradingAgents-CN API",
         "version": get_version(),
         "status": "running",
-        "docs_url": "/docs" if settings.DEBUG else None
+        "docs_url": "/docs" if settings.DEBUG else None,
     }
 
 
@@ -735,15 +767,8 @@ if __name__ == "__main__":
         log_config=None,  # 禁用 uvicorn 默认 log config，由 app.core.logging_config 统一接管
         log_level="info",
         reload_dirs=["app"] if settings.DEBUG else None,
-        reload_excludes=[
-            "__pycache__",
-            "*.pyc",
-            "*.pyo",
-            "*.pyd",
-            ".git",
-            ".pytest_cache",
-            "*.log",
-            "*.tmp"
-        ] if settings.DEBUG else None,
-        reload_includes=["*.py"] if settings.DEBUG else None
+        reload_excludes=["__pycache__", "*.pyc", "*.pyo", "*.pyd", ".git", ".pytest_cache", "*.log", "*.tmp"]
+        if settings.DEBUG
+        else None,
+        reload_includes=["*.py"] if settings.DEBUG else None,
     )

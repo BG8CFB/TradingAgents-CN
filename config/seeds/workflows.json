@@ -1,0 +1,245 @@
+{
+  "format_version": 1,
+  "workflows": [
+    {
+      "version": 1,
+      "slug": "default-4stage",
+      "name": "默认四阶段分析",
+      "description": "市场/新闻/基本面/情绪分析师 → 研究辩论 → 交易计划 → 风险辩论 → 总结",
+      "enabled": true,
+      "builtin": true,
+      "terminal": {
+        "decision_field": "final_trade_decision",
+        "signal_fallback": [
+          "final_trade_decision",
+          "investment_plan",
+          "risk_debate_state.judge_decision",
+          "trader_investment_plan"
+        ],
+        "summary_node": "summary"
+      },
+      "nodes": [
+        {
+          "slug": "bull-researcher",
+          "type": "debater",
+          "execution": "single_turn",
+          "memory": "bull",
+          "node_name": "Bull Researcher",
+          "event_key": "researcher_bull",
+          "report_keys": [
+            "bull_researcher"
+          ],
+          "terminal": false,
+          "builtin": true
+        },
+        {
+          "slug": "bear-researcher",
+          "type": "debater",
+          "execution": "single_turn",
+          "memory": "bear",
+          "node_name": "Bear Researcher",
+          "event_key": "researcher_bear",
+          "report_keys": [
+            "bear_researcher"
+          ],
+          "terminal": false,
+          "builtin": true
+        },
+        {
+          "slug": "research-manager",
+          "type": "judge",
+          "execution": "single_turn",
+          "memory": "invest_judge",
+          "node_name": "Research Manager",
+          "event_key": "research_manager",
+          "report_keys": [
+            "research_team_decision"
+          ],
+          "terminal": false,
+          "builtin": true
+        },
+        {
+          "slug": "trader",
+          "type": "trader",
+          "execution": "single_turn",
+          "memory": "trader",
+          "node_name": "Trader",
+          "event_key": "trader",
+          "report_keys": [
+            "trader_investment_plan",
+            "investment_plan",
+            "final_trade_decision"
+          ],
+          "terminal": false,
+          "builtin": true
+        },
+        {
+          "slug": "risky-analyst",
+          "type": "debater",
+          "execution": "single_turn",
+          "memory": null,
+          "node_name": "Risky Analyst",
+          "event_key": "risk_debater_risky",
+          "report_keys": [
+            "risky_analyst"
+          ],
+          "terminal": false,
+          "builtin": true
+        },
+        {
+          "slug": "safe-analyst",
+          "type": "debater",
+          "execution": "single_turn",
+          "memory": null,
+          "node_name": "Safe Analyst",
+          "event_key": "risk_debater_safe",
+          "report_keys": [
+            "safe_analyst"
+          ],
+          "terminal": false,
+          "builtin": true
+        },
+        {
+          "slug": "neutral-analyst",
+          "type": "debater",
+          "execution": "single_turn",
+          "memory": null,
+          "node_name": "Neutral Analyst",
+          "event_key": "risk_debater_neutral",
+          "report_keys": [
+            "neutral_analyst"
+          ],
+          "terminal": false,
+          "builtin": true
+        },
+        {
+          "slug": "risk-manager",
+          "type": "judge",
+          "execution": "single_turn",
+          "memory": "risk_manager",
+          "node_name": "Risk Judge",
+          "event_key": "risk_manager",
+          "report_keys": [
+            "risk_management_decision",
+            "risk_manager_decision"
+          ],
+          "terminal": true,
+          "builtin": true
+        },
+        {
+          "slug": "summary",
+          "type": "summarizer",
+          "execution": "single_turn",
+          "memory": null,
+          "node_name": "Summary Agent",
+          "event_key": "summary",
+          "report_keys": [],
+          "terminal": false,
+          "builtin": true
+        }
+      ],
+      "stages": [
+        {
+          "id": "analysts",
+          "optional": false,
+          "event_phase": "analysts",
+          "mode": "parallel_batch",
+          "nodes": [],
+          "pool": "phase1_analysts",
+          "concurrency": 5
+        },
+        {
+          "id": "research_debate",
+          "optional": true,
+          "event_phase": "research",
+          "mode": "debate",
+          "state_key": "investment_debate_state",
+          "sides": [
+            "bull-researcher",
+            "bear-researcher"
+          ],
+          "rounds": 1,
+          "judge": "research-manager",
+          "report_view": "investment",
+          "inputs": {
+            "analyst_reports": [
+              "market_report",
+              "financial_news_report",
+              "china_market_report",
+              "social_media_report",
+              "fundamentals_report",
+              "short_term_capital_report"
+            ]
+          }
+        },
+        {
+          "id": "trader",
+          "optional": false,
+          "event_phase": "trader",
+          "mode": "single",
+          "node": "trader",
+          "inputs": {
+            "analyst_reports": [
+              "market_report",
+              "financial_news_report",
+              "china_market_report",
+              "social_media_report",
+              "fundamentals_report",
+              "short_term_capital_report"
+            ],
+            "judge_decision": "investment_debate_state.judge_decision"
+          }
+        },
+        {
+          "id": "risk_debate",
+          "optional": true,
+          "event_phase": "risk",
+          "mode": "debate",
+          "state_key": "risk_debate_state",
+          "sides": [
+            "risky-analyst",
+            "safe-analyst",
+            "neutral-analyst"
+          ],
+          "rounds": 1,
+          "judge": "risk-manager",
+          "report_view": "risk",
+          "inputs": {
+            "analyst_reports": [
+              "market_report",
+              "financial_news_report",
+              "china_market_report",
+              "social_media_report",
+              "fundamentals_report",
+              "short_term_capital_report",
+              "bull_researcher",
+              "bear_researcher",
+              "research_team_decision"
+            ],
+            "trader_plan": "trader_investment_plan"
+          }
+        },
+        {
+          "id": "summary",
+          "optional": false,
+          "event_phase": "summary",
+          "mode": "single",
+          "node": "summary",
+          "inputs": {
+            "analyst_reports": [
+              "market_report",
+              "financial_news_report",
+              "china_market_report",
+              "social_media_report",
+              "fundamentals_report",
+              "short_term_capital_report"
+            ],
+            "trader_plan": "trader_investment_plan",
+            "final_decision": "final_trade_decision",
+            "risk_debate_history": "risk_debate_state"
+          }
+        }
+      ]
+    }
+  ]
+}

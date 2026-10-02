@@ -1,46 +1,43 @@
 """测试 DynamicAnalystFactory 完整方法
 
-使用真实配置文件（临时 YAML）替代 patch，
-验证工厂方法的查找、映射和进度功能。
+配置源已 DB 化（agent_specs 集合，2026-09 工作流通用化）：fixture 经 store
+真实写入测试条目（替代旧临时 YAML 注入），验证工厂方法的查找、映射和进度功能。
 """
 
 import pytest
 
 from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
 
+pytestmark = pytest.mark.requires_db
+
 
 @pytest.fixture
-def sample_config(tmp_path):
-    """创建临时配置文件并返回路径"""
-    import yaml
-    config = {
-        "customModes": [
-            {
-                "slug": "market-analyst",
-                "name": "市场技术分析师",
-                "roleDefinition": "分析市场技术指标",
-                "tools": ["get_stock_data", "get_stock_fundamentals"],
-            },
-            {
-                "slug": "news-analyst",
-                "name": "新闻分析师",
-                "roleDefinition": "分析新闻舆情",
-                "tools": ["get_stock_news"],
-            },
-        ],
-        "agents": [
-            {
-                "slug": "fundamentals-analyst",
-                "name": "基本面分析师",
-                "roleDefinition": "分析基本面数据",
-                "tools": ["get_stock_fundamentals"],
-            },
-        ],
-    }
-    config_path = tmp_path / "phase1_agents_config.yaml"
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config, f, allow_unicode=True)
-    return str(config_path)
+def sample_config(mongodb_available):
+    """向 agent_specs(phase=1) 注入测试条目；返回 None（config_path 参数已无效果，仅签名兼容）"""
+    from app.engine.orchestrator.registry import clear_registry_cache
+    from app.engine.orchestrator.workflow import store
+
+    # registry 身份表进程内固化（首次查询后缓存）：注入前失效，确保本 fixture 读到测试条目
+    clear_registry_cache()
+    entries = [
+        {
+            "slug": "market-analyst",
+            "name": "市场技术分析师",
+            "roleDefinition": "分析市场技术指标",
+            "data_tools": ["daily_quotes"],
+        },
+        {"slug": "news-analyst", "name": "新闻分析师", "roleDefinition": "分析新闻舆情"},
+        {"slug": "fundamentals-analyst", "name": "基本面分析师", "roleDefinition": "分析基本面数据"},
+    ]
+    store.replace_phase_agent_specs(1, entries)
+    yield None
+    # 清整个集合（非仅 phase1）：store 降级判据是「集合整空」——只清单 phase 会留下
+    # 「phase1 空、集合非空」状态导致降级不触发、其他用例读到空分析师库
+    store._db()[store.AGENT_SPECS_COLLECTION].delete_many({})
+    store.invalidate_store_cache()
+    # 注入期间触发的查询会把测试条目固化进 registry 进程缓存（_identities_cache /
+    # _slug_name_cache），只清 DB+store 缓存会让后续 registry 测试读到污染数据
+    clear_registry_cache()
 
 
 class TestBuildLookupMap:

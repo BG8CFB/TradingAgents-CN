@@ -1,10 +1,5 @@
-
-import os
-import threading
-import yaml
 from typing import List, Dict, Any, Optional
 
-from app.core.env import get_env
 import logging
 
 logger = logging.getLogger("analysts.dynamic")
@@ -17,11 +12,7 @@ class DynamicAnalystFactory:
     提供配置加载、查找、映射等工具函数，被 SimpleAgentFactory 使用。
     """
 
-    _config_cache = {}
-    _config_mtime = {}
-    _config_lock = threading.Lock()
-
-    # 迁移期剥离的冗余键（引擎零消费）
+    # 迁移期剥离的冗余键（引擎零消费；DB 条目入库时已归一化，此为旧库残留防御）
     _LEGACY_KEYS = ("whenToUse", "groups", "source", "initial_task")
 
     @classmethod
@@ -48,56 +39,18 @@ class DynamicAnalystFactory:
 
     @classmethod
     def load_config(cls, config_path: str = None) -> Dict[str, Any]:
-        """加载智能体配置文件"""
-        if not config_path:
-            # 1. 优先使用环境变量 AGENT_CONFIG_DIR
-            env_dir = get_env("AGENT_CONFIG_DIR")
-            if env_dir and os.path.exists(env_dir):
-                config_path = os.path.join(env_dir, "phase1_agents_config.yaml")
-            else:
-                # 获取当前文件所在目录，向上逐级查找 config/agents（兼容 app/engine/... 新布局）
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                config_path_candidate = ""
-                probe = current_dir
-                for _ in range(6):
-                    probe = os.path.dirname(probe)
-                    candidate = os.path.join(probe, "config", "agents", "phase1_agents_config.yaml")
-                    if os.path.exists(candidate):
-                        config_path_candidate = candidate
-                        break
+        """加载 phase1 分析师智能体库（agent_specs 集合，DB 权威 + 种子降级）。
 
-                # 2. 尝试使用 config/agents/phase1_agents_config.yaml
-                if os.path.exists(config_path_candidate):
-                    config_path = config_path_candidate
-                else:
-                    logger.warning(f"⚠️ 未找到配置文件: {config_path_candidate}")
+        config_path 参数保留仅为签名兼容：DB 存放下已无路径语义，忽略。
+        读取缓存由 store 层统一管理（TTL + 写后失效）。
+        """
+        from app.engine.orchestrator.workflow import store
 
         try:
-            mtime = os.path.getmtime(config_path)
-        except Exception as e:
-            logger.debug(f"获取配置文件修改时间失败: {e}")
-            mtime = None
-
-        # 命中缓存且文件未变化则复用
-        with cls._config_lock:
-            if (
-                config_path in cls._config_cache
-                and config_path in cls._config_mtime
-                and mtime is not None
-                and cls._config_mtime.get(config_path) == mtime
-            ):
-                return cls._config_cache[config_path]
-
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config = yaml.safe_load(f)
-                    cls._config_cache[config_path] = config or {}
-                    if mtime is not None:
-                        cls._config_mtime[config_path] = mtime
-                    return cls._config_cache[config_path]
-            except Exception as e:
-                logger.error(f"❌ 加载配置文件失败: {config_path}, 错误: {e}")
-                return {}
+            return {"customModes": store.list_agent_specs(phase=1)}
+        except Exception as e:  # noqa: BLE001 - 读取失败回退空库（与旧 YAML 失败行为一致）
+            logger.error(f"❌ 加载智能体库失败: {e}")
+            return {}
 
     @classmethod
     def get_agent_config(cls, slug_or_name: str, config_path: str = None) -> Optional[Dict[str, Any]]:
@@ -119,11 +72,11 @@ class DynamicAnalystFactory:
         config = cls.load_config(config_path)
 
         # 合并 customModes 和 agents 列表
-        all_agents = config.get('customModes', []) + config.get('agents', [])
+        all_agents = config.get("customModes", []) + config.get("agents", [])
 
         for agent in all_agents:
-            slug = agent.get('slug', '')
-            name = agent.get('name', '')
+            slug = agent.get("slug", "")
+            name = agent.get("name", "")
 
             # 生成 internal_key（从 slug 派生：去除 -analyst 后缀，替换 - 为 _）
             internal_key = slug.replace("-analyst", "").replace("-", "_")
@@ -153,14 +106,14 @@ class DynamicAnalystFactory:
         config = cls.load_config(config_path)
 
         # 检查 customModes
-        for agent in config.get('customModes', []):
-            if agent.get('name') == name:
-                return agent.get('slug')
+        for agent in config.get("customModes", []):
+            if agent.get("name") == name:
+                return agent.get("slug")
 
         # 检查 agents
-        for agent in config.get('agents', []):
-            if agent.get('name') == name:
-                return agent.get('slug')
+        for agent in config.get("agents", []):
+            if agent.get("name") == name:
+                return agent.get("slug")
 
         return None
 
@@ -179,10 +132,10 @@ class DynamicAnalystFactory:
         agents = []
 
         # 从 customModes 获取
-        agents.extend(cls._normalize_mode(a) for a in config.get('customModes', []))
+        agents.extend(cls._normalize_mode(a) for a in config.get("customModes", []))
 
         # 从 agents 获取（如果配置结构不同）
-        agents.extend(cls._normalize_mode(a) for a in config.get('agents', []))
+        agents.extend(cls._normalize_mode(a) for a in config.get("agents", []))
 
         return agents
 
@@ -203,8 +156,8 @@ class DynamicAnalystFactory:
         lookup = {}
 
         for agent in agents:
-            slug = agent.get('slug', '')
-            name = agent.get('name', '')
+            slug = agent.get("slug", "")
+            name = agent.get("name", "")
 
             if not slug:
                 continue
@@ -217,11 +170,11 @@ class DynamicAnalystFactory:
 
             # 构建配置信息
             config_info = {
-                'internal_key': internal_key,
-                'slug': slug,
-                'tool_key': tool_key,
-                'name': name,
-                'display_name': internal_key.replace('_', ' ').title()
+                "internal_key": internal_key,
+                "slug": slug,
+                "tool_key": tool_key,
+                "name": name,
+                "display_name": internal_key.replace("_", " ").title(),
             }
 
             # 添加多种查找方式
@@ -308,8 +261,8 @@ class DynamicAnalystFactory:
         node_mapping = {}
 
         for agent in agents:
-            slug = agent.get('slug', '')
-            name = agent.get('name', '')
+            slug = agent.get("slug", "")
+            name = agent.get("name", "")
 
             if not slug:
                 continue
@@ -318,7 +271,7 @@ class DynamicAnalystFactory:
             internal_key = slug.replace("-analyst", "").replace("-", "_")
 
             # 生成节点名称（首字母大写，如 "China_Market Analyst"）
-            formatted_name = internal_key.replace('_', ' ').title().replace(' ', '_')
+            formatted_name = internal_key.replace("_", " ").title().replace(" ", "_")
             analyst_node_name = f"{formatted_name} Analyst"
 
             # 获取图标（优先从配置读取）
@@ -340,23 +293,15 @@ class DynamicAnalystFactory:
 
     @classmethod
     def _get_non_analyst_mappings(cls) -> Dict[str, str]:
-        """获取非分析师阶段（Stage 2/3/4）的固定节点映射"""
-        return {
-            'Bull Researcher': "🐂 看涨研究员",
-            'Bear Researcher': "🐻 看跌研究员",
-            'Research Manager': "👔 研究经理",
-            'Trader': "💼 交易员决策",
-            'Risky Analyst': "🔥 激进风险评估",
-            'Safe Analyst': "🛡️ 保守风险评估",
-            'Neutral Analyst': "⚖️ 中性风险评估",
-            'Risk Judge': "🎯 风险经理",
-            'Summary Agent': "📊 生成报告",
-        }
+        """获取非分析师阶段（Stage 2/3/4）的固定节点映射——registry 单一权威表"""
+        from app.engine.orchestrator.registry import builtin_progress_texts
+
+        return builtin_progress_texts()
 
     @classmethod
     def clear_cache(cls):
-        """清除配置缓存，用于配置文件更新后重新加载"""
-        cls._config_cache.clear()
-        cls._config_mtime.clear()
-        logger.info("🔄 已清除智能体配置缓存")
+        """清除智能体库读缓存（DB 时代 = store 缓存失效；跨进程最终一致靠 TTL）"""
+        from app.engine.orchestrator.workflow import store
 
+        store.invalidate_store_cache()
+        logger.info("🔄 已清除智能体配置缓存")

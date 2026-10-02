@@ -186,16 +186,28 @@ The historical `tradingagents/` package has been merged into `app/engine/`. All 
 
 ### Multi-Agent Workflow (`app/engine/`)
 
-Hand-written ordered 4-stage pipeline (`app/engine/orchestrator/pipeline.py`, no LangGraph), configured via YAML files in `config/agents/`:
+Spec-compiled pipeline（2026-09 工作流通用化重构，no LangGraph）：
 
-1. **Stage 1 — Analysts** (`app/engine/orchestrator/agents.py`): Vertical analysts run strictly serial (parallel-ready structure). Dynamic loading via `dynamic_analyst.py`. Config: `phase1_agents_config.yaml`
-2. **Stage 2 — Research Debate** (`app/engine/agents/stage_2/`): Bull/Bear fair debate (Bull first, alternating, equal turns). Config: `phase2_agents_config.yaml`
-3. **Stage 3 — Risk Management** (`app/engine/agents/stage_3/`): Risky→Safe→Neutral fixed order. Config: `phase3_agents_config.yaml`
+1. **Stage 1 — Analysts**: Vertical analysts (parallel batch, configurable concurrency). Library: `agent_specs` DB collection
+2. **Stage 2 — Research Debate** (`app/engine/agents/stage_2/`): Bull/Bear fair debate (Bull first, alternating, equal turns)
+3. **Stage 3 — Risk Management** (`app/engine/agents/stage_3/`): Risky→Safe→Neutral debate + judge
 4. **Stage 4 — Trader** (`app/engine/agents/stage_4/`): Final trading decision
 
 **Key entry point**: `TradingAgentsGraph.propagate(company_name, trade_date, progress_callback=None, task_id=None, event_sink=None)` in `app/engine/runtime.py`
 
-Orchestration: `orchestrator/pipeline.py` (ordering/fair-debate guarantees), `orchestrator/state.py` (plain-dict state, field shape identical to the legacy AgentState). Reflection/signal: `agents/postprocess/reflector.py`, `agents/postprocess/signal_processor.py`. LLM calls go through `app/engine/orchestrator/llm_bridge.py` → `app/llm/`.
+### Workflow Orchestration (`app/engine/orchestrator/workflow/`)
+
+编排走「spec → compile → execute」三段（设计文档 `docs/superpowers/specs/2026-09-14-workflow-generalization-design.md`）：
+
+- **`spec.py`** — pydantic v2 工作流模型（NodeSpec / 三类 StageSpec / WorkflowSpec / CompileParams）
+- **`store.py`** — `agent_specs` / `workflow_specs` 两 MongoDB 集合（运行时权威；进程缓存 TTL + 写后失效；集合整空才降级种子——防 tombstone 被种子复活）
+- **`seeds.py` + `config/seeds/*.json`** — 种子数据（agents.json / workflows.json，YAML 已退役；JSON 仅初始注入用）
+- **`seeder.py`** — lifespan/worker 启动注入：DB 空 → 插入；builtin + hash 变化 → 覆盖升级；非 builtin 不动；tombstone 不复活；首次迁移（旧 `config/agents/` YAML 存在时逐条比对入库，服务已部署环境）
+- **`loader.py`** — 从 DB 读默认 spec（slug 定位 + sha256）
+- **`validator.py`** / **`compiler.py`** — spec 校验（含种子↔registry 一致性锚点）；`compile_workflow(spec, params)` 纯函数产 `CompiledPlan`（plan.py）；`params_from_legacy_config` 单点承接旧 API 契约（phase2_enabled / phaseN_debate_rounds / analyst_concurrency → CompileParams）
+- **`executor.py`** — 按 plan 遍历阶段执行（batch/debate/single 三类；节点重试/事件/计时、辩论公平轮次、黑板合并机制全部在此）
+
+身份表：`orchestrator/registry.py`（9 内置节点静态段 + 分析师动态段；`clear_registry_cache()` 与 store 缓存联动失效）。编排入口：`orchestrator/pipeline.py` 的 `run_pipeline`（compile 后 `state["_plan_snapshot"]` 冻结执行计划快照，analysis_service 提取存任务文档 `workflow_snapshot` 字段）。等价保证：`tests/engine/workflow/test_golden_equivalence.py`（4 场景事件序列/state 形状/reports 键集五层断言）。`orchestrator/state.py` — plain-dict state（字段形状与 legacy AgentState 一致）。LLM calls go through `app/engine/orchestrator/llm_bridge.py` → `app/llm/`.
 
 ### MCP Architecture
 
@@ -283,14 +295,14 @@ Optional (AI features):
 
 ### Runtime Configuration (`config/`)
 
-- `agents/phase1_agents_config.yaml` — Stage 1 analyst definitions
-- `agents/phase2_agents_config.yaml`, `phase3_agents_config.yaml` — Stages 2-3
+- `seeds/agents.json` — 智能体库种子（9 内置节点 + phase1-3 智能体；仅初始注入，运行时权威在 DB `agent_specs` 集合）
+- `seeds/workflows.json` — 工作流种子（default-4stage；运行时权威在 DB `workflow_specs` 集合）
 - `models.json` — LLM model definitions
 - `mcp.json` — MCP server configuration
 - `logging.toml` / `logging_docker.toml` — Local vs container logging profiles
 - `defaults/`, `skills/` — Bundled default configs and skill definitions
 
-Note: Several `.json` files are auto-generated and may contain sensitive stats — do not commit them.
+Note: Several `.json` files are auto-generated and may contain sensitive stats — do not commit them. 旧 `config/agents/*.yaml` 已退役（2026-09，DB 化）——修改智能体走 Web UI 或 `agent_specs` 集合，不要新建 YAML。
 
 ## Key Patterns
 
@@ -304,14 +316,7 @@ Note: Several `.json` files are auto-generated and may contain sensitive stats �
 
 ### Adding a New Analyst Agent
 
-1. Define in `config/agents/phase1_agents_config.yaml`:
-   ```yaml
-   analysts:
-     - slug: "custom_analyst"
-       name: "Custom Analyst"
-       role: "Analyze custom metrics"
-       tools: ["tool_name"]
-   ```
+1. Add an entry to the `agent_specs` DB collection (via Web UI 智能体管理, or `store.replace_phase_agent_specs` in tests) with `slug` / `name` / `roleDefinition` / `data_tools`; builtin seeds live in `config/seeds/agents.json`.
 2. Implement tool under `app/engine/tools/` if needed.
 3. Auto-picked up by `DynamicAnalystFactory` — no Python registration required.
 

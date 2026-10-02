@@ -12,10 +12,40 @@ from app.engine.agents.utils.agent_utils import Toolkit
 from app.engine.agents.utils.memory import FinancialSituationMemory
 from app.engine.default_config import DEFAULT_CONFIG
 from app.engine.orchestrator.pipeline import PipelineDeps, run_pipeline
+from app.engine.orchestrator.state import side_history_labeled
+from app.engine.orchestrator.workflow.inputs import resolve_field
+from app.engine.orchestrator.workflow.plan import MEMORY_SLOT_FIELDS
 import logging
 from app.utils.runtime_paths import get_eval_results_dir
 
 logger = logging.getLogger("agents")
+
+# 终端契约缺省时的信号文本回退链（P4-b 参数化前的历史硬编码行为，逐项一致）
+_DEFAULT_SIGNAL_FALLBACK = (
+    "final_trade_decision",
+    "investment_plan",
+    "risk_debate_state.judge_decision",
+    "trader_investment_plan",
+)
+
+
+def _extract_final_signal(final_state: Dict[str, Any], terminal: Dict[str, Any]) -> Any:
+    """终端契约驱动的最终信号文本探取（P4-b：点路径链参数化）。
+
+    探取顺序 = spec 声明的 terminal.signal_fallback（点路径，各级结构化
+    字段缺失时按序下探，§4.8）；未声明链时 = decision_field 优先 + 内置
+    默认链兜底；快照无终端契约（旧任务）时直接用内置默认链（与历史
+    硬编码行为一致）。取首个非空值，全空返回 ""。
+    """
+    decision_field = (terminal or {}).get("decision_field") or ""
+    paths = (terminal or {}).get("signal_fallback") or (
+        (decision_field, *_DEFAULT_SIGNAL_FALLBACK) if decision_field else _DEFAULT_SIGNAL_FALLBACK
+    )
+    for path in paths:
+        value = resolve_field(final_state, path)
+        if value:
+            return value
+    return ""
 
 
 def _classify_node(node_name: str) -> str:
@@ -78,7 +108,6 @@ class AnalysisRuntime:
         self.ticker = None
         self.log_states_dict = {}
 
-
     # ── 客户端解析 ────────────────────────────────────────────────────
 
     async def _resolve_clients(self) -> Dict[str, Any]:
@@ -94,10 +123,7 @@ class AnalysisRuntime:
                 return
             provider = self.config.get(f"{role}_provider") or self.config.get("llm_provider", "openai")
             api_key = self.config.get(f"{role}_api_key") or self.config.get("api_key")
-            base_url = (
-                self.config.get(f"{role}_backend_url")
-                or self.config.get("backend_url")
-            )
+            base_url = self.config.get(f"{role}_backend_url") or self.config.get("backend_url")
             # 经 providers 解析：从数据库同模型配置继承 max_tokens 等每模型参数，
             # 避免覆盖路径丢失 DB 参数回落 .env 默认 4096（推理模型截断空响应）
             bundle = await resolve_task_override_bundle(
@@ -115,8 +141,14 @@ class AnalysisRuntime:
     # ── 主入口 ────────────────────────────────────────────────────────
 
     async def propagate(
-        self, company_name, trade_date, progress_callback=None, task_id=None,
-        event_sink=None, user_id=None, progress_range=(0, 100),
+        self,
+        company_name,
+        trade_date,
+        progress_callback=None,
+        task_id=None,
+        event_sink=None,
+        user_id=None,
+        progress_range=(0, 100),
     ):
         """Run the analysis pipeline for a company on a specific date.
 
@@ -126,8 +158,7 @@ class AnalysisRuntime:
         阶段留出前后缀（前置准备/结果处理）。
         """
         logger.debug(
-            f"🔍 [RUNTIME DEBUG] propagate: company='{company_name}', "
-            f"trade_date='{trade_date}', task_id='{task_id}'"
+            f"🔍 [RUNTIME DEBUG] propagate: company='{company_name}', trade_date='{trade_date}', task_id='{task_id}'"
         )
         self.ticker = company_name
 
@@ -145,8 +176,7 @@ class AnalysisRuntime:
                 f"{prefix}_limit_key": meta.get("limit_key"),
             }
 
-        limit_fields = {**_limit_fields("analyst", clients["analyst"]),
-                        **_limit_fields("debate", clients["debate"])}
+        limit_fields = {**_limit_fields("analyst", clients["analyst"]), **_limit_fields("debate", clients["debate"])}
         deps = PipelineDeps(
             analyst_client=clients["analyst"],
             debate_client=clients["debate"],
@@ -194,15 +224,27 @@ class AnalysisRuntime:
             logger.debug(f"获取模型信息失败: {e}")
             model_info = "Unknown"
 
-        final_signal = (
-            final_state.get("final_trade_decision")
-            or final_state.get("investment_plan")
-            or (final_state.get("risk_debate_state") or {}).get("judge_decision")
-            or final_state.get("trader_investment_plan")
-            or ""
-        )
-        if final_signal:
-            # signal 阶段含一次完整 LLM 调用，提前下发状态提示消除尾部静默空窗
+        # 信号文本按终端契约点路径链探取（P4-b 参数化；terminal 段随执行计划
+        # 快照冻结，自定义工作流声明自己的 decision_field/回退链）
+        terminal = (final_state.get("_plan_snapshot") or {}).get("terminal") or {}
+        final_signal = _extract_final_signal(final_state, terminal)
+        # 信号提取优先级翻转（P3 §4.8）：submit_report 的结构化决策参数为一手
+        # 来源（终端 > trader），文本关键词/LLM 解析仅在 fallback_text 提交时启用
+        signal_fields = final_state.get("final_decision_signal") or final_state.get("trader_decision_signal")
+        if signal_fields and signal_fields.get("action"):
+            decision = {
+                "action": signal_fields["action"],
+                "target_price": signal_fields.get("target_price"),
+                "confidence": signal_fields.get("confidence", 0.7),
+                "risk_score": signal_fields.get("risk_score", 0.5),
+                "reasoning": signal_fields.get("reasoning") or "基于结构化提交的投资决策",
+                "submission_source": "structured",
+            }
+            if event_sink is not None:
+                await event_sink.emit("status", text="最终决策生成完毕")
+        elif final_signal:
+            # fallback：SignalProcessor 文本解析（signal 阶段含一次完整 LLM 调用，
+            # 提前下发状态提示消除尾部静默空窗）
             if event_sink is not None:
                 await event_sink.emit("status", text="正在生成最终交易信号...")
             decision = await self.process_signal(final_signal, company_name)
@@ -292,11 +334,7 @@ class AnalysisRuntime:
         def _safe(d, key, default=""):
             return d.get(key, default) if isinstance(d, dict) else default
 
-        all_reports = {
-            key: final_state.get(key, "")
-            for key in final_state.keys()
-            if key.endswith("_report")
-        }
+        all_reports = {key: final_state.get(key, "") for key in final_state.keys() if key.endswith("_report")}
 
         self.log_states_dict[str(trade_date)] = {
             "company_of_interest": final_state.get("company_of_interest", ""),
@@ -332,14 +370,23 @@ class AnalysisRuntime:
         os.replace(tmp_file, log_file)
 
     async def reflect_and_remember(self, returns_losses):
-        """Reflect on decisions and update memory based on returns."""
+        """Reflect on decisions and update memory based on returns.
+
+        反思输入按执行计划快照的记忆反思声明驱动（P4-b 声明式输入适配）：
+        每条声明 = 一个绑定记忆槽的节点 + 它自己的历史产出（发言史/裁决/
+        报告），不再读固定辩论键——自定义工作流（任意 N 方辩论组）与内置
+        工作流同一路径。无声明（记忆全关 / 旧任务快照无该段）时不产生反思。
+        """
         from app.engine.agents.postprocess.reflector import Reflector
 
         if not self.curr_state:
             return
+        reflections = (self.curr_state.get("_plan_snapshot") or {}).get("memory_reflections") or []
+        reflections = [r for r in reflections if isinstance(r, dict)]
+        if not reflections:
+            return
         if not hasattr(self, "_reflector"):
             # 反思需要 LLM 客户端：用数据库配置解析
-            reflector = None
             try:
                 clients = await self._resolve_clients()
                 reflector = Reflector(
@@ -352,19 +399,42 @@ class AnalysisRuntime:
                 return
             self._reflector = reflector
 
-        inv_state = self.curr_state.get("investment_debate_state") or {}
-        risk_state = self.curr_state.get("risk_debate_state") or {}
+        for entry in reflections:
+            memory = getattr(self, MEMORY_SLOT_FIELDS.get(entry.get("slot", ""), ""), None)
+            report = self._reflection_input(self.curr_state, entry)
+            if not report or memory is None:
+                continue
+            wrote = await self._reflector.reflect_component(
+                entry.get("component_key") or entry.get("slot", ""),
+                report,
+                self.curr_state,
+                returns_losses,
+                memory,
+            )
+            if wrote:
+                logger.info(f"🧠 [反思] {entry.get('component_key')} 经验已写入 {entry.get('slot')} 记忆库")
 
-        if inv_state and self.bull_memory:
-            await self._reflector.reflect_bull_researcher(self.curr_state, returns_losses, self.bull_memory)
-        if inv_state and self.bear_memory:
-            await self._reflector.reflect_bear_researcher(self.curr_state, returns_losses, self.bear_memory)
-        if inv_state and self.invest_judge_memory:
-            await self._reflector.reflect_invest_judge(self.curr_state, returns_losses, self.invest_judge_memory)
-        if self.curr_state.get("trader_investment_plan") and self.trader_memory:
-            await self._reflector.reflect_trader(self.curr_state, returns_losses, self.trader_memory)
-        if risk_state and self.risk_manager_memory:
-            await self._reflector.reflect_risk_manager(self.curr_state, returns_losses, self.risk_manager_memory)
+    @staticmethod
+    def _reflection_input(state: Dict[str, Any], entry: Dict[str, Any]) -> str:
+        """单条反思声明 → 输入文本（与节点运行期产出形态对齐）。
+
+        debater：辩论 state 内该侧累积发言史（argument 格式；内置侧与
+        旧 reflector 读取的 *_side_history 派生结果逐字一致）；
+        judge：辩论 state 的裁决结论；single：主报告键（黑板优先、顶层回退）。
+        """
+        kind = entry.get("kind")
+        if kind == "debater":
+            ds = state.get(entry.get("state_key") or "") or {}
+            side_key = entry.get("side_key") or ""
+            return side_history_labeled(ds, side_key, entry.get("label") or side_key)
+        if kind == "judge":
+            ds = state.get(entry.get("state_key") or "") or {}
+            return ds.get("judge_decision") or ""
+        if kind == "single":
+            report_key = entry.get("report_key") or ""
+            board = state.get("reports") if isinstance(state.get("reports"), dict) else {}
+            return board.get(report_key) or state.get(report_key) or ""
+        return ""
 
     def reflect_and_remember_sync(self, returns_losses):
         from app.core.async_utils import run_async

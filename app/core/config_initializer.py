@@ -34,20 +34,9 @@ def ensure_config_files():
         initialized_count = 0
         skipped_count = 0
 
-        # 1. 处理Agent配置文件 (Phase1-4)
-        for phase in range(1, 5):
-            filename = f"phase{phase}_agents_config.yaml"
-            agent_config_src = install_dir / filename
-            agent_config_dst = config_dir / "agents" / filename
-            
-            # 只有当源文件存在时才尝试初始化
-            if agent_config_src.exists():
-                if _handle_config_file(agent_config_src, agent_config_dst, f"Agent配置(Phase{phase})"):
-                    initialized_count += 1
-                else:
-                    skipped_count += 1
+        # Agent 配置已迁 DB（agent_specs 集合，seeder 启动注入；2026-09 YAML 退役）
 
-        # 2. 处理MCP配置文件
+        # 处理MCP配置文件
         mcp_config_src = install_dir / "mcp.json"
         mcp_config_dst = config_dir / "mcp.json"
 
