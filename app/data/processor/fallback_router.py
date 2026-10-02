@@ -426,13 +426,13 @@ class FallbackRouter:
             "trade_calendar": lambda: provider.get_trade_calendar(exchange, start, end),
             "daily_quotes": lambda: provider.get_daily_quotes(symbol, start, end),
             "daily_indicators": lambda: self._fetch_daily_indicators(provider, symbol, start, end),
-            "financial_data": lambda: provider.get_financial_data(symbol, start, end),
+            "financial_data": lambda: self._fetch_financial_batch(provider, symbol, start, end),
             "adj_factors": lambda: provider.get_adj_factors(symbol, start, end),
             "corporate_actions": lambda: provider.get_corporate_actions(symbol, start, end),
             "news": lambda: provider.get_news(None if symbol == "__all__" else symbol, start, end),
             "market_quotes": lambda: provider.get_market_quotes([symbol]),
             "intraday_quotes": lambda: provider.get_intraday_quotes(symbol, start, end),
-            "money_flow": lambda: provider.get_money_flow(symbol, start, end),
+            "money_flow": lambda: self._fetch_money_flow_batch(provider, symbol, start, end),
             "margin_trading": lambda: provider.get_margin_trading(symbol, start, end),
             "dragon_tiger": lambda: provider.get_dragon_tiger(symbol, start, end),
             "block_trade": lambda: provider.get_block_trade(symbol, start, end),
@@ -462,6 +462,64 @@ class FallbackRouter:
             trade_date = end if end != "2099-12-31" else date.today().strftime("%Y-%m-%d")
             return await provider.get_daily_indicators_batch(trade_date)
         return await provider.get_daily_indicators(symbol, start, end)
+
+    async def _fetch_financial_batch(self, provider, symbol: str, start: str, end: str):
+        """获取财务数据：per-symbol 模式或按报告期批量模式（一次全市场）。
+
+        逐 symbol 对全市场不可行（~5400 股 × 多表在限流下必熔断）；
+        报告期窗口由 provider 实现自决（如最近 5 期，每日重拉覆盖迟披露）。
+        """
+        if symbol != "__all__":
+            return await provider.get_financial_data(symbol, start, end)
+        base_method = BaseProvider.get_financial_data_batch
+        if type(provider).get_financial_data_batch is base_method:
+            return self._BATCH_NOT_SUPPORTED
+        return await provider.get_financial_data_batch()
+
+    async def _fetch_money_flow_batch(self, provider, symbol: str, start: str, end: str):
+        """获取资金流向：per-symbol 模式或按交易日批量模式。
+
+        批量拉最近 6 个交易日（引擎资金窗口 5 日 + 1 日冗余）：当日发布
+        延迟或某日失败可由次日窗口自愈，首次部署即完成引擎窗口回填，
+        无需独立回填脚本。单日无数据（停市/未发布）跳过不阻塞其他日。
+        """
+        if symbol != "__all__":
+            return await provider.get_money_flow(symbol, start, end)
+        base_method = BaseProvider.get_money_flow_batch
+        if type(provider).get_money_flow_batch is base_method:
+            return self._BATCH_NOT_SUPPORTED
+
+        from app.data.sources.base.exceptions import DataNotFoundError
+
+        dates = await self._recent_quote_trade_dates(provider.market, 6)
+        if not dates:
+            return self._BATCH_NOT_SUPPORTED  # 本地无行情日期，skip 不误记熔断
+
+        import pandas as pd
+
+        frames = []
+        for d in dates:
+            try:
+                df = await provider.get_money_flow_batch(d)
+            except DataNotFoundError:
+                logger.debug(f"{provider.name} money_flow {d} 无数据，跳过")
+                continue
+            if df is not None and not df.empty:
+                frames.append(df)
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
+    async def _recent_quote_trade_dates(self, market: str, n: int) -> List[str]:
+        """从 daily_quotes 取最近 n 个交易日（降序）——批量资金流日期窗口来源。"""
+        from app.data.storage.mongo.client import get_motor_db
+        from app.data.storage.mongo.collections import get_collection_name
+
+        db = get_motor_db()
+        distinct = await db[get_collection_name("daily_quotes", market)].distinct(
+            "trade_date"
+        )
+        return sorted([d for d in distinct if d], reverse=True)[:n]
 
     async def _get_provider_adapter(self, market: str, source_name: str):
         try:

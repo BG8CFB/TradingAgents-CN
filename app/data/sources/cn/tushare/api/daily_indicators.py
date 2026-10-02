@@ -8,7 +8,7 @@ from typing import Optional
 
 import pandas as pd
 
-from app.data.sources.tushare_common.caller import call_tushare
+from app.data.sources.tushare_common.caller import call_tushare, call_tushare_paged
 
 from .connection import TushareConnection
 
@@ -18,16 +18,17 @@ _DOMAIN = "daily_indicators"
 _SOURCE = "tushare"
 
 _DAILY_BASIC_FIELDS = (
-    "ts_code,trade_date,total_mv,circ_mv,pe,pb,turnover_rate,volume_ratio,pe_ttm,pb_mrq,ps,ps_ttm"
+    "ts_code,trade_date,total_mv,circ_mv,pe,pb,turnover_rate,volume_ratio,"
+    "pe_ttm,pb_mrq,ps,ps_ttm,dv_ttm"
 )
 
 
 async def fetch_daily_indicators(
     conn: TushareConnection, trade_date: str
 ) -> Optional[pd.DataFrame]:
-    """获取全市场每日指标"""
+    """获取全市场每日指标（分页——单次响应上限曾致 ~27% 股票被截断丢失）"""
     date_str = trade_date.replace("-", "")
-    return await call_tushare(
+    return await call_tushare_paged(
         conn,
         "daily_basic",
         _SOURCE,

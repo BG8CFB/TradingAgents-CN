@@ -106,6 +106,14 @@ class TushareCNProvider(BaseProvider):
             return pd.DataFrame([result])
         return result
 
+    async def get_financial_data_batch(self, **kwargs) -> pd.DataFrame:
+        from app.data.sources.cn.reporting import recent_report_periods
+        from .api.financial import fetch_financial_data_batch
+
+        return await fetch_financial_data_batch(
+            self._get_conn(), recent_report_periods(5)
+        )
+
     async def get_adj_factors(
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> pd.DataFrame:
@@ -142,6 +150,11 @@ class TushareCNProvider(BaseProvider):
 
         ts_code = self._to_ts_code(symbol)
         return await fetch_money_flow(self._get_conn(), ts_code, start_date, end_date)
+
+    async def get_money_flow_batch(self, trade_date: str, **kwargs) -> pd.DataFrame:
+        from .api.money_flow import fetch_money_flow_by_date
+
+        return await fetch_money_flow_by_date(self._get_conn(), trade_date)
 
     async def get_margin_trading(
         self, symbol: str, start_date: str = None, end_date: str = None, **kwargs

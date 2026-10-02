@@ -127,6 +127,12 @@ class AKShareCNProvider(BaseProvider):
             end_date=end_date or None,
         )
 
+    async def get_financial_data_batch(self, **kwargs) -> pd.DataFrame:
+        from app.data.sources.cn.reporting import recent_report_periods
+        from .api.financial import fetch_financial_data_batch
+
+        return await fetch_financial_data_batch(recent_report_periods(5))
+
     async def get_news(
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> pd.DataFrame:
@@ -165,6 +171,11 @@ class AKShareCNProvider(BaseProvider):
         return _filter_by_date(
             df, start_date, end_date, date_cols=["日期", "date", "trade_date"]
         )
+
+    async def get_money_flow_batch(self, trade_date: str, **kwargs) -> pd.DataFrame:
+        from .api.money_flow import fetch_money_flow_rank
+
+        return await fetch_money_flow_rank(trade_date)
 
     async def get_margin_trading(
         self, symbol: str, start_date: str, end_date: str, **kwargs

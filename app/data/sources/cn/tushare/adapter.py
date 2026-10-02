@@ -215,6 +215,7 @@ class TushareCNAdapter(BaseAdapter):
                     total_mv=total_mv,
                     circ_mv=circ_mv,
                     volume_ratio=_safe_float(get("volume_ratio")),
+                    dividend_yield=_safe_float(get("dv_ttm")),
                 )
             )
         return results

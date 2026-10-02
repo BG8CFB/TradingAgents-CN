@@ -11,7 +11,7 @@ from typing import Optional
 
 import pandas as pd
 
-from app.data.sources.tushare_common.caller import call_tushare
+from app.data.sources.tushare_common.caller import call_tushare, call_tushare_paged
 
 from .connection import TushareConnection
 
@@ -39,4 +39,19 @@ async def fetch_money_flow(
 
     return await call_tushare(
         conn, "moneyflow", _SOURCE, _DOMAIN, f"ts_code={ts_code}", **kwargs
+    )
+
+
+async def fetch_money_flow_by_date(
+    conn: TushareConnection, trade_date: str
+) -> Optional[pd.DataFrame]:
+    """按交易日一次拉全市场资金流向（moneyflow 支持 trade_date 参数，分页）。
+
+    逐 symbol 模式对全市场不可行（限流熔断）；单日全市场 ≈ 5000+ 行，
+    需 offset/limit 翻页。列名与 adapt_money_flow 期望的原始口径一致。
+    """
+    date_str = str(trade_date).replace("-", "")
+    return await call_tushare_paged(
+        conn, "moneyflow", _SOURCE, _DOMAIN, f"trade_date={date_str}",
+        trade_date=date_str,
     )

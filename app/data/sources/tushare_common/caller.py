@@ -119,3 +119,49 @@ async def call_tushare(
 
     logger.info(f"{source} {domain}({method_name}): {context or ''} {len(df)} 条".strip())
     return df
+
+
+async def call_tushare_paged(
+    api_or_client: Any,
+    method_name: str,
+    source: str,
+    domain: str,
+    context: str = "",
+    *,
+    page_size: int = 4000,
+    max_pages: int = 5,
+    **params,
+) -> Optional[Any]:
+    """按 offset/limit 翻页拉取全市场批量数据（fina_indicator/moneyflow 等）。
+
+    Tushare 单次响应有行数上限（约 5000-6000 行），全市场按报告期/按日
+    查询必须翻页。语义与 call_tushare 对齐：首页空结果抛 DataNotFoundError、
+    接口不存在返回 None；后续页空（offset 越界）视为翻页结束，正常返回
+    已累计数据。
+
+    Args:
+        page_size: 每页行数（保守取 4000，低于响应上限）。
+        max_pages: 翻页上限（防异常大结果集拖垮同步）。
+        其余同 call_tushare；offset/limit 由本函数注入，调用方勿传。
+    """
+    frames = []
+    for page in range(max_pages):
+        try:
+            df = await call_tushare(
+                api_or_client, method_name, source, domain, context,
+                offset=page * page_size, limit=page_size, **params,
+            )
+        except DataNotFoundError:
+            if not frames:
+                raise
+            break  # 后续页越界：翻页结束
+        if df is None:
+            return None  # 接口不存在/源不可用
+        frames.append(df)
+        if len(df) < page_size:
+            break  # 末页不满：数据已取完
+    if not frames:
+        return None
+
+    import pandas as pd
+    return pd.concat(frames, ignore_index=True)

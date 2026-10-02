@@ -5,6 +5,8 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
 from app.data.sources.base.exceptions import (
     DataNotFoundError,
     DataSourceUnavailableError,
@@ -13,6 +15,7 @@ from app.data.sources.base.mappers import (
     map_network_exception,
     map_tushare_code,
 )
+from app.data.sources.tushare_common.caller import call_tushare_paged
 from app.utils.time_utils import now_utc
 
 from .connection import TushareConnection
@@ -272,3 +275,77 @@ def _standardize(financial_data: Dict[str, Any], ts_code: str) -> Dict[str, Any]
         "data_source": "tushare",
         "updated_at": now_utc(),
     }
+
+
+# ── 按报告期批量模式（全市场，同步任务 __all__ 路径专用）─────────────
+# 逐 symbol 模式（fetch_financial_data）对全市场 ~5400 股 × 5 表 ≈ 2.7 万次
+# 调用，在 200/min 限流下必然熔断；fina_indicator/income 均支持 period 参数
+# 按报告期一次拉全市场，5 期 × 2 接口 = 10 次调用即覆盖全市场最近 5 期。
+# 注意：period-only 全市场查询受 tushare 积分档限制（低档要求必填
+# ts_code），失败时回退链自动落 AKShare 批量（东财业绩报表+资产负债表）。
+# 报告期窗口函数 recent_report_periods 位于 cn/reporting.py（两源共享）。
+
+_FINA_INDICATOR_PERIOD_FIELDS = (
+    "ts_code,ann_date,end_date,roe,roa,grossprofit_margin,"
+    "netprofit_margin,debt_to_assets,current_ratio,eps,bps"
+)
+_INCOME_PERIOD_FIELDS = "ts_code,end_date,total_revenue,n_income"
+
+
+async def fetch_financial_indicator_by_period(
+    conn: TushareConnection, period: str
+) -> Optional[pd.DataFrame]:
+    """fina_indicator 按报告期一次拉全市场（分页）。"""
+    return await call_tushare_paged(
+        conn, "fina_indicator", "tushare", _DOMAIN, f"period={period}",
+        period=period, fields=_FINA_INDICATOR_PERIOD_FIELDS,
+    )
+
+
+async def fetch_income_by_period(
+    conn: TushareConnection, period: str
+) -> Optional[pd.DataFrame]:
+    """income 利润表按报告期一次拉全市场（分页，补营收/净利润供同比）。"""
+    return await call_tushare_paged(
+        conn, "income", "tushare", _DOMAIN, f"period={period}",
+        period=period, fields=_INCOME_PERIOD_FIELDS,
+    )
+
+
+async def fetch_financial_data_batch(
+    conn: TushareConnection, periods: List[str]
+) -> Optional[pd.DataFrame]:
+    """批量财务数据：逐期 indicator 为基表左连 income → 一报告期一行合并记录。
+
+    列名保持 Tushare 原始口径（grossprofit_margin/debt_to_assets/n_income
+    等），adapt_financial_data 零改动兼容；statement_type 显式为
+    "indicator"（合并记录同时含 income 列，_detect_stmt_type 会误判 income）。
+    income 缺失的行保留 indicator 字段（revenue/net_profit 为空不阻塞）。
+    """
+    frames = []
+    for period in periods:
+        try:
+            ind = await fetch_financial_indicator_by_period(conn, period)
+        except DataNotFoundError:
+            logger.warning(f"报告期 {period} fina_indicator 无数据，跳过")
+            continue
+        if ind is None:
+            return None  # 接口不存在/源不可用
+        ind = ind.drop_duplicates(subset="ts_code", keep="first")
+        try:
+            inc = await fetch_income_by_period(conn, period)
+        except DataNotFoundError:
+            inc = None
+            logger.warning(f"报告期 {period} income 无数据，仅用 indicator 字段")
+        if inc is not None and not inc.empty:
+            inc = inc.drop_duplicates(subset="ts_code", keep="first")
+            ind = ind.merge(
+                inc[["ts_code", "total_revenue", "n_income"]],
+                on="ts_code", how="left",
+            )
+        ind["statement_type"] = "indicator"
+        frames.append(ind)
+        logger.info(f"报告期 {period} 财务批量: {len(ind)} 行")
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)

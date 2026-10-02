@@ -82,6 +82,16 @@ class BaseProvider(ABC):
         """
         raise NotImplementedError(f"{self.name} 不支持 get_financial_data")
 
+    async def get_financial_data_batch(self, **kwargs) -> pd.DataFrame:
+        """获取财务数据（按报告期批量模式，一次获取全市场最近数期）。
+
+        报告期窗口由实现方决定（fina_indicator 类接口按期查询）。
+
+        Raises:
+            NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
+        """
+        raise NotImplementedError(f"{self.name} 不支持 get_financial_data_batch")
+
     async def get_adj_factors(self, symbol: str, start_date: str, end_date: str, **kwargs) -> pd.DataFrame:
         """获取复权因子。
 
@@ -129,6 +139,17 @@ class BaseProvider(ABC):
             NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
         """
         raise NotImplementedError(f"{self.name} 不支持 get_money_flow")
+
+    async def get_money_flow_batch(self, trade_date: str, **kwargs) -> pd.DataFrame:
+        """获取资金流向（按交易日批量模式，一次获取全市场）。
+
+        仅当日数据可查的源（如东财排名接口）对历史日期应抛 DataNotFoundError，
+        由调用方按日循环时跳过。
+
+        Raises:
+            NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
+        """
+        raise NotImplementedError(f"{self.name} 不支持 get_money_flow_batch")
 
     async def get_margin_trading(self, symbol: str, start_date: str, end_date: str, **kwargs) -> pd.DataFrame:
         """获取融资融券明细。

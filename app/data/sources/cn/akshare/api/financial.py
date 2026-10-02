@@ -19,6 +19,25 @@ logger = logging.getLogger(__name__)
 
 _DOMAIN = "financial"
 
+# 按报告期全市场批量的东财接口列名（接口稳定契约，形状已在 2026-09 实测确认）
+_YJBB_KEY_COLS = {
+    "symbol": "股票代码",
+    "eps": "每股收益",
+    "revenue": "营业总收入-营业总收入",
+    "net_profit": "净利润-净利润",
+    "bps": "每股净资产",
+    "roe": "净资产收益率",
+    "gross_margin": "销售毛利率",
+    "ann_date": "最新公告日期",
+}
+_ZCFZ_KEY_COLS = {
+    "symbol": "股票代码",
+    "total_assets": "资产-总资产",
+    "total_liab": "负债-总负债",
+    "debt_ratio": "资产负债率",
+    "total_equity": "股东权益合计",
+}
+
 
 def _safe_float(value) -> Optional[float]:
     """安全转 float，支持中文单位（亿/万）和百分号换算。
@@ -32,12 +51,12 @@ def _safe_float(value) -> Optional[float]:
     if value is None:
         return None
     try:
+        multiplier = 1.0
         if isinstance(value, str):
             value = value.strip()
             if not value or value.lower() in ("nan", "null", "none", "--", "-"):
                 return None
             value = value.replace(",", "")
-            multiplier = 1.0
             # 优先匹配百分号（无单位前缀），其次匹配亿/万单位
             if value.endswith("%"):
                 return float(value[:-1]) / 100.0
@@ -63,6 +82,23 @@ def _extract_report_period(raw_row: Dict) -> Optional[str]:
     return None
 
 
+def _normalize_report_period(raw) -> Optional[str]:
+    """报告期归一为 YYYY-MM-DD。
+
+    THS 按年度摘要返回年份值（2025 / int），东财报表返回
+    "2025-06-30 00:00:00"——前者归一为年报期 YYYY-12-31（否则入库后
+    引擎 YoY 同期匹配断裂），后者截断时间部分。
+    """
+    if not raw:
+        return None
+    s = str(raw).strip().split()[0].replace("-", "").replace("/", "")
+    if len(s) == 4 and s.isdigit():
+        s += "1231"
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+    return str(raw)
+
+
 def _build_financial_row(code: str, tables: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
     """从多张财务报表合并出一行标准化记录。"""
     # 各表取最新一期（第一行）
@@ -76,7 +112,9 @@ def _build_financial_row(code: str, tables: Dict[str, pd.DataFrame]) -> Dict[str
     i = income_row.iloc[0].to_dict() if income_row is not None and not income_row.empty else {}
     c = cashflow_row.iloc[0].to_dict() if cashflow_row is not None and not cashflow_row.empty else {}
 
-    report_period = _extract_report_period(a) or _extract_report_period(b) or _extract_report_period(i)
+    report_period = _normalize_report_period(
+        _extract_report_period(a) or _extract_report_period(b) or _extract_report_period(i)
+    )
 
     # 收入 / 利润 — 优先从 abstract（摘要）提取，再从 income（利润表）提取
     revenue = _safe_float(
@@ -93,6 +131,10 @@ def _build_financial_row(code: str, tables: Dict[str, pd.DataFrame]) -> Dict[str
         or b.get("total_hldr_eqy_exc_min_int")
     )
     total_liab = _safe_float(b.get("总负债") or b.get("total_liab"))
+    # 资产负债率 %：东财资产负债表无直接比率列，由总负债/总资产推导
+    debt_ratio = None
+    if total_liab is not None and total_assets:
+        debt_ratio = round(total_liab / total_assets * 100.0, 4)
     roe = _safe_float(a.get("净资产收益率") or a.get("roe"))
     gross_margin = _safe_float(a.get("毛利率") or a.get("grossprofit_margin") or a.get("gross_margin"))
     net_margin = _safe_float(a.get("净利率") or a.get("netprofit_margin") or a.get("net_margin"))
@@ -108,6 +150,9 @@ def _build_financial_row(code: str, tables: Dict[str, pd.DataFrame]) -> Dict[str
         "symbol": code,
         "report_period": report_period,
         "report_date": report_period,
+        # 多表合并的一行快照记录，与 tushare 批量口径一致；
+        # validator 必填 statement_type，缺省整批会被拒收
+        "statement_type": "indicator",
         "data_source": "akshare",
         "revenue": revenue,
         "revenue_ttm": revenue_ttm,
@@ -119,6 +164,7 @@ def _build_financial_row(code: str, tables: Dict[str, pd.DataFrame]) -> Dict[str
         "roe": roe,
         "gross_margin": gross_margin,
         "net_margin": net_margin,
+        "debt_ratio": debt_ratio,
         "eps": eps,
         "bps": bps,
         "operating_cashflow": operating_cashflow,
@@ -237,3 +283,85 @@ def _filter_df_by_report_period(
     if end:
         mask = mask & df[col].apply(lambda v: _norm(v) <= end)
     return df[mask]
+
+
+# ── 按报告期批量模式（东财全市场，tushare 积分不足时的批量主源）─────
+
+def _rename_key_cols(df: pd.DataFrame, key_cols: Dict[str, str]) -> pd.DataFrame:
+    """按接口稳定契约重命名关键列；源列缺失时置 None（接口改版早暴露）。"""
+    renamed = pd.DataFrame(index=df.index)
+    for neutral, src in key_cols.items():
+        renamed[neutral] = df[src] if src in df.columns else None
+    return renamed
+
+
+async def fetch_financial_data_by_period(period: str) -> pd.DataFrame:
+    """东财业绩报表 + 资产负债表按报告期合并全市场财务快照。
+
+    stock_yjbb_em（每股收益/营收/净利/ROE/毛利率）左连 stock_zcfz_em
+    （总资产/总负债/资产负债率），产一行合并记录（statement_type=
+    "indicator"），列名与 _build_financial_row 输出形态一致，
+    adapt_financial_data 零改动标准化。同比由引擎从 net_profit 绝对值
+    按同期自算（与 tushare 路径口径一致），不取东财同比列。
+
+    Raises:
+        DataNotFoundError: 该报告期两接口均无数据（未披露/停市）
+    """
+    date_str = str(period).replace("-", "")
+    report_period = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+
+    from app.data.sources.cn.akshare.api.anti_scraping import wait_rate_limit
+
+    def _fetch_em(fetch_fn):
+        wait_rate_limit()
+        return fetch_fn()
+
+    import akshare as ak
+
+    try:
+        yjbb = await asyncio.to_thread(
+            _fetch_em, lambda: ak.stock_yjbb_em(date=date_str))
+        zcfz = await asyncio.to_thread(
+            _fetch_em, lambda: ak.stock_zcfz_em(date=date_str))
+    except (asyncio.TimeoutError, ConnectionError, TimeoutError) as exc:
+        raise map_network_exception(exc, "akshare", _DOMAIN)
+    except (KeyError, IndexError, AttributeError, ValueError) as exc:
+        raise DataFormatError("akshare", _DOMAIN, f"period={period}: {exc}")
+    except Exception as exc:
+        raise DataSourceUnavailableError("akshare", _DOMAIN, f"period={period}: {exc}")
+
+    if (yjbb is None or yjbb.empty) and (zcfz is None or zcfz.empty):
+        raise DataNotFoundError(
+            "akshare", _DOMAIN, f"报告期 {period} 业绩报表与资产负债表均无数据")
+
+    yjbb = _rename_key_cols(yjbb, _YJBB_KEY_COLS)
+    zcfz = _rename_key_cols(zcfz, _ZCFZ_KEY_COLS)
+
+    frames = []
+    for df in (yjbb, zcfz):
+        df = df.drop_duplicates(subset="symbol", keep="first")
+        frames.append(df[df["symbol"].notna()])
+    merged = frames[0].merge(frames[1], on="symbol", how="left")
+    merged["report_period"] = report_period
+    merged["statement_type"] = "indicator"
+    logger.info(f"AKShare 财务批量 {report_period}: {len(merged)} 行")
+    return merged
+
+
+async def fetch_financial_data_batch(periods: list) -> pd.DataFrame:
+    """批量入口：逐报告期拉东财全市场快照并纵向合并。
+
+    单期无数据（极早期报告期接口未覆盖）跳过不阻塞；全部期无数据
+    返回空 DataFrame（调用方按 failed 处理并保持熔断语义）。
+    """
+    frames = []
+    for period in periods:
+        try:
+            df = await fetch_financial_data_by_period(period)
+        except DataNotFoundError:
+            logger.warning(f"AKShare 报告期 {period} 无数据，跳过")
+            continue
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
