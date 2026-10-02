@@ -63,6 +63,8 @@ class Reader:
                 IntradayQuotesRepo, MoneyFlowRepo, MarginTradingRepo,
                 DragonTigerRepo, BlockTradeRepo,
                 ConnectStatusRepo, SouthboundHoldingRepo, PrePostMarketRepo,
+                FactorScoresRepo, ScreeningRecommendationsRepo,
+                ScreeningInsightsRepo,
             )
 
             repo_map = {
@@ -83,6 +85,9 @@ class Reader:
                 "connect_status": ConnectStatusRepo,
                 "southbound_holding": SouthboundHoldingRepo,
                 "pre_post_market": PrePostMarketRepo,
+                "factor_scores": FactorScoresRepo,
+                "screening_recommendations": ScreeningRecommendationsRepo,
+                "screening_insights": ScreeningInsightsRepo,
             }
 
             repo_cls = repo_map.get(domain)
@@ -127,7 +132,8 @@ class Reader:
             data = await repo.get_range(exchange, market,
                                         start_date or "1970-01-01", end_date or "2099-12-31")
 
-        elif domain in ("daily_quotes", "daily_indicators", "adj_factors", "corporate_actions"):
+        elif domain in ("daily_quotes", "daily_indicators", "adj_factors",
+                        "corporate_actions", "factor_scores"):
             if symbol:
                 period_filter = filters.get("period") if filters else None
                 extra_kwargs = {}
@@ -259,6 +265,8 @@ class Reader:
         "block_trade": "trade_date",
         "southbound_holding": "trade_date",
         "pre_post_market": "trade_date",
+        "factor_scores": "trade_date",
+        "screening_recommendations": "trade_date",
         "financial_data": "report_period",
         "news": "updated_at",
         "basic_info": "updated_at",

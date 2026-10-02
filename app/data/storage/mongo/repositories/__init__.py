@@ -18,3 +18,6 @@ from app.data.storage.mongo.repositories.block_trade_repo import BlockTradeRepo 
 from app.data.storage.mongo.repositories.connect_status_repo import ConnectStatusRepo as ConnectStatusRepo
 from app.data.storage.mongo.repositories.southbound_holding_repo import SouthboundHoldingRepo as SouthboundHoldingRepo
 from app.data.storage.mongo.repositories.pre_post_market_repo import PrePostMarketRepo as PrePostMarketRepo
+from app.data.storage.mongo.repositories.factor_scores_repo import FactorScoresRepo as FactorScoresRepo
+from app.data.storage.mongo.repositories.screening_recommendations_repo import ScreeningRecommendationsRepo as ScreeningRecommendationsRepo
+from app.data.storage.mongo.repositories.screening_insights_repo import ScreeningInsightsRepo as ScreeningInsightsRepo

@@ -1,0 +1,91 @@
+# 选股策略模板与评分权重（L0 唯一事实源）
+# 结构：score_weights（三风格 × 六因子组权重）+ factor_groups（组→因子）
+#      + strategies（模板 = 硬条件过滤 + 风格评分排序）
+# 约束：任一单因子权重（组权重/组内因子数）≤ 40%；组权重和 = 1
+
+score_weights:
+  short_term:            # 短线（默认，匹配现有流水线定调）
+    momentum: 0.35
+    trend: 0.25
+    volume: 0.20
+    flow: 0.20
+  balanced:              # 均衡
+    momentum: 0.20
+    trend: 0.20
+    volume: 0.15
+    flow: 0.15
+    valuation: 0.15
+    quality: 0.15
+  value:                 # 价值质量
+    valuation: 0.35
+    quality: 0.40
+    momentum: 0.10
+    volume: 0.15
+
+factor_groups:
+  momentum: [ret_5d, ret_20d, ret_60d, dist_to_60d_high]
+  trend: [bias_ma20, ma20_slope, macd_golden_days]
+  volume: [turnover_amp, consecutive_vol_up_days, volume_ratio]
+  flow: [main_inflow_5d, main_inflow_5d_pct]
+  valuation: [pe_ttm_percentile, pb_percentile, dividend_yield]
+  quality: [roe, gross_margin, net_profit_yoy, debt_ratio]
+
+strategies:
+  - id: volume_breakout
+    name: 放量突破主升初期
+    description: 站上 MA20、成交量放大 1.5 倍以上、MACD 金叉初期，捕捉主升浪起点（资金流确认见「资金持续流入」策略）
+    style: short_term
+    top_n: 30
+    default: true
+    filters:
+      - {field: bias_ma20, op: ">", value: 0}
+      - {field: turnover_amp, op: ">", value: 1.5}
+      - {field: macd_golden_days, op: between, value: [1, 5]}
+
+  - id: trend_pullback
+    name: 强趋势回调买点
+    description: 中期趋势向上，短期回调 5%-8% 但未破 MA20，顺势低吸
+    style: short_term
+    top_n: 30
+    filters:
+      - {field: ma20_slope, op: ">", value: 0}
+      - {field: ret_5d, op: between, value: [-8, 0]}
+      - {field: bias_ma20, op: ">", value: 0}
+
+  - id: oversold_rebound
+    name: 超跌反弹
+    description: 20 日跌超 15% 的深度超跌股，博弈修复反弹（反转确认可叠加 AI 研判）
+    style: short_term
+    top_n: 30
+    filters:
+      - {field: ret_20d, op: "<", value: -15}
+
+  - id: high_roe_low_val
+    name: 高ROE低估值
+    description: ROE>15%、PE 处历史低分位且有股息，经典价值组合（需已同步财务数据）
+    style: value
+    top_n: 30
+    filters:
+      - {field: roe, op: ">", value: 15}
+      - {field: pe_ttm_percentile, op: "<", value: 30}
+      - {field: dividend_yield, op: ">", value: 2}
+
+  - id: quality_growth
+    name: 质量成长
+    description: 毛利率>30%、净利同比>20%、资产负债率<60% 的成长质量股（需已同步财务数据）
+    style: value
+    top_n: 30
+    filters:
+      - {field: gross_margin, op: ">", value: 30}
+      - {field: net_profit_yoy, op: ">", value: 20}
+      - {field: debt_ratio, op: "<", value: 60}
+
+  - id: steady_inflow
+    name: 资金持续流入
+    description: 主力温和流入、换手温和放大、站稳 MA20 的蓄势形态（需已同步资金流数据）
+    style: short_term
+    top_n: 30
+    filters:
+      - {field: main_inflow_5d, op: ">", value: 0}
+      - {field: turnover_amp, op: between, value: [1, 2]}
+      - {field: bias_ma20, op: ">", value: 0}

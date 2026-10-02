@@ -42,9 +42,13 @@ class TestDataDomain:
         assert DataDomain.MARGIN_TRADING.value == "margin_trading"
         assert DataDomain.DRAGON_TIGER.value == "dragon_tiger"
         assert DataDomain.BLOCK_TRADE.value == "block_trade"
+        assert DataDomain.FACTOR_SCORES.value == "factor_scores"
+        assert DataDomain.SCREENING_INSIGHTS.value == "screening_insights"
+        assert DataDomain.SCREENING_RECOMMENDATIONS.value == "screening_recommendations"
 
     def test_domain_count(self):
-        assert len(DataDomain) == 18
+        # 2026-09 选股三层漏斗：+factor_scores/screening_insights/screening_recommendations
+        assert len(DataDomain) == 21
 
     def test_str_enum_behavior(self):
         assert DataDomain.BASIC_INFO == "basic_info"

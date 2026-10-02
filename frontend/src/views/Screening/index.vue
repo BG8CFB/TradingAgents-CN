@@ -11,6 +11,20 @@
       </p>
     </div>
 
+    <!-- 三层定位 Tab：今日推荐（AI，默认）/ 策略选股（0 token 即时过滤）/ 自定义条件（既有路径） -->
+    <el-tabs v-model="activeTab" class="screening-tabs">
+      <el-tab-pane label="今日推荐（AI）" name="daily" lazy>
+        <p class="tab-intro">系统每交易日自动运行全部策略并生成 AI 研判，开盘前即可查看结论</p>
+        <DailyTab />
+      </el-tab-pane>
+
+      <el-tab-pane label="策略选股" name="strategy" lazy>
+        <p class="tab-intro">内置策略模板即时过滤最新因子数据（不消耗 AI 额度），可对结果手动追加 AI 研判</p>
+        <StrategyTab />
+      </el-tab-pane>
+
+      <el-tab-pane label="自定义条件" name="custom">
+        <p class="tab-intro">自由组合行业/市值/估值等条件筛选（与策略模板相互独立）</p>
     <!-- 筛选条件面板 -->
     <el-card class="filter-panel" shadow="never">
       <template #header>
@@ -360,6 +374,8 @@
         重新筛选
       </el-button>
     </el-empty>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -376,6 +392,11 @@ import { screeningApi, type FieldConfigResponse } from '@/api/screening'
 import { useFavoritesStore } from '@/stores/favorites'
 import { getSourceConfig } from '@/api/marketData'
 import { normalizeMarketForAnalysis, exchangeCodeToMarket, getMarketByStockCode } from '@/utils/market'
+import StrategyTab from './StrategyTab.vue'
+import DailyTab from './DailyTab.vue'
+
+// 三 Tab 状态：默认落在今日推荐（AI），策略选股/自定义条件按需进入
+const activeTab = ref('daily')
 
 // 响应式数据
 const screeningLoading = ref(false)
@@ -801,6 +822,14 @@ onMounted(() => {
       color: var(--el-text-color-regular);
       margin: 0;
     }
+  }
+
+  // 三层定位 Tab 顶部的一行说明文字
+  .tab-intro {
+    margin: 0 0 16px;
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+    line-height: 1.5;
   }
 
   .filter-panel {

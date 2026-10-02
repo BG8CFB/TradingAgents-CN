@@ -22,6 +22,9 @@ class DataDomain(str, Enum):
     MARGIN_TRADING = "margin_trading"
     DRAGON_TIGER = "dragon_tiger"
     BLOCK_TRADE = "block_trade"
+    FACTOR_SCORES = "factor_scores"
+    SCREENING_RECOMMENDATIONS = "screening_recommendations"
+    SCREENING_INSIGHTS = "screening_insights"
 
 
 class SemanticType(str, Enum):
@@ -51,6 +54,9 @@ DOMAIN_SEMANTIC_TYPE = {
     DataDomain.MARGIN_TRADING: SemanticType.TIMESERIES,
     DataDomain.DRAGON_TIGER: SemanticType.EVENT,
     DataDomain.BLOCK_TRADE: SemanticType.EVENT,
+    DataDomain.FACTOR_SCORES: SemanticType.TIMESERIES,
+    DataDomain.SCREENING_RECOMMENDATIONS: SemanticType.SNAPSHOT,
+    DataDomain.SCREENING_INSIGHTS: SemanticType.EVENT,
 }
 
 # 行情类数据域（非交易日跳过）
@@ -66,4 +72,5 @@ MARKET_DATA_DOMAINS = {
     DataDomain.MARGIN_TRADING,
     DataDomain.DRAGON_TIGER,
     DataDomain.BLOCK_TRADE,
+    DataDomain.FACTOR_SCORES,
 }

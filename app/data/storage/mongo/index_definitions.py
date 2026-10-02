@@ -17,7 +17,7 @@
 from typing import Dict, List, Tuple
 
 # 索引定义: {domain → [(索引字段列表, 是否唯一), ...]}
-# 必须覆盖 app/data/storage/mongo/collections.py 中 _BUSINESS_COLLECTIONS 全部 18 个 domain
+# 必须覆盖 app/data/storage/mongo/collections.py 中 _BUSINESS_COLLECTIONS 全部 21 个 domain
 INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
     "basic_info": [
         ([("symbol", 1)], True),
@@ -100,6 +100,22 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
     "tushare_universe": [
         # Tushare 指数成分：按 symbol + trade_date 唯一
         ([("symbol", 1), ("trade_date", -1)], True),
+    ],
+    "factor_scores": [
+        # L0 因子日频快照：每股每日一行（计算产物，单版本）
+        ([("symbol", 1), ("trade_date", -1)], True),
+        ([("trade_date", -1)], False),
+    ],
+    "screening_recommendations": [
+        # 每日推荐：每策略每日一条（job 覆盖写入）
+        ([("strategy_id", 1), ("trade_date", -1)], True),
+        ([("trade_date", -1)], False),
+    ],
+    "screening_insights": [
+        # 手动 L1 研判审计日志：append-only；(user_id, created_at) 为准代理唯一键
+        # （created_at 每次调用生成、微秒精度），兼防同用户重复提交
+        ([("user_id", 1), ("created_at", -1)], True),
+        ([("trade_date", -1)], False),
     ],
     # === 元数据集合（无市场后缀，三市场共用，market 字段区分） ===
     "sync_checkpoints": [

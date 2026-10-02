@@ -43,7 +43,24 @@ financial_data:
   cron: "0 20 * * *"
   timezone: "Asia/Shanghai"
   mode: incremental
-  description: "每日 20:00 增量同步财务数据"
+  description: "每日 20:00 按报告期批量同步财务数据（最近 5 期全市场，重拉覆盖迟披露）"
+
+money_flow:
+  cron: "30 16 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 16:30 按日批量同步资金流向（拉最近 6 个交易日，窗口自愈）"
+  depends_on:
+    - daily_quotes
+
+factor_scores:
+  cron: "15 20 * * 1-5"
+  timezone: "Asia/Shanghai"
+  description: "每交易日 20:15 全市场 L0 因子批算（读库计算，无外部同步）"
+  depends_on:
+    - financial_data
+    - daily_indicators
+    - money_flow
 
 market_quotes:
   cron: "5 15 * * 1-5"

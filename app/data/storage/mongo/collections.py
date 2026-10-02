@@ -26,6 +26,9 @@ _BUSINESS_COLLECTIONS: Dict[str, str] = {
     "dragon_tiger": "stock_dragon_tiger",
     "block_trade": "stock_block_trade",
     "tushare_universe": "stock_tushare_universe",
+    "factor_scores": "stock_factor_scores",
+    "screening_recommendations": "screening_recommendations",
+    "screening_insights": "screening_insights",
 }
 
 # 元数据集合: 无市场后缀

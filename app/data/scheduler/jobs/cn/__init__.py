@@ -1,5 +1,6 @@
 """A 股调度任务注册。"""
 
+from app.data.scheduler.jobs.base.compute_job import ComputeJob
 from app.data.scheduler.jobs.base.sync_job import BaseSyncJob
 
 
@@ -122,6 +123,16 @@ class CNBlockTradeJob(BaseSyncJob):
         return "Asia/Shanghai"
 
 
+class CNFactorScoreJob(ComputeJob):
+    """A 股 L0 因子批算任务 — 每交易日收盘数据齐备后跑全市场因子计算。"""
+    market = "CN"
+    domain = "factor_scores"
+
+    async def compute(self) -> dict:
+        from app.data.factors.engine import FactorScoreEngine
+        return await FactorScoreEngine().compute_and_store("CN")
+
+
 _CN_JOBS = [
     CNTradeCalendarJob,
     CNBasicInfoJob,
@@ -136,6 +147,7 @@ _CN_JOBS = [
     CNMarginTradingJob,
     CNDragonTigerJob,
     CNBlockTradeJob,
+    CNFactorScoreJob,
 ]
 
 

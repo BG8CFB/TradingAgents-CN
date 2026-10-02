@@ -122,6 +122,15 @@ async def register_jobs(scheduler: AsyncIOScheduler, basics_sync_service, run_ba
     )
     logger.info("A股完整性检查已配置: 每日 17:00")
 
+    # ── 选股每日推荐（20:15 factor_scores 批算完成后）──
+    add_resilient_job(
+        scheduler, _run_screening_daily_recommendations,
+        CronTrigger(hour=20, minute=47, timezone=tz),
+        id="screening_daily_recommendations",
+        name="选股每日推荐生成",
+    )
+    logger.info("选股每日推荐任务已注册: 每交易日 20:47")
+
     # ── 港股全量同步（通过 SchedulerEngine 已自动注册，此处仅注册状态检查等辅助任务）──
     _register_hk_auxiliary_jobs(scheduler)
     _register_us_auxiliary_jobs(scheduler)
@@ -243,3 +252,28 @@ async def _run_cn_integrity_check():
         logger.info("完整性检查完成: errors=%d, warnings=%d", report.error_count, report.warning_count)
     except Exception as e:
         logger.error(f"完整性检查失败: {e}", exc_info=True)
+
+
+async def _run_screening_daily_recommendations():
+    """每日推荐生成（幂等覆盖；失败只记日志不重试——次日自然覆盖）。
+
+    推荐 20:47 落库后，若用户开启 screening_daily_insight_enabled，
+    串联一次 L1 自动研判（默认策略 Top-20）；研判失败不影响已落库的
+    推荐列表（内层独立 try，insight_status=failed 仅作标注）。
+    """
+    try:
+        from app.services.screening.strategy_service import StrategyService
+        summary = await StrategyService().generate_daily_recommendations()
+        logger.info("选股每日推荐完成: %s", summary)
+    except Exception as e:
+        logger.error(f"选股每日推荐生成失败: {e}", exc_info=True)
+        return
+    try:
+        from app.services.screening.insight_service import (
+            ScreeningInsightService,
+        )
+        outcome = await ScreeningInsightService().run_daily_auto_if_enabled()
+        if outcome is not None:
+            logger.info("每日自动研判完成: %s", outcome)
+    except Exception as e:
+        logger.error(f"每日自动研判异常: {e}", exc_info=True)

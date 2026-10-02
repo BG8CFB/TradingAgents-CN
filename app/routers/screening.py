@@ -7,6 +7,11 @@ from app.routers.auth_db import get_current_user
 from app.core.response import ok, safe_error_message
 
 from app.services.enhanced_screening_service import get_enhanced_screening_service
+from app.services.screening.strategy_service import StrategyService
+from app.services.screening.insight_service import (
+    ScreeningInsightService, QuotaExceededError,
+)
+from app.data.schema.domains.factor_scores import FACTOR_FIELDS
 from app.models.screening import (
     ScreeningCondition, FieldInfo, BASIC_FIELDS_INFO
 )
@@ -29,6 +34,7 @@ class ScreeningRequest(BaseModel):
     market: str = Field("CN", description="市场：CN")
     date: Optional[str] = Field(None, description="交易日YYYY-MM-DD，缺省为最新")
     adj: str = Field("qfq", description="复权口径：qfq/hfq/none（P0占位）")
+    strategy_id: Optional[str] = Field(None, description="策略模板 id；传入时走 L0 因子策略路径")
     conditions: Dict[str, Any] = Field(default_factory=dict)
     order_by: Optional[List[OrderByItem]] = None
     limit: int = Field(50, ge=1, le=500)
@@ -37,6 +43,13 @@ class ScreeningRequest(BaseModel):
 class ScreeningResponse(BaseModel):
     total: int
     items: List[dict]
+
+class InsightRequest(BaseModel):
+    """L1 手动研判请求：只传 symbols，因子由服务端从 factor_scores 重取。"""
+    symbols: List[str] = Field(..., min_length=1, max_length=30)
+    strategy_id: Optional[str] = None
+    conditions_digest: Optional[str] = Field(None, max_length=200,
+                                             description="触发筛选条件摘要，仅审计用")
 
 
 def get_enhanced_service():
@@ -157,6 +170,26 @@ def _convert_legacy_conditions_to_new_format(legacy_conditions: Dict[str, Any]) 
 @router.post("/run")
 async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_user)):
     try:
+        # 策略路径：L0 因子策略模板（0 token，读 stock_factor_scores 过滤+排序）
+        if req.strategy_id:
+            svc = StrategyService()
+            extra = _convert_legacy_conditions_to_new_format(req.conditions)
+            extra = [{"field": c.field, "op": c.operator, "value": c.value}
+                     for c in extra]
+            # 叠加条件白名单：只允许因子字段 + industry，防任意字段过滤
+            allowed = set(FACTOR_FIELDS) | {"industry"}
+            extra = [c for c in extra if c["field"] in allowed]
+            result = await svc.run_strategy(req.strategy_id,
+                                            extra_conditions=extra or None,
+                                            limit=req.limit)
+            return ok({
+                "total": result["total"],
+                "items": result["items"],
+                "as_of": result["as_of"],
+                "strategy": result["strategy"],
+                "style": result["style"],
+            })
+
         logger.info(f"[screening] 请求条件: {req.conditions}")
         logger.info(f"[screening] 排序与分页: order_by={req.order_by}, limit={req.limit}, offset={req.offset}")
 
@@ -189,6 +222,62 @@ async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_
     except Exception as e:
         logger.error(f"[screening] 处理失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "筛选处理失败"))
+
+
+@router.get("/strategies")
+async def list_strategies(user: dict = Depends(get_current_user)):
+    """策略模板列表（YAML 驱动，0 token）。"""
+    try:
+        return ok({"strategies": await StrategyService().list_strategies()})
+    except Exception as e:
+        logger.error(f"[list_strategies] 获取策略列表失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取策略列表失败"))
+
+
+@router.get("/daily")
+async def get_daily_recommendations(
+    strategy_id: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """每日推荐（读落库结果，0 token）。返回最新交易日全部/指定策略。"""
+    try:
+        return ok(await StrategyService().get_daily(strategy_id))
+    except Exception as e:
+        logger.error(f"[get_daily_recommendations] 获取每日推荐失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "获取每日推荐失败"))
+
+
+@router.post("/insights")
+async def generate_insights(req: InsightRequest, user: dict = Depends(get_current_user)):
+    """L1 手动快速研判（单次 LLM 调用，按用户日配额限制）。
+
+    429=配额用完；400=入参/因子数据问题；500=LLM 调用等内部失败（已落失败审计）。
+    """
+    svc = ScreeningInsightService()
+    try:
+        result = await svc.generate_manual(
+            symbols=req.symbols, user_id=str(user["id"]),
+            strategy_id=req.strategy_id,
+            conditions_digest=req.conditions_digest)
+        return ok(result)
+    except QuotaExceededError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[generate_insights] 研判失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "研判生成失败"))
+
+
+@router.get("/insights/quota")
+async def get_insight_quota(user: dict = Depends(get_current_user)):
+    """当前用户今日手动研判剩余配额（0 token，供前端按钮态展示）。"""
+    try:
+        return ok({"quota_remaining":
+                   await ScreeningInsightService().quota_remaining(str(user["id"]))})
+    except Exception as e:
+        logger.error(f"[get_insight_quota] 查询配额失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=safe_error_message(e, "查询配额失败"))
 
 
 @router.get("/industries")

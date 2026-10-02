@@ -642,6 +642,132 @@
               <el-switch v-model="systemSettings.auto_create_dirs" :disabled="!isEditable('auto_create_dirs')" />
             </el-form-item>
 
+            <!-- 选股与 AI 研判 -->
+            <el-divider content-position="left">选股与 AI 研判</el-divider>
+
+            <el-form-item label="每日自动研判">
+              <el-switch
+                v-model="systemSettings.screening_daily_insight_enabled"
+                :disabled="!isEditable('screening_daily_insight_enabled')"
+              />
+              <span class="setting-description">
+                开启后每日推荐生成时自动对默认策略 Top-20 做 AI 研判（消耗 token），默认关闭
+              </span>
+            </el-form-item>
+
+            <el-form-item label="手动研判日配额">
+              <el-input-number
+                v-model="systemSettings.screening_manual_insight_daily_limit"
+                :min="0"
+                :max="100"
+                :step="1"
+                :disabled="!isEditable('screening_manual_insight_daily_limit')"
+              />
+              <span class="setting-description">次/用户/日（失败不扣减）</span>
+            </el-form-item>
+
+            <el-form-item label="研判模型">
+              <el-select
+                v-model="systemSettings.screening_insight_model"
+                :disabled="!isEditable('screening_insight_model')"
+                clearable
+                filterable
+                :placeholder="allEnabledModels.length ? '留空则用分析师默认模型' : '未添加模型，请先在「模型配置」中添加'"
+              >
+                <el-option
+                  v-for="model in allEnabledModels"
+                  :key="`${model.provider}/${model.model_name}`"
+                  :label="model.model_display_name || model.model_name"
+                  :value="model.model_name"
+                >
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>{{ model.model_display_name || model.model_name }}</span>
+                    <el-tag size="small" type="info">{{ getProviderDisplayName(model.provider) }}</el-tag>
+                  </div>
+                </el-option>
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="研判系统提示词">
+              <el-input
+                v-model="systemSettings.screening_insight_prompt"
+                type="textarea"
+                :rows="6"
+                :disabled="!isEditable('screening_insight_prompt')"
+                placeholder="留空使用内置默认提示词（量化研究员角色：每只股票 2-3 句研判——核心逻辑 / 主要风险 / 适用风格，仅基于因子数据，禁止买卖建议，输出 JSON）"
+              />
+              <span class="setting-description">
+                控制 AI 研判的角色与输出格式；修改后对新调用生效
+              </span>
+            </el-form-item>
+
+            <!-- AI 问答助手 -->
+            <el-divider content-position="left">AI 问答助手</el-divider>
+
+            <el-form-item label="启用问答助手">
+              <el-switch
+                v-model="systemSettings.chat_enabled"
+                :disabled="!isEditable('chat_enabled')"
+              />
+              <span class="setting-description">
+                开启后可在「AI 选股助手」页对话式选股（每轮消耗 token），默认关闭
+              </span>
+            </el-form-item>
+
+            <el-form-item label="每日问答配额">
+              <el-input-number
+                v-model="systemSettings.chat_daily_limit"
+                :min="0"
+                :max="200"
+                :step="1"
+                :disabled="!isEditable('chat_daily_limit')"
+              />
+              <span class="setting-description">轮/用户/日（仅成功的轮次计数，失败与停止不额外扣减）</span>
+            </el-form-item>
+
+            <el-form-item label="问答模型">
+              <el-select
+                v-model="systemSettings.chat_model"
+                :disabled="!isEditable('chat_model')"
+                clearable
+                filterable
+                :placeholder="allEnabledModels.length ? '留空则用分析师默认模型' : '未添加模型，请先在「模型配置」中添加'"
+              >
+                <el-option
+                  v-for="model in allEnabledModels"
+                  :key="`${model.provider}/${model.model_name}`"
+                  :label="model.model_display_name || model.model_name"
+                  :value="model.model_name"
+                >
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>{{ model.model_display_name || model.model_name }}</span>
+                    <el-tag size="small" type="info">{{ getProviderDisplayName(model.provider) }}</el-tag>
+                  </div>
+                </el-option>
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="启用 MCP 工具">
+              <el-switch
+                v-model="systemSettings.chat_enable_mcp"
+                :disabled="!isEditable('chat_enable_mcp')"
+              />
+              <span class="setting-description">开启后对话中可调用已配置的 MCP 服务器工具</span>
+            </el-form-item>
+
+            <el-form-item label="问答系统提示词">
+              <el-input
+                v-model="systemSettings.chat_system_prompt"
+                type="textarea"
+                :rows="6"
+                :disabled="!isEditable('chat_system_prompt')"
+                placeholder="留空使用内置默认提示词（A股选股助手：三层选股体系——今日推荐/策略选股/个股因子，先查数据再回答，每轮最多 6 次工具调用，禁止买卖指令，中文回答）"
+              />
+              <span class="setting-description">
+                控制问答助手的角色、数据使用规则与安全边界；修改后对新轮次生效
+              </span>
+            </el-form-item>
+
             <el-form-item>
               <el-button type="primary" @click="saveSystemSettings" :loading="systemSaving">
                 保存设置
@@ -1337,6 +1463,17 @@ const loadSystemSettings = async () => {
       ta_google_news_sleep_min_seconds: 2.0,
       ta_google_news_sleep_max_seconds: 6.0,
       app_timezone: 'Asia/Shanghai',
+      // 选股与 AI 研判（prompt 留空 = 使用后端内置默认提示词）
+      screening_daily_insight_enabled: false,
+      screening_manual_insight_daily_limit: 10,
+      screening_insight_model: '',
+      screening_insight_prompt: '',
+      // AI 问答助手（prompt 留空 = 使用后端内置默认提示词）
+      chat_enabled: false,
+      chat_daily_limit: 20,
+      chat_model: '',
+      chat_enable_mcp: false,
+      chat_system_prompt: '',
 
       ...settings
     }
