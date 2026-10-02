@@ -136,10 +136,12 @@
     display: block !important;
   }
 
-  @for $i from 1 through 23 {
+  // Element Plus 按需加载的 el-col chunk 会在页面 chunk 后注入，
+  // 同特异度下覆盖全局规则——必须 !important（R: 单股分析页双栏挤压事故）
+  @for $i from 1 through 24 {
     .el-col-#{$i} {
-      max-width: 100%;
-      flex: 0 0 100%;
+      max-width: 100% !important;
+      flex: 0 0 100% !important;
     }
   }
 
