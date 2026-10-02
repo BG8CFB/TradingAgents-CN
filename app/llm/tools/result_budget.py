@@ -51,9 +51,10 @@ def apply_result_budget(
         task_id: 任务 ID（工件目录隔离；缺省归入 adhoc/）
         max_chars: 阈值覆盖，缺省 DEFAULT_MAX_RESULT_CHARS
     """
-    limit = max_chars if max_chars is not None else DEFAULT_MAX_RESULT_CHARS
-    if len(result) <= limit:
-        return result
+    # 全量直传，不截断不落盘：预览式截断对模型等同于数据丢失（模型不会
+    # 主动去读落盘文件），残缺数据会污染分析结论。预算机制停用，函数签名
+    # 与返回值语义保持兼容（始终返回完整结果）。
+    return result
 
     seq = _next_seq()
     scope = _safe_name(task_id or "adhoc")

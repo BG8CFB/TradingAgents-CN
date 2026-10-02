@@ -95,7 +95,8 @@ class Reflector:
         """提取并缓存当前市场状况（基于内容哈希判断是否变化）"""
         report_keys = sorted(k for k in current_state if k.endswith("_report"))
         content_hash = hash(
-            tuple((k, current_state[k][:200] if isinstance(current_state.get(k), str) else "") for k in report_keys)
+            # 全量内容参与哈希：[:200] 取样会让"仅尾部变化"的报告被误判为未变化
+            tuple((k, current_state[k] if isinstance(current_state.get(k), str) else "") for k in report_keys)
         )
         if not hasattr(self, "_cached_situation") or self._situation_hash != content_hash:
             self._cached_situation = self._extract_current_situation(current_state)

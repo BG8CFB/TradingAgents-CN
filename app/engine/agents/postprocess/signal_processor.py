@@ -143,9 +143,8 @@ class SignalProcessor:
 如果某些信息在报告中没有明确提及，请使用合理的默认值。"""
         )
 
-        human_content = full_signal[:8000] + (
-            "\n\n...[内容已截断至8000字符]" if len(full_signal) > 8000 else ""
-        )
+        # 全量注入，不截断：截断会丢失决策依据的尾部内容
+        human_content = full_signal
         if not human_content or len(human_content.strip()) == 0:
             logger.error("❌ [SignalProcessor] human消息内容为空")
             return self._get_default_decision()

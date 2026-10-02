@@ -17,27 +17,14 @@ def format_result(data: Any, title: str, max_rows: int = 2000) -> str:
         return f"# {title}\n\nNo data found."
 
     if isinstance(data, str):
-        # 如果字符串本身已经是Markdown表格，尝试截断行数
-        if "|" in data and data.count("\n") > max_rows + 5:
-            lines = data.split("\n")
-            # 保留头部和前 max_rows 行
-            header = lines[:2]
-            content = lines[2:]
-            if len(content) > max_rows:
-                truncated_content = content[:max_rows]
-                return "\n".join(header + truncated_content + [f"\n... (剩余 {len(content) - max_rows} 行已隐藏)"])
-        # L-4 修复：非表格字符串独立上限，避免过长消耗 LLM 上下文窗口
-        max_chars = 8000
-        if len(data) > max_chars:
-            return data[:max_chars] + f"\n\n... (字符串过长，已截断至 {max_chars} 字符)"
+        # 字符串原样返回，不做行数/字符截断：截断会让 LLM 看不到完整数据，
+        # 基于残缺数据得出结论（max_rows 参数保留仅为兼容调用签名，不再生效）
         return data
 
     # Assuming data is a list of dicts or a pandas DataFrame (converted to list of dicts)
     if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-        # Truncate list if too long
+        # 列表全量输出，不按行数截断：隐藏的行对 LLM 不可见，会丢失数据
         original_len = len(data)
-        if original_len > max_rows:
-            data = data[:max_rows]
 
         # Create markdown table
         headers = list(data[0].keys())
@@ -50,9 +37,6 @@ def format_result(data: Any, title: str, max_rows: int = 2000) -> str:
             rows.append(row)
 
         result = f"# {title}\n\n{header_row}\n{separator_row}\n" + "\n".join(rows)
-
-        if original_len > max_rows:
-            result += f"\n\n... (剩余 {original_len - max_rows} 行已隐藏)"
 
         return result
 

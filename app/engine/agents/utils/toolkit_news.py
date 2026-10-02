@@ -104,7 +104,8 @@ def get_realtime_stock_news(
             pub_time = item.get("publish_time", "")
             report_lines.append(f"- [{source} {pub_time}] {title}")
             if content:
-                report_lines.append(f"  {content[:200]}")
+                # 内容全量返回，不截断
+                report_lines.append(f"  {content}")
         report_lines.append(f"\n数据来源: 统一数据平台 (market={market})")
         return "\n".join(report_lines)
     except Exception as e:

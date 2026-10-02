@@ -58,10 +58,15 @@ def _ensure_required_fields(data: dict) -> dict:
 
 
 def _truncate(text: str, limit: int) -> str:
-    """安全截断字符串到指定长度，None/非字符串返回空串。"""
+    """原样返回完整文本（不截断）。
+
+    历史上此处按 limit 截断（报告 500/决策 1500 字符），会丢弃报告后半段的
+    关键结论与数据，导致结构化总结基于残缺输入生成。limit 参数保留仅为
+    兼容调用签名，不再生效。
+    """
     if not text or not isinstance(text, str):
         return ""
-    return text[:limit]
+    return text
 
 
 def _build_user_message(
