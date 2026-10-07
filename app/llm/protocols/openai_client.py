@@ -30,6 +30,7 @@ from ..core.types import (
     ToolResultBlock,
     ToolUseBlock,
     Usage,
+    ThinkingBlock,
 )
 from .thinking import merge_openai_thinking_params
 
@@ -89,6 +90,15 @@ class OpenAILLMClient(BaseLLMClient):
 
     # ── canonical → OpenAI 消息 ───────────────────────────────────
 
+    def _thinking_enabled(self) -> bool:
+        """本客户端是否处于思考模式。
+
+        思考模式下历史里的每条 assistant 消息都必须带 reasoning_content
+        （空串也是合法值），否则带 tools 的请求会被 API 以 400 拒绝。
+        """
+        return bool(self.thinking_effort or self.thinking_budget)
+
+
     def _to_api_messages(self, messages: List[Message], system: Optional[str]) -> List[Dict[str, Any]]:
         """canonical → OpenAI 消息列表。
 
@@ -111,10 +121,20 @@ class OpenAILLMClient(BaseLLMClient):
                 api_messages.append({"role": "system", "content": str(msg.content)})
                 continue
 
+            # 思考模型的推理内容承载在 ThinkingBlock：不是独立消息，而是
+            # 所属 assistant 消息的 reasoning_content 字段（见 ThinkingBlock 文档）
+            rc = "".join(b.thinking for b in msg.blocks() if isinstance(b, ThinkingBlock))
+            rc_kw: Dict[str, Any] = {}
+            if msg.role == Role.ASSISTANT and (rc.strip() or self._thinking_enabled()):
+                rc_kw = {"reasoning_content": rc}
+
             for b in msg.blocks():
+                if isinstance(b, ThinkingBlock):
+                    # 推理块不产出独立消息（已折算进 rc_kw）
+                    continue
                 if isinstance(b, TextBlock):
                     if msg.role == Role.ASSISTANT:
-                        api_messages.append({"role": "assistant", "content": b.text})
+                        api_messages.append({"role": "assistant", "content": b.text, **rc_kw})
                     else:
                         flush_tools()
                         api_messages.append({"role": "user", "content": b.text})
@@ -122,7 +142,7 @@ class OpenAILLMClient(BaseLLMClient):
                     # tool_use 附着到 assistant 消息的 tool_calls
                     last = api_messages[-1] if api_messages else None
                     if not (last and last.get("role") == "assistant" and "tool_calls" in last):
-                        last = {"role": "assistant", "content": "", "tool_calls": []}
+                        last = {"role": "assistant", "content": "", "tool_calls": [], **rc_kw}
                         api_messages.append(last)
                     last["tool_calls"].append(
                         {
@@ -163,6 +183,10 @@ class OpenAILLMClient(BaseLLMClient):
         finish = StopReason.OTHER
         if choice:
             msg = choice.message
+            # 思考模型的推理内容落到 ThinkingBlock（多轮工具循环必须原样回传）
+            reasoning = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
+            if reasoning.strip():
+                blocks.append(ThinkingBlock(thinking=reasoning))
             if msg.content:
                 blocks.append(TextBlock(text=msg.content))
             for tc in getattr(msg, "tool_calls", None) or []:
@@ -330,6 +354,11 @@ class OpenAILLMClient(BaseLLMClient):
             blocks.append(ToolUseBlock(id=entry["id"], name=entry["name"], input=args))
 
         stop = StopReason.TOOL_USE if tool_calls else _FINISH_MAP.get(finish_reason, StopReason.OTHER)
+
+
+        # 流式推理内容同样落到 ThinkingBlock（供多轮工具循环原样回传）
+        if reasoning_parts:
+            blocks.insert(0, ThinkingBlock(thinking="".join(reasoning_parts)))
 
         # 思考内容经 raw 透传（runner._extract_thinking_text 从 raw 提取并发
         # thinking 事件）；canonical 层不保留 reasoning，流式也无完整 SDK 响应对象，
