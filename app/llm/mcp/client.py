@@ -8,7 +8,10 @@ MCP 连接管理（参考 claude-code mcp-client 生命周期策略，官方 mcp
 """
 
 import asyncio
+import inspect
 from contextlib import AsyncExitStack
+
+import httpx
 from typing import Dict, Optional, Tuple
 
 from mcp import ClientSession, StdioServerParameters
@@ -23,6 +26,14 @@ logger = logging.getLogger("app.llm.mcp")
 
 CONNECT_TIMEOUT = 30.0  # 秒，参考 claude-code
 LOCAL_CONNECT_CONCURRENCY = 3
+
+
+def _expects_http_client(fn) -> bool:
+    """该 transport 是否采用 mcp 2.x 的 http_client 参数（而非顶层 headers）。"""
+    try:
+        return "http_client" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):  # pragma: no cover - 内建/C 实现无签名
+        return False
 
 
 class MCPManager:
@@ -87,10 +98,26 @@ class MCPManager:
         return session
 
     async def _connect_http(self, stack: AsyncExitStack, cfg: MCPServerConfig) -> ClientSession:
-        from mcp.client.streamable_http import streamablehttp_client
+        """streamable-http 传输（兼容 mcp 1.x / 2.x 的破坏性变更）。
 
-        transport = await stack.enter_async_context(streamablehttp_client(cfg.url, headers=cfg.headers or None))
-        read_stream, write_stream, _ = transport
+        mcp 2.x 起该 transport 有三处变化：函数更名为 ``streamable_http_client``、
+        不再接受顶层 ``headers``（改由 ``http_client`` 承载）、返回 2 元组（旧版
+        3 元组，含 session_id）。按 1.x 写法调用时该类 server 会整体掉线，表现为
+        工具列表为空。
+        """
+        try:  # mcp >= 2.0
+            from mcp.client.streamable_http import streamable_http_client as _http_client
+        except ImportError:  # pragma: no cover - 取决于安装的 mcp SDK 版本
+            from mcp.client.streamable_http import streamablehttp_client as _http_client
+
+        headers = dict(getattr(cfg, "headers", None) or {})
+        if _expects_http_client(_http_client):  # 2.x：headers 经 http_client 承载
+            http_client = await stack.enter_async_context(httpx.AsyncClient(headers=headers))
+            transport = await stack.enter_async_context(_http_client(cfg.url, http_client=http_client))
+        else:  # 1.x：顶层 headers 关键字
+            transport = await stack.enter_async_context(_http_client(cfg.url, headers=headers or None))
+
+        read_stream, write_stream = transport[0], transport[1]
         session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
         await session.initialize()
         return session
