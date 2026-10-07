@@ -114,6 +114,11 @@ class OpenAILLMClient(BaseLLMClient):
             for b in msg.blocks():
                 if isinstance(b, TextBlock):
                     if msg.role == Role.ASSISTANT:
+                        # assistant 文本之前必须先把挂起的 tool 结果冲出去：
+                        # 每个 assistant(tool_calls) 都必须紧跟它自己的 tool 响应，
+                        # 否则 API 以 400 拒绝
+                        # （insufficient tool messages following tool_calls）。
+                        flush_tools()
                         api_messages.append({"role": "assistant", "content": b.text})
                     else:
                         flush_tools()
