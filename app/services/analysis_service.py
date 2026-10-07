@@ -1967,8 +1967,19 @@ class AnalysisService:
                 if isinstance(snap, dict) and snap:
                     workflow_snapshot = snap
 
+            # 报告归属：列表/详情接口都按 user_id 过滤，缺该字段会让报告在页面上
+            # 「存了但看不到」。任务文档已带 user_id，这里按 task_id 兜底取回，
+            # 使本方法无需改动调用方签名也能落对归属。
+            report_user_id = None
+            try:
+                task_doc = await db.analysis_tasks.find_one({"task_id": task_id}, {"user_id": 1})
+                report_user_id = (task_doc or {}).get("user_id")
+            except Exception as owner_err:  # noqa: BLE001 - 归属查询失败不阻断保存
+                logger.warning(f"⚠️ 报告归属 user_id 查询失败 task={task_id}: {owner_err}")
+
             document = {
                 "analysis_id": analysis_id,
+                "user_id": report_user_id,
                 "stock_symbol": stock_symbol,
                 "stock_name": self._resolve_stock_name(stock_symbol),
                 "analysis_date": analysis_date,
