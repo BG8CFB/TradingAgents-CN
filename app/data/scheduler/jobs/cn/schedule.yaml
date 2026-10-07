@@ -73,3 +73,28 @@ news:
   timezone: "Asia/Shanghai"
   mode: incremental
   description: "每 2 小时增量同步新闻"
+
+# ── 补排（上游 schedule.yaml 原本漏了这 3 个域，导致它们永不自动同步）──
+dragon_tiger:
+  cron: "50 20 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 20:50 增量同步龙虎榜（官方 20:00 发布）"
+  depends_on:
+    - basic_info
+
+block_trade:
+  cron: "10 21 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 21:10 增量同步大宗交易（官方 21:00 发布）"
+  depends_on:
+    - basic_info
+
+margin_trading:
+  cron: "10 9 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 09:10 增量同步融资融券（官方 9:00 发布，隔一交易日披露）"
+  depends_on:
+    - basic_info
