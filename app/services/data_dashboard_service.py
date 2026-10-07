@@ -1,11 +1,28 @@
 """数据总览看板服务 — 通过 DataInterface 访问，供路由层调用。"""
 
 import logging
-from typing import Dict, List
+import time
+from typing import Dict, List, Tuple
 
 from app.data.core.interface import DataInterface
 
 logger = logging.getLogger(__name__)
+
+# 看板载荷短 TTL 缓存：单次组装要跨 13 个域查询，且页面会同时打 dashboard +
+# quality 两个接口。看板反映的是分钟级刷新的同步状态，60s 足够。
+_DASHBOARD_TTL_SECONDS = 60
+_dashboard_cache: Dict[str, Tuple[float, Dict]] = {}
+
+
+async def get_dashboard_payload(market: str) -> Dict:
+    """带 60s TTL 缓存的看板载荷入口（键含 market，避免三市场串数据）。"""
+    now = time.monotonic()
+    cached = _dashboard_cache.get(market)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    payload = await _build_dashboard_payload(market)
+    _dashboard_cache[market] = (now + _DASHBOARD_TTL_SECONDS, payload)
+    return payload
 
 
 async def get_domain_stats(market: str, domains: List[str]) -> Dict[str, Dict]:
@@ -24,7 +41,7 @@ async def get_daily_quotes_stats(market: str = "CN") -> Dict[str, int]:
     return await di.get_quotes_stats(market)
 
 
-async def get_dashboard_payload(market: str) -> Dict:
+async def _build_dashboard_payload(market: str) -> Dict:
     """统一组装三市场 dashboard 载荷（cn/hk/us 路由共用，避免三份拷贝）。
 
     健康判定在数据层（DataInterface.get_domain_health → core/health.py），

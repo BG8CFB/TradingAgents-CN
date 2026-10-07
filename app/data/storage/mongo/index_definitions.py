@@ -32,13 +32,17 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
         # 单版本覆盖：同 symbol 同交易日同周期只保留一份（当前生效源）
         ([("symbol", 1), ("trade_date", -1), ("period", 1)], True),
         ([("trade_date", -1)], False),
+        # 看板「最后更新时间」排序用；缺它时 order-by 退化为全集合扫描
+        ([("updated_at", -1)], False),
     ],
     "daily_indicators": [
         ([("symbol", 1), ("trade_date", -1)], True),
         ([("trade_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "adj_factors": [
         ([("symbol", 1), ("trade_date", -1)], True),
+        ([("updated_at", -1)], False),
     ],
     "corporate_actions": [
         # 同一 symbol 同一除权日同一行动类型唯一
@@ -79,6 +83,7 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
     "money_flow": [
         # 资金流向：按 symbol + 日期唯一
         ([("symbol", 1), ("trade_date", -1)], True),
+        ([("updated_at", -1)], False),
     ],
     "margin_trading": [
         # 融资融券：按 symbol + 日期唯一
