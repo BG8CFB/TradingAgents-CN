@@ -1332,7 +1332,9 @@ class AnalysisService:
             event_sink = create_event_sink(task_id, server_loop=server_loop, on_progress=graph_progress_callback)
             try:
                 state, decision = trading_graph.propagate_sync(
-                    request.stock_code,
+                    # 必须用 get_symbol()：stock_code 是已废弃字段，只传 symbol 的请求
+                    # 在这里会变成 None，导致分析师提示词拿到「None·未提供有效代码」。
+                    request.get_symbol(),
                     analysis_date,
                     task_id=task_id,
                     event_sink=event_sink,
@@ -1367,8 +1369,8 @@ class AnalysisService:
             # 构建结果 (简化版，完整版在 _save_analysis_result_web_style 中重构)
             # 这里直接返回字典
             result = {
-                "stock_code": request.stock_code,
-                "stock_symbol": request.stock_code,
+                "stock_code": request.get_symbol(),
+                "stock_symbol": request.get_symbol(),
                 "analysis_date": analysis_date,
                 "market_type": market_type,
                 "summary": summary_text,
