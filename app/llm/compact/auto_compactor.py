@@ -195,7 +195,15 @@ class AutoCompactor:
                         )
                     else:
                         blocks.append(b)
-                new_messages.append(Message(role=m.role, content=blocks))
+                new_messages.append(
+                    # 必须带上 reasoning_content：带 tools 的请求要求历史里所有 assistant
+                    # 消息的 CoT 完整回传（DeepSeek 官方规则），丢弃会导致下一次请求 400。
+                    Message(
+                        role=m.role,
+                        content=blocks,
+                        reasoning_content=getattr(m, "reasoning_content", "") or "",
+                    )
+                )
             else:
                 new_messages.append(m)
         return new_messages if changed else messages

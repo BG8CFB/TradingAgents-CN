@@ -35,7 +35,15 @@ def ensure_pairing(messages: List[Message]) -> List[Message]:
         if stale and msg.role == Role.USER:
             kept = [b for b in msg.blocks() if not (isinstance(b, ToolResultBlock) and b.tool_use_id in stale)]
             if kept:
-                fixed.append(Message(role=msg.role, content=kept))
+                fixed.append(
+                    # 同样要保住 reasoning_content（见 auto_compactor 中的说明）：
+                    # 重建消息时丢弃 CoT，会让下一轮带 tools 的请求被 API 以 400 拒绝。
+                    Message(
+                        role=msg.role,
+                        content=kept,
+                        reasoning_content=getattr(msg, "reasoning_content", "") or "",
+                    )
+                )
         else:
             fixed.append(msg)
 

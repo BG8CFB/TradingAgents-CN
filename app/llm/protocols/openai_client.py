@@ -87,6 +87,10 @@ class OpenAILLMClient(BaseLLMClient):
         self.provider = provider or ""
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
 
+    def _thinking_enabled(self) -> bool:
+        """客户端是否处于思考模式（决定 assistant 消息是否必须携带 reasoning_content）"""
+        return bool(self.thinking_effort or self.thinking_budget)
+
     # ── canonical → OpenAI 消息 ───────────────────────────────────
 
     def _to_api_messages(self, messages: List[Message], system: Optional[str]) -> List[Dict[str, Any]]:
@@ -111,10 +115,20 @@ class OpenAILLMClient(BaseLLMClient):
                 api_messages.append({"role": "system", "content": str(msg.content)})
                 continue
 
+            # 思考模型的 CoT 必须随 assistant 消息回传：带 tools 的请求要求历史里所有
+            # assistant 的 reasoning_content 完整回传，缺字段会被 API 以 400 拒绝。
+            # 有值即带；无值但客户端处于思考模式时也带空串（空串是合法值）。
+            rc = getattr(msg, "reasoning_content", "") or ""
+            rc_kw = {"reasoning_content": rc} if (rc.strip() or self._thinking_enabled()) else {}
+
             for b in msg.blocks():
                 if isinstance(b, TextBlock):
                     if msg.role == Role.ASSISTANT:
-                        api_messages.append({"role": "assistant", "content": b.text})
+                        # assistant 消息之前必须先把挂起的 tool 结果冲出去：
+                        # 每个 assistant(tool_calls) 都必须紧跟它自己的 tool 响应，
+                        # 否则 API 以 400 拒绝（insufficient tool messages following tool_calls）。
+                        flush_tools()
+                        api_messages.append({"role": "assistant", "content": b.text, **rc_kw})
                     else:
                         flush_tools()
                         api_messages.append({"role": "user", "content": b.text})
@@ -122,7 +136,7 @@ class OpenAILLMClient(BaseLLMClient):
                     # tool_use 附着到 assistant 消息的 tool_calls
                     last = api_messages[-1] if api_messages else None
                     if not (last and last.get("role") == "assistant" and "tool_calls" in last):
-                        last = {"role": "assistant", "content": "", "tool_calls": []}
+                        last = {"role": "assistant", "content": "", "tool_calls": [], **rc_kw}
                         api_messages.append(last)
                     last["tool_calls"].append(
                         {
@@ -161,6 +175,7 @@ class OpenAILLMClient(BaseLLMClient):
         choice = resp.choices[0] if resp.choices else None
         blocks: List[Any] = []
         finish = StopReason.OTHER
+        reasoning = ""  # 无 choice 时保持空串（对思考模型是合法值，且必然含工具循环时要带）
         if choice:
             msg = choice.message
             if msg.content:
@@ -175,6 +190,8 @@ class OpenAILLMClient(BaseLLMClient):
             finish = _FINISH_MAP.get(choice.finish_reason, StopReason.OTHER)
             if any(isinstance(b, ToolUseBlock) for b in blocks):
                 finish = StopReason.TOOL_USE
+            # 捕获 CoT：多轮工具循环必须在后续请求中原样回传（见 types.Message）
+            reasoning = getattr(msg, "reasoning_content", None) or ""
         usage = Usage()
         if resp.usage:
             # 部分网关不回传 prompt_tokens_details，getattr 链兜底
@@ -185,7 +202,7 @@ class OpenAILLMClient(BaseLLMClient):
                 cache_read_input_tokens=getattr(details, "cached_tokens", 0) or 0 if details else 0,
             )
         return ChatResponse(
-            message=Message(role=Role.ASSISTANT, content=blocks),
+            message=Message(role=Role.ASSISTANT, content=blocks, reasoning_content=reasoning),
             stop_reason=finish,
             usage=usage,
             model=resp.model or self.model,
@@ -351,7 +368,12 @@ class OpenAILLMClient(BaseLLMClient):
         yield StreamEvent(
             "message",
             response=ChatResponse(
-                message=Message(role=Role.ASSISTANT, content=blocks),
+                message=Message(
+                    role=Role.ASSISTANT,
+                    content=blocks,
+                    # 捕获流式 CoT：多轮工具循环必须原样回传（见 types.Message）
+                    reasoning_content="".join(reasoning_parts),
+                ),
                 stop_reason=stop,
                 usage=usage,
                 model=model_name,

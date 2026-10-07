@@ -71,6 +71,11 @@ ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock
 class Message:
     role: Role
     content: Any  # str | List[ContentBlock]；system 消息约定为 str
+    # 思考模型（DeepSeek 等）的推理内容。带 tools 的请求要求历史里**所有** assistant 消息
+    # 的 reasoning_content 完整回传，缺字段会被 API 以 400 拒绝
+    # （"The reasoning_content in the thinking mode must be passed back to the API"）；
+    # 空串是合法值，非思考模型不填即可。
+    reasoning_content: str = ""
 
     def blocks(self) -> List[ContentBlock]:
         """以块列表形态访问 content（str 自动包装为单 TextBlock，单块自动包装为列表）"""
