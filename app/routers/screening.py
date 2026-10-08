@@ -188,6 +188,7 @@ async def run_screening(req: ScreeningRequest, user: dict = Depends(get_current_
                 "as_of": result["as_of"],
                 "strategy": result["strategy"],
                 "style": result["style"],
+                "data_quality": result.get("data_quality"),
             })
 
         logger.info(f"[screening] 请求条件: {req.conditions}")

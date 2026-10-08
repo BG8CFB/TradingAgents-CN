@@ -304,6 +304,7 @@ class TestQualityStatementTypeHardening:
                  "statement_type": stmt},
                 {"$set": {
                     "symbol": "TESTQ001", "report_period": "2026-06-30",
+                    "announce_date": "2026-08-28",
                     "statement_type": stmt, "net_profit": np_,
                     "roe": 18.0, "gross_margin": 35.0, "debt_ratio": 45.0,
                     "data_source": "test",
@@ -312,12 +313,13 @@ class TestQualityStatementTypeHardening:
             {"symbol": "TESTQ001", "report_period": "2025-06-30"},
             {"$set": {
                 "symbol": "TESTQ001", "report_period": "2025-06-30",
+                "announce_date": "2025-08-28",
                 "statement_type": "indicator", "net_profit": 20.0,
                 "roe": 16.0, "gross_margin": 33.0, "debt_ratio": 50.0,
                 "data_source": "test",
             }}, upsert=True)
         try:
-            out = await FactorScoreEngine()._compute_quality("CN")
+            out = await FactorScoreEngine()._compute_quality("CN", "2026-09-30")
             # indicator 行 net_profit=30 → yoy = 30/20-1 = 50%
             assert out.loc["TESTQ001", "net_profit_yoy"] == pytest.approx(50.0)
             assert out.loc["TESTQ001", "roe"] == 18.0

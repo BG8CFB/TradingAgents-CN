@@ -259,7 +259,7 @@ class TushareCNAdapter(BaseAdapter):
                 str(get("ts_code", "") or get("symbol", ""))
             )
             report_period = _parse_date(
-                get("report_period") or get("end_date") or get("ann_date")
+                get("report_period") or get("end_date")
             )
 
             # 判断报表类型
@@ -272,9 +272,15 @@ class TushareCNAdapter(BaseAdapter):
                     data_source="tushare",
                     report_period=report_period,
                     statement_type=stmt_type,
-                    announce_date=_parse_date(get("ann_date")),
+                    report_type=get("report_type"),
+                    source_disclosures=(get("source_disclosures")
+                                        if isinstance(get("source_disclosures"), dict) else None),
+                    announce_date=(_parse_date(get("announce_date"))
+                                   or _parse_date(get("f_ann_date"))
+                                   or _parse_date(get("ann_date"))),
                     revenue=_safe_float(get("total_revenue") or get("revenue")),
-                    net_profit=_safe_float(get("net_profit") or get("n_income")),
+                    net_profit=(_safe_float(get("net_profit")) if _safe_float(get("net_profit")) is not None
+                                else _safe_float(get("n_income"))),
                     total_assets=_safe_float(get("total_assets")),
                     total_equity=_safe_float(
                         get("total_hldr_eqy_exc_min_int") or get("total_equity")

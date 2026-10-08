@@ -6,7 +6,7 @@
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional
 
 from app.data.schema.base.common_fields import CommonFields
 
@@ -37,6 +37,7 @@ class FactorScoresSchema(CommonFields):
     trade_date: Optional[str] = None
     name: Optional[str] = None
     industry: Optional[str] = None
+    data_quality: Optional[Dict] = None       # 截止日、可用窗口及派生口径；不替代因子缺值
 
     # 动量
     ret_5d: Optional[float] = None            # 5 日收益 %

@@ -293,6 +293,11 @@ async def _init_scheduler(logger):
     engine = SchedulerEngine(scheduler=apscheduler)
     engine.start()
 
+    # 推荐生成不是数据域同步任务；只注册该消费任务，不复活旧启动同步链。
+    from app.worker.screening_jobs import register_screening_jobs
+
+    register_screening_jobs(apscheduler)
+
     # 启动调度任务监控（超时检测、卡住任务恢复、执行统计、手动触发并发保护）。
     # H1 修复：此前 SchedulerMonitor.start() 从未被调用，导致 _get_monitor()
     # 永远返回 None，手动触发并发保护、超时检测、统计全部失效。

@@ -265,6 +265,7 @@ async def _seed_factor_stocks(db, symbols_cfg: dict, dates: list):
                 {"$set": {
                     "symbol": sym, "report_period": rp,
                     "statement_type": "indicator",
+                    "announce_date": f"{rp[:4]}-08-31",
                     "net_profit": np_, "roe": cfg["roe"],
                     "gross_margin": cfg["gm"], "debt_ratio": cfg["dr"],
                     "data_source": "test",
@@ -323,4 +324,3 @@ async def seed_factor_inputs(real_mongo_db):
         "cfg": _default_factor_seed_cfg(),
     }
     await _cleanup_factor_seeds(real_mongo_db, SEED_FACTOR_SYMBOLS)
-

@@ -3,6 +3,7 @@ Tushare 财务数据 API（利润表/资产负债表/现金流量表/财务指�
 """
 import asyncio
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -115,6 +116,64 @@ def _determine_report_type(report_period: str) -> str:
         return "quarterly"
 
 
+def _date_key(value: Any) -> Optional[str]:
+    """Validate a source date, without inventing a disclosure date from a period."""
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    text = str(value).strip().replace("-", "")
+    if len(text) != 8 or not text.isdigit():
+        return None
+    try:
+        return datetime.strptime(text, "%Y%m%d").strftime("%Y%m%d")
+    except ValueError:
+        return None
+
+
+def _scope(record: Dict[str, Any]) -> Optional[str]:
+    value = record.get("report_type")
+    if value is None or pd.isna(value):
+        return None
+    # DataFrame construction can coerce integral source codes to floats.
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value).strip() or None
+
+
+def _disclosure_date(record: Dict[str, Any]) -> Optional[str]:
+    """A contributed row is usable no earlier than both source disclosure dates."""
+    dates = []
+    for field in ("ann_date", "f_ann_date"):
+        value = record.get(field)
+        if value is None or pd.isna(value) or value == "":
+            continue
+        parsed = _date_key(value)
+        if parsed is None:
+            return None
+        dates.append(parsed)
+    period = _date_key(record.get("end_date"))
+    if not dates or period is None or min(dates) < period:
+        return None
+    return max(dates)
+
+
+def _latest_disclosed(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Choose deterministically by actual disclosure, not API row order."""
+    return max(records, key=lambda row: _disclosure_date(row) or "") if records else {}
+
+
+def _disclosure(record: Dict[str, Any], *, included: bool) -> Dict[str, Any]:
+    return {
+        "report_period": _date_key(record.get("end_date")),
+        "announce_date": _disclosure_date(record),
+        "reported_announce_date": _date_key(record.get("ann_date")),
+        "actual_announce_date": _date_key(record.get("f_ann_date")),
+        "report_type": _scope(record),
+        "included": included,
+    }
+
+
 async def fetch_financial_data(
     conn: TushareConnection,
     ts_code: str,
@@ -221,37 +280,62 @@ def _filter_by_report_period(
 
 def _standardize(financial_data: Dict[str, Any], ts_code: str) -> Dict[str, Any]:
     """标准化 Tushare 财务数据"""
-    def _first(key):
-        records = financial_data.get(key, [])
-        return records[0] if records else {}
+    income_stmts = financial_data.get("income_statement", [])
+    periods = [_date_key(row.get("end_date")) for row in income_stmts]
+    report_period = max((period for period in periods if period), default=None)
+    current_income = [row for row in income_stmts
+                      if _date_key(row.get("end_date")) == report_period]
+    scopes = {_scope(row) for row in current_income}
+    # Different statement scopes cannot be spliced or selected by response order.
+    scope = next(iter(scopes)) if len(scopes) == 1 and None not in scopes else None
+    latest_income = _latest_disclosed(current_income) if scope else {}
 
-    latest_income = _first("income_statement")
-    latest_balance = _first("balance_sheet")
-    latest_cashflow = _first("cashflow_statement")
-    latest_indicator = _first("financial_indicators")
+    def _matching(key, *, indicator=False):
+        rows = [row for row in financial_data.get(key, [])
+                if _date_key(row.get("end_date")) == report_period
+                and (indicator or (scope and _scope(row) == scope))]
+        row = _latest_disclosed(rows)
+        return row if _disclosure_date(row) else {}
+
+    # Do not attach another period's latest table to the income period.
+    latest_balance = _matching("balance_sheet")
+    latest_cashflow = _matching("cashflow_statement")
+    latest_indicator = _matching("financial_indicators", indicator=True)
+    if not _disclosure_date(latest_income):
+        latest_income = {}
 
     symbol = ts_code.split(".")[0] if "." in ts_code else ts_code
-    report_period = (
-        latest_income.get("end_date")
-        or latest_balance.get("end_date")
-        or latest_cashflow.get("end_date")
-    )
-    ann_date = (
-        latest_income.get("ann_date")
-        or latest_balance.get("ann_date")
-        or latest_cashflow.get("ann_date")
-    )
-
-    income_stmts = financial_data.get("income_statement", [])
-    revenue_ttm = calculate_ttm(income_stmts, "revenue")
-    net_profit_ttm = calculate_ttm(income_stmts, "n_income_attr_p")
+    contributors = {"income": latest_income, "balance": latest_balance,
+                    "cashflow": latest_cashflow, "indicator": latest_indicator}
+    dates = [_disclosure_date(row) for row in contributors.values() if row]
+    # TTM may involve a later correction to a prior-period statement. Retain that
+    # date in the aggregate bound too, and never mix its statement scope.
+    ttm_rows = [row for row in income_stmts if scope and _scope(row) == scope
+                and _disclosure_date(row) and _date_key(row.get("end_date"))
+                and _date_key(row.get("end_date")) <= (report_period or "")]
+    by_period = {}
+    for row in ttm_rows:
+        period = _date_key(row["end_date"])
+        by_period[period] = _latest_disclosed([by_period[period], row]) if period in by_period else row
+    ttm_rows = [dict(by_period[period], end_date=period)
+                for period in sorted(by_period, reverse=True)]
+    revenue_ttm = calculate_ttm(ttm_rows, "revenue") if latest_income else None
+    net_profit_ttm = calculate_ttm(ttm_rows, "n_income_attr_p") if latest_income else None
+    if revenue_ttm is not None or net_profit_ttm is not None:
+        dates.extend(_disclosure_date(row) for row in ttm_rows)
+    ann_date = max(dates) if dates else None
 
     return {
         "symbol": symbol,
         "ts_code": ts_code,
         "report_period": report_period,
         "ann_date": ann_date,
-        "report_type": _determine_report_type(report_period),
+        "report_type": scope,
+        "source_disclosures": {key: _disclosure(row, included=bool(row))
+                               for key, row in contributors.items()} | {
+            "ttm_income": [_disclosure(row, included=True) for row in ttm_rows]
+            if revenue_ttm is not None or net_profit_ttm is not None else [],
+        },
         "revenue": _safe_float(latest_income.get("revenue")),
         "revenue_ttm": revenue_ttm,
         "net_income": _safe_float(latest_income.get("n_income")),
@@ -289,7 +373,51 @@ _FINA_INDICATOR_PERIOD_FIELDS = (
     "ts_code,ann_date,end_date,roe,roa,grossprofit_margin,"
     "netprofit_margin,debt_to_assets,current_ratio,eps,bps"
 )
-_INCOME_PERIOD_FIELDS = "ts_code,end_date,total_revenue,n_income"
+_INCOME_PERIOD_FIELDS = (
+    "ts_code,ann_date,f_ann_date,end_date,report_type,total_revenue,n_income"
+)
+
+
+def _merge_period_financials(
+    indicators: pd.DataFrame, incomes: Optional[pd.DataFrame], period: str
+) -> pd.DataFrame:
+    """Merge only same-period rows, preserving a safe aggregate disclosure bound."""
+    expected_period = _date_key(period)
+    indicator_rows = indicators.to_dict("records")
+    income_rows = incomes.to_dict("records") if incomes is not None else []
+    grouped = {}
+    for row in indicator_rows:
+        if row.get("ts_code") and expected_period and _date_key(row.get("end_date")) == expected_period:
+            grouped.setdefault(row["ts_code"], []).append(row)
+    income_by_symbol = {}
+    for row in income_rows:
+        if row.get("ts_code") and expected_period and _date_key(row.get("end_date")) == expected_period:
+            income_by_symbol.setdefault(row["ts_code"], []).append(row)
+    merged = []
+    for symbol, rows in grouped.items():
+        indicator = _latest_disclosed(rows)
+        result = dict(indicator)
+        matches = income_by_symbol.get(symbol, [])
+        scopes = {_scope(row) for row in matches}
+        scope = next(iter(scopes)) if len(scopes) == 1 and None not in scopes else None
+        income = _latest_disclosed(matches) if scope else {}
+        indicator_date = _disclosure_date(indicator)
+        income_date = _disclosure_date(income)
+        included = bool(income_date and indicator_date)
+        result["total_revenue"] = income.get("total_revenue") if included else None
+        result["n_income"] = income.get("n_income") if included else None
+        result["report_type"] = scope if included else None
+        # Clear all adapter fallback aliases: an unknown merged date must not
+        # accidentally fall back to the indicator's earlier ann_date.
+        safe_date = max(indicator_date, income_date) if included else indicator_date
+        result.update(ann_date=safe_date, f_ann_date=None, announce_date=safe_date,
+                      statement_type="indicator")
+        result["source_disclosures"] = {
+            "indicator": _disclosure(indicator, included=True),
+            "income": _disclosure(income, included=included),
+        }
+        merged.append(result)
+    return pd.DataFrame(merged)
 
 
 async def fetch_financial_indicator_by_period(
@@ -318,7 +446,7 @@ async def fetch_financial_data_batch(
     """批量财务数据：逐期 indicator 为基表左连 income → 一报告期一行合并记录。
 
     列名保持 Tushare 原始口径（grossprofit_margin/debt_to_assets/n_income
-    等），adapt_financial_data 零改动兼容；statement_type 显式为
+    等），供 adapt_financial_data 统一转换；statement_type 显式为
     "indicator"（合并记录同时含 income 列，_detect_stmt_type 会误判 income）。
     income 缺失的行保留 indicator 字段（revenue/net_profit 为空不阻塞）。
     """
@@ -331,19 +459,12 @@ async def fetch_financial_data_batch(
             continue
         if ind is None:
             return None  # 接口不存在/源不可用
-        ind = ind.drop_duplicates(subset="ts_code", keep="first")
         try:
             inc = await fetch_income_by_period(conn, period)
         except DataNotFoundError:
             inc = None
             logger.warning(f"报告期 {period} income 无数据，仅用 indicator 字段")
-        if inc is not None and not inc.empty:
-            inc = inc.drop_duplicates(subset="ts_code", keep="first")
-            ind = ind.merge(
-                inc[["ts_code", "total_revenue", "n_income"]],
-                on="ts_code", how="left",
-            )
-        ind["statement_type"] = "indicator"
+        ind = _merge_period_financials(ind, inc, period)
         frames.append(ind)
         logger.info(f"报告期 {period} 财务批量: {len(ind)} 行")
     if not frames:

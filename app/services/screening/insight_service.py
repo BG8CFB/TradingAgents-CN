@@ -14,13 +14,6 @@ import re
 from typing import Any, Dict, List, Optional
 
 from app.data.core.interface import DataInterface
-from app.data.storage.mongo.repositories.factor_scores_repo import FactorScoresRepo
-from app.data.storage.mongo.repositories.screening_insights_repo import (
-    ScreeningInsightsRepo,
-)
-from app.data.storage.mongo.repositories.screening_recommendations_repo import (
-    ScreeningRecommendationsRepo,
-)
 from app.llm.core.types import Message, Role
 from app.utils.timezone import now_tz
 
@@ -67,7 +60,7 @@ class ScreeningInsightService:
             logger.warning("读取 system_settings 失败，用默认值: %s", e)
             stored = {}
         return {
-            "daily_enabled": bool(stored.get(SETTING_DAILY_ENABLED, False)),
+            "daily_enabled": stored.get(SETTING_DAILY_ENABLED, False) is True,
             "manual_daily_limit": int(stored.get(SETTING_MANUAL_LIMIT,
                                                  DEFAULT_MANUAL_LIMIT)),
             "model": stored.get(SETTING_MODEL) or None,
@@ -77,7 +70,7 @@ class ScreeningInsightService:
     async def quota_remaining(self, user_id: str) -> int:
         settings = await self.get_settings()
         today = now_tz().strftime("%Y-%m-%d")
-        used = await ScreeningInsightsRepo().count_today_done(user_id, today)
+        used = await DataInterface.get_instance().screening.count_completed_manual_insights(user_id, today)
         return max(0, settings["manual_daily_limit"] - used)
 
     # ── 手动路径 ────────────────────────────────────────────
@@ -114,7 +107,7 @@ class ScreeningInsightService:
                 "trade_date": trade_date, "insights": insights,
                 "tokens_used": usage, "status": "done",
             })
-            await ScreeningInsightsRepo().insert_one(audit)
+            await DataInterface.get_instance().screening.append_insight_audit(audit)
             return {
                 "insights": insights, "trade_date": trade_date,
                 "quota_remaining": remaining - 1,
@@ -126,7 +119,7 @@ class ScreeningInsightService:
             audit["status"] = "failed"
             audit["error"] = str(e)[:500]
             try:
-                await ScreeningInsightsRepo().insert_one(audit)
+                await DataInterface.get_instance().screening.append_insight_audit(audit)
             except Exception as log_err:
                 logger.error("研判失败审计落库异常: %s", log_err, exc_info=True)
             raise
@@ -141,38 +134,52 @@ class ScreeningInsightService:
         settings = await self.get_settings()
         if not settings["daily_enabled"]:
             return None
-        repo = ScreeningRecommendationsRepo()
+        gateway = DataInterface.get_instance().screening
         from app.data.factors.strategy_config import get_default_strategy
         default_id = get_default_strategy()["id"]
-        doc = await repo.get_latest_by_strategy("CN", default_id)
+        doc = await gateway.latest_strategy_recommendation("CN", default_id)
         if not doc or not doc.get("items"):
             return {"status": "skipped", "reason": "no_recommendations"}
+        if doc.get("insight_status") in {"pending", "done", "failed"}:
+            return {"status": "skipped", "reason": "already_attempted"}
+        from app.services.screening.strategy_service import StrategyService
+
+        daily = await StrategyService().get_daily(default_id)
+        if daily["is_stale"] is not False or daily["recommendation_needs_refresh"] is not False:
+            return {"status": "skipped", "reason": "unconfirmed_or_stale_factors"}
+        if (doc.get("data_quality") or {}).get("status") not in {"complete", "partial"}:
+            return {"status": "skipped", "reason": "insufficient_factors"}
         symbols = [it["symbol"] for it in doc["items"][:20]]
+        # The stored candidate is the immutable input. A same-day factor refresh
+        # after the freshness read cannot silently change what the model sees.
+        rows = self._recommendation_rows(doc)
+        if not await gateway.claim_recommendation_insight(doc, "CN"):
+            return {"status": "skipped", "reason": "already_attempted_or_changed"}
         try:
-            rows, _ = await self._fetch_factor_rows(symbols)
             prompt = self._build_prompt(rows)
             text, usage = await self._call_llm(prompt, settings)
             insights = self._parse_json_insights(text, symbols)
             for it in doc["items"]:
                 if it["symbol"] in insights:
                     it["insight"] = insights[it["symbol"]]
-            await repo.upsert_daily({
+            stored = await gateway.finish_recommendation_insight({
                 **doc, "insight_status": "done",
                 "insight_generated_at": now_tz().isoformat(),
             }, market="CN")
+            if not stored:
+                return {"status": "skipped", "reason": "recommendations_changed_during_insight"}
             return {"status": "done", "symbols": len(insights),
                     "tokens_used": usage}
         except Exception as e:
             # 失败：列表保留，标记 failed，不重试（spec §13）
             logger.error("每日自动研判失败: %s", e, exc_info=True)
-            await repo.upsert_daily({**doc, "insight_status": "failed"},
-                                    market="CN")
+            await gateway.finish_recommendation_insight({**doc, "insight_status": "failed"}, market="CN")
             return {"status": "failed", "error": str(e)[:200]}
 
     # ── 内部 ────────────────────────────────────────────────
 
     async def _fetch_factor_rows(self, symbols: List[str]):
-        trade_date = await FactorScoresRepo().get_latest_trade_date("CN")
+        trade_date = await DataInterface.get_instance().screening.latest_factor_trade_date("CN")
         if not trade_date:
             return [], None
         result = await DataInterface.get_instance().screen(
@@ -182,11 +189,21 @@ class ScreeningInsightService:
         return result.get("items", []), trade_date
 
     @staticmethod
+    def _recommendation_rows(doc: Dict) -> List[Dict]:
+        return [
+            {**item.get("factors", {}),
+             **{key: item.get(key) for key in (
+                 "symbol", "name", "industry", "score_short_term", "score_balanced", "score_value")},
+             "trade_date": doc["trade_date"]}
+            for item in doc.get("items", [])[:20]
+        ]
+
+    @staticmethod
     def _build_prompt(rows: List[Dict]) -> str:
-        lines = ["以下是通过多因子策略初筛的候选股因子摘要（数据截至最新交易日）："]
+        lines = ["以下是通过多因子策略初筛的候选股因子摘要（以每行交易日为准；缺项不代表零值）："]
         for r in rows:
             parts = [f"股票 {r.get('symbol')} {r.get('name') or ''} "
-                     f"行业:{r.get('industry') or '未知'} "
+                     f"交易日:{r.get('trade_date') or '未知'} 行业:{r.get('industry') or '未知'} "
                      f"短线分:{r.get('score_short_term')} "
                      f"均衡分:{r.get('score_balanced')} "
                      f"价值分:{r.get('score_value')}"]

@@ -78,11 +78,27 @@ export interface DailyStrategyEntry {
   items: StrategyRunItem[]
   insight_status?: string | null
   generated_at?: string | null
+  data_quality?: StrategyDataQuality | null
+}
+
+export interface StrategyDataQuality {
+  status: 'complete' | 'partial' | 'insufficient' | 'unknown'
+  total_universe: number | null
+  eligible_count: number | null
+  field_coverage: Record<string, { available: number; total: number }>
+  missing_fields: string[]
+  partial_fields: string[]
 }
 
 export interface DailyResp {
   trade_date: string | null
   strategies: DailyStrategyEntry[]
+  /** 旧后端不返回状态时保持未知，不将空列表解释为没有匹配股票。 */
+  status?: 'ready' | 'not_generated' | 'no_factor_data'
+  factor_trade_date?: string | null
+  expected_trade_date?: string | null
+  is_stale?: boolean | null
+  recommendation_needs_refresh?: boolean | null
 }
 
 // ── L1 快速研判 ──
@@ -149,4 +165,3 @@ export const screeningApi = {
   getInsightQuota: () =>
     ApiClient.get<InsightQuotaResp>('/api/screening/insights/quota')
 }
-

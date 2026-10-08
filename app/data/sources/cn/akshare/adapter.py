@@ -220,8 +220,11 @@ class AKShareCNAdapter(BaseAdapter):
                 data_source="akshare",
                 report_period=report_period,
                 statement_type=get("statement_type") or "indicator",
+                report_type=get("report_type"),
+                announce_date=_parse_date(get("announce_date")) or _parse_date(get("ann_date")),
                 revenue=_safe_float(get("revenue") or get("营业收入")),
-                net_profit=_safe_float(get("net_profit") or get("净利润")),
+                net_profit=(_safe_float(get("net_profit")) if _safe_float(get("net_profit")) is not None
+                            else _safe_float(get("净利润"))),
                 total_assets=_safe_float(get("total_assets")),
                 total_equity=_safe_float(get("total_equity") or get("所有者权益合计")),
                 roe=_safe_float(get("roe")),

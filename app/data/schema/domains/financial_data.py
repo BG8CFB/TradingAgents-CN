@@ -14,6 +14,7 @@ class FinancialDataSchema(CommonFields):
     fiscal_year: Optional[int] = None
     fiscal_period: Optional[str] = None         # 财年内期次
     announce_date: Optional[str] = None
+    source_disclosures: Optional[dict] = None  # contributing statements' disclosure bounds/scopes
     filing_url: Optional[str] = None            # SEC EDGAR / 披露易链接
 
     # 核心财务字段

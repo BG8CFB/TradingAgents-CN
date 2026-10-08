@@ -9,6 +9,7 @@ from app.data.core.reader import Reader
 from app.data.core.refresh_service import DataRefreshService
 from app.data.core.registry.capability import CapabilityRegistry
 from app.data.core.registry.priority import PriorityConfig
+from app.data.core.screening import ScreeningGateway
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class DataInterface:
         self._priority = PriorityConfig()
         self.refresh_service = DataRefreshService(self._registry, self._priority)
         self._sync_trigger_callback = sync_trigger_callback
+        self.screening = ScreeningGateway()
 
         from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
 
