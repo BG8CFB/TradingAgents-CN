@@ -345,6 +345,11 @@ class Reader:
         ]
         proj = self._normalize_projection(projection)
         if proj != {"_id": 0}:
+            # `symbol` 是下方组装返回值用的字典键（doc.get("symbol")）。投影若把它裁掉，
+            # 该键恒为 None，所有文档会被静默丢弃 → 函数恒返回 {}（实测：调用方传
+            # {close, pct_chg, trade_date} 时，自选页价格/涨跌幅永远为空）。
+            if proj.get("symbol") != 0:
+                proj = {**proj, "symbol": 1}
             pipeline.append({"$project": proj})
 
         coll = self._get_coll(market, domain)

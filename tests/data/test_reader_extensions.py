@@ -97,6 +97,41 @@ async def test_read_latest_batch_per_symbol_latest(reader_db):
 
 
 @pytest.mark.asyncio
+async def test_read_latest_batch_projection_without_symbol_still_returns(reader_db):
+    """投影里没有 `symbol` 时也必须返回数据。
+
+    实现用 ``doc["symbol"]`` 作为返回字典的键，而 `$project` 阶段会裁掉未被请求的
+    字段；投影漏掉 symbol 时该键恒为 None、文档被整批静默丢弃 → 函数恒返回 {}。
+    真实事故：自选页/增强选股传 {close, pct_chg, trade_date}，价格与涨跌幅永远为空。
+    """
+    reader = Reader()
+    result = await reader.read_latest_batch(
+        "CN", "daily_quotes", ["TEST0001", "TEST0002"],
+        projection={"close": 1, "pct_chg": 1, "trade_date": 1},
+    )
+    assert set(result.keys()) == {"TEST0001", "TEST0002"}
+    assert result["TEST0001"]["close"] == 13.0
+    assert result["TEST0001"]["pct_chg"] == 3.0
+    assert result["TEST0002"]["close"] == 20.0
+
+
+@pytest.mark.asyncio
+async def test_read_latest_batch_projection_keeps_requested_fields_only(reader_db):
+    """加了 symbol 兜底后，投影仍应只返回调用方请求的字段（不多带内部字段）。"""
+    reader = Reader()
+    result = await reader.read_latest_batch(
+        "CN", "daily_quotes", ["TEST0001"], projection={"close": 1},
+    )
+    assert set(result.keys()) == {"TEST0001"}
+    doc = result["TEST0001"]
+    assert doc["close"] == 13.0
+    # 请求之外的业务字段不应出现；symbol 是返回结构所需，允许存在
+    assert "pct_chg" not in doc
+    assert "data_source" not in doc
+    assert doc.get("symbol") == "TEST0001"
+
+
+@pytest.mark.asyncio
 async def test_read_latest_batch_over_limit_raises():
     reader = Reader()
     symbols = [f"TEST{i:04d}" for i in range(Reader.MAX_BATCH_SYMBOLS + 1)]
