@@ -87,10 +87,41 @@ class MCPManager:
         return session
 
     async def _connect_http(self, stack: AsyncExitStack, cfg: MCPServerConfig) -> ClientSession:
-        from mcp.client.streamable_http import streamablehttp_client
+        # mcp SDK 2.x 兼容（本机装的是 mcp 2.2.0）：
+        #   1) streamablehttp_client 已更名为 streamable_http_client
+        #   2) 不再接受 headers 关键字（改由 http_client 承载）
+        #   3) 返回 2 元组（旧版为 3 元组，含 session_id）
+        # 上游代码按旧 SDK 书写，装 mcp>=2.2 时 streamable-http 服务会整体掉线
+        # （实测 tushare 的 254 个工具全部消失，只剩 Sequential Thinking）。
+        try:
+            from mcp.client.streamable_http import streamablehttp_client as _http_client
+        except ImportError:  # pragma: no cover - 取决于安装的 mcp SDK 版本
+            from mcp.client.streamable_http import streamable_http_client as _http_client
 
-        transport = await stack.enter_async_context(streamablehttp_client(cfg.url, headers=cfg.headers or None))
-        read_stream, write_stream, _ = transport
+        # SSE 单事件上限：SDK 默认 1MB。tushare 的「全市场当日」类接口（如
+        # moneyflow_dc / moneyflow_ths）响应会超限，整次调用被掐断并报
+        # "Server-sent event exceeded the 1048576 byte limit"（实测 2 次）。
+        # 放宽到 16MB；旧 SDK 不认该参数时自动退回默认行为。
+        _MAX_SSE_EVENT_SIZE = 16 * 1024 * 1024
+
+        def _open(**kwargs):
+            try:
+                return _http_client(cfg.url, max_sse_event_size=_MAX_SSE_EVENT_SIZE, **kwargs)
+            except TypeError:  # 旧 SDK 无 max_sse_event_size 参数
+                return _http_client(cfg.url, **kwargs)
+
+        if getattr(cfg, "headers", None):
+            try:  # 旧 SDK：直接收 headers
+                transport = await stack.enter_async_context(_open(headers=cfg.headers))
+            except TypeError:  # 新 SDK：headers 经 http_client 传入
+                import httpx2
+
+                http_client = await stack.enter_async_context(httpx2.AsyncClient(headers=cfg.headers))
+                transport = await stack.enter_async_context(_open(http_client=http_client))
+        else:
+            transport = await stack.enter_async_context(_open())
+
+        read_stream, write_stream = transport[0], transport[1]
         session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
         await session.initialize()
         return session
