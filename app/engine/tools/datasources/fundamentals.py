@@ -12,12 +12,12 @@ from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.engine.tools.common.data_access import read_with_refresh
+from app.engine.tools.common.data_access import read_with_refresh_async
 
 logger = logging.getLogger(__name__)
 
 
-def get_stock_fundamentals(
+async def get_stock_fundamentals(
     stock_code: str, current_date: str = None, start_date: str = None, end_date: str = None
 ) -> str:
     """
@@ -71,7 +71,7 @@ def get_stock_fundamentals(
                     .replace(".sh", "")
                     .replace(".bj", "")
                 )
-                fundamentals_raw = read_with_refresh("CN", "financial_data", symbol=clean_symbol)
+                fundamentals_raw = await read_with_refresh_async("CN", "financial_data", symbol=clean_symbol)
                 _d = fundamentals_raw.get("data") if fundamentals_raw else None
                 if _d:
                     import pandas as pd
@@ -110,7 +110,7 @@ def get_stock_fundamentals(
             logger.info("[基本面工具] 处理港股数据...")
 
             try:
-                _r_info = read_with_refresh("HK", "basic_info", symbol=stock_code)
+                _r_info = await read_with_refresh_async("HK", "basic_info", symbol=stock_code)
                 hk_info = _r_info.get("data") if _r_info else None
                 if isinstance(hk_info, list) and hk_info:
                     hk_info = hk_info[0]
@@ -132,7 +132,7 @@ def get_stock_fundamentals(
         else:
             logger.info("[基本面工具] 处理美股数据...")
             try:
-                _r = read_with_refresh("US", "financial_data", symbol=stock_code.upper())
+                _r = await read_with_refresh_async("US", "financial_data", symbol=stock_code.upper())
                 us_info = _r.get("data") if _r else None
                 if us_info:
                     import pandas as pd
@@ -164,7 +164,7 @@ def get_stock_fundamentals(
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
-def get_company_performance_unified(
+async def get_company_performance_unified(
     stock_code: str,
     data_type: str,
     start_date: Optional[str] = None,
@@ -247,7 +247,7 @@ def get_company_performance_unified(
         }
         stmt_type = _DT_TO_STMT.get(data_type)
 
-        result = read_with_refresh(
+        result = await read_with_refresh_async(
             market,
             "financial_data",
             symbol=symbol,
@@ -256,6 +256,19 @@ def get_company_performance_unified(
             filters={"statement_type": stmt_type} if stmt_type else None,
         )
         perf_data = result.get("data") if result else None
+        if not perf_data and stmt_type:
+            # 指定报表口径未命中：本地历史数据可能以别的 statement_type 落库
+            # （如 AKShare 兜底批量写 income，而本工具的 indicators 口径找
+            # indicator）。此时退回不过滤再查一次，避免"库里有数据却报
+            # 请先同步 financial_data"这种误报。
+            fallback = await read_with_refresh_async(
+                market,
+                "financial_data",
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            perf_data = fallback.get("data") if fallback else None
         if perf_data:
             import pandas as pd
 
@@ -275,7 +288,7 @@ def get_company_performance_unified(
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
-def get_stock_basic_info(
+async def get_stock_basic_info(
     stock_code: str,
 ) -> str:
     """
@@ -323,7 +336,7 @@ def get_stock_basic_info(
 
         logger.info(f"[基本信息] 获取 {market_name} {stock_code} 基本信息数据")
 
-        result = read_with_refresh(market, "basic_info", symbol=symbol)
+        result = await read_with_refresh_async(market, "basic_info", symbol=symbol)
         data = result.get("data") if result else None
 
         if data:
