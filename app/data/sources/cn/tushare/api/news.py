@@ -30,6 +30,24 @@ SOURCE_NAMES = {
 }
 
 
+
+def _as_datetime_range(start_date: Optional[str], end_date: Optional[str]) -> tuple:
+    """把 YYYY-MM-DD 规整为 tushare news/major_news 要求的 datetime。
+
+    这两个接口按 **datetime** 过滤，只给日期串（"2026-09-20"）会返回空集；
+    cctv_news 则相反，只接受 YYYYMMDD 的 date 参数。
+    """
+    def _one(value: Optional[str], end: bool = False) -> Optional[str]:
+        if not value:
+            return None
+        text = str(value).strip()
+        if " " in text or ":" in text:
+            return text
+        return f"{text} {'23:59:59' if end else '00:00:00'}"
+
+    return _one(start_date, end=False), _one(end_date, end=True)
+
+
 async def fetch_news(
     conn: TushareConnection,
     symbol: str = None,
@@ -245,8 +263,9 @@ async def _fetch_news_fast(
 
     for source in sources:
         try:
+            q_start, q_end = _as_datetime_range(start_date, end_date)
             df = await asyncio.to_thread(
-                conn.api.news, src=source, start_date=start_date, end_date=end_date
+                conn.api.news, src=source, start_date=q_start, end_date=q_end
             )
             if df is not None and not df.empty:
                 items = _process_news(df, source, symbol, limit, stock_name)
@@ -266,8 +285,9 @@ async def _fetch_major_news(
 ) -> List[Dict[str, Any]]:
     """策略 2: 长篇通讯（带 title/url，质量更高）"""
     try:
+        m_start, m_end = _as_datetime_range(start_date, end_date)
         df = await asyncio.to_thread(
-            conn.api.major_news, start_date=start_date, end_date=end_date
+            conn.api.major_news, start_date=m_start, end_date=m_end
         )
         if df is None or df.empty:
             return []
