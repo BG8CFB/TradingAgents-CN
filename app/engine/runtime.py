@@ -265,7 +265,31 @@ class AnalysisRuntime:
         return final_state, decision
 
     def propagate_sync(self, company_name, trade_date, **kwargs):
-        """同步入口（工作线程/CLI）：事件循环内运行完整流水线"""
+        """同步入口（工作线程/CLI）：把协程投递到**已注册的主事件循环**执行。
+
+        绝不能用 ``asyncio.run()``：它会新建一个事件循环，而 motor 的 Mongo
+        客户端绑定在应用主循环上，于是分析过程中每一次 Mongo 读写都会抛
+        ``got Future <...> attached to a different loop`` —— 表现为报告里
+        大量「数据获取失败」、分析师耗尽工具轮数无法提交报告。
+
+        仅当没有已注册的主循环（纯脚本、单元测试）时才退回新建循环。
+        """
+        from app.core.async_utils import get_main_loop
+
+        main_loop = get_main_loop()
+        if main_loop is not None and main_loop.is_running():
+            try:
+                current_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                current_loop = None  # 工作线程
+
+            if current_loop is not main_loop:
+                # 分析耗时可达数十分钟：不设超时，避免超时后主循环仍在跑、调用方却已失败
+                future = asyncio.run_coroutine_threadsafe(
+                    self.propagate(company_name, trade_date, **kwargs), main_loop
+                )
+                return future.result()
+
         return asyncio.run(self.propagate(company_name, trade_date, **kwargs))
 
     # ── 性能统计 ─────────────────────────────────────────────────────
