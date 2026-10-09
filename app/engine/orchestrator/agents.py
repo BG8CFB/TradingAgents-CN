@@ -55,15 +55,18 @@ def _resolve_inject_args(spec, context: Dict[str, str]) -> Dict[str, Any]:
         elif isinstance(source, str):
             if source.startswith("start_date_"):
                 days = int(source.replace("start_date_", "").replace("d", ""))
-                args[arg_name] = (now_utc() - timedelta(days=days)).strftime("%Y-%m-%d")
+                args[arg_name] = (anchor - timedelta(days=days)).strftime("%Y-%m-%d")
             elif source == "trade_date_compact":
-                val = context.get("trade_date", "").replace("-", "")
+                val = ctx_trade_date.replace("-", "")
                 if val:
                     args[arg_name] = val
-            elif source in ("ticker", "trade_date", "company_name"):
+            elif source in ("ticker", "company_name"):
                 val = context.get(source, "")
                 if val:
                     args[arg_name] = val
+            elif source == "trade_date":
+                if ctx_trade_date:
+                    args[arg_name] = ctx_trade_date
             else:
                 args[arg_name] = source
         elif isinstance(source, int):
@@ -97,6 +100,17 @@ async def build_tool_data(
 
     data_sections: List[str] = []
     injected_count = 0
+
+    # 日期锚点：最近交易日（节假日运行时不能按"今天"取日频数据）
+    try:
+        from app.data.core.market import get_latest_trade_day
+
+        latest = await get_latest_trade_day("CN")
+        if latest:
+            context = {**context, "latest_trade_date": str(latest)}
+            logger.info(f"📅 [{agent_name}] 日期锚点（最近交易日）: {latest}")
+    except Exception as exc:  # noqa: BLE001 - 取不到就退回当前日期
+        logger.warning(f"⚠️ [{agent_name}] 解析最近交易日失败，退回当前日期: {exc}")
 
     for spec in inject_specs:
         tool_args = _resolve_inject_args(spec, context)
