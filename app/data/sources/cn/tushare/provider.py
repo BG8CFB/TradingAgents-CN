@@ -147,9 +147,31 @@ class TushareCNProvider(BaseProvider):
         return None
 
     async def get_market_quotes(self, symbols=None, **kwargs) -> pd.DataFrame:
-        from .api.daily_quotes import fetch_realtime_batch
+        """全市场行情快照 = 个股实时（rt_k，若已开通）+ 主要指数日线（index_daily）。
 
-        return await fetch_realtime_batch(self._get_conn())
+        rt_k 需单独开通权限、且不含指数；缺失时用 index_daily 兜底，保证
+        「指数行情」「自选页指数」等路径可用。
+        """
+        from .api.daily_quotes import fetch_index_quotes, fetch_realtime_batch
+
+        frames = []
+        try:
+            realtime = await fetch_realtime_batch(self._get_conn())
+            if realtime is not None and not realtime.empty:
+                frames.append(realtime)
+        except Exception as exc:  # noqa: BLE001 - 无实时权限时继续取指数
+            logger.debug(f"实时行情获取失败（可能未开通 rt_k）: {exc}")
+
+        try:
+            indexes = await fetch_index_quotes(self._get_conn())
+            if indexes is not None and not indexes.empty:
+                frames.append(indexes)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"指数行情获取失败: {exc}")
+
+        if not frames:
+            return None
+        return pd.concat(frames, ignore_index=True)
 
     async def get_money_flow(
         self, symbol: str, start_date: str = None, end_date: str = None, **kwargs
