@@ -219,7 +219,9 @@ class TushareCNProvider(BaseProvider):
     @staticmethod
     def _to_ts_code(symbol: str) -> str:
         code = str(symbol).zfill(6)
-        if code.startswith(("60", "68", "90")):
+        # 沪市：60/68 股票、90 B股，以及 5 开头的基金/ETF（50/51/52/56/58…）
+        # 注意：5 开头不可漏，否则 510xxx/588xxx 等沪市 ETF 会被误判为深市 → 取不到数
+        if code.startswith(("60", "68", "90", "5")):
             return f"{code}.SH"
         elif code.startswith(("0", "3", "20")):
             return f"{code}.SZ"
