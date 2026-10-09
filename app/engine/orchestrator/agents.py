@@ -42,9 +42,44 @@ class AnalystSpec:
 # ── 预注入参数解析（与旧 simple_agent_template 完全一致） ───────────────────
 
 
+def _looks_like_error_payload(text: str) -> bool:
+    """预加载结果是否为「错误载荷」而非真实数据。
+
+    内置工具在取不到数据时不抛异常，而是返回
+    ``{"status": "error", "error_code": "DATA_FETCH_ERROR", ...}`` 这类文案；
+    只看「调用有没有报错」会把它们全记成预加载成功。
+    """
+    head = text[:400]
+    return (
+        '"status": "error"' in head
+        or '"status":"error"' in head
+        or "DATA_FETCH_ERROR" in head
+        or "数据暂不可用" in head
+        or "请先同步" in head
+    )
+
+
 def _resolve_inject_args(spec, context: Dict[str, str]) -> Dict[str, Any]:
-    """BuiltinToolSpec.inject_args → 实际调用参数（字面量/上下文查找/自动日期）"""
+    """BuiltinToolSpec.inject_args → 实际调用参数（字面量/上下文查找/自动日期）。
+
+    日期锚点用 **最近交易日**（`context["latest_trade_date"]`，由 build_tool_data 注入），
+    而不是当前日期：否则节假日/周末运行时，龙虎榜、大宗交易、涨跌停等按日接口
+    必然返回空集（实测国庆期间 trade_date 取 10-07 全空，换最近交易日 09-30 有数据）。
+    """
+    from datetime import datetime
+
     from app.utils.time_utils import now_utc
+
+    anchor_str = context.get("latest_trade_date") or ""
+    try:
+        anchor = datetime.strptime(anchor_str, "%Y-%m-%d") if anchor_str else now_utc()
+    except ValueError:
+        anchor = now_utc()
+
+    # 上下文里的 trade_date 若晚于最近交易日（例如假期运行），夹回最近交易日
+    ctx_trade_date = context.get("trade_date", "") or ""
+    if anchor_str and ctx_trade_date and ctx_trade_date > anchor_str:
+        ctx_trade_date = anchor_str
 
     args: Dict[str, Any] = {}
     for arg_name, source in spec.inject_args.items():
@@ -115,7 +150,15 @@ async def build_tool_data(
                 result_str = str(result)
             data_sections.append(f"### {spec.display_name}\n{result_str}")
             injected_count += 1
-            logger.info(f"✅ [{agent_name}] 预加载成功: {spec.display_name} ({len(result_str)} 字符)")
+            if _looks_like_error_payload(result_str):
+                # 工具返回错误文案时并不会抛异常，此前一律记「预加载成功」，
+                # 导致日志「成功」而报告写「获取失败」，两边口径对不上
+                # （实测：财务报表 186 字符的错误载荷被记成成功）。
+                logger.warning(
+                    f"⚠️ [{agent_name}] 预加载返回错误载荷: {spec.display_name} ({len(result_str)} 字符)"
+                )
+            else:
+                logger.info(f"✅ [{agent_name}] 预加载成功: {spec.display_name} ({len(result_str)} 字符)")
         except Exception as e:  # noqa: BLE001 - 单工具失败不阻断预注入
             logger.warning(f"⚠️ [{agent_name}] 预加载失败: {spec.display_name}, 错误: {e}")
             data_sections.append(f"### {spec.display_name}\n⚠️ 数据获取失败: {e}")
