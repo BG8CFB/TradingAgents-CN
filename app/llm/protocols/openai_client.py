@@ -331,6 +331,11 @@ class OpenAILLMClient(BaseLLMClient):
 
         stop = StopReason.TOOL_USE if tool_calls else _FINISH_MAP.get(finish_reason, StopReason.OTHER)
 
+
+        # 流式推理内容同样落到 ThinkingBlock（供多轮工具循环原样回传）
+        if reasoning_parts:
+            blocks.insert(0, ThinkingBlock(thinking="".join(reasoning_parts)))
+
         # 思考内容经 raw 透传（runner._extract_thinking_text 从 raw 提取并发
         # thinking 事件）；canonical 层不保留 reasoning，流式也无完整 SDK 响应对象，
         # 故以轻量命名空间模拟 choices[0].message 结构
