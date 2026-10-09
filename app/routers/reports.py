@@ -227,7 +227,11 @@ async def download_report(
             if not report_exporter.pandoc_available:
                 raise HTTPException(
                     status_code=400,
-                    detail="Word 导出功能不可用。请安装 pandoc: pip install pypandoc"
+                    detail=(
+                        "Word 导出功能不可用：未检测到 pandoc 二进制。"
+                        "请在系统层安装：sudo apt install pandoc"
+                        "（pypandoc 只是调用壳，pip 安装它无效）"
+                    ),
                 )
 
             try:
@@ -252,10 +256,21 @@ async def download_report(
             # PDF 格式下载
             from app.utils.report_exporter import report_exporter
 
-            if not report_exporter.pandoc_available:
+            missing = [
+                name
+                for name, ok in (
+                    ("pandoc", report_exporter.pandoc_available),
+                    ("wkhtmltopdf", report_exporter.pdfkit_available),
+                )
+                if not ok
+            ]
+            if missing:
                 raise HTTPException(
                     status_code=400,
-                    detail="PDF 导出功能不可用。请安装 pandoc 和 PDF 引擎（wkhtmltopdf 或 LaTeX）"
+                    detail=(
+                        f"PDF 导出功能不可用：缺少 {' 与 '.join(missing)}。"
+                        "请在系统层安装：sudo apt install pandoc wkhtmltopdf"
+                    ),
                 )
 
             try:
