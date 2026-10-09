@@ -292,23 +292,52 @@ _FINA_INDICATOR_PERIOD_FIELDS = (
 _INCOME_PERIOD_FIELDS = "ts_code,end_date,total_revenue,n_income"
 
 
+async def _call_period_all(
+    conn: TushareConnection, vip_name: str, plain_name: str, period: str, fields: str
+):
+    """按报告期拉全市场（分页）。
+
+    官网规则：普通 income/balancesheet/cashflow/fina_indicator 的 `ts_code`
+    **必填**，「获取某一季度全部上市公司数据」**必须用 *_vip 接口**（5000 积分档）。
+    故优先 VIP；积分不足（VIP 报权限错）时回退普通接口——普通接口按报告期查询
+    通常仍会因缺 ts_code 失败，由上层回退链兜底到 AKShare。
+
+    context 保留旧值 `period=...`，使既有日志/回退链匹配不变。
+    """
+    ctx = f"period={period}"
+    try:
+        return await call_tushare_paged(
+            conn, vip_name, "tushare", _DOMAIN, ctx, period=period, fields=fields,
+        )
+    except DataNotFoundError:
+        # 该报告期尚无披露数据（如刚过季度末）：属正常空结果，必须原样抛出，
+        # 让批量层 skip 该期继续下一期——切勿回退普通接口，否则会把「本期无数据」
+        # 掩盖成误导性的「必填参数, ts_code」。
+        raise
+    except Exception as exc:  # 权限不足等：回退普通接口（行为与修复前一致）
+        logger.warning(
+            f"{vip_name} 不可用（{exc}），回退 {plain_name}（官网要求 ts_code，可能失败）"
+        )
+        return await call_tushare_paged(
+            conn, plain_name, "tushare", _DOMAIN, ctx, period=period, fields=fields,
+        )
+
+
 async def fetch_financial_indicator_by_period(
     conn: TushareConnection, period: str
 ) -> Optional[pd.DataFrame]:
-    """fina_indicator 按报告期一次拉全市场（分页）。"""
-    return await call_tushare_paged(
-        conn, "fina_indicator", "tushare", _DOMAIN, f"period={period}",
-        period=period, fields=_FINA_INDICATOR_PERIOD_FIELDS,
+    """fina_indicator 按报告期一次拉全市场（分页，走 fina_indicator_vip）。"""
+    return await _call_period_all(
+        conn, "fina_indicator_vip", "fina_indicator", period, _FINA_INDICATOR_PERIOD_FIELDS
     )
 
 
 async def fetch_income_by_period(
     conn: TushareConnection, period: str
 ) -> Optional[pd.DataFrame]:
-    """income 利润表按报告期一次拉全市场（分页，补营收/净利润供同比）。"""
-    return await call_tushare_paged(
-        conn, "income", "tushare", _DOMAIN, f"period={period}",
-        period=period, fields=_INCOME_PERIOD_FIELDS,
+    """income 利润表按报告期一次拉全市场（分页，走 income_vip；补营收/净利润供同比）。"""
+    return await _call_period_all(
+        conn, "income_vip", "income", period, _INCOME_PERIOD_FIELDS
     )
 
 
