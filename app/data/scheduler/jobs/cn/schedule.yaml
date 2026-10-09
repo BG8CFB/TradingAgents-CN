@@ -53,30 +53,6 @@ money_flow:
   depends_on:
     - daily_quotes
 
-margin_trading:
-  cron: "30 17 * * 1-5"
-  timezone: "Asia/Shanghai"
-  mode: incremental
-  description: "每交易日 17:30 按日批量同步两融数据"
-  depends_on:
-    - daily_quotes
-
-dragon_tiger:
-  cron: "0 18 * * 1-5"
-  timezone: "Asia/Shanghai"
-  mode: incremental
-  description: "每交易日 18:00 同步龙虎榜（当日上榜全量）"
-  depends_on:
-    - daily_quotes
-
-block_trade:
-  cron: "30 18 * * 1-5"
-  timezone: "Asia/Shanghai"
-  mode: incremental
-  description: "每交易日 18:30 同步大宗交易（当日全量）"
-  depends_on:
-    - daily_quotes
-
 factor_scores:
   cron: "15 20 * * 1-5"
   timezone: "Asia/Shanghai"
@@ -97,3 +73,28 @@ news:
   timezone: "Asia/Shanghai"
   mode: incremental
   description: "每 2 小时增量同步新闻"
+
+# ── 补排（上游 schedule.yaml 原本漏了这 3 个域，导致它们永不自动同步）──
+dragon_tiger:
+  cron: "50 20 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 20:50 增量同步龙虎榜（官方 20:00 发布）"
+  depends_on:
+    - basic_info
+
+block_trade:
+  cron: "10 21 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 21:10 增量同步大宗交易（官方 21:00 发布）"
+  depends_on:
+    - basic_info
+
+margin_trading:
+  cron: "10 9 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 09:10 增量同步融资融券（官方 9:00 发布，隔一交易日披露）"
+  depends_on:
+    - basic_info
