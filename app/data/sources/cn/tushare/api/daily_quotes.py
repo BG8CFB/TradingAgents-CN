@@ -7,6 +7,7 @@ fetch_daily_quotes 使用 ts.pro_bar 模块函数（非 pro_api 方法，
 """
 import asyncio
 import logging
+from datetime import timedelta
 from typing import Optional
 
 import pandas as pd
@@ -96,7 +97,7 @@ async def fetch_daily_quotes(
 
 
 async def fetch_realtime_batch(conn: TushareConnection) -> Optional[pd.DataFrame]:
-    """批量获取全市场实时行情（rt_k 接口）"""
+    """批量获取全市场实时行情（rt_k 接口，需单独开通实时行情权限）"""
     return await call_tushare(
         conn,
         "rt_k",
@@ -125,6 +126,55 @@ async def fetch_daily_quotes_batch(
         trade_date=date_str,
         fields=_DAILY_TRADE_DATE_FIELDS,
     )
+
+# 主要指数（market_quotes 里以 6 位 symbol 存储，供 get_index_data 等工具读取）
+MAIN_INDEXES = (
+    ("000001.SH", "上证指数"),
+    ("399001.SZ", "深证成指"),
+    ("399006.SZ", "创业板指"),
+    ("000300.SH", "沪深300"),
+    ("000905.SH", "中证500"),
+)
+
+
+async def fetch_index_quotes(conn: TushareConnection, days_back: int = 10) -> Optional[pd.DataFrame]:
+    """主要指数日线（index_daily）→ market_quotes 形状。
+
+    rt_k（实时行情）只覆盖个股且需单独权限，指数取不到；而 index_daily 属于
+    常规积分接口。取最近若干交易日后按指数取最新一根，保证节假日也有值。
+    """
+    end_date = format_date_compact(now_config_tz())
+    start_date = format_date_compact(now_config_tz() - timedelta(days=days_back))
+
+    frames = []
+    for ts_code, _name in MAIN_INDEXES:
+        try:
+            df = await call_tushare(
+                conn,
+                "index_daily",
+                _SOURCE,
+                "index_quotes",
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            if df is not None and not df.empty:
+                frames.append(df)
+        except Exception as exc:  # noqa: BLE001 - 单个指数失败不影响其它
+            logger.debug(f"指数日线获取失败 {ts_code}: {exc}")
+
+    if not frames:
+        return None
+
+    merged = pd.concat(frames, ignore_index=True)
+    if "trade_date" in merged.columns:
+        merged = (
+            merged.sort_values("trade_date")
+            .groupby("ts_code", as_index=False)
+            .tail(1)
+            .reset_index(drop=True)
+        )
+    return merged
 
 
 def _format_compact(date_str: str) -> str:
