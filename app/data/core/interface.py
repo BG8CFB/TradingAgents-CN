@@ -443,7 +443,9 @@ class DataInterface:
         for domain in domains:
             try:
                 coll = db[get_collection_name(domain, market)]
-                count = await coll.count_documents({})
+                # 用元数据计数：千万级集合 count_documents({}) 要 4s+ 全表扫描，
+                # 看板场景可接受轻微偏差（异常宕机后可能略有出入）
+                count = await coll.estimated_document_count()
                 last_doc = await coll.find_one(
                     {},
                     {"updated_at": 1},
@@ -468,7 +470,8 @@ class DataInterface:
 
         db = get_motor_db()
         coll = db[get_collection_name("daily_quotes", market)]
-        total_records = await coll.count_documents({})
+        # 元数据计数（同 get_domain_stats：避免千万级全表扫描）
+        total_records = await coll.estimated_document_count()
         pipeline = [{"$group": {"_id": "$symbol"}}, {"$count": "n"}]
         cursor = coll.aggregate(pipeline)
         agg = await cursor.to_list(length=1)
@@ -489,7 +492,9 @@ class DataInterface:
         for domain in domains:
             try:
                 coll = db[get_collection_name(domain, market)]
-                total = await coll.count_documents({})
+                # 元数据计数（同 get_domain_stats）；下面那条带条件的计数仍是全表扫描，
+                # 属已知遗留成本，改动会变更指标口径，暂不处理
+                total = await coll.estimated_document_count()
                 missing_symbol = await coll.count_documents(
                     {"symbol": {"$exists": False}}
                 )
