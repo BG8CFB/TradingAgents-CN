@@ -44,6 +44,19 @@ def _resolve_market_type(ctx: dict) -> str:
     return "cn"
 
 
+# 各市场基准指数（「指数行情」预加载用）
+_BENCHMARK_INDEX = {"cn": "000001.SH", "hk": "HSI", "us": "SPX"}
+
+
+def _resolve_benchmark_index(ctx: dict) -> str:
+    """「指数行情」预加载注入**基准指数**代码，而不是被分析的个股代码。
+
+    get_index_data 只接受指数代码；此前注入 `ticker` 会让每次个股分析都返回
+    「指数行情数据暂不可用: 002747」，报告还会误记成「指数行情获取失败」。
+    """
+    return _BENCHMARK_INDEX.get(_resolve_market_type(ctx), "000001.SH")
+
+
 def _lazy_import(module_path: str, func_name: str) -> Callable:
     """延迟导入数据源函数，避免循环依赖
 
@@ -113,8 +126,8 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["market_quotes"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.market", "get_index_data"),
-            inject_args={"stock_code": "ticker"},
-            description="指数日线行情数据",
+            inject_args={"stock_code": _resolve_benchmark_index},
+            description="指数日线行情数据（基准指数；该工具只接受指数代码）",
         ),
         DatasourceSpec(
             tool_id="financial_data",
