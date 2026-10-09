@@ -273,7 +273,15 @@ async def run_analyst(
         submission = finalize_submission(submit_box, final_text=result.final_text)
         final_report = submission.content.strip()
         if not final_report:
-            final_report = "⚠️ 分析师未生成有效报告（LLM 返回空响应）。"
+            # 占位文案必须反映真实原因：此前一律写「LLM 返回空响应」，
+            # 而实际多为轮数用尽未提交，会把排查方向带偏
+            if result.stop_reason == "max_turns":
+                final_report = (
+                    f"⚠️ 分析师未生成有效报告（已达最大工具轮数 {spec.max_tool_calls}，"
+                    f"未能提交报告）。"
+                )
+            else:
+                final_report = "⚠️ 分析师未生成有效报告（LLM 返回空响应）。"
 
         if result.stop_reason == "max_turns":
             logger.warning(f"⚠️ [{spec.name}] 达到最大轮数 {spec.max_tool_calls}，强制停止")
