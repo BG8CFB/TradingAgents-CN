@@ -13,7 +13,6 @@ from app.engine.tools.common.tool_result import (
     format_tool_result,
     ErrorCodes,
 )
-from app.core.async_utils import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +45,7 @@ def _clean_symbol(stock_code: str) -> str:
     )
 
 
-def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
+async def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
     """内部辅助函数：通过 DataInterface 获取新闻数据列表。"""
     news_list = []
     market = _get_market_for_code(stock_code)
@@ -56,7 +55,7 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
         from app.data.core.interface import DataInterface
 
         di = DataInterface.get_instance()
-        result = run_async(di.read(market, "news", symbol=clean_code))
+        result = await di.read(market, "news", symbol=clean_code)
         data = result.get("data")
 
         if data and isinstance(data, list):
@@ -82,9 +81,9 @@ def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
         from app.data.core.interface import DataInterface
 
         di = DataInterface.get_instance()
-        refresh_result = run_async(di.refresh(market, clean_code, domains=["news"], force=True, timeout=30))
+        refresh_result = await di.refresh(market, clean_code, domains=["news"], force=True, timeout=30)
         if refresh_result and refresh_result.domains.get("news"):
-            result = run_async(di.read(market, "news", symbol=clean_code))
+            result = await di.read(market, "news", symbol=clean_code)
             data = result.get("data")
             if data and isinstance(data, list):
                 for item in data[:max_results]:
@@ -142,14 +141,13 @@ def _format_news_list(news_list: list, source_label: str = None) -> str:
     return report
 
 
-def _fetch_market_news(max_results: int) -> list:
+async def _fetch_market_news(max_results: int) -> list:
     """读取市场快讯兜底（symbol 为空的全市场新闻），来源标注为市场新闻。"""
     try:
         from app.data.core.interface import DataInterface
-        from app.core.async_utils import run_async
 
         di = DataInterface.get_instance()
-        result = run_async(di.read("CN", "news", filters={"limit": max_results}))
+        result = await di.read("CN", "news", filters={"limit": max_results})
         data = result.get("data")
         if not data or not isinstance(data, list):
             return []
@@ -173,7 +171,7 @@ def _fetch_market_news(max_results: int) -> list:
         return []
 
 
-def get_stock_news(stock_code: str, max_results: int = 10) -> str:
+async def get_stock_news(stock_code: str, max_results: int = 10) -> str:
     """
     获取指定股票的最新新闻。
 
@@ -190,7 +188,7 @@ def get_stock_news(stock_code: str, max_results: int = 10) -> str:
         return format_tool_result(error_result(ErrorCodes.MISSING_PARAM, "未提供股票代码"))
 
     try:
-        news_list = _fetch_news_data(stock_code, max_results)
+        news_list = await _fetch_news_data(stock_code, max_results)
 
         if news_list:
             source = news_list[0].get("source", "Unknown")
@@ -205,7 +203,7 @@ def get_stock_news(stock_code: str, max_results: int = 10) -> str:
 
         # 兜底：个股新闻无数据时，回退到市场快讯（库里大量新闻挂在空 symbol 下），
         # 让分析师至少有市场面信息可用，而不是直接 no_data 结束。
-        market_news = _fetch_market_news(max_results)
+        market_news = await _fetch_market_news(max_results)
         if market_news:
             return format_tool_result(success_result(
                 _format_news_list(market_news, f"市场新闻兜底（未找到 {stock_code} 个股新闻）")

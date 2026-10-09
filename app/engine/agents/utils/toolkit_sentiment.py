@@ -15,7 +15,7 @@ logger = logging.getLogger("agents")
 
 
 @log_tool_call(tool_name="get_stock_sentiment_unified", log_args=True)
-def get_stock_sentiment_unified(
+async def get_stock_sentiment_unified(
     ticker: Annotated[str, "股票代码（支持A股、港股、美股）"],
     curr_date: Annotated[str, "当前日期，格式：YYYY-MM-DD"],
 ) -> str:
@@ -34,4 +34,4 @@ def get_stock_sentiment_unified(
     """
     from app.engine.tools.datasources.sentiment import get_stock_sentiment
 
-    return get_stock_sentiment(ticker, curr_date)
+    return await get_stock_sentiment(ticker, curr_date)

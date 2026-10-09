@@ -6,12 +6,11 @@ import logging
 
 from app.utils.time_utils import now_utc
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
-from app.core.async_utils import run_async
 
 logger = logging.getLogger(__name__)
 
 
-def get_stock_sentiment(
+async def get_stock_sentiment(
     stock_code: str,
     current_date: str,
 ) -> str:
@@ -44,7 +43,7 @@ def get_stock_sentiment(
         if is_china or is_hk:
             from app.engine.tools.datasources.news import _fetch_news_data
 
-            news_list = _fetch_news_data(stock_code, 20)
+            news_list = await _fetch_news_data(stock_code, 20)
 
             if news_list:
                 positive = 0
@@ -90,7 +89,7 @@ def get_stock_sentiment(
                 from app.data.core.interface import DataInterface
 
                 _di = DataInterface.get_instance()
-                _r = run_async(_di.read("US", "news", symbol=stock_code.upper()))
+                _r = await _di.read("US", "news", symbol=stock_code.upper())
                 reddit_info = _r.get("data")
                 if reddit_info:
                     result_data.append(f"## 美股新闻舆情\n{reddit_info}")

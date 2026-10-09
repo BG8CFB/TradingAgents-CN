@@ -12,7 +12,7 @@ from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
-from app.engine.tools.common.data_access import read_with_refresh
+from app.engine.tools.common.data_access import read_with_refresh_async
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +42,10 @@ def _normalize_symbol(symbol: str, market: str) -> str:
     return symbol.upper()
 
 
-def _read_daily_quotes(market: str, symbol: str, start_date: str, end_date: str):
+async def _read_daily_quotes(market: str, symbol: str, start_date: str, end_date: str):
     """统一读取日 K 线数据（CN/HK/US 共用），库空时按需刷新后重读"""
     clean_symbol = _normalize_symbol(symbol, market)
-    result = read_with_refresh(
+    result = await read_with_refresh_async(
         market, "daily_quotes", symbol=clean_symbol, start_date=start_date, end_date=end_date
     )
     raw = result.get("data") if result else None
@@ -63,7 +63,7 @@ _MARKET_MAP = {
 }
 
 
-def get_stock_data(
+async def get_stock_data(
     stock_code: str,
     market_type: str = "cn",
     start_date: Optional[str] = None,
@@ -107,7 +107,7 @@ def get_stock_data(
         if not end_date:
             end_date = get_current_date()
 
-        data = _read_daily_quotes(market_key, stock_code, start_date, end_date)
+        data = await _read_daily_quotes(market_key, stock_code, start_date, end_date)
 
         if data is not None:
             return format_tool_result(success_result(_to_json_str(data)))
@@ -125,7 +125,7 @@ def get_stock_data(
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, f"获取股票数据失败: {str(e)}"))
 
 
-def get_stock_data_minutes(
+async def get_stock_data_minutes(
     market_type: str,
     stock_code: str,
     start_datetime: Optional[str] = None,
@@ -155,7 +155,7 @@ def get_stock_data_minutes(
         freq_short = freq_map.get(freq, "30")
 
         clean_symbol = _normalize_symbol(stock_code, "CN")
-        result = read_with_refresh(
+        result = await read_with_refresh_async(
             "CN",
             "intraday_quotes",
             symbol=clean_symbol,
@@ -180,7 +180,7 @@ def get_stock_data_minutes(
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
-def get_index_data(stock_code: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> str:
+async def get_index_data(stock_code: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> str:
     """
     获取指数日线行情。
 
@@ -209,7 +209,7 @@ def get_index_data(stock_code: str, start_date: Optional[str] = None, end_date: 
                 break
 
         clean_symbol = _normalize_symbol(stock_code, market)
-        result = read_with_refresh(
+        result = await read_with_refresh_async(
             market, "market_quotes", symbol=clean_symbol, start_date=start_date, end_date=end_date
         )
         index_data = result.get("data") if result else None
@@ -229,7 +229,7 @@ def get_index_data(stock_code: str, start_date: Optional[str] = None, end_date: 
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
-def get_stock_indicators(
+async def get_stock_indicators(
     stock_code: str,
     market_type: str = "cn",
     start_date: Optional[str] = None,
@@ -274,7 +274,7 @@ def get_stock_indicators(
             end_date = get_current_date()
 
         clean_symbol = _normalize_symbol(stock_code, market_key)
-        result = read_with_refresh(
+        result = await read_with_refresh_async(
             market_key, "daily_indicators", symbol=clean_symbol, start_date=start_date, end_date=end_date
         )
         raw = result.get("data") if result else None

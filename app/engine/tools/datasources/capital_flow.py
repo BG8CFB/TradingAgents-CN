@@ -14,7 +14,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def get_money_flow(
+async def get_money_flow(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     query_type: Optional[str] = None,
@@ -55,10 +55,10 @@ def get_money_flow(
                 .zfill(6)
             )
         try:
-            from app.engine.tools.common.data_access import read_with_refresh
+            from app.engine.tools.common.data_access import read_with_refresh_async
 
             # symbol 为 "market" 时是市场级查询，无法按需刷新，helper 内部会自动跳过
-            result = read_with_refresh(
+            result = await read_with_refresh_async(
                 "CN", "money_flow", symbol=symbol, start_date=start_date, end_date=end_date
             )
             data = result.get("data") if result else None
@@ -80,7 +80,7 @@ def get_money_flow(
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
-def get_margin_trade(
+async def get_margin_trade(
     data_type: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -118,9 +118,9 @@ def get_margin_trade(
                 .zfill(6)
             )
         try:
-            from app.engine.tools.common.data_access import read_with_refresh
+            from app.engine.tools.common.data_access import read_with_refresh_async
 
-            result = read_with_refresh(
+            result = await read_with_refresh_async(
                 "CN", "margin_trading", symbol=symbol, start_date=start_date, end_date=end_date
             )
             data = result.get("data") if result else None

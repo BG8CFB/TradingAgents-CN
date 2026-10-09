@@ -16,12 +16,11 @@ from datetime import timedelta
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.data.core.interface import DataInterface
-from app.core.async_utils import run_async
 
 logger = logging.getLogger(__name__)
 
 
-def get_china_market_overview(date: str = None, include_indices: bool = True, include_sectors: bool = True) -> str:
+async def get_china_market_overview(date: str = None, include_indices: bool = True, include_sectors: bool = True) -> str:
     """
     获取中国A股市场整体概览。
 
@@ -55,7 +54,7 @@ def get_china_market_overview(date: str = None, include_indices: bool = True, in
             di = DataInterface.get_instance()
             for symbol, name in indices_to_fetch:
                 try:
-                    result = run_async(di.read("CN", "market_quotes", symbol=symbol))
+                    result = await di.read("CN", "market_quotes", symbol=symbol)
                     data = result.get("data")
                     if data:
                         if isinstance(data, dict):
@@ -151,7 +150,7 @@ def get_china_market_overview(date: str = None, include_indices: bool = True, in
     return format_tool_result(success_result(combined_result))
 
 
-def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[str] = None) -> str:
+async def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[str] = None) -> str:
     """
     获取龙虎榜机构明细。
 
@@ -168,7 +167,7 @@ def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[st
 
         logger.info(f"获取龙虎榜数据: 日期{trade_date}, 股票{ts_code}")
 
-        from app.engine.tools.common.data_access import read_with_refresh
+        from app.engine.tools.common.data_access import read_with_refresh_async
 
         filters = {"limit": 100}
         symbol = None
@@ -176,9 +175,9 @@ def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[st
             symbol = ts_code.replace(".SH", "").replace(".SZ", "").replace(".sh", "").replace(".sz", "").zfill(6)
 
         if symbol:
-            result = read_with_refresh("CN", "dragon_tiger", symbol=symbol, filters=filters)
+            result = await read_with_refresh_async("CN", "dragon_tiger", symbol=symbol, filters=filters)
         else:
-            result = run_async(DataInterface.get_instance().read("CN", "dragon_tiger", start_date=trade_date, filters=filters))
+            result = await DataInterface.get_instance().read("CN", "dragon_tiger", start_date=trade_date, filters=filters)
 
         data = result.get("data") if result else None
 
@@ -199,7 +198,7 @@ def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[st
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
-def get_block_trade(
+async def get_block_trade(
     start_date: Optional[str] = None, end_date: Optional[str] = None, code: Optional[str] = None
 ) -> str:
     """
@@ -221,14 +220,14 @@ def get_block_trade(
 
         logger.info(f"获取大宗交易数据: 日期范围 {start_date}-{end_date}, 股票{code}")
 
-        from app.engine.tools.common.data_access import read_with_refresh
+        from app.engine.tools.common.data_access import read_with_refresh_async
 
         if code:
             symbol = code.replace(".SH", "").replace(".SZ", "").replace(".sh", "").replace(".sz", "").zfill(6)
-            result = read_with_refresh("CN", "block_trade", symbol=symbol)
+            result = await read_with_refresh_async("CN", "block_trade", symbol=symbol)
         else:
-            result = run_async(
-                DataInterface.get_instance().read("CN", "block_trade", start_date=start_date, end_date=end_date)
+            result = await DataInterface.get_instance().read(
+                "CN", "block_trade", start_date=start_date, end_date=end_date
             )
 
         data = result.get("data") if result else None
