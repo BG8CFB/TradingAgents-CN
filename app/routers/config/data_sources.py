@@ -11,6 +11,8 @@
 import logging
 from typing import List, Dict, Any
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.routers.auth_db import get_current_user, require_admin
@@ -87,6 +89,41 @@ async def get_data_source_configs(
         )
 
 
+# 前端回显的是脱敏后的 API Key（前 6 位 + "..." + 后 6 位）。若把回显值当真值落库，
+# 真实密钥就会被掩码覆盖，导致该数据源此后所有取数都失败（实测发生过）。
+_MASKED_KEY_RE = re.compile(r"^.{6}\.\.\..{6}$")
+
+
+def _truncate_api_key(api_key: str, prefix_len: int = 6, suffix_len: int = 6) -> str:
+    """截断 API Key 用于显示/比对（与前端回显格式一致）。"""
+    if not api_key or len(api_key) <= prefix_len + suffix_len:
+        return api_key
+    return f"{api_key[:prefix_len]}...{api_key[-suffix_len:]}"
+
+
+def resolve_submitted_api_key(submitted, current):
+    """判定本次提交的 API Key 该如何落库。
+
+    Returns:
+        (落库值, 错误信息)。错误信息非空时调用方应拒绝保存。
+
+    规则：
+    - 未提交（None）→ 沿用现值；
+    - 不是掩码形态 → 视为用户输入的新值，原样保存；
+    - 是掩码且与现值掩码一致 → 用户并未修改，保留库内完整值（不覆盖）；
+    - 是掩码但与现值不符 → 拒绝，避免把掩码写坏真实密钥。
+    """
+    if submitted is None:
+        return current or "", None
+    if not _MASKED_KEY_RE.match(submitted):
+        return submitted, None
+    if current and submitted == _truncate_api_key(current):
+        return current, None
+    return current or "", (
+        "检测到提交的是脱敏后的 API Key（形如 前6位...后6位），已拒绝保存以免覆盖真实密钥。"
+        "如需修改，请输入完整 API Key。"
+    )
+
 @router.post("/datasource", response_model=dict)
 async def add_data_source_config(
     request: DataSourceConfigRequest,
@@ -112,8 +149,11 @@ async def add_data_source_config(
         # 处理 API Key - 为了支持本地AI模型，不再验证
         if 'api_key' in _req:
             api_key = _req.get('api_key', '')
-            # 为了支持本地AI模型，保留用户输入的任何值
-            _req['api_key'] = api_key
+            # 脱敏回显防护：新增时没有现值可比对，掩码一律拒收
+            resolved_key, key_error = resolve_submitted_api_key(api_key, None)
+            if key_error:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=key_error)
+            _req['api_key'] = resolved_key
 
         # 处理 API Secret - 为了支持本地AI模型，不再验证
         if 'api_secret' in _req:
@@ -205,8 +245,11 @@ async def update_data_source_config(
                     api_key = _req.get('api_key')
                     logger.info(f"[API Key 更新] 收到的 API Key: (长度: {len(api_key) if api_key else 0})")
 
-                    # 为了支持本地AI模型，直接使用用户输入的值
-                    _req['api_key'] = api_key if api_key is not None else ds_config.api_key
+                    # 脱敏回显防护：掩码与现值一致→保留完整值；掩码对不上→拒收（勿覆盖真实密钥）
+                    resolved_key, key_error = resolve_submitted_api_key(api_key, ds_config.api_key)
+                    if key_error:
+                        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=key_error)
+                    _req['api_key'] = resolved_key
 
                 # 处理 API Secret - 为了支持本地AI模型，简化验证逻辑
                 if 'api_secret' in _req:
