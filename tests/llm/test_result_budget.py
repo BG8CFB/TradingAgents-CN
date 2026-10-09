@@ -1,11 +1,16 @@
 """result_budget 单元测试（本地逻辑 + 真实文件 I/O，无需 API）。
 
-覆盖（对齐 3d39223c「移除 LLM 数据链路全部截断点」后的语义）：
-- 全量直传：任何长度结果原样返回（预算截断已停用，预览式截断对模型
-  等同数据丢失——模型不会主动读落盘文件）
-- registry.execute 直传（大结果不再缩为预览）
+覆盖（对齐本地「工具结果硬上限」语义）：
+- 未超限原样直传
+- 超限**截断 + 显式标注**（比旧版"落盘 + 2K 预览"更保守：保留前 N 字符并
+  明确告知已截断，模型不会把残缺数据当全量）
+- registry.execute 同样受上限保护
 - registry.extend 公共 API（子代理工具子集并入）
 - EventSink.on_progress 进度通道（progress 事件不落库、转发文本）
+
+背景：单个工具结果过大曾把上下文撑爆——中国市场分析师消息体累积到
+1,144,006 tokens 被 API 400 拒绝（"maximum context length is 1048576"），
+整位分析师中断，故恢复硬上限。
 """
 
 from app.llm.events import EventSink
@@ -15,39 +20,47 @@ from app.llm.tools.result_budget import (
     apply_result_budget,
 )
 
+TRUNCATION_MARK = "【结果已截断】"
+
 
 class TestApplyResultBudget:
     def test_under_limit_passthrough(self):
         out = apply_result_budget("my_tool", "short result", task_id="t1")
         assert out == "short result"
 
-    def test_over_limit_full_passthrough(self, tmp_path, monkeypatch):
-        """超限结果全量直传：无截断、无「已保存」预览文案（3d39223c 语义）。"""
+    def test_over_limit_truncated_with_marker(self, tmp_path, monkeypatch):
+        """超限截断：保留前 DEFAULT_MAX_RESULT_CHARS 字符 + 显式截断标注。"""
         monkeypatch.chdir(tmp_path)
         big = "x" * (DEFAULT_MAX_RESULT_CHARS + 10_000)
         out = apply_result_budget("my_tool", big, task_id="task-预算")
 
-        assert out == big
-        assert "已保存" not in out
-        assert "已截断" not in out
+        assert out.startswith("x" * DEFAULT_MAX_RESULT_CHARS)
+        assert TRUNCATION_MARK in out
+        assert f"{len(big):,}" in out  # 原始长度如实告知模型
+        assert len(out) < len(big)
 
-    def test_custom_max_chars_ignored_semantics(self, tmp_path, monkeypatch):
-        """自定义阈值同样不触发截断：停用是全局决策，max_chars 仅保留签名兼容。"""
+    def test_custom_max_chars_honored(self, tmp_path, monkeypatch):
+        """自定义阈值生效（调用方按场景收紧，如 MCP 走 100_000）。"""
         monkeypatch.chdir(tmp_path)
         out = apply_result_budget("t", "a" * 50, task_id="", max_chars=10)
-        assert out == "a" * 50
 
-    def test_unsafe_task_id_passthrough(self, tmp_path, monkeypatch):
-        """task_id 不再用于目录隔离（无落盘），任何字符都安全直传。"""
+        assert out.startswith("a" * 10)
+        assert TRUNCATION_MARK in out
+
+    def test_unsafe_task_id_no_disk_write(self, tmp_path, monkeypatch):
+        """task_id 不参与落盘（本实现不写文件），任何字符都安全。"""
         monkeypatch.chdir(tmp_path)
         payload = "a" * (DEFAULT_MAX_RESULT_CHARS + 100)
         out = apply_result_budget("t", payload, task_id="../evil/id")
-        assert out == payload
+
+        assert TRUNCATION_MARK in out
+        assert not (tmp_path / "evil").exists()
+        assert list(tmp_path.iterdir()) == []  # 未产生任何文件
 
 
 class TestRegistryBudgetIntegration:
-    async def test_execute_full_passthrough(self, tmp_path, monkeypatch):
-        """registry.execute 大结果全量直传（预算停用后不再缩为预览）。"""
+    async def test_execute_truncates_oversized(self, tmp_path, monkeypatch):
+        """registry.execute 大结果同样受上限保护。"""
         monkeypatch.chdir(tmp_path)
         reg = ToolRegistry()
 
@@ -57,8 +70,8 @@ class TestRegistryBudgetIntegration:
             return "y" * (DEFAULT_MAX_RESULT_CHARS + 5_000)
 
         out = await reg.execute("big_tool", {}, task_id="tk1")
-        assert len(out) == DEFAULT_MAX_RESULT_CHARS + 5_000
-        assert "已保存" not in out
+        assert out.startswith("y" * DEFAULT_MAX_RESULT_CHARS)
+        assert TRUNCATION_MARK in out
 
     async def test_execute_small_untouched(self):
         reg = ToolRegistry()

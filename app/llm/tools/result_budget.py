@@ -51,10 +51,20 @@ def apply_result_budget(
         task_id: 任务 ID（工件目录隔离；缺省归入 adhoc/）
         max_chars: 阈值覆盖，缺省 DEFAULT_MAX_RESULT_CHARS
     """
-    # 全量直传，不截断不落盘：预览式截断对模型等同于数据丢失（模型不会
-    # 主动去读落盘文件），残缺数据会污染分析结论。预算机制停用，函数签名
-    # 与返回值语义保持兼容（始终返回完整结果）。
-    return result
+    limit = max_chars if max_chars and max_chars > 0 else DEFAULT_MAX_RESULT_CHARS
+    if len(result) <= limit:
+        return result
+    # 硬上限：单个工具结果过大时截断，防止上下文被撑爆。
+    # 实测：中国市场分析师的消息体累积到 1,144,006 tokens 被 API 拒绝
+    # （"maximum context length is 1048576 tokens"），整位分析师直接中断。
+    # 与旧版"落盘 + 2K 预览"不同：这里保留前 limit 字符并**显式标注已截断**，
+    # 模型能明确知道数据不完整（旧版正因静默截断、模型误当全量而停用）。
+    return (
+        result[:limit]
+        + f"\n\n⚠️【结果已截断】原始返回 {len(result):,} 字符，此处仅保留前 {limit:,} 字符。"
+        "如需完整数据，请改用带过滤条件（如 ts_code / trade_date / date / symbols）的"
+        "查询缩小范围，或分批次获取。"
+    )
 
     seq = _next_seq()
     scope = _safe_name(task_id or "adhoc")
