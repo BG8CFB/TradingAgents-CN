@@ -30,6 +30,7 @@ from ..core.types import (
     ToolResultBlock,
     ToolUseBlock,
     Usage,
+    ThinkingBlock,
 )
 from .thinking import merge_openai_thinking_params
 
@@ -89,6 +90,15 @@ class OpenAILLMClient(BaseLLMClient):
 
     # ── canonical → OpenAI 消息 ───────────────────────────────────
 
+    def _thinking_enabled(self) -> bool:
+        """本客户端是否处于思考模式。
+
+        思考模式下历史里的每条 assistant 消息都必须带 reasoning_content
+        （空串也是合法值），否则带 tools 的请求会被 API 以 400 拒绝。
+        """
+        return bool(self.thinking_effort or self.thinking_budget)
+
+
     def _to_api_messages(self, messages: List[Message], system: Optional[str]) -> List[Dict[str, Any]]:
         """canonical → OpenAI 消息列表。
 
@@ -111,10 +121,25 @@ class OpenAILLMClient(BaseLLMClient):
                 api_messages.append({"role": "system", "content": str(msg.content)})
                 continue
 
+            # 思考模型的推理内容承载在 ThinkingBlock：不是独立消息，而是
+            # 所属 assistant 消息的 reasoning_content 字段（见 ThinkingBlock 文档）
+            rc = "".join(b.thinking for b in msg.blocks() if isinstance(b, ThinkingBlock))
+            rc_kw: Dict[str, Any] = {}
+            if msg.role == Role.ASSISTANT and (rc.strip() or self._thinking_enabled()):
+                rc_kw = {"reasoning_content": rc}
+
             for b in msg.blocks():
+                if isinstance(b, ThinkingBlock):
+                    # 推理块不产出独立消息（已折算进 rc_kw）
+                    continue
                 if isinstance(b, TextBlock):
                     if msg.role == Role.ASSISTANT:
-                        api_messages.append({"role": "assistant", "content": b.text})
+                        # assistant 文本之前必须先把挂起的 tool 结果冲出去：
+                        # 每个 assistant(tool_calls) 都必须紧跟它自己的 tool 响应，
+                        # 否则 API 以 400 拒绝
+                        # （insufficient tool messages following tool_calls）。
+                        flush_tools()
+                        api_messages.append({"role": "assistant", "content": b.text, **rc_kw})
                     else:
                         flush_tools()
                         api_messages.append({"role": "user", "content": b.text})
@@ -122,7 +147,7 @@ class OpenAILLMClient(BaseLLMClient):
                     # tool_use 附着到 assistant 消息的 tool_calls
                     last = api_messages[-1] if api_messages else None
                     if not (last and last.get("role") == "assistant" and "tool_calls" in last):
-                        last = {"role": "assistant", "content": "", "tool_calls": []}
+                        last = {"role": "assistant", "content": "", "tool_calls": [], **rc_kw}
                         api_messages.append(last)
                     last["tool_calls"].append(
                         {
@@ -163,6 +188,10 @@ class OpenAILLMClient(BaseLLMClient):
         finish = StopReason.OTHER
         if choice:
             msg = choice.message
+            # 思考模型的推理内容落到 ThinkingBlock（多轮工具循环必须原样回传）
+            reasoning = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
+            if reasoning.strip():
+                blocks.append(ThinkingBlock(thinking=reasoning))
             if msg.content:
                 blocks.append(TextBlock(text=msg.content))
             for tc in getattr(msg, "tool_calls", None) or []:

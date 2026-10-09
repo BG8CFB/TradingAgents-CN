@@ -53,11 +53,20 @@ class ToolResultBlock:
 
 @dataclass
 class ThinkingBlock:
-    """assistant 消息中的推理/思考块（Anthropic extended thinking）。
+    """assistant 消息中的推理/思考块。
 
-    仅 Anthropic 协议在开启 thinking_budget 时产生并回传（signature 是
-    多轮工具循环回传的必带校验字段，缺失会被 API 拒绝）；OpenAI 协议侧
-    忽略本块（reasoning 走 ChatResponse.raw → thinking 事件，不进历史）。
+    两个协议共用同一块类型，载荷语义按协议区分：
+
+    - Anthropic：开启 thinking_budget 时产生并回传，signature 是多轮工具
+      循环回传的必带校验字段，缺失会被 API 拒绝；
+    - OpenAI 兼容（DeepSeek / vLLM / Qwen 等思考模型）：承载响应里的
+      reasoning_content，thinking 存原文、signature 留空；请求侧序列化回
+      assistant 消息的 reasoning_content 字段。
+
+    为什么必须进历史：带 tools 的请求要求历史里**所有** assistant 消息的推理
+    内容完整回传，缺字段会被 API 以 400 拒绝
+    （"The reasoning_content in the thinking mode must be passed back to
+    the API"）。展示用的 thinking 事件仍走 ChatResponse.raw，与本块互不影响。
     """
 
     thinking: str
@@ -115,7 +124,7 @@ class Usage:
 class ChatResponse:
     """一次 chat 调用的统一返回"""
 
-    message: Message  # assistant 消息（blocks 含 Text/ToolUse）
+    message: Message  # assistant 消息（blocks 含 Text/ToolUse/Thinking）
     stop_reason: StopReason
     usage: Usage = field(default_factory=Usage)
     model: str = ""
