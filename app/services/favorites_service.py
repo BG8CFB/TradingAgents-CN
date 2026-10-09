@@ -92,6 +92,23 @@ class FavoritesService:
             "volume": None,
         }
 
+    async def _market_quotes_usable(self) -> bool:
+        """market_quotes 域是否可用于「在线兜底」。
+
+        不可用时逐只 refresh 只会白等三个数据源依次超时（本机实测：缺 rt_k 权限 +
+        akshare 东方财富通道不可达 → 每只约 23 秒，4 只自选股要 92 秒）。
+        """
+        try:
+            from app.data.core.interface import DataInterface
+
+            health = await DataInterface.get_instance().get_domain_health("CN")
+            for it in health.get("domains") or []:
+                if it.get("domain") == "market_quotes":
+                    return it.get("status") == "healthy"
+        except Exception as e:
+            logger.debug(f"检查 market_quotes 可用性失败，按不可用处理: {e}")
+        return False
+
     async def get_user_favorites(self, user_id: str) -> List[Dict[str, Any]]:
         """获取用户自选股列表，并批量拉取实时行情进行富集（兼容字符串ID与ObjectId）。"""
         db = await self._get_db()
@@ -195,6 +212,14 @@ class FavoritesService:
 
                 # 3) 兜底：对未命中的代码通过 DataInterface 刷新
                 missing = [c for c in codes if c not in mq_map and c not in pct_map]
+                if missing and not await self._market_quotes_usable():
+                    # market_quotes 域不可用（本机缺 rt_k 权限 + akshare 东财通道不通）时，
+                    # 逐只在线刷新会让每只都等三个源超时 —— 实测 4 只自选股要 92 秒。
+                    # 此处直接跳过，价格沿用上面 daily_quotes 的最新收盘价。
+                    logger.info(
+                        f"market_quotes 域不可用，跳过 {len(missing)} 只的在线行情兜底"
+                    )
+                    missing = []
                 if missing:
                     try:
                         from app.data.core.interface import DataInterface
