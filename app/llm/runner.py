@@ -43,6 +43,29 @@ RECOVERY_INSTRUCTION = (
     "no repetition, continue the unfinished content."
 )
 
+# 轮数将尽时的收尾催促：避免模型一路调用工具直到被强停，导致本轮所有工作白费
+# （实盘曾出现"达到最大轮数 12、未提交任何报告"→ 报告退化为占位文本）
+WRAP_UP_INSTRUCTION = (
+    "Turn budget is almost exhausted. Stop calling tools now and submit your final "
+    "result this turn — call your submission tool (e.g. submit_report) with the "
+    "complete content you already have. Do not start new investigations."
+)
+
+# 未提交收尾闸：模型**主动结束**（不再发起工具调用）却从未调用提交工具时的补救。
+# 原有「轮数将尽催促」只在 turns >= max_turns 触发，而分析师常常在中途就主动收尾
+# （实测：市场技术分析师 8 轮后未提交，报告退化为 135 字符的最后一段正文）。
+SUBMIT_REQUIRED_INSTRUCTION = (
+    "You are ending your turn without submitting a result. Do not finish with plain "
+    "text: call your submission tool (e.g. submit_report) now and pass the complete "
+    "report content you have already produced. An unsubmitted report is treated as "
+    "invalid by the pipeline."
+)
+
+
+def _is_submit_tool(name: str) -> bool:
+    """是否是提交类工具（submit_report 等）。"""
+    return "submit" in str(name or "").lower()
+
 
 def _extract_thinking_text(resp: ChatResponse) -> str:
     """防御式抽取 thinking/reasoning 块文本。
@@ -185,6 +208,9 @@ async def run_conversation(
     reacted_too_long = False  # reactive compact 已触发标记
     active_client = client  # 限流 fallback 时切换（仅一次）
     used_fallback = False
+    wrap_up_nudged = False  # 轮数将尽催促已注入标记（仅一次）
+    submit_gate_nudged = False  # 未提交收尾闸已注入标记（仅一次）
+    executed_tool_names: set = set()  # 本轮会话已执行过的工具名（判是否提交过）
 
     # 并发安全查找表：tool 名 → is_concurrency_safe
     safe_map = {t.name: bool(t.is_concurrency_safe) for t in tool_defs}
@@ -195,6 +221,13 @@ async def run_conversation(
             logger.warning(f"⚠️ [runner] 达到最大轮数 {max_turns}，强制停止")
             result.stop_reason = "max_turns"
             break
+
+        # 最后一轮：催促收尾提交（此前会一路调工具直到被强停、报告为空）。
+        # 仅在预算 >= 3 轮时启用：1~2 轮的场景没有回旋余地，催促只会挤占首轮工作。
+        if not wrap_up_nudged and max_turns >= 3 and turns >= max_turns:
+            wrap_up_nudged = True
+            logger.warning(f"⏰ [runner] 仅剩 1 轮（{turns}/{max_turns}），注入收尾催促")
+            messages.append(Message(role=Role.USER, content=WRAP_UP_INSTRUCTION))
 
         # 发送前分层压缩检查（预测式 / 常规阈值 / 阻塞兜底）
         need_compact = (
