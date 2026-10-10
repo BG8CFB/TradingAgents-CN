@@ -127,7 +127,8 @@ class TushareCNProvider(BaseProvider):
     ) -> pd.DataFrame:
         from .api.adj_factors import fetch_adj_factors
 
-        ts_code = self._to_ts_code(symbol)
+        # symbol=None = 批量模式（按交易日拉全市场），不能走 _to_ts_code（会拼成 __all__.SZ）
+        ts_code = self._to_ts_code(symbol) if symbol else None
         return await fetch_adj_factors(self._get_conn(), ts_code, start_date, end_date)
 
     async def get_news(
@@ -169,7 +170,8 @@ class TushareCNProvider(BaseProvider):
     ) -> pd.DataFrame:
         from .api.margin_trading import fetch_margin_detail
 
-        ts_code = self._to_ts_code(symbol)
+        # symbol=None = 批量模式（按交易日拉全市场）
+        ts_code = self._to_ts_code(symbol) if symbol else None
         return await fetch_margin_detail(
             self._get_conn(), ts_code, start_date, end_date
         )

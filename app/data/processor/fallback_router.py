@@ -429,13 +429,19 @@ class FallbackRouter:
             "daily_quotes": lambda: self._fetch_daily_quotes(provider, symbol, start, end),
             "daily_indicators": lambda: self._fetch_daily_indicators(provider, symbol, start, end),
             "financial_data": lambda: self._fetch_financial_batch(provider, symbol, start, end),
-            "adj_factors": lambda: provider.get_adj_factors(symbol, start, end),
+            # 批量模式（同步任务传 symbol="__all__"）：转 None 让 provider/API 走
+            # 「按交易日拉全市场」分支 —— 缺这个转换就会拼成 ts_code=__all__.SZ 全失败。
+            "adj_factors": lambda: provider.get_adj_factors(
+                None if symbol == "__all__" else symbol, start, end
+            ),
             "corporate_actions": lambda: provider.get_corporate_actions(symbol, start, end),
             "news": lambda: provider.get_news(None if symbol == "__all__" else symbol, start, end),
             "market_quotes": lambda: provider.get_market_quotes([symbol]),
             "intraday_quotes": lambda: provider.get_intraday_quotes(symbol, start, end),
             "money_flow": lambda: self._fetch_money_flow_batch(provider, symbol, start, end),
-            "margin_trading": lambda: provider.get_margin_trading(symbol, start, end),
+            "margin_trading": lambda: provider.get_margin_trading(
+                None if symbol == "__all__" else symbol, start, end
+            ),
             "dragon_tiger": lambda: provider.get_dragon_tiger(symbol, start, end),
             "block_trade": lambda: provider.get_block_trade(symbol, start, end),
         }
