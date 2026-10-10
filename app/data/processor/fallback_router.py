@@ -17,6 +17,7 @@ from app.data.processor.validator import Validator
 from app.data.core.registry.capability import CapabilityRegistry
 from app.data.core.registry.priority import PriorityConfig
 from app.data.monitoring.source_health import SourceHealthMonitor
+from app.data.sources.base.error_codes import DataErrorCode
 from app.data.sources.base.exceptions import DataSourceError
 from app.data.sources.base.provider import BaseProvider
 
@@ -310,7 +311,15 @@ class FallbackRouter:
                 return "skip", [], None
 
             if raw_data is None or (hasattr(raw_data, "empty") and raw_data.empty):
-                self._circuit.record_failure(source_name, domain=domain, market=market)
+                # 空结果 = 业务性无数据（该标的本就无此域数据），显式标成 EMPTY_RESULT，
+                # 交由熔断器按 _NON_FAILURE_CODES 豁免 —— 否则逐标的遍历时，
+                # 连续几个空结果就会打开熔断，把同域后续标的整体短路。
+                self._circuit.record_failure(
+                    source_name,
+                    domain=domain,
+                    market=market,
+                    error_code=DataErrorCode.EMPTY_RESULT,
+                )
                 self._health_monitor.record_call(
                     market,
                     source_name,

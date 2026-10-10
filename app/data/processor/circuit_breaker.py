@@ -42,6 +42,16 @@ _ERROR_COOLDOWN_MULTIPLIERS = {
     DataErrorCode.INSUFFICIENT_CREDITS: 5,
 }
 
+# 业务性「空结果 / 标的不存在 / 源不支持该域」不是源故障，一律不计入失败、不熔断。
+# 逐标的遍历的域（两融 / 龙虎榜 / 资金流 / 大宗…）天然只有部分标的有数据，
+# 若把空结果计入失败，连续 FAILURE_THRESHOLD 次空结果就会打开熔断，
+# 同域后续标的被整体短路 —— 表现为「SYNC_SUCCESS 但只入库标的表开头几百只」。
+_NON_FAILURE_CODES = {
+    DataErrorCode.EMPTY_RESULT,
+    DataErrorCode.SYMBOL_NOT_FOUND,
+    DataErrorCode.NOT_SUPPORTED,
+}
+
 
 def _build_cooldown_steps(initial: int, max_cooldown: int) -> List[int]:
     """根据 initial 与 max 生成单调递增的三档冷却阶梯。
@@ -198,6 +208,9 @@ class CircuitBreaker:
         参数顺序保持旧位置语义 ``(source, domain, error_code)``；
         market 为新增关键字参数（缺省 "" 表示历史两段键）。
         """
+        # 业务性空结果（该标的/该日无数据、源不支持该域）不算源故障：不计失败、不熔断
+        if error_code in _NON_FAILURE_CODES:
+            return
         with self._lock:
             state = self._get_state(source, domain, market)
             now = time.time()
