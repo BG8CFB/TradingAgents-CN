@@ -43,6 +43,21 @@ RECOVERY_INSTRUCTION = (
     "no repetition, continue the unfinished content."
 )
 
+# 未提交收尾闸：模型**主动结束**（不再发起工具调用）或**烧完轮数**却从未调用提交工具时的补救。
+# 分析师常在中途就主动收尾（实测：市场技术分析师 8 轮后未提交，报告退化为 135 字符的
+# 最后一段正文）；也有烧光 12 轮全在调工具、一次都没提交的（报告退化为占位文本）。
+SUBMIT_REQUIRED_INSTRUCTION = (
+    "You are ending your turn without submitting a result. Do not finish with plain "
+    "text: call your submission tool (e.g. submit_report) now and pass the complete "
+    "report content you have already produced. An unsubmitted report is treated as "
+    "invalid by the pipeline."
+)
+
+
+def _is_submit_tool(name: str) -> bool:
+    """是否是提交类工具（submit_report 等）。"""
+    return "submit" in str(name or "").lower()
+
 
 def _extract_thinking_text(resp: ChatResponse) -> str:
     """防御式抽取 thinking/reasoning 块文本。
@@ -185,6 +200,9 @@ async def run_conversation(
     reacted_too_long = False  # reactive compact 已触发标记
     active_client = client  # 限流 fallback 时切换（仅一次）
     used_fallback = False
+    submit_gate_nudged = False  # 未提交收尾闸已注入标记（仅一次）
+    executed_tool_names: set = set()  # 本轮会话已执行过的工具名（判是否提交过）
+    salvage_used = False  # 硬停补救已用标记（仅一次）
 
     # 并发安全查找表：tool 名 → is_concurrency_safe
     safe_map = {t.name: bool(t.is_concurrency_safe) for t in tool_defs}
@@ -192,9 +210,37 @@ async def run_conversation(
     while True:
         turns += 1
         if turns > max_turns:
-            logger.warning(f"⚠️ [runner] 达到最大轮数 {max_turns}，强制停止")
-            result.stop_reason = "max_turns"
-            break
+            # 硬停补救：一路调工具直到轮数耗尽、且整个会话从未提交过 →
+            # 把工具集**收窄到只剩提交类工具**，并把预算放宽 1 轮，让**本轮**继续走到
+            # 模型调用（不能 continue：轮次已超，下一轮会直接硬停，补救轮就白发）。
+            # 注意是「只留提交工具」，不是「摘光工具」—— 后者会把提交工具本身也摘掉，
+            # 模型反而提交不了。小额预算（<3 轮）不启用：没有回旋余地，且会挤占首轮工作。
+            salvaged = False
+            if (
+                not salvage_used
+                and max_turns >= 3
+                and not any(_is_submit_tool(n) for n in executed_tool_names)
+            ):
+                submit_only = [
+                    t for t in tool_defs if _is_submit_tool(getattr(t, "name", ""))
+                ]
+                if submit_only:
+                    salvage_used = True
+                    submit_gate_nudged = True  # 避免随后再插一次同类催促
+                    tool_defs = submit_only
+                    logger.warning(
+                        f"⏰ [runner] 达到最大轮数 {max_turns} 且从未提交，"
+                        f"收窄为仅提交工具（{len(submit_only)} 个）再补 1 轮"
+                    )
+                    max_turns += 1  # 把这一轮让给补救
+                    messages.append(
+                        Message(role=Role.USER, content=SUBMIT_REQUIRED_INSTRUCTION)
+                    )
+                    salvaged = True
+            if not salvaged:
+                logger.warning(f"⚠️ [runner] 达到最大轮数 {max_turns}，强制停止")
+                result.stop_reason = "max_turns"
+                break
 
         # 发送前分层压缩检查（预测式 / 常规阈值 / 阻塞兜底）
         need_compact = (
@@ -364,6 +410,21 @@ async def run_conversation(
                     ))
                 )
                 continue
+            # 未提交收尾闸：模型准备结束、但整个会话从未调用提交工具 → 再要一轮（仅一次）。
+            # 提前退出时「轮数将尽催促」不会触发，不补这一轮的话报告会退化成最后一段
+            # 正文（实测：市场技术分析师 8 轮后交出 135 字符空壳）。小额预算（<3 轮）
+            # 没有回旋余地，不启用，避免挤占首轮工作。
+            if (
+                not submit_gate_nudged
+                and max_turns >= 3
+                and not any(_is_submit_tool(n) for n in executed_tool_names)
+            ):
+                submit_gate_nudged = True
+                logger.warning(
+                    "⏰ [runner] 模型准备结束但未调用提交工具，注入强制提交请求"
+                )
+                messages.append(Message(role=Role.USER, content=SUBMIT_REQUIRED_INSTRUCTION))
+                continue
             result.final_text = resp.text()
             result.stop_reason = resp.stop_reason.value
             break
@@ -373,6 +434,7 @@ async def run_conversation(
             reg, tool_uses, safe_map, extra_defs=extra_defs, emit=emit, task_id=task_id
         )
         result.tool_calls_executed += len(tool_uses)
+        executed_tool_names.update(str(getattr(tu, "name", "")) for tu in tool_uses)
         result_blocks = [
             ToolResultBlock(
                 tool_use_id=tu.id,
