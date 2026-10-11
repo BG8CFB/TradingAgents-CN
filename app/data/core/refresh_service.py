@@ -79,6 +79,7 @@ class DataRefreshService:
         domains: Optional[List[str]] = None,
         force: bool = False,
         timeout: int = 30,
+        history_days: Optional[int] = None,
     ) -> RefreshResult:
         """刷新指定股票的数据。
 
@@ -88,6 +89,9 @@ class DataRefreshService:
             domains: 要刷新的域列表（None = 全部）
             force: 是否强制刷新（忽略冷却期）
             timeout: 超时秒数
+            history_days: 显式要求的历史深度（天）。None=纯增量（旧行为）；
+                给了就保证 start 不晚于「今天 − history_days」（每次按 N 天拉取，
+                调用次数不变，写入幂等）
 
         Returns:
             RefreshResult 刷新结果
@@ -103,7 +107,7 @@ class DataRefreshService:
         # 并行刷新各域
         tasks = []
         for domain in domains:
-            tasks.append(self._refresh_domain(market, symbol, domain, force, timeout))
+            tasks.append(self._refresh_domain(market, symbol, domain, force, timeout, history_days))
 
         domain_results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -121,6 +125,7 @@ class DataRefreshService:
 
     async def _get_incremental_date_range(
         self, market: str, symbol: str, domain: str,
+        history_days: Optional[int] = None,
     ) -> Tuple[str, str, Optional[str]]:
         """查询 MongoDB 最新记录，计算增量拉取的日期范围。
 
@@ -161,6 +166,21 @@ class DataRefreshService:
             logger.debug(f"查询最新日期失败，使用默认范围: {e}")
             start = (datetime.now(timezone.utc) - timedelta(days=default_lookback)).strftime("%Y-%m-%d")
 
+        # 显式历史下限（调用方要求「同步 N 天」时）：把 start 夹到更早的日期。
+        # ⚠️ 语义是「每次按 N 天拉取」而不是「只在不足时补」：N 较大时它总会盖过
+        # 增量起点（最新−7 天）。调用次数不变（仍是一次 fetch）、写入幂等，只是
+        # 返回体更大；若要「只在不足时补」需额外查库内最早日期，本项目不做。
+        if history_days:
+            try:
+                floor = (
+                    datetime.now(timezone.utc)
+                    - timedelta(days=max(1, min(int(history_days), 3650)))
+                ).strftime("%Y-%m-%d")
+                if floor < start:
+                    start = floor
+            except (TypeError, ValueError):
+                pass
+
         # end_date 回退到最近交易日，避免周末/节假日请求空数据
         from app.data.core.market import get_latest_trade_day
 
@@ -177,7 +197,8 @@ class DataRefreshService:
         return start, end, latest_db_date
 
     async def _refresh_domain(
-        self, market: str, symbol: str, domain: str, force: bool, timeout: int
+        self, market: str, symbol: str, domain: str, force: bool, timeout: int,
+        history_days: Optional[int] = None,
     ) -> DomainRefreshResult:
         """刷新单个域。"""
         start = time.time()
@@ -215,7 +236,7 @@ class DataRefreshService:
             latest_db_date: Optional[str] = None
             if domain in _INCREMENTAL_DOMAINS:
                 start_date, end_date, latest_db_date = await self._get_incremental_date_range(
-                    market, symbol, domain
+                    market, symbol, domain, history_days
                 )
                 fetch_kwargs["start_date"] = start_date
                 fetch_kwargs["end_date"] = end_date

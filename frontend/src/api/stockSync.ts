@@ -96,6 +96,8 @@ export const stockSyncApi = {
       const res = await ApiClient.post(`/api/cn/data/refresh/${request.symbol}`, {
         domains,
         force: true,
+        // 「历史数据天数」→ 后端 history_days（旧版此处丢弃 days，导致该选项完全无效）
+        history_days: request.days,
       }, { timeout: 120000 })
 
       if (!res.success || !res.data) {
@@ -187,6 +189,7 @@ export const stockSyncApi = {
         const res = await ApiClient.post(`/api/cn/data/refresh/${symbol}`, {
           domains,
           force: true,
+          history_days: request.days,
         }, { timeout: 300000 })
 
         if (res.success) {

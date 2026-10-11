@@ -167,10 +167,14 @@ class DataInterface:
         domains: Optional[List[str]] = None,
         force: bool = False,
         timeout: int = 30,
+        history_days: Optional[int] = None,
     ) -> RefreshResult:
-        """按需刷新指定股票数据。"""
+        """按需刷新指定股票数据。
+
+        history_days: 显式要求的历史深度（天）；None=纯增量（旧行为）。
+        """
         return await self.refresh_service.refresh(
-            market, symbol, domains, force, timeout
+            market, symbol, domains, force, timeout, history_days
         )
 
     # ── 同步管理 ──

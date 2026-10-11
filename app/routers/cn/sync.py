@@ -25,6 +25,8 @@ _VALID_SYNC_DOMAINS = [
 class RefreshRequest(BaseModel):
     domains: Optional[List[str]] = None
     force: bool = False
+    # 显式历史深度（天）：前端「历史数据天数」由此真正生效；None=纯增量（旧行为）
+    history_days: Optional[int] = None
 
 
 class SyncTriggerRequest(BaseModel):
@@ -47,7 +49,10 @@ async def refresh_cn_stock(
     """按需刷新指定股票的数据（需管理员权限，会触发外部数据源调用）"""
     try:
         di = DataInterface.get_instance()
-        result = await di.refresh(_MARKET, symbol, domains=req.domains, force=req.force, timeout=30)
+        result = await di.refresh(
+            _MARKET, symbol, domains=req.domains, force=req.force, timeout=30,
+            history_days=req.history_days,
+        )
 
         domain_dict = {}
         for d, dr in result.domains.items():
