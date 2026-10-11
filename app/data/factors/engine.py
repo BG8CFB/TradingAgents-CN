@@ -73,26 +73,70 @@ class FactorScoreEngine:
     FLOW_WINDOW_TRADE_DAYS = 5         # 资金窗口
     MIN_QUOTE_ROWS = 60                # 数据不足剔除线
 
-    async def compute_and_store(self, market: str = "CN") -> Dict:
-        df = await self.compute_factors(market)
+    async def compute_and_store(self, market: str = "CN",
+                                as_of: Optional[str] = None) -> Dict:
+        df = await self.compute_factors(market, as_of=as_of)
         if df.empty:
             return {"status": "skipped", "reason": "no_data", "rows": 0}
+        trade_date = str(df["trade_date"].iloc[0])
+        if as_of and trade_date != str(as_of):
+            # 该交易日没有行情数据（as_of 不在 daily_quotes 里）→ 不落库，
+            # 避免把「上一日的结果」当成 as_of 写进去（曾因此产生错位数据）
+            return {"status": "skipped", "reason": "as_of_not_available",
+                    "as_of": str(as_of), "got": trade_date}
         records = self._to_records(df, market)
         written = await FactorScoresRepo().upsert_many(records, market=market)
         return {
             "status": "ok",
-            "trade_date": str(df["trade_date"].iloc[0]),
+            "trade_date": trade_date,
             "symbols": int(len(records)),
             "written": int(written),
         }
 
+    async def backfill_missing(self, market: str = "CN", lookback: int = 10,
+                               max_dates: int = 5) -> Dict:
+        """补算「缺口交易日」的因子分。
+
+        背景：compute_and_store 只算 daily_quotes 的**最新单日**。若某交易日跑批时
+        当日行情尚未入库（同步慢/失败），那次会回退算成上一日，且之后每次跑都只算
+        「当时最新」→ 该交易日永久缺失。这里按最近 lookback 个交易日对比
+        factor_scores 已有的 trade_date，把缺的那几天补算回来。
+        """
+        dates = await self._recent_trade_dates(
+            market, get_collection_name("daily_quotes", market), lookback)
+        if not dates:
+            return {"checked": 0, "missing": [], "filled": [], "failed": []}
+        db = get_motor_db()
+        have = set(await db[get_collection_name("factor_scores", market)].distinct(
+            "trade_date", {"trade_date": {"$in": dates}}))
+        missing = [d for d in dates if d not in have]
+        filled: List[str] = []
+        failed: List[str] = []
+        for d in missing[:max_dates]:
+            try:
+                res = await self.compute_and_store(market, as_of=d)
+                if res.get("status") == "ok":
+                    filled.append(d)
+                else:
+                    failed.append(d)
+                logger.info("因子分补算 %s: %s", d, res)
+            except Exception as e:  # noqa: BLE001 - 单日失败不阻断其余补算
+                failed.append(d)
+                logger.warning("因子分补算失败 %s: %s", d, e)
+        return {"checked": len(dates), "missing": missing,
+                "filled": filled, "failed": failed}
+
     # ── 读取 ────────────────────────────────────────────────
 
     async def _recent_trade_dates(self, market: str, coll_name: str,
-                                  n: int) -> List[str]:
+                                  n: int, as_of: Optional[str] = None) -> List[str]:
         db = get_motor_db()
         distinct = await db[coll_name].distinct("trade_date")
-        return sorted([d for d in distinct if d], reverse=True)[:n]
+        dates = sorted([d for d in distinct if d], reverse=True)
+        if as_of:
+            # 指定「算到哪一天」时，只取不晚于该日的交易日（补算历史缺口用）
+            dates = [d for d in dates if str(d) <= str(as_of)]
+        return dates[:n]
 
     async def _stream_find(self, market: str, domain: str, query: Dict,
                            projection: Dict,
@@ -116,10 +160,11 @@ class FactorScoreEngine:
                     df[c] = np.nan
         return df
 
-    async def compute_factors(self, market: str = "CN") -> pd.DataFrame:
+    async def compute_factors(self, market: str = "CN",
+                              as_of: Optional[str] = None) -> pd.DataFrame:
         quote_dates = await self._recent_trade_dates(
             market, get_collection_name("daily_quotes", market),
-            self.QUOTE_WINDOW_TRADE_DAYS)
+            self.QUOTE_WINDOW_TRADE_DAYS, as_of=as_of)
         if not quote_dates:
             logger.warning("daily_quotes 无数据，因子计算跳过")
             return pd.DataFrame()

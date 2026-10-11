@@ -1,7 +1,11 @@
 """A 股调度任务注册。"""
 
+import logging
+
 from app.data.scheduler.jobs.base.compute_job import ComputeJob
 from app.data.scheduler.jobs.base.sync_job import BaseSyncJob
+
+logger = logging.getLogger(__name__)
 
 
 class CNTradeCalendarJob(BaseSyncJob):
@@ -130,7 +134,16 @@ class CNFactorScoreJob(ComputeJob):
 
     async def compute(self) -> dict:
         from app.data.factors.engine import FactorScoreEngine
-        return await FactorScoreEngine().compute_and_store("CN")
+
+        engine = FactorScoreEngine()
+        result = await engine.compute_and_store("CN")
+        # 补算缺口交易日：引擎只算「最新单日」，若某交易日跑批时当日行情尚未入库，
+        # 那天会被永久跳过（下次跑直接算更新的日期）→ 这里检测并补算回来。
+        try:
+            result["backfill"] = await engine.backfill_missing("CN")
+        except Exception as e:  # noqa: BLE001 - 补算失败不阻断当日批算
+            logger.warning("因子分缺口补算失败: %s", e)
+        return result
 
 
 _CN_JOBS = [
