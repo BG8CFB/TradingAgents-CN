@@ -103,7 +103,10 @@ def get_stock_data(
                 market_key = "CN"
 
         if not start_date:
-            start_date = (now_utc() - timedelta(days=30)).strftime("%Y-%m-%d")
+            # 默认窗口按「自然日」计：30 天只折算约 15 个交易日，不足以计算
+            # MA60 / 60 日新高新低等中期指标（市场分析师只能标注"数据不足60日"）。
+            # 120 自然日 ≈ 79 个交易日，可覆盖 MA60。
+            start_date = (now_utc() - timedelta(days=120)).strftime("%Y-%m-%d")
         if not end_date:
             end_date = get_current_date()
 

@@ -21,6 +21,19 @@ def format_result(data: Any, title: str, max_rows: int = 2000) -> str:
         # 基于残缺数据得出结论（max_rows 参数保留仅为兼容调用签名，不再生效）
         return data
 
+    # pandas DataFrame → 先转成 list[dict]，走下面的 Markdown 表格分支。
+    # 否则会落到末尾的 str(data)：pandas 的 repr 会把中间列折叠成 "..."，
+    # 模型只看到 datetime/freq/.../volume，OHLC 列被隐藏（实测 stk_mins 分钟线即如此：
+    # 分析师因此只能写「部分列被截断，仅量能可用」）。
+    _candidate: Any = data  # 重新声明为 Any，避开上方 isinstance(data, list) 的类型收窄
+    try:
+        import pandas as pd  # noqa: PLC0415
+
+        if isinstance(_candidate, pd.DataFrame):
+            data = _candidate.to_dict("records")
+    except ImportError:
+        pass
+
     # Assuming data is a list of dicts or a pandas DataFrame (converted to list of dicts)
     if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
         # 列表全量输出，不按行数截断：隐藏的行对 LLM 不可见，会丢失数据
