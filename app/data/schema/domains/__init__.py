@@ -20,3 +20,4 @@ from app.data.schema.domains.dragon_tiger import DragonTigerSchema as DragonTige
 from app.data.schema.domains.block_trade import BlockTradeSchema as BlockTradeSchema
 from app.data.schema.domains.intraday_quotes import IntradayQuotesSchema as IntradayQuotesSchema
 from app.data.schema.domains.factor_scores import FactorScoresSchema as FactorScoresSchema
+from app.data.schema.domains.tick_quotes import TickQuotesSchema as TickQuotesSchema

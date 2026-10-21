@@ -36,6 +36,8 @@ _REPO_TABLE: Dict[str, tuple] = {
     "corporate_actions": ("corporate_actions_repo", "CorporateActionsRepo"),
     "market_quotes": ("market_quotes_repo", "MarketQuotesRepo"),
     "news": ("news_repo", "NewsRepo"),
+    "intraday_quotes": ("intraday_quotes_repo", "IntradayQuotesRepo"),
+    "tick_quotes": ("tick_quotes_repo", "TickQuotesRepo"),
 }
 
 
@@ -108,7 +110,8 @@ class BaseMarketDomainSync(ABC):
         sources = await self.get_sources()
         kwargs = provider_kwargs_fn() if provider_kwargs_fn else {}
 
-        repo = _get_repo(self.domain)
+        # 先解析 Repo 做 fail-fast：域未注册时立刻报错，而不是等 fetch 完才发现
+        _get_repo(self.domain)
         fallback_chain: List[str] = []
 
         for source_name in sources:
@@ -125,7 +128,7 @@ class BaseMarketDomainSync(ABC):
                 continue
 
             # success：Router 已完成标准化 + 校验（输出 db-ready dicts）
-            count = await repo.upsert_many(records, self.market)
+            count = await self._persist(records, source_name)
             elapsed = int((time.time() - start) * 1000)
             logger.info(
                 f"{self.market} {self.domain} 同步完成: "
@@ -160,6 +163,16 @@ class BaseMarketDomainSync(ABC):
             "domain": self.domain, "success": False,
             "error": error, "duration_ms": elapsed,
         }
+
+    async def _persist(self, records: List[Dict], source_name: str) -> int:
+        """入库（可覆写）。
+
+        默认走 Repo 的 ``upsert_many``（单版本覆盖：备用源覆盖同自然键记录）。
+        需要「不覆盖既有主源」或「写前对账」语义的域可覆写本方法 —— 例如
+        QMT 复权因子的双源交叉校验（PRD FR-07 规则 3：不一致时保留既有源值）。
+        """
+        repo = _get_repo(self.domain)
+        return await repo.upsert_many(records, self.market)
 
     async def _write_sync_event(
         self, *, success: bool, source: str, record_count: int,

@@ -116,6 +116,37 @@ class MetadataRepo:
         cursor = coll.find({"market": market}, {"_id": 0})
         return await cursor.to_list(length=None)
 
+    async def accumulate_health(
+        self, market: str, source: str, domain: str, data: Dict,
+        inc_fields: List[str],
+    ) -> None:
+        """按 **自增** 语义写健康行（区别于 ``upsert_health`` 的整行覆盖）。
+
+        两种语义各有用处，不要混用：
+        - ``upsert_health``：调用方持有**累计快照**（如 SourceHealthMonitor 的
+          内存统计），整行 ``$set`` 是正确的；
+        - ``accumulate_health``：调用方只有**单次观测**（如 QMT datadir 探针
+          每次只知「这一次成功/失败」），必须 ``$inc`` 才能得到有意义的成功
+          率，否则计数永远被覆盖成 1/0（PRD 3.2 的成功率指标会失效）。
+
+        Args:
+            data: 要写入的字段；``inc_fields`` 中的键走 ``$inc``，其余走 ``$set``。
+            inc_fields: 自增字段名列表（如 success_count / failure_count / total_calls）。
+        """
+        db = get_motor_db()
+        coll = db["source_health"]
+        inc = {f: data.get(f, 0) or 0 for f in inc_fields}
+        set_doc = {k: v for k, v in data.items() if k not in inc_fields}
+        set_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+        update: Dict[str, Dict] = {"$set": set_doc}
+        if inc:
+            update["$inc"] = inc
+        await coll.update_one(
+            {"market": market, "source": source, "domain": domain},
+            update,
+            upsert=True,
+        )
+
     # ── system_configs ──
 
     async def get_config(

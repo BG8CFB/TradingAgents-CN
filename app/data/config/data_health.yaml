@@ -26,6 +26,10 @@ coverage_exempt_domains:
   - connect_status
   - southbound_holding
   - intraday_quotes
+  - tick_quotes          # tick 仅同步采集范围内的标的（体量与 RK-07 限制），
+                         # 对 basic_info 全集算覆盖率无意义
+  - corporate_actions    # 分红送配是事件域：绝大多数标的一年内无事件，
+                         # 覆盖率（有事件标的/全市场）恒接近 0，无判定意义
   - pre_post_market
   - news
   - dragon_tiger

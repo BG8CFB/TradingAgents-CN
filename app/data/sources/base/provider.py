@@ -144,6 +144,14 @@ class BaseProvider(ABC):
         """
         raise NotImplementedError(f"{self.name} 不支持 get_intraday_quotes")
 
+    async def get_tick_quotes(self, symbol: str, start_date: str, end_date: str, **kwargs) -> pd.DataFrame:
+        """获取逐笔成交（tick）数据（M2 新增标准域，PRD FR-06）。
+
+        Raises:
+            NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
+        """
+        raise NotImplementedError(f"{self.name} 不支持 get_tick_quotes")
+
     async def get_money_flow(self, symbol: str, start_date: str, end_date: str, **kwargs) -> pd.DataFrame:
         """获取资金流向。
 
