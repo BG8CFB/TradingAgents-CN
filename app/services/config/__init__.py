@@ -123,6 +123,10 @@ class ConfigServiceFacade:
             system_config_getter=self._system.get_system_config
         )
 
+    async def get_qmt_source_status(self) -> Dict[str, Any]:
+        """QMT datadir 三层状态 + 累计健康（PRD FR-13 / 7.4）。"""
+        return await self._data_source.get_qmt_source_status()
+
     # ==================== 数据库配置管理（委托 DatabaseService）====================
 
     async def update_database_config(self, db_config: DatabaseConfig) -> bool:

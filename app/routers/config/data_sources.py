@@ -68,6 +68,67 @@ def _sanitize_datasource_configs(items):
         return items
 
 
+# ==================== 单源状态与连通性测试 ====================
+
+def _config_type_value(ds) -> str:
+    """数据源类型统一为小写字符串（type 可能是枚举或 dict）。"""
+    t = getattr(ds, "type", "")
+    if isinstance(t, dict):
+        t = t.get("value", "")
+    return str(getattr(t, "value", t)).lower()
+
+
+@router.get("/datasource/{name}/status")
+async def get_data_source_status(
+    name: str,
+    current_user: User = Depends(get_current_user),
+):
+    """单个数据源的健康状态（PRD FR-13 / 7.4）。
+
+    目前仅 QMT 提供：datadir 三层状态（路径/自检/新鲜度）+ 最新分区与期望
+    交易日 + ``source_health`` 累计成功率。前端数据源管理页据此渲染状态卡片。
+    """
+    if name.lower() != "qmt":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"数据源 {name} 暂不提供状态查询（当前支持：qmt）",
+        )
+    try:
+        return {"success": True, "data": await config_service.get_qmt_source_status()}
+    except Exception as e:
+        logger.error(f"获取数据源状态失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取数据源状态失败: {e}",
+        )
+
+
+@router.post("/datasource/{name}/test")
+async def test_data_source_by_name(
+    name: str,
+    current_user: User = Depends(require_admin),
+):
+    """按名称测试已保存数据源的连通性（部署指南第三节「测试连接」的后端）。"""
+    config = await config_service.get_system_config()
+    items = getattr(config, "data_source_configs", None) or []
+    target = next(
+        (d for d in items if _config_type_value(d) == name.lower()), None
+    )
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"未找到数据源配置: {name}",
+        )
+    try:
+        return await config_service.test_data_source_config(target)
+    except Exception as e:
+        logger.error(f"测试数据源 {name} 失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"测试数据源失败: {e}",
+        )
+
+
 # ==================== 数据源配置管理 ====================
 
 @router.get("/datasource", response_model=List[DataSourceConfig])

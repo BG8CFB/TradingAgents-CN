@@ -1,15 +1,17 @@
 # 默认数据源优先级: market → domain → sources (按优先级排序)
 
 CN:
-  basic_info: [tushare, akshare, baostock]
-  trade_calendar: [tushare, akshare, baostock]
-  daily_quotes: [tushare, akshare, baostock]
+  basic_info: [tushare, akshare, baostock, qmt]
+  trade_calendar: [tushare, akshare, baostock, qmt]
+  daily_quotes: [tushare, akshare, baostock, qmt]
   daily_indicators: [tushare, akshare]
-  adj_factors: [tushare, akshare, baostock]
+  adj_factors: [tushare, akshare, baostock, qmt]
   financial_data: [tushare, akshare]
   market_quotes: [tushare, akshare]
   news: [tushare, akshare]
-  intraday_quotes: [tushare, akshare]
+  intraday_quotes: [tushare, akshare, qmt]
+  tick_quotes: [qmt]
+  corporate_actions: [qmt]
   money_flow: [tushare, akshare]
   margin_trading: [tushare, akshare]
   dragon_tiger: [tushare, akshare]

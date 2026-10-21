@@ -16,6 +16,13 @@ from app.core.config import settings
 
 logger = logging.getLogger("app.scheduler_setup")
 
+# QMT tick 保留期清理时刻（DD-03）：凌晨执行，避开采集窗口与盘中查询高峰
+QMT_TICK_CLEANUP_CRON = "30 3 * * *"
+
+# QMT 缺口补采时刻（FR-12）：排在 datadir 就绪截止（默认 22:00）之后，
+# 保证当日采集已定型再判定缺口，避免把"还没采完"误判成缺口
+QMT_GAP_FILL_CRON = "10 23 * * *"
+
 
 def add_resilient_job(sched: AsyncIOScheduler, func, trigger, **kwargs):
     """添加具有容错能力的定时任务。"""
@@ -134,6 +141,54 @@ async def register_jobs(scheduler: AsyncIOScheduler, basics_sync_service, run_ba
     # ── 港股全量同步（通过 SchedulerEngine 已自动注册，此处仅注册状态检查等辅助任务）──
     _register_hk_auxiliary_jobs(scheduler)
     _register_us_auxiliary_jobs(scheduler)
+
+    # ── QMT datadir 本地直读盘后采集（D-7；默认关闭，.env 启用）──
+    if settings.QMT_ENABLED:
+        from app.worker.qmt.jobs import run_qmt_sync
+
+        add_resilient_job(
+            scheduler, run_qmt_sync,
+            CronTrigger.from_crontab(settings.QMT_DAILY_SYNC_CRON, timezone=tz),
+            id="qmt_daily_sync",
+            name="QMT 盘后数据采集（datadir 直读）",
+            kwargs={"force": False},
+        )
+        logger.info(
+            f"QMT 盘后采集任务已注册: CRON={settings.QMT_DAILY_SYNC_CRON} ({tz})，"
+            f"就绪轮询截止 {settings.QMT_READINESS_DEADLINE}"
+        )
+
+        # tick 保留期清理（DD-03：定时 Job + sync_events 审计，不用 Mongo TTL）
+        from app.worker.qmt.tick_cleanup import cleanup_qmt_tick
+
+        add_resilient_job(
+            scheduler, cleanup_qmt_tick,
+            CronTrigger.from_crontab(QMT_TICK_CLEANUP_CRON, timezone=tz),
+            id="qmt_tick_cleanup",
+            name="QMT tick 保留期清理",
+            kwargs={},
+        )
+        logger.info(
+            f"QMT tick 保留期清理任务已注册: CRON={QMT_TICK_CLEANUP_CRON} ({tz})，"
+            f"保留 {settings.QMT_TICK_RETENTION_DAYS} 天"
+        )
+
+        # 缺口补采（FR-12）：排在就绪截止（默认 22:00）之后，确保当日采集已定型
+        if settings.QMT_GAP_ENABLED:
+            from app.worker.qmt.gap_manager import run_gap_fill
+
+            add_resilient_job(
+                scheduler, run_gap_fill,
+                CronTrigger.from_crontab(QMT_GAP_FILL_CRON, timezone=tz),
+                id="qmt_gap_fill",
+                name="QMT 缺口检测与补采",
+                kwargs={},
+            )
+            logger.info(
+                f"QMT 缺口补采任务已注册: CRON={QMT_GAP_FILL_CRON} ({tz})，"
+                f"回看 {settings.QMT_GAP_LOOKBACK_DAYS} 个交易日，"
+                f"单缺口上限 {settings.QMT_GAP_MAX_ATTEMPTS} 轮"
+            )
 
 
 def _start_scheduler_engine(scheduler: AsyncIOScheduler):

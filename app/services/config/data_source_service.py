@@ -239,6 +239,75 @@ class DataSourceService:
 
         return f"{api_key[:prefix_len]}...{api_key[-suffix_len:]}"
 
+    async def get_qmt_source_status(self) -> Dict[str, Any]:
+        """QMT datadir 三层状态 + 累计健康（PRD FR-13 / 7.4）。
+
+        与「连通性测试」的区别：本方法**不修改任何配置**，返回的是健康页需要的
+        完整快照 —— 三层探测结论（路径/自检/新鲜度）、最新分区与期望交易日、
+        以及 ``source_health`` 里的**累计**成功率（探针计数走 `$inc`，见
+        ``MetadataRepo.accumulate_health``）。
+
+        Returns:
+            ``{"source", "state", "ok", "message", "datadir", "universe_size",
+            "checked_files", "rejected_samples", "latest_trade_date",
+            "expected_trade_date", "health": {...}}``
+        """
+        import asyncio
+
+        from app.data.sources.cn.qmt.health import QmtHealthProbe
+
+        probe = QmtHealthProbe()
+        expected = None
+        try:
+            from app.data.core.market import get_latest_trade_day
+
+            day = await get_latest_trade_day("CN")
+            expected = day.strftime("%Y%m%d") if day else None
+        except Exception as e:  # noqa: BLE001 — 日历不可读时退回宽容期
+            logger.debug(f"读取平台交易日历失败（回退宽容期）: {e}")
+
+        state = await asyncio.to_thread(probe.refresh, expected)
+
+        stats: Dict[str, Any] = {}
+        try:
+            from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
+
+            rows = await MetadataRepo().get_all_health("CN")
+            stats = next(
+                (
+                    r for r in rows
+                    if r.get("source") == "qmt" and r.get("domain") == "__datadir__"
+                ),
+                {},
+            ) or {}
+        except Exception as e:  # noqa: BLE001 — 健康行缺失不影响探测结论
+            logger.debug(f"读取 QMT 健康行失败: {e}")
+
+        total = int(stats.get("total_calls") or 0)
+        success = int(stats.get("success_count") or 0)
+
+        return {
+            "source": "qmt",
+            "state": state.code.value,
+            "ok": state.ok,
+            "message": state.message,
+            "datadir": probe.datadir,
+            "universe_size": state.universe_size,
+            "checked_files": state.checked_files,
+            "rejected_samples": list(state.rejected_samples),
+            "latest_trade_date": state.latest_trade_date,
+            "expected_trade_date": state.expected_trade_date,
+            "health": {
+                "success_count": success,
+                "failure_count": int(stats.get("failure_count") or 0),
+                "total_calls": total,
+                "success_rate": round(success / total, 4) if total else None,
+                "circuit_state": stats.get("circuit_state"),
+                "last_error": stats.get("last_error"),
+                "updated_at": stats.get("updated_at"),
+            },
+        }
+
     async def test_data_source_config(self, ds_config: DataSourceConfig, system_config_getter=None) -> Dict[str, Any]:
         """测试数据源配置 - 真实调用API进行验证
 
@@ -526,6 +595,61 @@ class DataSourceService:
                         "message": f"BaoStock API 调用失败: {str(e)}",
                         "response_time": time.time() - start_time,
                         "details": None
+                    }
+
+            elif ds_type == "qmt":
+                # QMT（datadir 本地直读，PRD D-7）：无网络调用，测试 =
+                # datadir 三层检查（路径 → 抽样四级自检 → 新鲜度），PRD 7.4
+                # 的三种错误文案由 QmtHealthState.message 直接承载。
+                # config_params.datadir 优先（本页面正在测试的值），ENV 回退。
+                try:
+                    from app.data.sources.cn.qmt.health import QmtHealthProbe
+
+                    params = ds_config.config_params if isinstance(
+                        ds_config.config_params, dict
+                    ) else {}
+                    ds_dir = (params.get("datadir") or "").strip()
+                    probe = QmtHealthProbe(datadir=ds_dir or None)
+                    # 停更判定优先用平台交易日历的期望最后交易日（PRD FR-02 规则 3）
+                    expected = None
+                    try:
+                        from app.data.core.market import get_latest_trade_day
+
+                        day = await get_latest_trade_day("CN")
+                        expected = day.strftime("%Y%m%d") if day else None
+                    except Exception:  # noqa: BLE001 — 日历不可读时退回宽容期
+                        expected = None
+                    state = await asyncio.to_thread(probe.refresh, expected)
+
+                    if state.ok:
+                        return {
+                            "success": True,
+                            "message": f"QMT datadir 自检通过：{state.message}",
+                            "response_time": time.time() - start_time,
+                            "details": {
+                                "type": ds_type,
+                                "datadir": probe.datadir,
+                                "universe_size": state.universe_size,
+                                "checked_files": state.checked_files,
+                                "latest_trade_date": state.latest_trade_date,
+                            },
+                        }
+                    return {
+                        "success": False,
+                        "message": state.message,
+                        "response_time": time.time() - start_time,
+                        "details": {
+                            "type": ds_type,
+                            "error_code": state.code.value,
+                            "datadir": probe.datadir,
+                        },
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "message": f"QMT datadir 检查异常: {str(e)}",
+                        "response_time": time.time() - start_time,
+                        "details": None,
                     }
 
             elif ds_type == "yahoo_finance":

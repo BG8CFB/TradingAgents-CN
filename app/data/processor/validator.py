@@ -8,7 +8,10 @@ logger = logging.getLogger(__name__)
 
 # 各域必填字段
 _REQUIRED_FIELDS = {
-    "basic_info": ["symbol", "name"],
+    # basic_info 只强制 symbol：name 在 Schema 中为 Optional，且 partial 能力的
+    # 源（如 QMT datadir 仅有代码枚举、无名称）必须能入库——名称由 full 能力
+    # 源的 upsert 合并补齐（无 name 键时不覆盖既有名称，见 QmtAdapter）
+    "basic_info": ["symbol"],
     "trade_calendar": ["exchange", "cal_date", "is_open"],
     "daily_quotes": ["symbol", "trade_date", "close"],
     "daily_indicators": ["symbol", "trade_date"],
@@ -16,6 +19,9 @@ _REQUIRED_FIELDS = {
     "corporate_actions": ["symbol", "ex_date", "action_type"],
     "financial_data": ["symbol", "report_period", "statement_type"],
     "market_quotes": ["symbol", "last_price"],
+    # tick 必填：唯一键三元组 + 最新价（datadir 拒读时整文件不产行，故到这里的
+    # 记录必有价；缺价即解析/校准异常，必须拒写 —— PRD 三「数据正确性」）
+    "tick_quotes": ["symbol", "trade_date", "time_ms", "last_price"],
     "news": ["symbol", "title", "content_hash"],
 }
 
