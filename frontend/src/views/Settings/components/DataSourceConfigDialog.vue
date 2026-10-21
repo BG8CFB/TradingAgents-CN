@@ -89,7 +89,23 @@
       <!-- 连接配置 -->
       <el-divider content-position="left">连接配置</el-divider>
 
-      <el-form-item label="API端点" prop="endpoint">
+      <el-alert
+        v-if="isQmt"
+        title="QMT 为本地直读数据源"
+        type="info"
+        :closable="false"
+        class="mb-4"
+      >
+        <template #default>
+          <p>
+            无需 API Key / 端点。请在下方“自定义参数”中填写
+            <code>datadir</code>（国金 QMT 客户端的数据目录，如
+            <code>D:\App\国金证券QMT交易端\datadir</code>），并确认客户端已配置“盘后自续下载任务”。
+          </p>
+        </template>
+      </el-alert>
+
+      <el-form-item v-if="needsEndpoint" label="API端点" prop="endpoint">
         <el-input
           v-model="formData.endpoint"
           placeholder="请输入API端点URL"
@@ -97,7 +113,7 @@
       </el-form-item>
 
       <!-- API Key 输入框 -->
-      <el-form-item label="API Key" prop="api_key">
+      <el-form-item v-if="needsApiKey" label="API Key" prop="api_key">
         <el-input
           v-model="formData.api_key"
           type="password"
@@ -298,6 +314,11 @@ const needsApiSecret = computed(() => {
   return ['alpha_vantage', 'wind', 'choice'].includes(type)
 })
 
+// QMT 本地直读：无 API Key / 端点，改为 datadir 路径（config_params.datadir）
+const isQmt = computed(() => formData.value.type?.toLowerCase() === 'qmt')
+const needsApiKey = computed(() => !isQmt.value)
+const needsEndpoint = computed(() => !isQmt.value)
+
 // 当前选中的数据源信息
 const currentDataSourceInfo = computed(() => {
   if (!formData.value.type) return null
@@ -327,6 +348,16 @@ const handleTypeChange = () => {
       if (sourceInfo) {
         formData.value.display_name = sourceInfo.label
       }
+    }
+
+    // QMT：预填 datadir 参数键（本地直读的唯一必填配置，PRD D-4）
+    if (selectedType.toLowerCase() === 'qmt' &&
+        !('datadir' in formData.value.config_params)) {
+      formData.value.config_params = {
+        datadir: '',
+        ...formData.value.config_params,
+      }
+      paramKeys.value = Object.keys(formData.value.config_params)
     }
   }
 }
@@ -377,6 +408,11 @@ const dataSourceTypes = [
     value: 'baostock',
     register_url: 'https://www.baostock.com/',
     register_guide: 'BaoStock 是开源免费的证券数据平台，无需注册即可使用。访问官网了解更多：'
+  },
+  {
+    label: '国金 QMT（本地直读）',
+    value: 'qmt',
+    register_guide: 'QMT 需在同机安装国金证券 QMT 交易端并登录，且配置“盘后自续下载任务”产出 datadir。无需 API Key，请填写 datadir 路径。'
   },
 
   // 美股数据源

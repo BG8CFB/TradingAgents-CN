@@ -123,18 +123,28 @@ class SimulatedMongoCollection:
         if doc:
             if "$set" in update_dict:
                 doc.update(update_dict["$set"])
-            elif "$inc" in update_dict:
+            if "$inc" in update_dict:
                 for k, v in update_dict["$inc"].items():
                     doc[k] = doc.get(k, 0) + v
-            else:
-                doc.update(update_dict)
+            if "$set" not in update_dict and "$inc" not in update_dict:
+                # 兼容旧调用：无原子算子时整体合并；`$setOnInsert` 在已存在时
+                # 按 Mongo 语义忽略（否则会写入字面量键）
+                doc.update(
+                    {k: v for k, v in update_dict.items() if not k.startswith("$")}
+                )
             return type("Result", (), {"modified_count": 1, "matched_count": 1})()
         elif upsert:
             new_doc = dict(filter_dict)
-            if "$set" in update_dict:
-                new_doc.update(update_dict["$set"])
-            else:
-                new_doc.update(update_dict)
+            new_doc.update(update_dict.get("$setOnInsert", {}))
+            new_doc.update(update_dict.get("$set", {}))
+            # Mongo 语义：upsert 时 $inc 从 0 起算写入新文档
+            for k, v in update_dict.get("$inc", {}).items():
+                new_doc[k] = new_doc.get(k, 0) + v
+            if ("$setOnInsert" not in update_dict and "$set" not in update_dict
+                    and "$inc" not in update_dict):
+                new_doc.update(
+                    {k: v for k, v in update_dict.items() if not k.startswith("$")}
+                )
             self._insert(new_doc)
             return type("Result", (), {"modified_count": 0, "matched_count": 0, "upserted_id": new_doc["_id"]})()
         return type("Result", (), {"modified_count": 0, "matched_count": 0})()
@@ -200,9 +210,24 @@ class SimulatedCursor:
         self._limit = 0
 
     def sort(self, *args, **kwargs):
-        # 排序不影响模拟结果，直接返回自身
+        """按 Mongo 语义排序（支持 ('f',1) / [('f',1),...] / 关键字形式）。
+
+        多字段用**稳定排序逆序逐键**实现：与 Mongo 的复合键排序等价。
+        None 值排在最前（升序）/ 最后（降序），与 Mongo 对缺失字段的排序一致。
+        """
+        keys: list = []
         if args and isinstance(args[0], list):
-            pass  # MongoDB 格式: [("field", 1), ...]
+            keys.extend(args[0])
+        for i in range(0, len(args) - 1, 2):
+            keys.append((args[i], args[i + 1]))
+        for k, v in kwargs.items():
+            if not k.startswith("_"):
+                keys.append((k, v))
+        for field, direction in reversed(keys):
+            self._docs.sort(
+                key=lambda d: (d.get(field) is None, d.get(field)),
+                reverse=(direction == -1),
+            )
         return self
 
     def skip(self, n):
@@ -215,6 +240,9 @@ class SimulatedCursor:
 
     async def to_list(self, length=None):
         result = self._docs[self._skip:]
+        # 与 motor 语义对齐：cursor.limit(n) 先截断，to_list(length) 再截断
+        if self._limit and self._limit > 0:
+            result = result[:self._limit]
         if length and length > 0:
             result = result[:length]
         return result

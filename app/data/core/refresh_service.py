@@ -32,6 +32,7 @@ _SUPPORTED_ON_DEMAND_DOMAINS = {
     "market_quotes",
     # 分析前预拉取扩展域
     "intraday_quotes",
+    "tick_quotes",
     "money_flow",
     "margin_trading",
     "dragon_tiger",
@@ -45,6 +46,8 @@ _INCREMENTAL_DOMAINS = {
     "adj_factors": ("trade_date", 60),
     "financial_data": ("report_period", 365),
     "intraday_quotes": ("datetime", 5),
+    # tick 体量极大（PRD RK-07），按需刷新只回看 5 日（技术方案第六节第 12 步）
+    "tick_quotes": ("trade_date", 5),
     "money_flow": ("trade_date", 60),
     "margin_trading": ("trade_date", 60),
     "dragon_tiger": ("trade_date", 60),

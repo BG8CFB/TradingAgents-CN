@@ -60,7 +60,7 @@ class Reader:
                 BasicInfoRepo, DailyQuotesRepo, DailyIndicatorsRepo,
                 AdjFactorsRepo, CorporateActionsRepo, FinancialDataRepo,
                 MarketQuotesRepo, NewsRepo, TradeCalendarRepo,
-                IntradayQuotesRepo, MoneyFlowRepo, MarginTradingRepo,
+                IntradayQuotesRepo, TickQuotesRepo, MoneyFlowRepo, MarginTradingRepo,
                 DragonTigerRepo, BlockTradeRepo,
                 ConnectStatusRepo, SouthboundHoldingRepo, PrePostMarketRepo,
                 FactorScoresRepo, ScreeningRecommendationsRepo,
@@ -78,6 +78,7 @@ class Reader:
                 "market_quotes": MarketQuotesRepo,
                 "news": NewsRepo,
                 "intraday_quotes": IntradayQuotesRepo,
+                "tick_quotes": TickQuotesRepo,
                 "money_flow": MoneyFlowRepo,
                 "margin_trading": MarginTradingRepo,
                 "dragon_tiger": DragonTigerRepo,
@@ -175,6 +176,17 @@ class Reader:
                     freq=freq,
                 )
 
+        elif domain == "tick_quotes":
+            # tick 单日可达数十万条，必须带 limit 上限（默认 2000 条），
+            # 时间自然序为 time_ms 升序（见 TickQuotesRepo）
+            if symbol:
+                limit = filters.get("limit", 2000)
+                data = await repo.get_by_symbol_and_range(
+                    symbol, market,
+                    start_date or "1970-01-01", end_date or "2099-12-31",
+                    limit=limit,
+                )
+
         elif domain == "money_flow":
             if symbol:
                 data = await repo.get_by_symbol_and_range(
@@ -259,6 +271,7 @@ class Reader:
         "adj_factors": "trade_date",
         "corporate_actions": "trade_date",
         "intraday_quotes": "trade_date",
+        "tick_quotes": "trade_date",
         "money_flow": "trade_date",
         "margin_trading": "trade_date",
         "dragon_tiger": "trade_date",

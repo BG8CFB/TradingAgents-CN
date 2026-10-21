@@ -181,6 +181,7 @@ export const DOMAIN_LABELS: Record<string, string> = {
   trade_calendar: '交易日历',
   corporate_actions: '公司行为',
   intraday_quotes: '分时行情',
+  tick_quotes: '逐笔成交',
   money_flow: '资金流向',
   margin_trading: '融资融券',
   dragon_tiger: '龙虎榜',

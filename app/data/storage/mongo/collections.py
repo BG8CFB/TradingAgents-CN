@@ -21,6 +21,7 @@ _BUSINESS_COLLECTIONS: Dict[str, str] = {
     "southbound_holding": "stock_southbound_holding",
     "pre_post_market": "stock_pre_post_market",
     "intraday_quotes": "stock_intraday_quotes",
+    "tick_quotes": "stock_tick_quotes",
     "money_flow": "stock_money_flow",
     "margin_trading": "stock_margin_trading",
     "dragon_tiger": "stock_dragon_tiger",
@@ -39,6 +40,9 @@ _METADATA_COLLECTIONS: Dict[str, str] = {
     "system_configs": "system_configs",
     # 系统级安全密钥（JWT/CSRF）— 多 worker 首启时通过 unique index 强制收敛到单条
     "system_secrets": "system_secrets",
+    # 数据缺口登记（FR-12）：按 (market, domain, gap_date) 单条累积补采轮次，
+    # 是唯一需要「原地更新计数」的审计面，故独立成集合（sync_events 为追加式）
+    "data_gaps": "data_gaps",
 }
 
 # 市场后缀：CN 不加后缀（基础名），HK/US 加市场后缀

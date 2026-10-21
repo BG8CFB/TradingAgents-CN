@@ -188,6 +188,7 @@ class DataSourceType(str, Enum):
     TUSHARE = "tushare"
     AKSHARE = "akshare"
     BAOSTOCK = "baostock"
+    QMT = "qmt"
 
     # 美股数据源
     FINNHUB = "finnhub"
