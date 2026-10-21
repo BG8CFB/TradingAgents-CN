@@ -31,6 +31,7 @@ class DataSourceCode(str, Enum):
     TUSHARE = "tushare"      # Tushare - 专业A股数据
     AKSHARE = "akshare"      # AKShare - 开源金融数据（A股+港股）
     BAOSTOCK = "baostock"    # BaoStock - 免费A股数据
+    QMT = "qmt"              # QMT - 国金量化终端 datadir 本地直读（兜底源）
     
     # ==================== 美股数据源 ====================
     YFINANCE = "yfinance"         # yfinance - Yahoo Finance Python库
@@ -115,6 +116,19 @@ DATA_SOURCE_REGISTRY: Dict[str, DataSourceInfo] = {
         official_website="https://akshare.akfamily.xyz",
         documentation_url="https://akshare.akfamily.xyz/introduction.html",
         features=["历史行情", "实时行情", "财务数据", "新闻资讯", "完全免费"],
+    ),
+
+    # QMT（datadir 本地直读）
+    DataSourceCode.QMT: DataSourceInfo(
+        code=DataSourceCode.QMT,
+        name="QMT",
+        display_name="国金 QMT（本地直读）",
+        provider="迅投 / 国金证券",
+        description="国金 QMT 量化终端本地 datadir 数据直读，兜底行情源（需同机部署并配置盘后下载任务）",
+        supported_markets=["a_shares"],
+        requires_api_key=False,
+        is_free=True,
+        features=["历史行情", "日线", "分时(M2)", "tick(M2)", "分红复权", "仅本地自用"],
     ),
     
     # BaoStock

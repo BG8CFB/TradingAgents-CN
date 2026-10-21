@@ -118,3 +118,16 @@ tencent_hk:
   retry:
     max_retries: 1
     backoff_base: 1.0
+
+# QMT（datadir 本地直读）：无网络限流语义，rate 仅为批量任务节奏约束；
+# 冷却针对「datadir 未产出/路径缺失」类故障（自愈慢，冷却取长）；
+# 本地文件重试意义小，快速失败让位下一域/源（技术方案 5.2）
+qmt:
+  rate_per_minute: 60
+  polite_interval_ms: 0
+  circuit_initial_cooldown: 300
+  circuit_max_cooldown: 1800
+  requires_token: false
+  retry:
+    max_retries: 1
+    backoff_base: 2.0

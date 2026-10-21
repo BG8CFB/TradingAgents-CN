@@ -357,6 +357,31 @@ class Settings(BaseSettings):
     BAOSTOCK_INIT_BATCH_SIZE: int = Field(default=50, ge=10, le=500, description="初始化批处理大小")
     BAOSTOCK_INIT_AUTO_START: bool = Field(default=False, description="应用启动时自动检查并初始化数据")
 
+    # ==================== QMT datadir 本地直读（国金 QMT 基线） ====================
+    # 口径见 docs/PRD-QMT数据源接入.md（D-1 同机 / D-2 兜底源 / D-7 仅本地直读）；
+    # datadir 路径可被 Web UI 数据源管理页覆盖（Mongo config_params 优先、ENV 回退，
+    # 见 app/data/sources/cn/qmt/config.py）
+    QMT_ENABLED: bool = Field(default=False, description="启用 QMT 数据源（datadir 本地直读，需国金 QMT 客户端盘后下载任务产出 datadir）")
+    QMT_DATADIR: str = Field(default="", description="QMT datadir 根路径；可被 Web UI 配置覆盖")
+    QMT_SYNC_ENABLED: bool = Field(default=True, description="QMT 盘后定时采集开关（QMT_ENABLED 之下的调度开关）")
+    QMT_DAILY_SYNC_CRON: str = Field(default="30 15 * * 1-5", description="盘后采集调度 CRON（Job 内含 datadir 就绪轮询至截止时刻）")
+    QMT_READINESS_DEADLINE: str = Field(default="22:00", description="datadir 就绪等待截止时刻（HH:MM），超时当日缺口由补采/既有源承接")
+    QMT_READINESS_POLL_SECONDS: int = Field(default=600, ge=60, le=3600, description="就绪轮询间隔（秒）")
+    QMT_SYNC_LOOKBACK_DAYS: int = Field(default=6, ge=1, le=60, description="每次采集回看的交易日窗口")
+    QMT_READ_WORKERS: int = Field(default=4, ge=1, le=16, description="datadir 解析并发信号量")
+    QMT_TICK_RETENTION_DAYS: int = Field(default=60, ge=1, description="tick 保留天数（M2 清理任务依据，可被 Web UI 覆盖）")
+    QMT_TICK_DAILY_LIMIT: int = Field(default=30000000, ge=1, description="tick 单日写入行数阈值，超限暂停（已按 T-2 实测校准：实测约 2,350 万条/日）")
+    # M2 分时（FR-04）：datadir 仅有 1m/5m 两个周期目录，逗号分隔可多选；
+    # 默认只采 5m —— 1m 体量约为 5m 的 5 倍（单日全市场 5m ≈ 26 万条、1m ≈ 130 万条）
+    QMT_INTRADAY_FREQS: str = Field(default="5min", description="分时采集频率（逗号分隔，支持 1min/5min）")
+    QMT_INTRADAY_LOOKBACK_DAYS: int = Field(default=3, ge=1, le=20, description="分时每轮回看交易日数（按日分块，控内存峰值）")
+    # M2 缺口管理（FR-12）：检测 → 登记 → qmt 优先补 → 既有源兜底
+    QMT_GAP_ENABLED: bool = Field(default=True, description="缺口自动补采开关（QMT_ENABLED 之下）")
+    QMT_GAP_LOOKBACK_DAYS: int = Field(default=10, ge=1, le=120, description="缺口检测回看的交易日数")
+    QMT_GAP_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=10, description="同一缺口自动补采轮次上限，达上限转人工")
+    # FR-07 规则 3：复权因子与既有源交叉校验，不一致率超阈值告警并保留既有源值
+    QMT_CROSS_CHECK_THRESHOLD: float = Field(default=0.005, ge=0.0, le=1.0, description="双源不一致率告警阈值（默认 0.5%）")
+
     # ==================== 数据同步并发控制 ====================
     # BaseSyncJob 串行 for 循环改为 asyncio.Semaphore + gather 时的并发上限
     # 默认 8（保守值，避免压垮数据源）；按市场可单独配置

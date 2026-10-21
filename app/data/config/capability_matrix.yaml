@@ -5,14 +5,17 @@ CN:
     tushare: full
     akshare: full
     baostock: full
+    qmt: partial        # 仅 symbol；名称/上市日由既有源合并（PRD FR-05）
   trade_calendar:
     tushare: full
     akshare: full
     baostock: full
+    qmt: full           # 上证指数日线派生
   daily_quotes:
     tushare: full
     akshare: full
     baostock: full
+    qmt: partial        # 缺 turnover_rate；兜底源语义足够（D-2 回退末位）
   daily_indicators:
     tushare: full
     akshare: partial
@@ -21,14 +24,17 @@ CN:
     tushare: full
     akshare: full
     baostock: full
+    qmt: partial        # 仅累计因子（adj_f_cum→adj_factor），无 fore/back 槽
   financial_data:
     tushare: full
     akshare: partial
     baostock: none
+    qmt: none           # datadir 仅 7004~7007，主表需 RPC 通道（D-7 移除，O-1）
   market_quotes:
     tushare: full
     akshare: full
     baostock: none
+    qmt: none           # datadir 盘后产物无盘中实时性（D-7 连带边界）
   news:
     tushare: full
     akshare: partial
@@ -36,6 +42,12 @@ CN:
   intraday_quotes:
     tushare: full
     akshare: full
+    qmt: full           # datadir 1m/5m 原生周期目录（M2/FR-04）
+  tick_quotes:
+    qmt: full           # 新标准域（M2/FR-06），datadir 144B 直读；当前唯一源
+  corporate_actions:
+    qmt: full           # CN 唯一源（M2/FR-07）：datadir DividData LevelDB 分红送配；
+                        # 既有 CN 源无 corporate_actions 通道，故此处不存在回退链
   money_flow:
     tushare: full
     akshare: full
