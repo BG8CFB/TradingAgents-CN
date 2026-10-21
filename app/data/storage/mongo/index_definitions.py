@@ -17,7 +17,7 @@
 from typing import Dict, List, Tuple
 
 # 索引定义: {domain → [(索引字段列表, 是否唯一), ...]}
-# 必须覆盖 app/data/storage/mongo/collections.py 中 _BUSINESS_COLLECTIONS 全部 21 个 domain
+# 必须覆盖 app/data/storage/mongo/collections.py 中 _BUSINESS_COLLECTIONS 全部 22 个 domain
 INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
     "basic_info": [
         ([("symbol", 1)], True),
@@ -75,6 +75,14 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
         # 分钟线：按 symbol + datetime + freq 唯一
         ([("symbol", 1), ("datetime", -1), ("freq", 1)], True),
         ([("datetime", -1)], False),
+    ],
+    "tick_quotes": [
+        # 逐笔成交：按 symbol + trade_date + time_ms 唯一（单版本覆盖语义，
+        # 与 daily_quotes 同规）。time_ms 为当日毫秒时刻，可区分同秒多笔。
+        ([("symbol", 1), ("trade_date", -1), ("time_ms", 1)], True),
+        # 保留期清理 Job 按 trade_date 分区删除（DD-03），单独建索引避免
+        # 在亿级文档上做全集合扫描。
+        ([("trade_date", -1)], False),
     ],
     "money_flow": [
         # 资金流向：按 symbol + 日期唯一
@@ -139,6 +147,12 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
     "system_secrets": [
         # 安全密钥：name 唯一，强制多 worker 首启只写一条
         ([("name", 1)], True),
+    ],
+    "data_gaps": [
+        # 缺口登记：同市场同域同日只保留一条（含补采轮次/状态原地累加）
+        ([("market", 1), ("domain", 1), ("gap_date", 1)], True),
+        # 补采任务按状态扫描待处理缺口
+        ([("status", 1), ("gap_date", -1)], False),
     ],
 }
 

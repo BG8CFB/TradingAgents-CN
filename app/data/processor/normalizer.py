@@ -18,6 +18,7 @@ DOMAIN_METHOD_MAP = {
     "news": "adapt_news",
     "market_quotes": "adapt_market_quotes",
     "intraday_quotes": "adapt_intraday_quotes",
+    "tick_quotes": "adapt_tick_quotes",
     "money_flow": "adapt_money_flow",
     "margin_trading": "adapt_margin_trading",
     "dragon_tiger": "adapt_dragon_tiger",

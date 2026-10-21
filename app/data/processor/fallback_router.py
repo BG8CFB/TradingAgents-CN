@@ -434,6 +434,7 @@ class FallbackRouter:
             "news": lambda: provider.get_news(None if symbol == "__all__" else symbol, start, end),
             "market_quotes": lambda: provider.get_market_quotes([symbol]),
             "intraday_quotes": lambda: provider.get_intraday_quotes(symbol, start, end),
+            "tick_quotes": lambda: provider.get_tick_quotes(symbol, start, end),
             "money_flow": lambda: self._fetch_money_flow_batch(provider, symbol, start, end),
             "margin_trading": lambda: provider.get_margin_trading(symbol, start, end),
             "dragon_tiger": lambda: provider.get_dragon_tiger(symbol, start, end),

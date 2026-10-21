@@ -10,7 +10,9 @@ from app.data.storage.mongo.repositories.market_quotes_repo import MarketQuotesR
 from app.data.storage.mongo.repositories.news_repo import NewsRepo as NewsRepo
 from app.data.storage.mongo.repositories.trade_calendar_repo import TradeCalendarRepo as TradeCalendarRepo
 from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo as MetadataRepo
+from app.data.storage.mongo.repositories.data_gap_repo import DataGapRepo as DataGapRepo
 from app.data.storage.mongo.repositories.intraday_quotes_repo import IntradayQuotesRepo as IntradayQuotesRepo
+from app.data.storage.mongo.repositories.tick_quotes_repo import TickQuotesRepo as TickQuotesRepo
 from app.data.storage.mongo.repositories.money_flow_repo import MoneyFlowRepo as MoneyFlowRepo
 from app.data.storage.mongo.repositories.margin_trading_repo import MarginTradingRepo as MarginTradingRepo
 from app.data.storage.mongo.repositories.dragon_tiger_repo import DragonTigerRepo as DragonTigerRepo

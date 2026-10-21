@@ -38,6 +38,7 @@ class TestDataDomain:
         assert DataDomain.TUSHARE_UNIVERSE.value == "tushare_universe"
         assert DataDomain.PRE_POST_MARKET.value == "pre_post_market"
         assert DataDomain.INTRADAY_QUOTES.value == "intraday_quotes"
+        assert DataDomain.TICK_QUOTES.value == "tick_quotes"
         assert DataDomain.MONEY_FLOW.value == "money_flow"
         assert DataDomain.MARGIN_TRADING.value == "margin_trading"
         assert DataDomain.DRAGON_TIGER.value == "dragon_tiger"
@@ -48,7 +49,8 @@ class TestDataDomain:
 
     def test_domain_count(self):
         # 2026-09 选股三层漏斗：+factor_scores/screening_insights/screening_recommendations
-        assert len(DataDomain) == 21
+        # 2026-10 QMT M2：+tick_quotes（新标准域，PRD FR-06）
+        assert len(DataDomain) == 22
 
     def test_str_enum_behavior(self):
         assert DataDomain.BASIC_INFO == "basic_info"

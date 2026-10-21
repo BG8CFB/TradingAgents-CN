@@ -11,6 +11,22 @@ logger = logging.getLogger(__name__)
 _user_priority_cache = TTLCache(default_ttl=30)
 
 
+def _is_source_enabled(source: str) -> bool:
+    """运行时开关过滤：关闭的源等同未注册（PRD FR-09 GWT）。
+
+    当前仅 QMT 需要（默认关闭，需同机 datadir）；其余源沿用既有行为
+    （由凭据/可用性在调用期判定），避免影响现网回退链。
+    """
+    if source == "qmt":
+        try:
+            from app.core.config import settings
+
+            return bool(settings.QMT_ENABLED)
+        except Exception:  # 配置不可读时保守关闭
+            return False
+    return True
+
+
 class CapabilityRegistry:
     """数据源能力注册表。
 
@@ -60,7 +76,7 @@ class CapabilityRegistry:
     ) -> List[str]:
         """获取按优先级排序的可用数据源列表。
 
-        1. 过滤掉 disabled_sources
+        1. 过滤掉 disabled_sources 与运行时关闭的源（见 _is_source_enabled）
         2. 过滤掉 SupportLevel.NONE
         3. 按用户优先级排序（若提供）
         """
@@ -68,7 +84,12 @@ class CapabilityRegistry:
         disabled = set(disabled_sources or [])
 
         # 过滤
-        available = [(s, level) for s, level in sources if s not in disabled and level != SupportLevel.NONE]
+        available = [
+            (s, level) for s, level in sources
+            if s not in disabled
+            and level != SupportLevel.NONE
+            and _is_source_enabled(s)
+        ]
 
         if user_priority:
             priority_set = {s: i for i, s in enumerate(user_priority)}
