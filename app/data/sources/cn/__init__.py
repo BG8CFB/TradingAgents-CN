@@ -16,6 +16,9 @@ def get_cn_provider(source_name: str) -> Optional[BaseProvider]:
     elif source_name in ("baostock", "bst"):
         from .baostock.provider import BaoStockCNProvider
         return BaoStockCNProvider()
+    elif source_name == "qmt":
+        from .qmt.provider import QmtProvider
+        return QmtProvider()
     return None
 
 
@@ -29,4 +32,7 @@ def get_cn_adapter(source_name: str) -> Optional[BaseAdapter]:
     elif source_name in ("baostock", "bst"):
         from .baostock.adapter import BaoStockCNAdapter
         return BaoStockCNAdapter()
+    elif source_name == "qmt":
+        from .qmt.adapter import QmtAdapter
+        return QmtAdapter()
     return None

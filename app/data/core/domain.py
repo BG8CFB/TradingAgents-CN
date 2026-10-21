@@ -18,6 +18,7 @@ class DataDomain(str, Enum):
     TUSHARE_UNIVERSE = "tushare_universe"
     PRE_POST_MARKET = "pre_post_market"
     INTRADAY_QUOTES = "intraday_quotes"
+    TICK_QUOTES = "tick_quotes"
     MONEY_FLOW = "money_flow"
     MARGIN_TRADING = "margin_trading"
     DRAGON_TIGER = "dragon_tiger"
@@ -50,6 +51,7 @@ DOMAIN_SEMANTIC_TYPE = {
     DataDomain.TUSHARE_UNIVERSE: SemanticType.ENTITY,
     DataDomain.PRE_POST_MARKET: SemanticType.SNAPSHOT,
     DataDomain.INTRADAY_QUOTES: SemanticType.TIMESERIES,
+    DataDomain.TICK_QUOTES: SemanticType.TIMESERIES,
     DataDomain.MONEY_FLOW: SemanticType.TIMESERIES,
     DataDomain.MARGIN_TRADING: SemanticType.TIMESERIES,
     DataDomain.DRAGON_TIGER: SemanticType.EVENT,
@@ -68,6 +70,7 @@ MARKET_DATA_DOMAINS = {
     DataDomain.SOUTHBOUND_HOLDING,
     DataDomain.PRE_POST_MARKET,
     DataDomain.INTRADAY_QUOTES,
+    DataDomain.TICK_QUOTES,
     DataDomain.MONEY_FLOW,
     DataDomain.MARGIN_TRADING,
     DataDomain.DRAGON_TIGER,

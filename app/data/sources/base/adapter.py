@@ -24,6 +24,7 @@ from app.data.schema.domains.margin_trading import MarginTradingSchema
 from app.data.schema.domains.dragon_tiger import DragonTigerSchema
 from app.data.schema.domains.block_trade import BlockTradeSchema
 from app.data.schema.domains.intraday_quotes import IntradayQuotesSchema
+from app.data.schema.domains.tick_quotes import TickQuotesSchema
 
 
 class BaseAdapter(ABC):
@@ -74,6 +75,10 @@ class BaseAdapter(ABC):
     def adapt_intraday_quotes(self, raw: Any) -> List[IntradayQuotesSchema]:
         """将原始数据转换为 IntradayQuotesSchema 列表。"""
         raise NotImplementedError(f"{self.source_name} 不支持 intraday_quotes")
+
+    def adapt_tick_quotes(self, raw: Any) -> List[TickQuotesSchema]:
+        """将原始数据转换为 TickQuotesSchema 列表（M2 新增标准域，PRD FR-06）。"""
+        raise NotImplementedError(f"{self.source_name} 不支持 tick_quotes")
 
     def adapt_money_flow(self, raw: Any) -> List[MoneyFlowSchema]:
         """将原始数据转换为 MoneyFlowSchema 列表。"""

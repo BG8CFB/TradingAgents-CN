@@ -31,6 +31,15 @@ CN:
   intraday_quotes:
     rule_type: time_window
     threshold_minutes: 30
+  # tick 为 datadir 盘后产物：窗口从收盘 15:00 起算，阈值取 PRD 3.2 的
+  # 「tick 当日 ≤ 2 小时」估算上限（T-2 实测产出时刻后校准）
+  tick_quotes:
+    rule_type: trading_day_after_close
+    threshold_minutes: 120
+    reference_time: "15:00"
+  corporate_actions:
+    rule_type: time_window
+    threshold_hours: 24   # 分红送配为低频事件数据，24h 窗口足够
   money_flow:
     rule_type: trading_day_after_close
     threshold_minutes: 30
