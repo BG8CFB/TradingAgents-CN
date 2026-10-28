@@ -26,6 +26,7 @@ class EmbeddingConfig:
     fallback_available: bool = False
     fallback_client: Any = None
     fallback_embedding: str = ""
+    dimension: Optional[int] = None  # OpenAI 兼容协议 dimensions 参数；空 = 模型默认
 
 
 def _get_api_key_from_db(provider: str) -> Optional[str]:
@@ -56,6 +57,12 @@ def resolve_embedding(provider: str, config: dict) -> EmbeddingConfig:
         EmbeddingConfig 数据类
     """
     provider_lower = (provider or "openai").lower()
+
+    # 优先：数据库显式配置的向量模型（Web UI「设置 → LLM」model_type=embedding，
+    # OpenAI 兼容 /v1/embeddings 通用协议，云端 API）
+    configured = _try_configured_embedding()
+    if configured is not None:
+        return configured
 
     # 特殊情况：Ollama 本地模型
     backend_url = config.get("backend_url", "")
@@ -91,6 +98,32 @@ def resolve_embedding(provider: str, config: dict) -> EmbeddingConfig:
 
 def _force_openai() -> bool:
     return get_env("FORCE_OPENAI_EMBEDDING", "false").lower() == "true"
+
+
+def _try_configured_embedding() -> Optional[EmbeddingConfig]:
+    """数据库 model_type=embedding 配置 → OpenAI 兼容客户端（配置缺失/无 key 返回 None）"""
+    try:
+        from app.llm.providers import resolve_embedding_config
+
+        resolved = resolve_embedding_config()
+    except Exception as e:  # noqa: BLE001 - 配置层不可用走兜底链
+        logger.debug(f"[embedding] 读取向量模型配置失败: {e}")
+        return None
+    if resolved is None:
+        return None
+    if not resolved.api_key:
+        logger.warning(f"⚠️ [embedding] 向量模型 {resolved.model_name} 缺少 API Key，走兜底链")
+        return None
+
+    from openai import OpenAI
+
+    logger.info(f"💡 [embedding] 使用配置的向量模型: {resolved.provider}/{resolved.model_name}")
+    return EmbeddingConfig(
+        client=OpenAI(api_key=resolved.api_key, base_url=resolved.base_url or None),
+        embedding_model=resolved.model_name,
+        provider=resolved.provider,
+        dimension=resolved.dimension,
+    )
 
 
 def _try_dashscope(provider: str) -> Optional[EmbeddingConfig]:

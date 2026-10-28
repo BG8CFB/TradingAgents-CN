@@ -39,6 +39,9 @@ _METADATA_COLLECTIONS: Dict[str, str] = {
     "system_configs": "system_configs",
     # 系统级安全密钥（JWT/CSRF）— 多 worker 首启时通过 unique index 强制收敛到单条
     "system_secrets": "system_secrets",
+    # 知识库（stock_news 向量检索）：索引状态与引用校验计数
+    "kb_index_state": "kb_index_state",
+    "kb_citation_stats": "kb_citation_stats",
 }
 
 # 市场后缀：CN 不加后缀（基础名），HK/US 加市场后缀

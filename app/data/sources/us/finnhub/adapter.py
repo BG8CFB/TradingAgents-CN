@@ -90,9 +90,13 @@ class FinnhubUSAdapter(BaseAdapter):
                 if ts is not None
                 else ""
             )
-            content_hash = StockNewsSchema.compute_hash(title, publish_time) if title else None
+            symbol = str(get("related", "")).upper()
+            content_hash = (
+                StockNewsSchema.compute_hash(title, publish_time, symbol)
+                if title else None
+            )
             results.append(StockNewsSchema(
-                symbol=str(get("related", "")).upper(),
+                symbol=symbol,
                 market="US",
                 data_source="finnhub",
                 title=title,
@@ -101,6 +105,8 @@ class FinnhubUSAdapter(BaseAdapter):
                 source=get("source", ""),
                 publish_time=publish_time,
                 url=get("url", ""),
+                type=get("type"),
+                summary=get("summary"),
             ))
         return results
 

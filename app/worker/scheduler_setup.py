@@ -122,6 +122,16 @@ async def register_jobs(scheduler: AsyncIOScheduler, basics_sync_service, run_ba
     )
     logger.info("A股完整性检查已配置: 每日 17:00")
 
+    # ── 知识库增量索引（stock_news 向量化；独立 cron，与结算链路解耦） ──
+    if settings.KB_INDEX_ENABLED:
+        add_resilient_job(
+            scheduler, _run_kb_incremental_index,
+            IntervalTrigger(minutes=settings.KB_INDEX_INTERVAL_MINUTES, timezone=tz),
+            id="kb_news_index",
+            name="知识库增量索引",
+        )
+        logger.info(f"知识库增量索引已启动: 每 {settings.KB_INDEX_INTERVAL_MINUTES} 分钟")
+
     # ── 选股每日推荐（20:15 factor_scores 批算完成后）──
     add_resilient_job(
         scheduler, _run_screening_daily_recommendations,
@@ -242,6 +252,17 @@ def _register_us_auxiliary_jobs(sched: AsyncIOScheduler):
 
 
 # ── 辅助异步任务函数 ──
+
+async def _run_kb_incremental_index():
+    """知识库增量索引（未配置向量模型时各市场自动 skip）"""
+    try:
+        from app.data.knowledge import run_incremental
+
+        summary = await run_incremental()
+        logger.info("知识库增量索引完成: %s", summary)
+    except Exception as e:
+        logger.error(f"知识库增量索引失败: {e}", exc_info=True)
+
 
 async def _run_cn_integrity_check():
     """A股数据完整性检查"""

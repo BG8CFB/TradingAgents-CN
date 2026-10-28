@@ -407,6 +407,14 @@ class Settings(BaseSettings):
     WEBSOCKET_MAX_CONNECTIONS_PER_TASK: int = Field(default=5, ge=1, le=50, description="单任务 WebSocket 最大连接数")
     WEBSOCKET_MAX_TOTAL_CONNECTIONS: int = Field(default=1000, ge=1, le=10000, description="全局 WebSocket 最大连接数")
 
+    # ==================== 知识库（stock_news 向量检索） ====================
+    KB_INDEX_ENABLED: bool = Field(default=True, description="知识库增量索引定时任务开关")
+    KB_INDEX_INTERVAL_MINUTES: int = Field(default=30, ge=5, le=1440, description="知识库增量索引间隔（分钟）")
+    KB_EMBEDDING_TOP_K: int = Field(default=6, ge=1, le=20, description="分析预注入检索条数 top-K")
+    KB_EMBEDDING_BATCH_SIZE: int = Field(default=32, ge=1, le=128, description="向量模型单批编码文档数")
+    KB_EMBEDDING_MAX_CHARS: int = Field(default=6000, ge=500, le=50000, description="单篇新闻参与向量化的最大字符数")
+    KB_CHROMA_DIR: str = Field(default="data/kb_chroma", description="知识库 ChromaDB 持久化目录（相对 runtime 根）")
+
     # 数据目录配置
     TRADINGAGENTS_DATA_DIR: str = Field(default="data")
 

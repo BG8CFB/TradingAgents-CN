@@ -117,8 +117,11 @@ class AKShareHKAdapter(BaseAdapter):
             publish_time = (
                 get("公告日期", "") or get("发布时间", "") or get("publish_time", "")
             )
-            content_hash = StockNewsSchema.compute_hash(title, str(publish_time)) if title else None
             raw_symbol = str(get("symbol", "") or get("股票代码", ""))
+            content_hash = (
+                StockNewsSchema.compute_hash(title, str(publish_time), raw_symbol)
+                if title else None
+            )
             results.append(StockNewsSchema(
                 symbol=raw_symbol.zfill(5) if raw_symbol else "",
                 market="HK",
@@ -129,6 +132,8 @@ class AKShareHKAdapter(BaseAdapter):
                 source=get("来源", "") or "hkexnews",
                 publish_time=publish_time,
                 url=get("链接", "") or get("url"),
+                type=get("type") or get("category"),
+                summary=get("summary"),
             ))
         return results
 

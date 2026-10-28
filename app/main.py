@@ -43,6 +43,7 @@ from app.routers import (
     model_capabilities,
     cache,
     logs,
+    knowledge,
 )
 from app.routers import mcp, tools
 from app.routers import chat as chat_router
@@ -756,6 +757,7 @@ app.include_router(registry_router.router)
 
 # Skill 管理
 app.include_router(skills_router.router)
+app.include_router(knowledge.router)
 
 # 通知模块（REST）
 app.include_router(notifications_router.router)

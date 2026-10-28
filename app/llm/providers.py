@@ -91,11 +91,17 @@ def infer_protocol(provider: str, protocol: Optional[str] = None) -> str:
 
 
 def _pick_candidates(configs: List[Dict[str, Any]], role: str = "both") -> List[Dict[str, Any]]:
-    """角色匹配的启用配置，按 priority 降序（首位为 primary，次位为 fallback）"""
+    """角色匹配的启用配置，按 priority 降序（首位为 primary，次位为 fallback）。
+
+    model_type=embedding 的条目是向量模型（知识库/记忆用），不参与对话角色解析；
+    与 suitable_roles 分开承载，避免给角色字段加值导致前端「全选折叠为 both」
+    与 analyst/debate 过滤器掉进折叠分支。
+    """
     candidates = [
         c
         for c in configs
-        if c.get("enabled", True) and (c.get("suitable_roles") or ["both"])
+        if c.get("enabled", True) and (c.get("model_type") or "chat") == "chat"
+        and (c.get("suitable_roles") or ["both"])
         and (role in (c.get("suitable_roles") or ["both"]) or "both" in (c.get("suitable_roles") or []))
     ]
     return sorted(candidates, key=lambda c: c.get("priority", 0), reverse=True)
@@ -207,6 +213,8 @@ _CONFIG_FIELDS = (
     # 每模型参数（表单采集，此前未消费）
     "max_tokens", "temperature", "timeout", "retry_times", "context_window",
     "thinking_budget", "thinking_effort", "max_concurrency",
+    # 模型用途分类：chat（对话）| embedding（向量，知识库用）；缺省 chat
+    "model_type", "embedding_dimension",
 )
 
 
@@ -459,6 +467,63 @@ async def resolve_task_override_bundle(
         f"context_window={resolved.context_window or '未知'})"
     )
     return bundle
+
+
+# ── 向量模型配置解析（知识库 / 记忆 embedding 用） ──────────────────────────
+
+
+@dataclass
+class EmbeddingResolved:
+    """解析后的向量模型配置（OpenAI 兼容 /v1/embeddings 通用协议）"""
+
+    provider: str
+    model_name: str
+    api_key: str
+    base_url: Optional[str]  # 空 = OpenAI 官方默认地址
+    dimension: Optional[int] = None  # 空 = 模型默认维度
+    source: str = "db"
+
+
+def resolve_embedding_config() -> Optional[EmbeddingResolved]:
+    """读取 model_type=embedding 的启用模型配置（priority 最高者）。
+
+    同步 pymongo 路径：调用方（知识库索引/检索、记忆 embedding 解析）
+    多运行在工作线程，motor 绑定主循环会抛跨循环异常。
+    无可用配置返回 None（调用方自行降级或禁用）。
+    """
+    try:
+        from app.core.database import get_mongo_db_sync
+
+        db = get_mongo_db_sync()
+        doc = db.system_configs.find_one({"is_active": True}, sort=[("version", -1)])
+        configs = _normalize_llm_configs((doc or {}).get("llm_configs"))
+        provider_docs = list(
+            db.llm_providers.find(
+                {}, {"name": 1, "api_key": 1, "default_base_url": 1, "protocol": 1}
+            ).limit(200)
+        )
+        defaults = _normalize_provider_defaults(provider_docs)
+    except Exception as e:  # noqa: BLE001 - 数据库不可用（独立测试场景）
+        logger.info(f"[providers] 读取向量模型配置失败: {e}")
+        return None
+
+    candidates = [
+        c for c in configs
+        if c.get("enabled", True) and c.get("model_type") == "embedding"
+    ]
+    candidates.sort(key=lambda c: c.get("priority", 0), reverse=True)
+    if not candidates:
+        return None
+
+    cfg = candidates[0]
+    defaults_ = defaults.get((cfg.get("provider") or "").strip().lower()) or {}
+    return EmbeddingResolved(
+        provider=cfg.get("provider") or "custom",
+        model_name=cfg["model_name"],
+        api_key=cfg.get("api_key") or defaults_.get("api_key") or "",
+        base_url=cfg.get("api_base") or defaults_.get("default_base_url") or None,
+        dimension=cfg.get("embedding_dimension"),
+    )
 
 
 async def get_engine_clients() -> Dict[str, EngineClientBundle]:

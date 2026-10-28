@@ -84,7 +84,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useWindowSize } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import SidebarMenu from '@/components/Layout/SidebarMenu.vue'

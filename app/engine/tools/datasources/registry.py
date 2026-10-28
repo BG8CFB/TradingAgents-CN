@@ -44,6 +44,11 @@ def _resolve_market_type(ctx: dict) -> str:
     return "cn"
 
 
+def _kb_injection_key(ctx: dict) -> str:
+    """知识库注入台账键（task_id::agent_key，报告落板后引用校验用）"""
+    return f"{ctx.get('task_id', '')}::{ctx.get('agent_key', '')}"
+
+
 def _lazy_import(module_path: str, func_name: str) -> Callable:
     """延迟导入数据源函数，避免循环依赖
 
@@ -151,6 +156,23 @@ def _build_registry() -> List[DatasourceSpec]:
             fn=_lazy_import(f"{_M}.sentiment", "get_stock_sentiment"),
             inject_args={"stock_code": "ticker", "current_date": "trade_date"},
             description="基于新闻情感标签的市场情绪统计（正面/负面/中性计数与评分）",
+        ),
+        # ── 知识库（stock_news 语料向量化检索，公共事实与记忆区分开） ──
+        DatasourceSpec(
+            tool_id="knowledge_base",
+            display_name="知识库检索",
+            domains=["news"],
+            markets=["CN", "HK", "US"],
+            fn=_lazy_import(f"{_M}.knowledge", "get_knowledge_base_brief"),
+            inject_args={
+                "stock_code": "ticker",
+                "current_date": "trade_date",
+                "injection_key": _kb_injection_key,
+            },
+            description=(
+                "stock_news 语料向量检索（按 symbol+分析日期预检索 top-K，"
+                "publish_ts<=as_of 防前视；引用以 [序号] 标注并校验）"
+            ),
         ),
         # ── CN 特定数据域（已纳入标准 DataInterface 域） ──
         DatasourceSpec(

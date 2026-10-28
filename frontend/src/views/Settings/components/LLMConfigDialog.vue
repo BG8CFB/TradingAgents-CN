@@ -86,7 +86,19 @@
         />
       </el-form-item>
 
-      <el-form-item label="用途" prop="suitable_roles">
+      <el-form-item label="模型类型" prop="model_type">
+        <el-radio-group v-model="formData.model_type">
+          <el-radio value="chat">对话模型</el-radio>
+          <el-radio value="embedding">向量模型</el-radio>
+        </el-radio-group>
+        <div class="form-tip">
+          {{ isEmbedding
+            ? '向量模型用于知识库/记忆检索（OpenAI 兼容 /v1/embeddings 协议），不参与分析与辩论'
+            : '对话模型用于分析师、辩论与交易决策' }}
+        </div>
+      </el-form-item>
+
+      <el-form-item v-if="!isEmbedding" label="用途" prop="suitable_roles">
         <el-checkbox-group v-model="formData.suitable_roles">
           <el-checkbox value="analyst">
             <span>快速分析</span>
@@ -155,7 +167,7 @@
             />
             <div class="form-tip">同时在途请求数上限（进程内灵活占位）</div>
           </div>
-          <div class="param-cell">
+          <div class="param-cell" v-if="!isEmbedding">
             <div class="param-label">思考强度</div>
             <el-select
               v-model="formData.thinking_effort"
@@ -170,6 +182,18 @@
               />
             </el-select>
             <div class="form-tip">{{ thinkingHint }}</div>
+          </div>
+          <div class="param-cell" v-if="isEmbedding">
+            <div class="param-label">向量维度</div>
+            <el-input-number
+              v-model="formData.embedding_dimension"
+              :min="64"
+              :max="8192"
+              :step="128"
+              placeholder="留空用模型默认"
+              class="param-input"
+            />
+            <div class="form-tip">留空用模型默认维度；修改后需在知识库页重建索引</div>
           </div>
         </div>
       </el-form-item>
@@ -275,7 +299,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { configApi, type LLMProvider, type LLMConfig, validateLLMConfig } from '@/api/config'
@@ -312,6 +337,7 @@ const fetchingModels = ref(false)
 const availableProviders = ref<LLMProvider[]>([])
 const advancedOpen = ref<string[]>([])
 const autoFilledFields = ref<string[]>([])
+const router = useRouter()
 
 const isEdit = computed(() => !!props.config)
 
@@ -338,7 +364,12 @@ const defaultFormData = {
   output_price_per_1k: 0,
   currency: 'CNY',
   suitable_roles: [] as string[],
+  model_type: 'chat' as 'chat' | 'embedding',
+  embedding_dimension: undefined as number | undefined,
 }
+
+// 向量模型分支：隐藏对话角色与思考档位，只关心 /v1/embeddings 参数
+const isEmbedding = computed(() => formData.value.model_type === 'embedding')
 
 const formData = ref({ ...defaultFormData })
 const selectedModelKey = ref<string>('')
@@ -531,8 +562,8 @@ const handleModelSelect = async (modelCode: string) => {
   formData.value.model_name = modelCode
 
   // 新增模式：按模型名智能预填思考强度（思考模型给推荐档，非思考模型回到不干预；
-  // 编辑模式不覆盖已保存配置）
-  if (!isEdit.value) {
+  // 编辑模式不覆盖已保存配置）；向量模型不走思考档位
+  if (!isEdit.value && !isEmbedding.value) {
     formData.value.thinking_effort = suggestThinkingEffort(modelCode)
   }
 
@@ -577,6 +608,8 @@ watch(
         thinking_budget: config.thinking_budget ?? undefined,
         thinking_effort: config.thinking_effort || '',
         max_concurrency: config.max_concurrency ?? 5,
+        model_type: config.model_type || 'chat',
+        embedding_dimension: config.embedding_dimension ?? undefined,
       }
       modelOptions.value = getModelOptions(config.provider)
       if (config.model_name) {
@@ -612,6 +645,8 @@ watch(
           thinking_budget: props.config.thinking_budget ?? undefined,
           thinking_effort: props.config.thinking_effort || '',
           max_concurrency: props.config.max_concurrency ?? 5,
+          model_type: props.config.model_type || 'chat',
+          embedding_dimension: props.config.embedding_dimension ?? undefined,
         }
         modelOptions.value = getModelOptions(props.config.provider)
         if (props.config.model_name) {
@@ -668,6 +703,13 @@ const handleSubmit = async () => {
     // 思考档位空串 → null（未设置语义；后端校验同样容忍空串，此处保证库内不留空串）
     submitData.thinking_effort = submitData.thinking_effort || null
 
+    // 向量模型：维度留空 → null（模型默认）；思考参数不适用，清空
+    if (submitData.model_type === 'embedding') {
+      submitData.embedding_dimension = submitData.embedding_dimension || null
+      submitData.thinking_effort = null
+      submitData.thinking_budget = null
+    }
+
     if ('api_key' in submitData) {
       delete submitData.api_key
     }
@@ -677,6 +719,20 @@ const handleSubmit = async () => {
     ElMessage.success(isEdit.value ? '模型配置更新成功' : '模型配置添加成功')
     emit('success')
     handleClose()
+
+    // 向量模型配置变更后旧索引不兼容，引导去知识库页重建
+    if (submitData.model_type === 'embedding' && submitData.enabled) {
+      try {
+        await ElMessageBox.confirm(
+          '向量模型配置已保存。旧索引与新的模型/维度不兼容，需重建知识库索引后生效。',
+          '需要重建知识库索引',
+          { confirmButtonText: '前往重建', cancelButtonText: '稍后再说', type: 'warning' },
+        )
+        router.push('/knowledge?tab=index')
+      } catch {
+        // 用户选择稍后处理
+      }
+    }
   } catch (error) {
     ElMessage.error(isEdit.value ? '模型配置更新失败' : '模型配置添加失败')
   } finally {

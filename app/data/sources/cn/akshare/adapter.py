@@ -243,9 +243,10 @@ class AKShareCNAdapter(BaseAdapter):
             get = row.get
             title = get("title", "") or get("标题", "")
             publish_time = get("datetime", "") or get("publish_time", "") or get("发布时间", "")
-            content_hash = StockNewsSchema.compute_hash(title, str(publish_time)) if title else None
+            symbol = str(get("symbol", ""))
+            content_hash = StockNewsSchema.compute_hash(title, str(publish_time), symbol) if title else None
             results.append(StockNewsSchema(
-                symbol=str(get("symbol", "")),
+                symbol=symbol,
                 market="CN",
                 data_source="akshare",
                 title=title,
@@ -254,6 +255,8 @@ class AKShareCNAdapter(BaseAdapter):
                 source=get("source") or get("来源", ""),
                 publish_time=publish_time,
                 url=get("url") or get("链接"),
+                type=get("type") or get("category"),
+                summary=get("summary"),
             ))
         return results
 

@@ -83,11 +83,14 @@ class TestCorporateActionsSchema:
 class TestStockNewsSchema:
     def test_compute_hash(self):
         from app.data.schema.domains.stock_news import StockNewsSchema
-        h1 = StockNewsSchema.compute_hash("Title A", "2024-01-01")
-        h2 = StockNewsSchema.compute_hash("Title A", "2024-01-01")
-        h3 = StockNewsSchema.compute_hash("Title B", "2024-01-01")
+        h1 = StockNewsSchema.compute_hash("Title A", "2024-01-01", "000001")
+        h2 = StockNewsSchema.compute_hash("Title A", "2024-01-01", "000001")
+        h3 = StockNewsSchema.compute_hash("Title B", "2024-01-01", "000001")
+        h4 = StockNewsSchema.compute_hash("Title A", "2024-01-01", "600000")
         assert h1 == h2
         assert h1 != h3
+        # symbol 并入哈希：同文不同标的不互相覆盖
+        assert h1 != h4
 
     def test_hash_in_doc(self):
         from app.data.schema.domains.stock_news import StockNewsSchema

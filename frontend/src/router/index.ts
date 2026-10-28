@@ -188,6 +188,29 @@ const routes: RouteRecordRaw[] = [
   { path: '/data/quality', redirect: '/data' },
   { path: '/data/viewer', redirect: '/data' },
   { path: '/data/sources', redirect: '/data' },
+  // ==================== 知识库 ====================
+  {
+    path: '/knowledge',
+    name: 'Knowledge',
+    component: () => import('@/layouts/BasicLayout.vue'),
+    meta: {
+      title: '知识库',
+      icon: 'Collection',
+      requiresAuth: true,
+      transition: 'fade'
+    },
+    children: [
+      {
+        path: '',
+        name: 'KnowledgeHome',
+        component: () => import('@/views/Knowledge/index.vue'),
+        meta: {
+          title: '知识库',
+          requiresAuth: true
+        }
+      }
+    ]
+  },
   {
     path: '/learning',
     name: 'Learning',

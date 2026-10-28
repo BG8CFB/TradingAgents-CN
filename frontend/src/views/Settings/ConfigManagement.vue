@@ -1227,10 +1227,11 @@ const loadTabData = async (tab: string) => {
   }
 }
 
-// 计算属性：所有启用的模型（跨厂家，用于系统设置中的模型选择）
+// 计算属性：所有启用的对话模型（跨厂家，用于系统设置中的模型选择；向量模型不参与）
 const allEnabledModels = computed(() => {
   const activeProviderNames = new Set(providers.value.filter(p => p.is_active).map(p => p.name))
-  return llmConfigs.value.filter(config => config.enabled && activeProviderNames.has(config.provider))
+  return llmConfigs.value.filter(config =>
+    config.enabled && config.model_type !== 'embedding' && activeProviderNames.has(config.provider))
 })
 
 // 加载厂家列表

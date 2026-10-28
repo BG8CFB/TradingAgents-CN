@@ -109,6 +109,7 @@ class FinancialSituationMemory:
         self.fallback_available = emb.fallback_available
         self.fallback_client = emb.fallback_client
         self.fallback_embedding = emb.fallback_embedding
+        self.dimension = getattr(emb, "dimension", None)
 
         # 使用单例ChromaDB管理器
         self.chroma_manager = ChromaDBManager()
@@ -269,10 +270,10 @@ class FinancialSituationMemory:
 
             # 尝试调用OpenAI兼容的embedding API
             try:
-                response = self.client.embeddings.create(
-                    model=self.embedding,
-                    input=text
-                )
+                kwargs = {"model": self.embedding, "input": text}
+                if getattr(self, "dimension", None):
+                    kwargs["dimensions"] = self.dimension
+                response = self.client.embeddings.create(**kwargs)
                 embedding = response.data[0].embedding
                 logger.debug(f"✅ {self.llm_provider} embedding成功，维度: {len(embedding)}")
                 return embedding

@@ -119,13 +119,16 @@ class TestSE2StockNewsSha256:
     def test_compute_hash_is_deterministic_and_distinct(self):
         from app.data.schema.domains.stock_news import StockNewsSchema
 
-        h1 = StockNewsSchema.compute_hash("title", "2024-06-01 10:00:00")
-        h2 = StockNewsSchema.compute_hash("title", "2024-06-01 10:00:00")
-        h3 = StockNewsSchema.compute_hash("title", "2024-06-01 10:00:01")
+        h1 = StockNewsSchema.compute_hash("title", "2024-06-01 10:00:00", "000001")
+        h2 = StockNewsSchema.compute_hash("title", "2024-06-01 10:00:00", "000001")
+        h3 = StockNewsSchema.compute_hash("title", "2024-06-01 10:00:01", "000001")
+        h4 = StockNewsSchema.compute_hash("title", "2024-06-01 10:00:00", "600000")
         # 同输入同哈希
         assert h1 == h2
         # 不同输入不同哈希
         assert h1 != h3
+        # symbol 参与哈希：同文不同标的各自成档
+        assert h1 != h4
         # SHA-256 hex 长度 64
         assert len(h1) == 64
 
@@ -133,9 +136,9 @@ class TestSE2StockNewsSha256:
         """断言哈希算法确实是 SHA-256，而非 MD5 或其它。"""
         from app.data.schema.domains.stock_news import StockNewsSchema
 
-        raw = "title|2024-06-01"
+        raw = "000001|title|2024-06-01"
         expected = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-        actual = StockNewsSchema.compute_hash("title", "2024-06-01")
+        actual = StockNewsSchema.compute_hash("title", "2024-06-01", "000001")
         assert actual == expected
 
 

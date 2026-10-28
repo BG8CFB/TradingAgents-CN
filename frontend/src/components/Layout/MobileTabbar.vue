@@ -60,7 +60,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useWindowSize } from '@vueuse/core'
 import {
   Odometer, DataLine, TrendCharts, List, Menu, Star, ChatDotRound,
-  Coin, Reading, Setting, InfoFilled
+  Coin, Reading, Setting, InfoFilled, Collection
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -85,6 +85,7 @@ const moreItems = [
   { path: '/reports', label: '分析报告', icon: TrendCharts },
   { path: '/data', label: '数据中心', icon: Coin },
   { path: '/learning', label: '学习中心', icon: Reading },
+  { path: '/knowledge', label: '知识库', icon: Collection },
   { path: '/settings', label: '系统设置', icon: Setting },
   { path: '/about', label: '关于', icon: InfoFilled }
 ]

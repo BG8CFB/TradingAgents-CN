@@ -635,7 +635,7 @@ const initializeModelSettings = async () => {
 
     // 获取所有可用的模型列表
     const llmConfigs = await configApi.getLLMConfigs()
-    availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled)
+    availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled && config.model_type !== 'embedding')
 
     // 未设置默认模型时，回退到第一个启用的模型（不写死具体模型 ID）
     const firstModel = availableModels.value[0]?.model_name || ''

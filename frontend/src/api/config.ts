@@ -67,6 +67,10 @@ export interface LLMConfig {
     cost?: number  // 成本(1-5)
     quality?: number  // 质量(1-5)
   }
+  // 模型用途：chat=对话模型（分析/辩论），embedding=向量模型（知识库/记忆检索）
+  // 与 suitable_roles 是正交维度——对话角色选择器按 model_type=chat 过滤
+  model_type?: 'chat' | 'embedding'
+  embedding_dimension?: number | null  // 向量维度（OpenAI 兼容 dimensions 参数；空=模型默认）
 }
 
 export interface DataSourceConfig {

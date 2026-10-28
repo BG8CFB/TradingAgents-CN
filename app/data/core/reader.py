@@ -158,7 +158,14 @@ class Reader:
                 data = await repo.get_all(market, limit=limit)
 
         elif domain == "news":
-            if symbol:
+            if symbol and (start_date or end_date):
+                limit = filters.get("limit", 100)
+                data = await repo.get_by_symbol_and_range(
+                    symbol, market,
+                    start_date or "1970-01-01", end_date or "9999-12-31",
+                    limit=limit,
+                )
+            elif symbol:
                 limit = filters.get("limit", 20)
                 data = await repo.get_by_symbol(symbol, market, limit=limit)
             else:

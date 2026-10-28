@@ -235,12 +235,12 @@ class YFinanceUSAdapter(BaseAdapter):
             publish_time = (
                 get("publish_time", "") or get("发布时间", "") or get("datetime", "")
             )
+            raw_symbol = str(get("symbol", ""))
             content_hash = (
-                StockNewsSchema.compute_hash(title, str(publish_time))
+                StockNewsSchema.compute_hash(title, str(publish_time), raw_symbol)
                 if title
                 else None
             )
-            raw_symbol = str(get("symbol", ""))
             results.append(
                 StockNewsSchema(
                     symbol=raw_symbol.upper() if raw_symbol else "",
@@ -252,6 +252,8 @@ class YFinanceUSAdapter(BaseAdapter):
                     source=get("source") or get("来源", "") or get("publisher", ""),
                     publish_time=publish_time,
                     url=get("url") or get("链接", "") or get("link"),
+                    type=get("type") or get("category"),
+                    summary=get("summary"),
                 )
             )
         return results

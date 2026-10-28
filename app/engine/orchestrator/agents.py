@@ -179,7 +179,14 @@ async def run_analyst(
             spec.name,
             spec.inject_specs,
             spec.unavailable_tool_ids,
-            {"ticker": ticker, "trade_date": trade_date, "company_name": company_name},
+            {
+                "ticker": ticker,
+                "trade_date": trade_date,
+                "company_name": company_name,
+                # 知识库注入台账键需要（引用校验按 task+agent 定位当次注入集合）
+                "task_id": task_id,
+                "agent_key": agent_key,
+            },
         )
         if data_content:
             history.append(Message(role=Role.USER, content=data_content))
@@ -275,6 +282,12 @@ async def run_analyst(
         if not final_report:
             final_report = "⚠️ 分析师未生成有效报告（LLM 返回空响应）。"
 
+        # 知识库引用校验：[序号] 必须 ∈ 当次注入的 top-K 集合，
+        # 无效引用剔除并计数落库（kb_citation_stats，记分卡「引用有效率」数据源）
+        final_report = await _validate_kb_citations(
+            final_report, task_id, agent_key, ticker, trade_date
+        )
+
         if result.stop_reason == "max_turns":
             logger.warning(f"⚠️ [{spec.name}] 达到最大轮数 {spec.max_tool_calls}，强制停止")
         else:
@@ -298,6 +311,50 @@ async def run_analyst(
             "messages": [Message(role=Role.ASSISTANT, content=error_report)],
             "reports": {report_key: error_report},
         }
+
+
+async def _validate_kb_citations(
+    report: str,
+    task_id: str,
+    agent_key: str,
+    ticker: str,
+    trade_date: str,
+) -> str:
+    """知识库引用校验（无注入记录时原样返回，失败不阻断分析）。
+
+    当次分析若注入过知识库 top-K，报告中的 [序号] 引用必须命中该集合：
+    无效引用从报告剔除并计数，写入 kb_citation_stats 供记分卡消费。
+    """
+    from app.engine.tools.datasources.knowledge import (
+        make_injection_key,
+        pop_injection,
+        validate_citations,
+    )
+
+    references = pop_injection(make_injection_key(task_id, agent_key))
+    if not references:
+        return report
+    try:
+        cleaned, stats = validate_citations(report, references)
+        if stats["invalid_count"]:
+            logger.info(
+                f"📎 [{agent_key}] 剔除无效引用 {stats['invalid_count']} 处: "
+                f"{stats['invalid_citations']}（有效 {stats['cited_count']}/{stats['injected_count']}）"
+            )
+        from app.data.knowledge import record_citation_stats
+
+        doc = {
+            "task_id": task_id,
+            "agent_key": agent_key,
+            "symbol": ticker,
+            "analysis_date": trade_date,
+            **stats,
+        }
+        await asyncio.to_thread(record_citation_stats, doc)
+        return cleaned
+    except Exception as e:  # noqa: BLE001 - 校验失败保留原报告
+        logger.warning(f"⚠️ [{agent_key}] 知识库引用校验失败，保留原报告: {e}")
+        return report
 
 
 async def _resolve_company(ticker: str) -> str:
