@@ -156,6 +156,40 @@ class MCPToolValidators:
         return ValidationResult(True)
 
     @staticmethod
+    def validate_date_window(start_date: str, end_date: str, as_of: str = None) -> ValidationResult:
+        """
+        验证工具取数日期窗口（含防前视条款）。
+
+        在 validate_date_range 基础上增加：end_date 不得超过 as_of（分析基准日，
+        通常为注入的 trade_date）——历史日期分析时取到决策日之后的数据即前视泄漏。
+        三个参数均为 YYYY-MM-DD；非法窗口应作为工具结果回传给模型自行纠正，
+        而不是静默返回空数据。
+
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+            as_of: 分析基准日（None 时跳过防前视检查，仅校验窗口本身）
+
+        Returns:
+            ValidationResult
+        """
+        result = MCPToolValidators.validate_date_range(start_date, end_date)
+        if not result:
+            return result
+
+        if as_of:
+            as_of_result = MCPToolValidators.validate_date(as_of)
+            if not as_of_result:
+                return as_of_result
+            if end_date.strip() > as_of.strip():
+                return ValidationResult(
+                    False,
+                    f"结束日期 {end_date} 晚于分析基准日 {as_of}：只能取截至基准日的数据，请调整窗口",
+                )
+
+        return ValidationResult(True)
+
+    @staticmethod
     def validate_limit(limit: int, min_val: int = 1, max_val: int = 1000) -> ValidationResult:
         """
         验证数量限制

@@ -109,6 +109,21 @@
                     :disabled-date="disabledDate"
                   />
                 </el-form-item>
+                <el-form-item label="投资期限">
+                  <el-radio-group v-model="analysisForm.horizon" @change="onHorizonChange">
+                    <el-radio-button
+                      v-for="opt in HORIZON_OPTIONS"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >
+                      {{ opt.label }}
+                    </el-radio-button>
+                  </el-radio-group>
+                  <div class="help-message">
+                    <el-icon><InfoFilled /></el-icon>
+                    买卖建议、止盈止损与结算阅卷均按所选期限的交易日窗口执行
+                  </div>
+                </el-form-item>
                 <el-form-item label="工作流">
                   <WorkflowSelector v-model="workflowSlug" />
                 </el-form-item>
@@ -291,7 +306,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Document,
   TrendCharts,
@@ -339,6 +354,7 @@ interface AnalysisForm {
   market: MarketType
   analysisDate: Date
   selectedAnalysts: string[]
+  horizon: 'short' | 'mid' | 'long'
   mcpTools: string[]
   language: 'zh-CN' | 'en-US'
   prefetchData: boolean
@@ -361,6 +377,16 @@ const goToRunningTask = () => {
 // 动态分析师列表
 const analysts = ref<Analyst[]>([])
 const loadingAnalysts = ref(false)
+
+// 投资期限选项（short=7/mid=20/long=60 交易日，与后端 app/core/horizons.py 对齐）
+const HORIZON_OPTIONS = [
+  { value: 'short', label: '短线·7日', text: '短线' },
+  { value: 'mid', label: '中线·20日', text: '中线' },
+  { value: 'long', label: '长线·60日', text: '长线' },
+] as const
+
+// 各期限档位推荐分析师池（后端 agent-configs phase=1 下发；null=后端未提供，切档不联动）
+const horizonDefaults = ref<Record<string, string[]> | null>(null)
 
 // 分析师图标映射
 const getAnalystIcon = (slug: string) => {
@@ -398,6 +424,7 @@ const fetchAnalysts = async () => {
     ])
     stageAgentNames.value = names
     if (res.success && res.data && res.data.customModes) {
+      horizonDefaults.value = res.data.horizon_defaults || null
       analysts.value = res.data.customModes.map(mode => ({
         id: mode.slug, // 使用 slug 作为唯一标识
         name: mode.name,
@@ -453,6 +480,7 @@ const analysisForm = reactive<AnalysisForm>({
   market: 'A股',
   analysisDate: new Date(),
   selectedAnalysts: [], // 将在 onMounted 中加载默认值
+  horizon: 'short',     // 投资期限（short=7/mid=20/long=60 交易日）
   mcpTools: [],
   language: 'zh-CN',
   prefetchData: true // 分析前先从数据源拉取最新数据到标准库
@@ -558,6 +586,36 @@ const validateRun = async () => {
 const onSelectedNodesChange = (slugs: string[]) => {
   analysisForm.selectedAnalysts = slugs
   scheduleValidateRun()
+}
+
+/** 投资期限切档：推荐池与当前选择不一致时询问是否联动（取消则保留自选，期限本身已生效） */
+const onHorizonChange = async (tier: string | number | boolean | undefined) => {
+  if (typeof tier !== 'string') return
+  const pool = horizonDefaults.value?.[tier]
+  if (!pool || !workflowSpec.value) return
+  // 只改当前工作流可裁剪的成员，非池内/不可裁剪的固定节点不动
+  const prunable = prunableSlugs(workflowSpec.value)
+  const next = pool.filter((slug) => prunable.has(slug))
+  const current = analysisForm.selectedAnalysts
+  if (next.length === current.length && next.every((s) => current.includes(s))) return
+  const nameOf = (slug: string) => analysts.value.find((a) => a.slug === slug)?.name || slug
+  const added = next.filter((s) => !current.includes(s)).map(nameOf)
+  const removed = current.filter((s) => !next.includes(s)).map(nameOf)
+  const diff = [
+    added.length ? `新增 ${added.join('、')}` : '',
+    removed.length ? `移除 ${removed.join('、')}` : '',
+  ].filter(Boolean).join('，')
+  try {
+    await ElMessageBox.confirm(
+      `是否将分析师池同步为${HORIZON_OPTIONS.find((o) => o.value === tier)?.text}期限推荐组合（${diff}）？`,
+      '切换投资期限',
+      { confirmButtonText: '同步推荐池', cancelButtonText: '保留自选', type: 'info' },
+    )
+    analysisForm.selectedAnalysts = next
+    scheduleValidateRun()
+  } catch {
+    // 用户选择保留自选
+  }
 }
 
 const onStageStatesChange = (states: Record<string, StageState>) => {
@@ -823,6 +881,8 @@ const submitAnalysis = async () => {
         selected_nodes: normalizeAnalystIds(analysisForm.selectedAnalysts),
         // optional 阶段开关/轮次（优先于下方 phaseN_* 旧映射）
         stage_overrides: buildStageOverrides(),
+        // 投资期限（short/mid/long；后端 None/short=旧行为零漂移）
+        horizon: analysisForm.horizon,
         language: analysisForm.language,
         analyst_model: modelSettings.value.analystModel,
         debate_model: modelSettings.value.debateModel,

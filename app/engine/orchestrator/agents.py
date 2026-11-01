@@ -443,6 +443,7 @@ async def build_analyst_specs(
     max_tool_calls: int = 12,
     mcp_tools: Optional[List[ToolDef]] = None,
     enable_subagent: bool = False,
+    horizon: Optional[str] = None,
 ) -> Dict[str, AnalystSpec]:
     """根据前端选择 + 配置文件装配分析师规格（串行执行；结构预留并行）
 
@@ -451,12 +452,17 @@ async def build_analyst_specs(
         toolkit: Toolkit 实例（enable_mcp 等开关）
         max_tool_calls: 工具调用循环上限（防循环兜底）
         mcp_tools: 已发现的新层 MCP 工具（pipeline 统一发现后传入）
+        horizon: 投资期限档位（short/mid/long；None/short 不注入期限锚点）
     """
     from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
+    from app.engine.prompts.horizon import build_horizon_anchor
     from app.engine.tools.builtin.registry import get_all_callable_specs, get_skill_entry_specs
     from app.engine.tools.datasources.registry import get_specs_by_ids
     from app.llm.skills.loader import SkillStore
     from app.llm.tools.wrappers import func_to_tooldef
+
+    # 期限锚点（mid/long 档）：夹在角色定义与计算硬规则之间，重解读周期硬文案
+    horizon_anchor = build_horizon_anchor(horizon, role="analyst")
 
     specs: Dict[str, AnalystSpec] = {}
     seen: set = set()
@@ -529,11 +535,12 @@ async def build_analyst_specs(
         cache = AvailabilityCache.get_instance()
         unavailable = [s.tool_id for s in inject_specs if not cache.is_available(s.tool_id)]
 
+        # 期限锚点（mid/long 档）：夹在角色定义与计算硬规则之间，重解读周期硬文案
         specs[internal_key] = AnalystSpec(
             internal_key=internal_key,
             name=f"{icon} {name}",
             # 硬规则追加在 roleDefinition 之后：所有衍生数值必须走确定性计算工具
-            system_prompt=agent_config.get("roleDefinition", "") + CALC_ENFORCEMENT_PROMPT,
+            system_prompt=agent_config.get("roleDefinition", "") + horizon_anchor + CALC_ENFORCEMENT_PROMPT,
             inject_specs=inject_specs,
             unavailable_tool_ids=unavailable,
             callable_tools=callable_tools,

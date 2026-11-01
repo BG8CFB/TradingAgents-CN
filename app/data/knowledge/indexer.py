@@ -60,10 +60,20 @@ async def _save_state(market: str, updates: Dict) -> None:
 
 def _doc_text(doc: Dict, max_chars: int) -> str:
     title = doc.get("title") or ""
-    summary = doc.get("summary") or ""
-    body = doc.get("content") or summary
+    body = doc.get("content") or ""
+    if not body:
+        summary = doc.get("summary") or ""
+        # 语料 summary 常是标题复写，与标题相同时只保留标题一遍
+        body = summary if summary and summary != title else ""
     text = f"{title}\n{body}".strip()
     return text[:max_chars] if len(text) > max_chars else text
+
+
+def _normalize_publish_time(value) -> str:
+    """publish_time 统一成字符串（CN 档可能是 datetime），dedup/元数据共用。"""
+    if hasattr(value, "isoformat"):
+        return value.isoformat(sep=" ")
+    return str(value) if value else ""
 
 
 def _dedup_key(doc: Dict) -> tuple:
@@ -77,19 +87,33 @@ async def _index_batch(market: str, docs: List[Dict], embedding_cfg: Dict) -> in
     texts, ids, metadatas = [], [], []
     seen = set()
     for doc in docs:
-        key = _dedup_key(doc)
+        # dedup 键用归一化后的 publish_time：同一公告 news/announcement 双档
+        # 或 datetime/字符串混存时 (title, 时间) 才能真正对上
+        key = (
+            doc.get("symbol") or "",
+            doc.get("title") or "",
+            _normalize_publish_time(doc.get("publish_time")),
+        )
         if not doc.get("title") or key in seen:
             continue
         seen.add(key)
-        publish_ts = parse_publish_ts(doc.get("publish_time")) or 0.0
+        # CN 语料 publish_time 可能是 datetime 对象（HK/US 为字符串）；
+        # ChromaDB 元数据只收 str/int/float/bool/list，须先扁平化。
+        publish_time = _normalize_publish_time(doc.get("publish_time"))
+        symbol_raw = doc.get("symbol")
+        if symbol_raw is None or (isinstance(symbol_raw, float) and symbol_raw != symbol_raw):
+            symbol = ""
+        else:
+            symbol = str(symbol_raw)
+        publish_ts = parse_publish_ts(publish_time) or 0.0
         text = _doc_text(doc, settings.KB_EMBEDDING_MAX_CHARS)
         texts.append(text)
-        ids.append(f"{doc.get('symbol') or ''}:{doc.get('content_hash') or key}")
+        ids.append(f"{symbol}:{doc.get('content_hash') or key}")
         metadatas.append({
-            "symbol": doc.get("symbol") or "",
+            "symbol": symbol,
             "title": doc.get("title") or "",
             "publish_ts": publish_ts,
-            "publish_time": doc.get("publish_time") or "",
+            "publish_time": publish_time,
             "data_source": doc.get("data_source") or "",
             "type": doc.get("type") or "news",
             "url": doc.get("url") or "",
@@ -148,6 +172,15 @@ async def _run_market_incremental(market: str) -> Dict:
         state_dim = state.get("dimension")
         model_changed = state.get("embedding_model") != cfg["model_name"]
         dim_changed = cfg["dimension"] is not None and state_dim != cfg["dimension"]
+        # 物理自愈：状态称已索引但集合实际为空（进程崩溃/并发写损坏等），
+        # checkpoint 已推进的增量永远扫不回旧数据，必须全量重建
+        physical_empty = bool(state.get("indexed_count")) and vector_store.collection_count(market) == 0
+        if physical_empty:
+            logger.warning(
+                f"[kb] {market} 索引状态与物理集合不符"
+                f"（state={state.get('indexed_count')} 实际=0），自动全量重建自愈"
+            )
+            return await rebuild_market(market)
         if model_changed or dim_changed:
             logger.info(
                 f"[kb] {market} 向量模型签名变更 "

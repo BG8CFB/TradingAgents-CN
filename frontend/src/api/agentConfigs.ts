@@ -23,6 +23,8 @@ export interface PhaseAgentConfig {
   exists: boolean
   customModes: PhaseAgentMode[]
   path?: string
+  /** 投资期限 → 推荐分析师池（仅 phase=1 附带；期限贯通） */
+  horizon_defaults?: Record<string, string[]>
 }
 
 export interface PhaseAgentPayload {

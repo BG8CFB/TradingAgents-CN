@@ -118,11 +118,12 @@ const handleMainClick = () => {
 }
 
 // 监听窗口大小变化：在小屏幕上自动折叠侧边栏
+// immediate：真机/小窗首次加载即处于移动宽度，无 resize 事件，需初始就折叠
 watch(width, (newWidth) => {
   if (newWidth < 768 && !appStore.sidebarCollapsed) {
     appStore.setSidebarCollapsed(true)
   }
-})
+}, { immediate: true })
 
 // 路由变化时，移动端收起侧边栏
 watch(() => route.fullPath, () => {

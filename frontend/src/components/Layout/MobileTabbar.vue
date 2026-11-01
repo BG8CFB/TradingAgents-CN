@@ -59,7 +59,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWindowSize } from '@vueuse/core'
 import {
-  Odometer, DataLine, TrendCharts, List, Menu, Star, ChatDotRound,
+  Odometer, DataLine, TrendCharts, List, Trophy, Menu, Star, ChatDotRound,
   Coin, Reading, Setting, InfoFilled, Collection
 } from '@element-plus/icons-vue'
 
@@ -81,6 +81,7 @@ const primaryItems = [
 /** 「更多」抽屉里的全量入口（与侧栏信息架构一致） */
 const moreItems = [
   { path: '/tasks', label: '任务中心', icon: List },
+  { path: '/settlement', label: '结算记分卡', icon: Trophy },
   { path: '/favorites', label: '我的自选', icon: Star },
   { path: '/reports', label: '分析报告', icon: TrendCharts },
   { path: '/data', label: '数据中心', icon: Coin },

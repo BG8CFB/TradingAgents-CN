@@ -272,6 +272,13 @@ class LLMConfig(BaseModel):
         description="适用角色: analyst(一阶段分析师), debate(辩论推理), both(两者都适合)"
     )
 
+    # 模型类型：embedding=向量模型（知识库/记忆，不参与对话角色解析，与 suitable_roles 分开承载）；
+    # None 等同 chat。pydantic 校验会丢弃未声明字段，缺此字段会让 UI 保存的向量配置静默失效
+    model_type: Optional[str] = Field(default=None, description="模型类型: chat(默认)/embedding")
+    embedding_dimension: Optional[int] = Field(
+        default=None, ge=2, le=8192, description="向量维度（仅 embedding 模型；空=模型默认）"
+    )
+
     _validate_effort = field_validator("thinking_effort")(validate_thinking_effort)
 
 

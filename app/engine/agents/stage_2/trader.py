@@ -9,7 +9,7 @@ from app.engine.orchestrator.invoker import run_node_turn
 logger = logging.getLogger("default")
 
 
-def create_trader(llm, memory):
+def create_trader(llm, memory, horizon=None):
     async def trader_node(state):
         logger.debug("💰 [DEBUG] ===== 交易员节点开始 =====")
 
@@ -48,7 +48,7 @@ def create_trader(llm, memory):
             # 历史记忆检索（统一入口 fetch_memory_brief：线程池 + 失败降级）
             from app.engine.agents.utils.memory import fetch_memory_brief
 
-            past_memory_str = await fetch_memory_brief(memory, curr_situation, n=2) or "暂无历史记忆数据可参考。"
+            past_memory_str = await fetch_memory_brief(memory, curr_situation, n=2, as_of=state.get("trade_date")) or "暂无历史记忆数据可参考。"
 
             # 🔥 构建所有报告的格式化字符串（用于 prompt）
             # 报告显示名称走 registry 单一权威表（与 builder.report_display_names 同源）
@@ -99,7 +99,11 @@ def create_trader(llm, memory):
 - 当前时间：{time.strftime("%Y-%m-%d %H:%M:%S")}
 """
 
-            full_system_prompt = base_prompt + "\n\n" + system_context
+            # 期限锚点（mid/long）：压着角色定义里的 3 天/7 天硬文案，环境信息垫底
+            from app.engine.prompts.horizon import build_horizon_anchor
+
+            horizon_anchor = build_horizon_anchor(horizon, role="trader")
+            full_system_prompt = base_prompt + horizon_anchor + "\n\n" + system_context
 
             logger.debug(f"💰 [DEBUG] 准备调用LLM，系统提示包含货币: {currency}")
 

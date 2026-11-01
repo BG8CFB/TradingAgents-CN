@@ -186,3 +186,11 @@ class BaseProvider(ABC):
             NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
         """
         raise NotImplementedError(f"{self.name} 不支持 get_block_trade")
+
+    async def get_index_quotes(self, symbol: str, start_date: str, end_date: str, **kwargs) -> pd.DataFrame:
+        """获取指数日线（基准宇宙，symbol 为指数规范码如 000300.SH / HSI / SPX）。
+
+        Raises:
+            NetworkError / DataFormatError / DataNotFoundError / DataSourceUnavailableError
+        """
+        raise NotImplementedError(f"{self.name} 不支持 get_index_quotes")

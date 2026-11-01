@@ -66,7 +66,14 @@ def search(
         return []
 
     results: List[Dict] = []
+    seen_titles: set = set()
     for item in items:
+        # 存量索引中同文档 news/announcement 双档并存：按 (标题, 发布日) 去重，
+        # 保相似度更高的前排，top-K 有效容量不受重复挤占
+        dedup_key = (item.get("title") or "", str(item.get("publish_time") or "")[:10])
+        if dedup_key in seen_titles:
+            continue
+        seen_titles.add(dedup_key)
         results.append({
             "title": item.get("title") or "",
             "data_source": item.get("data_source") or "",

@@ -160,7 +160,11 @@ export function formatDate(dateStr: string | number | null | undefined): string 
     timeZone: 'Asia/Shanghai',
     year: 'numeric',
     month: '2-digit',
-    day: '2-digit'
+    day: '2-digit',
+    // 展开合并不删除默认键，显式置 undefined 才能去掉时分秒（Intl 视 undefined 为未提供）
+    hour: undefined,
+    minute: undefined,
+    second: undefined
   })
 }
 

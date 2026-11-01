@@ -46,6 +46,9 @@
               <el-descriptions-item v-if="marketType" label="市场">
                 {{ marketType }}
               </el-descriptions-item>
+              <el-descriptions-item v-if="horizonLabel" label="投资期限">
+                {{ horizonLabel }}
+              </el-descriptions-item>
               <el-descriptions-item v-if="analystModel" label="分析师模型">
                 {{ analystModel }}
               </el-descriptions-item>
@@ -294,6 +297,17 @@ const marketType = computed(() => strParam('market_type'))
 const analystModel = computed(() => strParam('analyst_model'))
 const debateModel = computed(() => strParam('debate_model'))
 const language = computed(() => strParam('language'))
+
+// 投资期限（short/mid/long → 中文档位；缺省/未知=空，不显示该行）
+const HORIZON_LABELS: Record<string, string> = {
+  short: '短线 · 7 交易日',
+  mid: '中线 · 20 交易日',
+  long: '长线 · 60 交易日',
+}
+const horizonLabel = computed(() => {
+  const v = strParam('horizon')
+  return HORIZON_LABELS[v] || ''
+})
 
 // 辩论轮次：优先 stage_overrides 的 debate 阶段轮数，旧任务回落 phaseN_ 字段
 const debateRounds = computed(() => {

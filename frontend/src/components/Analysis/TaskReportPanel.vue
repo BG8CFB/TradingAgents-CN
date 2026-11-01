@@ -44,6 +44,15 @@
               <span class="label">分析倾向:</span>
               <el-tag :type="actionTagType" size="large">{{ finalSignal || '暂无' }}</el-tag>
               <el-tag type="info" size="small" style="margin-left: 8px;">仅供参考</el-tag>
+              <el-tag
+                v-if="structured?.degraded"
+                type="warning"
+                size="small"
+                effect="dark"
+                style="margin-left: 8px;"
+                title="总结生成失败后的降级占位结果，信号与置信度不可信，请勿依据此报告决策"
+              >降级结果</el-tag>
+              <SettlementBadge :task-id="taskId" style="margin-left: 8px;" />
             </div>
 
             <div class="decision-metrics">
@@ -156,6 +165,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { analysisApi } from '@/api/analysis'
 import { reportsApi } from '@/api/reports'
+import SettlementBadge from '@/components/Settlement/SettlementBadge.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { loadAgentDisplayNames } from '@/utils/agentDisplayNames'
 
@@ -178,6 +188,7 @@ interface TaskResultData {
   structured_summary?: {
     final_signal?: string
     model_confidence?: number
+    degraded?: boolean
     analysis_summary?: string
     investment_recommendation?: string
     risk_assessment?: { level?: string; description?: string }

@@ -136,6 +136,21 @@
                 <el-form-item label="工作流">
                   <WorkflowSelector v-model="workflowSlug" />
                 </el-form-item>
+
+                <el-form-item label="投资期限">
+                  <el-radio-group v-model="batchForm.horizon" @change="onHorizonChange">
+                    <el-radio-button
+                      v-for="opt in HORIZON_OPTIONS"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >
+                      {{ opt.label }}
+                    </el-radio-button>
+                  </el-radio-group>
+                  <div class="form-tip" style="width: 100%; font-size: 12px; color: #909399; margin-top: 4px;">
+                    买卖建议、止盈止损与结算阅卷均按所选期限的交易日窗口执行
+                  </div>
+                </el-form-item>
               </div>
 
               <!-- 分析师选择 -->
@@ -371,6 +386,7 @@ const fetchAnalysts = async () => {
     ])
     stageAgentNames.value = names
     if (res.success && res.data && res.data.customModes) {
+      horizonDefaults.value = res.data.horizon_defaults || null
       analysts.value = res.data.customModes.map(mode => ({
         id: mode.slug, // 使用 slug 作为唯一标识
         name: mode.name,
@@ -424,9 +440,20 @@ const batchForm = reactive({
   title: '',
   description: '',
   analysts: [] as string[],  // 将在 onMounted 中加载
+  horizon: 'short' as 'short' | 'mid' | 'long',  // 投资期限（short=7/mid=20/long=60 交易日）
   mcpTools: [] as string[],
   language: 'zh-CN'
 })
+
+// 投资期限选项（与后端 app/core/horizons.py 对齐）
+const HORIZON_OPTIONS = [
+  { value: 'short', label: '短线·7日', text: '短线' },
+  { value: 'mid', label: '中线·20日', text: '中线' },
+  { value: 'long', label: '长线·60日', text: '长线' },
+] as const
+
+// 各期限档位推荐分析师池（后端 agent-configs phase=1 下发；null=后端未提供，切档不联动）
+const horizonDefaults = ref<Record<string, string[]> | null>(null)
 
 // ── 工作流通用化状态（P5-e）──
 // 工作流选择 + spec 驱动的阶段开关；旧 phaseN_* 字段由 stageStates 映射兼容发送
@@ -528,6 +555,36 @@ const validateRun = async () => {
 const onSelectedNodesChange = (slugs: string[]) => {
   batchForm.analysts = slugs
   scheduleValidateRun()
+}
+
+/** 投资期限切档：推荐池与当前选择不一致时询问是否联动（取消则保留自选，期限本身已生效） */
+const onHorizonChange = async (tier: string | number | boolean | undefined) => {
+  if (typeof tier !== 'string') return
+  const pool = horizonDefaults.value?.[tier]
+  if (!pool || !workflowSpec.value) return
+  // 只改当前工作流可裁剪的成员，非池内/不可裁剪的固定节点不动
+  const prunable = prunableSlugs(workflowSpec.value)
+  const next = pool.filter((slug) => prunable.has(slug))
+  const current = batchForm.analysts
+  if (next.length === current.length && next.every((s) => current.includes(s))) return
+  const nameOf = (slug: string) => analysts.value.find((a) => a.slug === slug)?.name || slug
+  const added = next.filter((s) => !current.includes(s)).map(nameOf)
+  const removed = current.filter((s) => !next.includes(s)).map(nameOf)
+  const diff = [
+    added.length ? `新增 ${added.join('、')}` : '',
+    removed.length ? `移除 ${removed.join('、')}` : '',
+  ].filter(Boolean).join('，')
+  try {
+    await ElMessageBox.confirm(
+      `是否将分析师池同步为${HORIZON_OPTIONS.find((o) => o.value === tier)?.text}期限推荐组合（${diff}）？`,
+      '切换投资期限',
+      { confirmButtonText: '同步推荐池', cancelButtonText: '保留自选', type: 'info' },
+    )
+    batchForm.analysts = next
+    scheduleValidateRun()
+  } catch {
+    // 用户选择保留自选
+  }
 }
 
 const onStageStatesChange = (states: Record<string, StageState>) => {
@@ -782,6 +839,8 @@ const submitBatchAnalysis = async () => {
         selected_analysts: normalizeAnalystIds(batchForm.analysts), // 确保使用英文ID
         selected_nodes: normalizeAnalystIds(batchForm.analysts),
         stage_overrides: buildStageOverrides(),
+        // 投资期限（short/mid/long；后端 None/short=旧行为零漂移）
+        horizon: batchForm.horizon,
         language: batchForm.language,
         analyst_model: modelSettings.value.analystModel,
         debate_model: modelSettings.value.debateModel,

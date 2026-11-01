@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     DEBUG: bool = Field(default=False)
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8000)
+
+    # 结算后自动反思并写入交易记忆（trader_memory）：每日 settled 记录 × 1 次廉价 LLM 调用
+    SETTLEMENT_REFLECTION_ENABLED: bool = Field(default=True)
     # NoDecode：关闭 pydantic-settings 源层对 List[str] 的强 JSON 解析
     # （否则裸 `*` 等写法在 EnvSettingsSource 阶段就抛 SettingsError），
     # 原始字符串交由下方 _parse_str_list 宽容解析

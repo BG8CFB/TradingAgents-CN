@@ -165,6 +165,13 @@ async def get_agent_config(
         mode.setdefault("data_tools", [])
         normalized.append(mode)
 
+    # 期限贯通：phase1 附加各档默认分析师池（前端切档联动的单一事实源）
+    horizon_defaults = None
+    if phase == 1:
+        from app.core.horizons import HORIZON_DEFAULT_POOL
+
+        horizon_defaults = {tier: list(pool) for tier, pool in HORIZON_DEFAULT_POOL.items()}
+
     return {
         "success": True,
         "data": {
@@ -172,6 +179,7 @@ async def get_agent_config(
             "exists": exists,
             "customModes": normalized,
             "path": _storage_path_label(phase),
+            "horizon_defaults": horizon_defaults,
         },
         "message": "ok" if exists else f"phase {phase} 无智能体配置",
     }

@@ -7,14 +7,33 @@
 import json
 import logging
 from typing import Optional
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
 from app.engine.tools.common.format import format_result
 from app.engine.tools.common.data_access import read_with_refresh
+from app.engine.tools.common.param_validators import MCPToolValidators
 
 logger = logging.getLogger(__name__)
+
+
+def _d8(date_str: str) -> str:
+    """YYYYMMDD → YYYY-MM-DD（已是 dashed 或其他形态原样返回），供统一校验。"""
+    s = str(date_str).strip()
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return s
+
+
+def _validate_window(start_date: Optional[str], end_date: Optional[str], as_of: Optional[str]) -> Optional[str]:
+    """校验取数窗口；不合法返回回传给模型的错误文本，合法返回 None。"""
+    v = MCPToolValidators.validate_date_window(
+        _d8(start_date or ""), _d8(end_date or ""), as_of=_d8(as_of) if as_of else None
+    )
+    if not v:
+        return v.error_message
+    return None
 
 
 def _to_json_str(data) -> str:
@@ -68,6 +87,7 @@ def get_stock_data(
     market_type: str = "cn",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    current_date: Optional[str] = None,
 ) -> str:
     """
     获取股票行情数据。
@@ -77,8 +97,9 @@ def get_stock_data(
     Args:
         stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
         market_type: 市场类型: "cn"(A股)、"us"(美股)、"hk"(港股)，默认自动推断
-        start_date: 开始日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认 1 个月前
-        end_date: 结束日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认今天
+        start_date: 开始日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认基准日 1 个月前
+        end_date: 结束日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认基准日
+        current_date: 分析基准日（注入 trade_date）；窗口锚定并截止到该日，防止历史分析前视
 
     Returns:
         JSON 格式的 ToolResult
@@ -103,9 +124,20 @@ def get_stock_data(
                 market_key = "CN"
 
         if not start_date:
-            start_date = (now_utc() - timedelta(days=30)).strftime("%Y-%m-%d")
+            if current_date:
+                start_date = (datetime.strptime(_d8(current_date), "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
+            else:
+                start_date = (now_utc() - timedelta(days=30)).strftime("%Y-%m-%d")
         if not end_date:
-            end_date = get_current_date()
+            end_date = current_date or get_current_date()
+        elif current_date and _d8(end_date) > _d8(current_date):
+            end_date = current_date
+
+        err = _validate_window(start_date, end_date, current_date)
+        if err:
+            return format_tool_result(
+                error_result(ErrorCodes.INVALID_PARAM, err, suggestion="请修正日期窗口后重试")
+            )
 
         data = _read_daily_quotes(market_key, stock_code, start_date, end_date)
 
@@ -131,6 +163,7 @@ def get_stock_data_minutes(
     start_datetime: Optional[str] = None,
     end_datetime: Optional[str] = None,
     freq: str = "30min",
+    current_date: Optional[str] = None,
 ) -> str:
     """
     获取分钟级 K 线数据。
@@ -138,18 +171,27 @@ def get_stock_data_minutes(
     Args:
         market_type: 市场类型，目前仅支持 "cn"
         stock_code: 股票代码，如 "600519.SH"
-        start_datetime: 开始时间，格式 YYYY-MM-DD HH:mm:ss，默认 1 天前
-        end_datetime: 结束时间，格式 YYYY-MM-DD HH:mm:ss，默认现在
+        start_datetime: 开始时间，格式 YYYY-MM-DD HH:mm:ss，默认基准日 1 天前
+        end_datetime: 结束时间，格式 YYYY-MM-DD HH:mm:ss，默认基准日收盘
         freq: 频率，支持 "1min"、"5min"、"15min"、"30min"、"60min"，默认 "30min"
+        current_date: 分析基准日（注入 trade_date），窗口截止到该日，防止历史分析前视
 
     Returns:
         JSON 格式的 ToolResult
     """
     try:
         if not end_datetime:
-            end_datetime = now_utc().strftime("%Y-%m-%d %H:%M:%S")
+            end_datetime = (
+                f"{_d8(current_date)} 23:59:59" if current_date else now_utc().strftime("%Y-%m-%d %H:%M:%S")
+            )
+        elif current_date and end_datetime[:10] > _d8(current_date):
+            end_datetime = f"{_d8(current_date)} 23:59:59"
         if not start_datetime:
-            start_datetime = (now_utc() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+            if current_date:
+                prev = (datetime.strptime(_d8(current_date), "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+                start_datetime = f"{prev} 00:00:00"
+            else:
+                start_datetime = (now_utc() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
 
         freq_map = {"1min": "1", "5min": "5", "15min": "15", "30min": "30", "60min": "60"}
         freq_short = freq_map.get(freq, "30")
@@ -180,14 +222,20 @@ def get_stock_data_minutes(
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
-def get_index_data(stock_code: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> str:
+def get_index_data(
+    stock_code: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_date: Optional[str] = None,
+) -> str:
     """
     获取指数日线行情。
 
     Args:
         stock_code: 指数代码，如 "000001.SH"
-        start_date: 开始日期，格式 YYYYMMDD，默认 3 个月前
-        end_date: 结束日期，格式 YYYYMMDD，默认今天
+        start_date: 开始日期，格式 YYYYMMDD，默认基准日 3 个月前
+        end_date: 结束日期，格式 YYYYMMDD，默认基准日
+        current_date: 分析基准日（注入 trade_date），窗口截止到该日，防止历史分析前视
 
     Returns:
         JSON 格式的 ToolResult
@@ -195,10 +243,22 @@ def get_index_data(stock_code: str, start_date: Optional[str] = None, end_date: 
     try:
         from app.utils.stock_utils import StockUtils
 
+        anchor = _d8(current_date).replace("-", "") if current_date else None
         if not end_date:
-            end_date = get_current_date_compact()
+            end_date = anchor or get_current_date_compact()
+        elif anchor and end_date > anchor:
+            end_date = anchor
         if not start_date:
-            start_date = (now_utc() - timedelta(days=90)).strftime("%Y%m%d")
+            if anchor:
+                start_date = (datetime.strptime(anchor, "%Y%m%d") - timedelta(days=90)).strftime("%Y%m%d")
+            else:
+                start_date = (now_utc() - timedelta(days=90)).strftime("%Y%m%d")
+
+        err = _validate_window(start_date, end_date, anchor)
+        if err:
+            return format_tool_result(
+                error_result(ErrorCodes.INVALID_PARAM, err, suggestion="请修正日期窗口后重试")
+            )
 
         # 动态推导市场
         market_info = StockUtils.get_market_info(stock_code)
@@ -234,6 +294,7 @@ def get_stock_indicators(
     market_type: str = "cn",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    current_date: Optional[str] = None,
 ) -> str:
     """
     获取股票估值指标数据。
@@ -243,8 +304,9 @@ def get_stock_indicators(
     Args:
         stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
         market_type: 市场类型: "cn"(A股)、"us"(美股)、"hk"(港股)，默认自动推断
-        start_date: 开始日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认 1 个月前
-        end_date: 结束日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认今天
+        start_date: 开始日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认基准日 1 个月前
+        end_date: 结束日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认基准日
+        current_date: 分析基准日（注入 trade_date），窗口截止到该日，防止历史分析前视
 
     Returns:
         JSON 格式的 ToolResult
@@ -269,9 +331,20 @@ def get_stock_indicators(
                 market_key = "CN"
 
         if not start_date:
-            start_date = (now_utc() - timedelta(days=30)).strftime("%Y-%m-%d")
+            if current_date:
+                start_date = (datetime.strptime(_d8(current_date), "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
+            else:
+                start_date = (now_utc() - timedelta(days=30)).strftime("%Y-%m-%d")
         if not end_date:
-            end_date = get_current_date()
+            end_date = current_date or get_current_date()
+        elif current_date and _d8(end_date) > _d8(current_date):
+            end_date = current_date
+
+        err = _validate_window(start_date, end_date, current_date)
+        if err:
+            return format_tool_result(
+                error_result(ErrorCodes.INVALID_PARAM, err, suggestion="请修正日期窗口后重试")
+            )
 
         clean_symbol = _normalize_symbol(stock_code, market_key)
         result = read_with_refresh(

@@ -73,7 +73,7 @@ def create_risk_manager(llm, memory):
             # 裁决前注入相似情景历史记忆（写读对称）
             from app.engine.agents.utils.memory import fetch_memory_brief
 
-            memory_brief = await fetch_memory_brief(memory, f"{trader_plan}\n\n{risky_report}\n\n{safe_report}")
+            memory_brief = await fetch_memory_brief(memory, f"{trader_plan}\n\n{risky_report}\n\n{safe_report}", as_of=state.get("trade_date"))
             if memory_brief and not memory_brief.startswith("暂无"):
                 messages.append(Message(role=Role.USER, content=f"=== 历史风控反思（类似情景） ===\n{memory_brief}"))
                 logger.info("👔 [Risk Manager] 已注入历史风控记忆")

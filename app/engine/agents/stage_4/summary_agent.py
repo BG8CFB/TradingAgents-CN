@@ -19,7 +19,7 @@ _DEFAULT_STRUCTURED_DATA = {
         "resistance_level": "N/A",
     },
     "model_confidence": 0,
-    "risk_assessment": {"level": "Low", "score": 0.0, "description": "生成失败"},
+    "risk_assessment": {"level": "High", "score": 10.0, "description": "生成失败"},
     "analysis_summary": "系统错误：无法生成分析摘要",
     "investment_recommendation": "暂无建议",
     "analysis_reference": [],
@@ -204,6 +204,9 @@ def create_summary_agent(llm):
                         "score": 10.0,
                         "description": "数据获取失败，无法生成报告",
                     },
+                    # 降级透明化：兜底包打标，前端/报告显示"降级结果"徽标
+                    # （结算登记侧已有占位包过滤，本标记只影响展示不影响统计）
+                    "degraded": True,
                 }
             }
 
@@ -271,11 +274,14 @@ def create_summary_agent(llm):
                     structured_data = _ensure_required_fields(structured_data)
 
             logger.info(f"✅ [Summary Agent] 成功生成结构化数据（{submission.source}）: {list(structured_data.keys())}")
+            # 成功路径显式打标（含 fallback_text 解析与缺字段补齐），保证下游恒有该键
+            structured_data["degraded"] = False
 
         except json.JSONDecodeError as e:
             logger.error(f"❌ [Summary Agent] JSON 解析失败: {e}")
             logger.error(f"   原始内容: {content}")
-            # 回退默认值
+            # 回退默认值（口径与其他兜底一致：confidence=0 / risk=High，
+            # 不再给 50/Medium 的"看似正常"数值）
             structured_data = {
                 "key_indicators": {
                     "entry_price": "N/A",
@@ -284,12 +290,13 @@ def create_summary_agent(llm):
                     "support_level": "N/A",
                     "resistance_level": "N/A",
                 },
-                "model_confidence": 50,
-                "risk_assessment": {"level": "Medium", "score": 5.0, "description": "解析失败，使用默认值"},
+                "model_confidence": 0,
+                "risk_assessment": {"level": "High", "score": 10.0, "description": "解析失败，无法生成分析摘要"},
                 "analysis_summary": "JSON解析失败，无法生成分析摘要",
                 "investment_recommendation": "暂无建议",
                 "analysis_reference": [],
                 "final_signal": "Hold",
+                "degraded": True,
             }
         except Exception as e:
             logger.error(f"❌ [Summary Agent] 生成失败: {e}", exc_info=True)
@@ -303,11 +310,12 @@ def create_summary_agent(llm):
                     "resistance_level": "N/A",
                 },
                 "model_confidence": 0,
-                "risk_assessment": {"level": "Low", "score": 0.0, "description": "生成失败"},
+                "risk_assessment": {"level": "High", "score": 10.0, "description": "生成失败"},
                 "analysis_summary": "系统错误：无法生成分析摘要",
                 "investment_recommendation": "暂无建议",
                 "analysis_reference": [],
                 "final_signal": "Hold",
+                "degraded": True,
             }
 
         return {"structured_summary": structured_data}

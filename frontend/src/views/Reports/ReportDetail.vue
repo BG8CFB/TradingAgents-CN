@@ -19,6 +19,7 @@
               <el-tag type="primary">{{ report.stock_symbol }}</el-tag>
               <el-tag v-if="report.stock_name && report.stock_name !== report.stock_symbol" type="info">{{ report.stock_name }}</el-tag>
               <el-tag type="success">{{ getStatusText(report.status) }}</el-tag>
+              <SettlementBadge :task-id="String(route.params.id)" style="margin-left: 8px;" />
               <span class="meta-item">
                 <el-icon><Calendar /></el-icon>
                 {{ formatTime(report.created_at) }}
@@ -120,7 +121,17 @@
                   </el-tooltip>
                 </div>
                 <div class="metric-value recommendation-value markdown-content" v-html="renderSafeMarkdown(report.recommendation || '暂无')"></div>
-                <el-tag type="info" size="small" style="margin-top: 8px;">仅供参考</el-tag>
+                <div style="margin-top: 8px;">
+                  <el-tag type="info" size="small">仅供参考</el-tag>
+                  <el-tag
+                    v-if="report.structured_summary?.degraded"
+                    type="warning"
+                    size="small"
+                    effect="dark"
+                    style="margin-left: 8px;"
+                    title="总结生成失败后的降级占位结果，信号与置信度不可信"
+                  >降级结果</el-tag>
+                </div>
               </div>
             </el-col>
 
@@ -332,6 +343,7 @@ import {
   ArrowDown
 } from '@element-plus/icons-vue'
 import { reportsApi } from '@/api/reports'
+import SettlementBadge from '@/components/Settlement/SettlementBadge.vue'
 import { renderMarkdown } from '@/utils/markdown'
 
 

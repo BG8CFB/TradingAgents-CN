@@ -92,7 +92,7 @@ _SIDE_CONFIG = {
 _BUILTIN_SIDE_TAGS = {"bull": "看涨分析师", "bear": "看跌分析师"}
 
 
-def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull", *, group=None):
+def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull", *, group=None, horizon=None):
     """
     创建 Stage 2 研究员节点（看涨/看跌辩手）。
 
@@ -104,6 +104,7 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull", *, gr
             缺省 None = 内置双方行为（per_turn=2 / investment_debate_state / investment 视图）；
             传入时 per_turn = len(sides)、state_key / 报告视图 / 对手集合按组拓扑驱动，
             内置对手的文案仍查本表（与缺省路径逐字一致）
+        horizon: 投资期限档位（short/mid/long；None/short 不注入期限锚点）
 
     Returns:
         节点执行函数
@@ -194,7 +195,15 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull", *, gr
                 inject_report_messages,
             )
 
-            system = build_context_prefix(ticker, company_name, currency, currency_symbol) + "\n\n" + base_prompt
+            # 期限锚点（mid/long）：尾置最高显著位，重解读「未来 7 天协同性」等周期表述
+            from app.engine.prompts.horizon import build_horizon_anchor
+
+            system = (
+                build_context_prefix(ticker, company_name, currency, currency_symbol)
+                + "\n\n"
+                + base_prompt
+                + build_horizon_anchor(horizon, role="debater")
+            )
             messages = []
 
             # ── 4. 注入 Stage 1 报告（<report> 边界符包裹，防止 prompt 注入）──
@@ -209,7 +218,7 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull", *, gr
             # ── 4.5 历史记忆注入（写读对称：反思写入的相似情景经验） ──
             from app.engine.agents.utils.memory import fetch_memory_brief
 
-            memory_brief = await fetch_memory_brief(memory, "\n\n".join(r for r in all_reports.values() if r))
+            memory_brief = await fetch_memory_brief(memory, "\n\n".join(r for r in all_reports.values() if r), as_of=state.get("trade_date"))
             if memory_brief and not memory_brief.startswith("暂无"):
                 messages.append(Message(role=Role.USER, content=f"=== 历史交易反思（类似情景） ===\n{memory_brief}"))
 

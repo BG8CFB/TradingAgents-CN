@@ -19,6 +19,8 @@ export interface SingleAnalysisRequest {
     selected_nodes?: string[]
     /** 工作流通用化：optional 阶段开关/轮次（优先于 phaseN_* 旧映射） */
     stage_overrides?: Record<string, { enabled?: boolean; rounds?: number }>
+    /** 投资期限（short=7/mid=20/long=60 交易日；缺省=短线，旧行为） */
+    horizon?: 'short' | 'mid' | 'long'
     custom_prompt?: string
     include_sentiment?: boolean
     include_risk?: boolean

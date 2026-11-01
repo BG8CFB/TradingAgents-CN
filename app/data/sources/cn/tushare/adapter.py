@@ -17,6 +17,7 @@ from app.data.schema.base.types import _safe_float, _parse_date
 from app.data.schema.domains.basic_info import StockBasicInfoSchema
 from app.data.schema.domains.trade_calendar import TradeCalendarSchema
 from app.data.schema.domains.daily_quotes import DailyQuotesSchema
+from app.data.schema.domains.index_quotes import IndexQuotesSchema
 from app.data.schema.domains.daily_indicators import DailyIndicatorsSchema
 from app.data.schema.domains.adj_factors import AdjFactorsSchema
 from app.data.schema.domains.financial_data import FinancialDataSchema
@@ -175,6 +176,62 @@ class TushareCNAdapter(BaseAdapter):
                     volume=volume,
                     amount=amount,
                     turnover_rate=_safe_float(get("turn") or get("turnover_rate")),
+                )
+            )
+        return results
+
+    # ── index_quotes ──
+
+    def adapt_index_quotes(self, raw: Any) -> List[IndexQuotesSchema]:
+        """指数日线：symbol 为 ts_code 形态（000300.SH）原样保留（规范码即 ts_code）。"""
+        df = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
+        if df.empty:
+            return []
+        results = []
+        for _, row in df.iterrows():
+            get = row.get
+            symbol = str(get("ts_code", "")).strip()
+            trade_date = _parse_date(get("trade_date"))
+            if not symbol or not trade_date:
+                continue
+
+            # index_daily 的 volume/amount 单位与 daily 一致（手/千元）
+            volume = _safe_float(get("volume") or get("vol"))
+            if volume is not None:
+                volume = volume * 100
+            amount = _safe_float(get("amount"))
+            if amount is not None:
+                amount = amount * 1000
+
+            close = _safe_float(get("close"))
+            pre_close = _safe_float(get("pre_close"))
+            change = _safe_float(get("change"))
+            pct_chg = _safe_float(get("pct_chg"))
+            if change is None and close is not None and pre_close is not None:
+                change = round(close - pre_close, 4)
+            if (
+                pct_chg is None
+                and close is not None
+                and pre_close is not None
+                and pre_close != 0
+            ):
+                pct_chg = round((close - pre_close) / pre_close * 100, 4)
+
+            results.append(
+                IndexQuotesSchema(
+                    symbol=symbol,
+                    market="CN",
+                    data_source="tushare",
+                    trade_date=trade_date,
+                    open=_safe_float(get("open")),
+                    high=_safe_float(get("high")),
+                    low=_safe_float(get("low")),
+                    close=close,
+                    pre_close=pre_close,
+                    change=change,
+                    pct_chg=pct_chg,
+                    volume=volume,
+                    amount=amount,
                 )
             )
         return results

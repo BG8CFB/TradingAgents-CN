@@ -87,6 +87,7 @@ class RunResult:
     compacted: bool = False
     stop_reason: str = ""
     user_messages_injected: int = 0
+    salvaged_after_max_turns: bool = False  # 工具循环耗尽后经一次无工具收敛调用抢救出正文
 
 
 async def run_conversation(
@@ -393,6 +394,66 @@ async def run_conversation(
                     "user_message_injected",
                     text=unwrap_system_reminder(msg.content),
                 )
+
+    # ── max_turns 兜底收敛（对齐上游 max_tool_rounds：超限后强制收敛写报告）──
+    # 工具循环耗尽时 final_text 为空（自然停止分支未走到），整轮花费换一份空报告；
+    # 补一次无工具调用让模型用手头材料直接产出正文。收敛调用不传 tools，
+    # 杜绝二次工具循环；失败保持空正文，由调用方降级。
+    if result.stop_reason == "max_turns" and not result.final_text:
+        try:
+            messages.append(
+                Message(
+                    role=Role.USER,
+                    content=(
+                        "工具调用轮数已达上限，不能再调用任何工具。"
+                        "请立即基于以上已获取的全部信息，输出最终的报告或回答正文。"
+                    ),
+                )
+            )
+            await emit("llm_request", tools=0, estimated_tokens=counter.count(messages), messages=len(messages))
+
+            async def _salvage_call() -> ChatResponse:
+                resp_local: Optional[ChatResponse] = None
+                async for event in active_client.chat_stream(
+                    messages,
+                    system=system,
+                    tools=None,
+                    max_tokens=escalated_max_tokens or max_tokens,
+                    temperature=temperature,
+                    thinking_budget=thinking_budget,
+                    thinking_effort=thinking_effort,
+                ):
+                    if event.type == "text_delta":
+                        if on_text_delta:
+                            on_text_delta(event.text)
+                        await emit("text_delta", text=event.text)
+                    elif event.type == "message" and event.response:
+                        resp_local = event.response
+                if resp_local is None:
+                    raise RuntimeError("未收到完整响应（流中断）")
+                return resp_local
+
+            resp = await with_retry(
+                _salvage_call, max_retries=retry_times if retry_times is not None else DEFAULT_MAX_RETRIES
+            )
+            result.total_tokens += resp.usage.total
+            record_usage(active_client, resp)
+            result.final_text = resp.text()
+            result.salvaged_after_max_turns = True
+            logger.info(
+                f"[runner] max_turns 收敛调用抢救出正文 {len(result.final_text)} 字符 "
+                f"(agent={agent_key})"
+            )
+            await emit(
+                "llm_response",
+                stop_reason=resp.stop_reason.value,
+                input_tokens=resp.usage.input_tokens,
+                output_tokens=resp.usage.output_tokens,
+                model=getattr(resp, "model", ""),
+                text=result.final_text,
+            )
+        except Exception:  # noqa: BLE001 - 收敛失败保持空正文，不外抛
+            logger.warning(f"⚠️ [runner] max_turns 收敛调用失败，保持空正文 (agent={agent_key})", exc_info=True)
 
     result.turns = min(turns, max_turns)
     return result

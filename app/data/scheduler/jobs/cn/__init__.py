@@ -40,6 +40,20 @@ class CNDailyIndicatorsJob(BaseSyncJob):
         return "Asia/Shanghai"
 
 
+class CNIndexQuotesJob(BaseSyncJob):
+    """指数日线同步 — 固定基准宇宙（index_universe），不查 basic_info 股票池。"""
+    def __init__(self):
+        super().__init__("CN", "index_quotes")
+    def get_cron(self) -> str:
+        return "25 16 * * 1-5"
+    def get_timezone(self) -> str:
+        return "Asia/Shanghai"
+    async def _get_symbols(self) -> list:
+        from app.data.core.index_universe import get_index_symbols
+
+        return get_index_symbols("CN")
+
+
 class CNAdjFactorsJob(BaseSyncJob):
     def __init__(self):
         super().__init__("CN", "adj_factors")
@@ -137,6 +151,7 @@ _CN_JOBS = [
     CNTradeCalendarJob,
     CNBasicInfoJob,
     CNDailyQuotesJob,
+    CNIndexQuotesJob,
     CNDailyIndicatorsJob,
     CNAdjFactorsJob,
     CNFinancialDataJob,

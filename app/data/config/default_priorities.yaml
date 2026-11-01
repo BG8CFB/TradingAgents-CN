@@ -4,6 +4,7 @@ CN:
   basic_info: [tushare, akshare, baostock]
   trade_calendar: [tushare, akshare, baostock]
   daily_quotes: [tushare, akshare, baostock]
+  index_quotes: [tushare]
   daily_indicators: [tushare, akshare]
   adj_factors: [tushare, akshare, baostock]
   financial_data: [tushare, akshare]

@@ -7,6 +7,7 @@ class DataDomain(str, Enum):
     BASIC_INFO = "basic_info"
     TRADE_CALENDAR = "trade_calendar"
     DAILY_QUOTES = "daily_quotes"
+    INDEX_QUOTES = "index_quotes"
     DAILY_INDICATORS = "daily_indicators"
     ADJ_FACTORS = "adj_factors"
     CORPORATE_ACTIONS = "corporate_actions"
@@ -39,6 +40,7 @@ DOMAIN_SEMANTIC_TYPE = {
     DataDomain.BASIC_INFO: SemanticType.ENTITY,
     DataDomain.TRADE_CALENDAR: SemanticType.ENTITY,
     DataDomain.DAILY_QUOTES: SemanticType.TIMESERIES,
+    DataDomain.INDEX_QUOTES: SemanticType.TIMESERIES,
     DataDomain.DAILY_INDICATORS: SemanticType.TIMESERIES,
     DataDomain.ADJ_FACTORS: SemanticType.TIMESERIES,
     DataDomain.CORPORATE_ACTIONS: SemanticType.TIMESERIES,
@@ -62,6 +64,7 @@ DOMAIN_SEMANTIC_TYPE = {
 # 行情类数据域（非交易日跳过）
 MARKET_DATA_DOMAINS = {
     DataDomain.DAILY_QUOTES,
+    DataDomain.INDEX_QUOTES,
     DataDomain.DAILY_INDICATORS,
     DataDomain.ADJ_FACTORS,
     DataDomain.MARKET_QUOTES,

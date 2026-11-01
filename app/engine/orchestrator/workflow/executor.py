@@ -51,7 +51,9 @@ def _materialize_node(slug: str, node: PlannedNode, deps: PipelineDeps):
     def _trader():
         from app.engine.agents.stage_2.trader import create_trader
 
-        return create_trader(deps.debate_client, _slot_memory(deps, node.memory))
+        return create_trader(
+            deps.debate_client, _slot_memory(deps, node.memory), horizon=(deps.config or {}).get("horizon")
+        )
 
     def _summary():
         from app.engine.agents.stage_4.summary_agent import create_summary_agent
@@ -97,7 +99,12 @@ def _slot_memory(deps: PipelineDeps, slot: Optional[str]):
 
 
 def _materialize_side(node: PlannedNode, deps: PipelineDeps, group, side_key: str):
-    """辩论侧辩手物化：内置 5 辩手走各自工厂（带组拓扑），自定义 slug 走通用工厂"""
+    """辩论侧辩手物化：内置 5 辩手走各自工厂（带组拓扑），自定义 slug 走通用工厂
+
+    期限贯通：researcher 与通用辩手带 horizon（风险组不注入——其评估对象
+    已是带期限的交易计划）
+    """
+    _horizon = (deps.config or {}).get("horizon")
     if node.slug in _BUILTIN_RESEARCHER_SIDES:
         from app.engine.agents.stage_2.researcher_factory import create_researcher
 
@@ -106,6 +113,7 @@ def _materialize_side(node: PlannedNode, deps: PipelineDeps, group, side_key: st
             _slot_memory(deps, node.memory),
             side=_BUILTIN_RESEARCHER_SIDES[node.slug],
             group=group,
+            horizon=_horizon,
         )
     if node.slug in _BUILTIN_RISK_SIDES:
         from app.engine.agents.stage_3.debator_factory import create_debator
@@ -126,7 +134,7 @@ def _materialize_side(node: PlannedNode, deps: PipelineDeps, group, side_key: st
         memory=node.memory or "",
         terminal=node.terminal,
     )
-    return create_generic_debater(deps.debate_client, binding, group)
+    return create_generic_debater(deps.debate_client, binding, group, horizon=_horizon)
 
 
 def _materialize_judge(node: PlannedNode, deps: PipelineDeps, group):
@@ -140,7 +148,9 @@ def _materialize_judge(node: PlannedNode, deps: PipelineDeps, group):
     if node.slug == "research-manager":
         from app.engine.agents.stage_2.research_manager import create_research_manager
 
-        return create_research_manager(deps.debate_client, deps.invest_judge_memory)
+        return create_research_manager(
+            deps.debate_client, deps.invest_judge_memory, horizon=(deps.config or {}).get("horizon")
+        )
     if node.slug == "risk-manager":
         from app.engine.agents.stage_3.risk_manager import create_risk_manager
 
@@ -155,7 +165,13 @@ def _materialize_judge(node: PlannedNode, deps: PipelineDeps, group):
         memory=node.memory or "",
         terminal=node.terminal,
     )
-    return create_generic_judge(deps.debate_client, binding, group, memory=_slot_memory(deps, node.memory))
+    return create_generic_judge(
+        deps.debate_client,
+        binding,
+        group,
+        memory=_slot_memory(deps, node.memory),
+        horizon=(deps.config or {}).get("horizon"),
+    )
 
 
 async def run_compiled(
@@ -363,6 +379,7 @@ async def run_compiled(
             max_tool_calls=int(config.get("max_tool_calls", 12)),
             mcp_tools=mcp_tools,
             enable_subagent=bool(config.get("enable_subagent", False)),
+            horizon=config.get("horizon"),
         )
         concurrency = max(1, int(stage.concurrency or 1))
         # 模型级并发限额（LLMConfig.max_concurrency）封顶编排并行度：灵活占位语义

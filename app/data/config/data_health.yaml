@@ -22,6 +22,7 @@ stale_after_hours:
 coverage_exempt_domains:
   - basic_info           # 覆盖率基线本身
   - market_quotes        # 指数快照
+  - index_quotes         # 基准指数宇宙（不在 basic_info 股票池）
   - trade_calendar
   - connect_status
   - southbound_holding

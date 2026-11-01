@@ -3,6 +3,7 @@
 from app.data.schema.domains.basic_info import StockBasicInfoSchema as StockBasicInfoSchema
 from app.data.schema.domains.trade_calendar import TradeCalendarSchema as TradeCalendarSchema
 from app.data.schema.domains.daily_quotes import DailyQuotesSchema as DailyQuotesSchema
+from app.data.schema.domains.index_quotes import IndexQuotesSchema as IndexQuotesSchema
 from app.data.schema.domains.daily_indicators import DailyIndicatorsSchema as DailyIndicatorsSchema
 from app.data.schema.domains.adj_factors import AdjFactorsSchema as AdjFactorsSchema
 from app.data.schema.domains.corporate_actions import CorporateActionsSchema as CorporateActionsSchema

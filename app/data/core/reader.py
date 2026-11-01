@@ -64,13 +64,14 @@ class Reader:
                 DragonTigerRepo, BlockTradeRepo,
                 ConnectStatusRepo, SouthboundHoldingRepo, PrePostMarketRepo,
                 FactorScoresRepo, ScreeningRecommendationsRepo,
-                ScreeningInsightsRepo,
+                ScreeningInsightsRepo, IndexQuotesRepo,
             )
 
             repo_map = {
                 "basic_info": BasicInfoRepo,
                 "trade_calendar": TradeCalendarRepo,
                 "daily_quotes": DailyQuotesRepo,
+                "index_quotes": IndexQuotesRepo,
                 "daily_indicators": DailyIndicatorsRepo,
                 "adj_factors": AdjFactorsRepo,
                 "corporate_actions": CorporateActionsRepo,
@@ -132,7 +133,7 @@ class Reader:
             data = await repo.get_range(exchange, market,
                                         start_date or "1970-01-01", end_date or "2099-12-31")
 
-        elif domain in ("daily_quotes", "daily_indicators", "adj_factors",
+        elif domain in ("daily_quotes", "index_quotes", "daily_indicators", "adj_factors",
                         "corporate_actions", "factor_scores"):
             if symbol:
                 period_filter = filters.get("period") if filters else None
@@ -262,6 +263,7 @@ class Reader:
     _LATEST_SORT_FIELDS: Dict[str, str] = {
         "trade_calendar": "cal_date",
         "daily_quotes": "trade_date",
+        "index_quotes": "trade_date",
         "daily_indicators": "trade_date",
         "adj_factors": "trade_date",
         "corporate_actions": "trade_date",

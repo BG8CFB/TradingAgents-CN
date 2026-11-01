@@ -23,6 +23,14 @@ daily_quotes:
   depends_on:
     - basic_info
 
+index_quotes:
+  cron: "25 16 * * 1-5"
+  timezone: "Asia/Shanghai"
+  mode: incremental
+  description: "每交易日 16:25 增量同步指数日线（基准宇宙，4 只）"
+  depends_on:
+    - daily_quotes
+
 daily_indicators:
   cron: "45 16 * * 1-5"
   timezone: "Asia/Shanghai"

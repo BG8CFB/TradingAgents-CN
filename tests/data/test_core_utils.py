@@ -48,7 +48,7 @@ class TestDataDomain:
 
     def test_domain_count(self):
         # 2026-09 选股三层漏斗：+factor_scores/screening_insights/screening_recommendations
-        assert len(DataDomain) == 21
+        assert len(DataDomain) == 22
 
     def test_str_enum_behavior(self):
         assert DataDomain.BASIC_INFO == "basic_info"

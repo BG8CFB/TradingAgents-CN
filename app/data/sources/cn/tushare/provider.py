@@ -74,6 +74,14 @@ class TushareCNProvider(BaseProvider):
 
         return await fetch_daily_quotes_batch(self._get_conn(), trade_date)
 
+    async def get_index_quotes(
+        self, symbol: str, start_date: str, end_date: str, **kwargs
+    ) -> pd.DataFrame:
+        from .api.index_quotes import fetch_index_quotes
+
+        # 指数规范码即 ts_code 形态（000300.SH 等），不做 _to_ts_code 换算
+        return await fetch_index_quotes(self._get_conn(), symbol, start_date, end_date)
+
     async def get_daily_indicators(
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> pd.DataFrame:

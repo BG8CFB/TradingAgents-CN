@@ -360,8 +360,9 @@ class TestSchemaRetryBounded:
 
         assert submission.source == "fallback_text"
         assert submission.fields == {"action": "持有"}
-        # 纯工具轮无正文 → 降级 content 为空串（调用方按 H-2 占位降级）
-        assert submission.content == ""
+        # max_turns 耗尽 → runner 无条件收敛调用抢救正文（上游 max_tool_rounds 对齐），
+        # 收敛文本成为降级 content；收敛也失败时才为空串（调用方按 H-2 占位降级）
+        assert submission.content == "报告如下，现提交。"
 
 
 class TestFallbackPipeline:

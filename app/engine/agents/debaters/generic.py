@@ -44,13 +44,14 @@ _TRIGGER_DEBATE_FMT = (
 )
 
 
-def create_generic_debater(llm, node: DebateNodeBinding, group: DebateGroup):
+def create_generic_debater(llm, node: DebateNodeBinding, group: DebateGroup, horizon=None):
     """创建通用辩手节点（自定义 debater NodeSpec 的执行路径）。
 
     Args:
         llm: LLM 客户端实例
         node: 成员物化指令（slug/event_key/报告键；roleDefinition 按 slug 读 agent_specs）
         group: 辩论组拓扑（side_key = node.side_key；per_turn = len(group.sides)）
+        horizon: 投资期限档位（short/mid/long；None/short 不注入期限锚点）
 
     Returns:
         节点执行函数
@@ -100,7 +101,15 @@ def create_generic_debater(llm, node: DebateNodeBinding, group: DebateGroup):
                 logger.error(error_msg)
                 raise ValueError(error_msg)
 
-            system = build_context_prefix(ticker, company_name, currency) + "\n\n" + base_prompt
+            # 期限锚点（mid/long）：尾置，重解读周期表述
+            from app.engine.prompts.horizon import build_horizon_anchor
+
+            system = (
+                build_context_prefix(ticker, company_name, currency)
+                + "\n\n"
+                + base_prompt
+                + build_horizon_anchor(horizon, role="debater")
+            )
             messages = inject_report_messages(
                 all_reports,
                 {},
@@ -177,7 +186,7 @@ def create_generic_debater(llm, node: DebateNodeBinding, group: DebateGroup):
     return debater_node
 
 
-def create_generic_judge(llm, node: DebateNodeBinding, group: DebateGroup, memory=None):
+def create_generic_judge(llm, node: DebateNodeBinding, group: DebateGroup, memory=None, horizon=None):
     """创建通用裁决节点（自定义 judge NodeSpec 的执行路径）。
 
     judge：各侧累积报告（组报告派生视图）逐条注入 → 裁决提交（node_type=judge，
@@ -189,6 +198,7 @@ def create_generic_judge(llm, node: DebateNodeBinding, group: DebateGroup, memor
         node: 成员物化指令（slug/event_key/report_key/terminal）
         group: 辩论组拓扑（state_key / sides 顺序 / 报告视图）
         memory: 金融记忆实例（可空；非空时注入裁决前相似情景反思）
+        horizon: 投资期限档位（short/mid/long；None/short 不注入期限锚点）
     """
 
     display = node.node_name or node.slug
@@ -230,7 +240,15 @@ def create_generic_judge(llm, node: DebateNodeBinding, group: DebateGroup, memor
                 logger.error(error_msg)
                 raise ValueError(error_msg)
 
-            system = build_context_prefix(ticker, company_name, currency) + "\n\n" + base_prompt
+            # 期限锚点（mid/long）：裁决按本次分析期限评估各方证据
+            from app.engine.prompts.horizon import build_horizon_anchor
+
+            system = (
+                build_context_prefix(ticker, company_name, currency)
+                + "\n\n"
+                + base_prompt
+                + build_horizon_anchor(horizon, role="judge")
+            )
             messages = inject_report_messages(
                 all_reports,
                 {},
@@ -241,7 +259,7 @@ def create_generic_judge(llm, node: DebateNodeBinding, group: DebateGroup, memor
             if memory is not None:
                 from app.engine.agents.utils.memory import fetch_memory_brief
 
-                memory_brief = await fetch_memory_brief(memory, "\n\n".join(c for _, c in side_docs))
+                memory_brief = await fetch_memory_brief(memory, "\n\n".join(c for _, c in side_docs), as_of=state.get("trade_date"))
                 if memory_brief and not memory_brief.startswith("暂无"):
                     messages.append(
                         Message(role=Role.USER, content=f"=== 历史裁决反思（类似情景） ===\n{memory_brief}")

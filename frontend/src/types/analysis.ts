@@ -25,6 +25,8 @@ export interface AnalysisParameters {
   custom_prompt?: string
   include_charts: boolean
   language: 'zh-CN' | 'en-US'
+  // 投资期限（short=7/mid=20/long=60 交易日；缺省=短线，旧行为）
+  horizon?: 'short' | 'mid' | 'long'
   // MCP 工具配置
   mcp_enabled?: boolean
   mcp_tool_ids?: string[]

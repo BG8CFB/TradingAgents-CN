@@ -11,6 +11,7 @@ _REQUIRED_FIELDS = {
     "basic_info": ["symbol", "name"],
     "trade_calendar": ["exchange", "cal_date", "is_open"],
     "daily_quotes": ["symbol", "trade_date", "close"],
+    "index_quotes": ["symbol", "trade_date", "close"],
     "daily_indicators": ["symbol", "trade_date"],
     "adj_factors": ["symbol", "trade_date", "adj_factor"],
     "corporate_actions": ["symbol", "ex_date", "action_type"],

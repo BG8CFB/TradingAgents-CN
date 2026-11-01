@@ -16,6 +16,7 @@ _SUPPORTED_SYNC_DOMAINS = {
     "basic_info",
     "trade_calendar",
     "daily_quotes",
+    "index_quotes",
     "daily_indicators",
     "adj_factors",
     "corporate_actions",

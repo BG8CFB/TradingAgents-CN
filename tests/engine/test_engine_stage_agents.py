@@ -164,8 +164,10 @@ class TestSummaryAgentBehavior:
         node = create_summary_agent(llm)
         result = await node(_summary_state())
         assert "structured_summary" in result
-        assert result["structured_summary"]["model_confidence"] == 50
+        # 口径与其他兜底一致：confidence=0 / risk=High（不再给 50/Medium 的"看似正常"值）
+        assert result["structured_summary"]["model_confidence"] == 0
         assert result["structured_summary"]["final_signal"] == "Hold"
+        assert result["structured_summary"]["degraded"] is True
 
     @pytest.mark.asyncio
     async def test_handles_llm_exception(self):

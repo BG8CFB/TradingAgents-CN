@@ -804,6 +804,14 @@ class AnalysisService:
             )
             await self._update_task_status(task_id, AnalysisStatus.COMPLETED, 100)
 
+            # 结算登记：把本次合格决策写入 decision_settlements（兜底包自动过滤，失败不影响分析）
+            try:
+                from app.services.settlement_service import get_settlement_service
+
+                await get_settlement_service().register_from_result(task_id, user_id, result)
+            except Exception as e:
+                logger.warning(f"结算登记失败(忽略) task={task_id}: {e}", exc_info=True)
+
             # 发送通知
             try:
                 from app.services.notifications_service import get_notifications_service
@@ -1224,6 +1232,11 @@ class AnalysisService:
             if request.parameters and getattr(request.parameters, "stage_overrides", None):
                 config["stage_overrides"] = dict(request.parameters.stage_overrides)
 
+            # 期限贯通：仅显式指定时携带（None 不设键，deps.config 通道直达
+            # executor 物化点，不进 state/事件/spec）
+            if request.parameters and getattr(request.parameters, "horizon", None):
+                config["horizon"] = request.parameters.horizon
+
             # 注入模型 provider 路由信息
             config["analyst_provider"] = analyst_provider
             config["debate_provider"] = debate_provider_info["provider"]
@@ -1332,7 +1345,7 @@ class AnalysisService:
             event_sink = create_event_sink(task_id, server_loop=server_loop, on_progress=graph_progress_callback)
             try:
                 state, decision = trading_graph.propagate_sync(
-                    request.stock_code,
+                    request.get_symbol(),
                     analysis_date,
                     task_id=task_id,
                     event_sink=event_sink,
@@ -1367,8 +1380,8 @@ class AnalysisService:
             # 构建结果 (简化版，完整版在 _save_analysis_result_web_style 中重构)
             # 这里直接返回字典
             result = {
-                "stock_code": request.stock_code,
-                "stock_symbol": request.stock_code,
+                "stock_code": request.get_symbol(),
+                "stock_symbol": request.get_symbol(),
                 "analysis_date": analysis_date,
                 "market_type": market_type,
                 "summary": summary_text,
@@ -1383,6 +1396,9 @@ class AnalysisService:
                 "decision": decision,
                 "model_info": decision.get("model_info", "Unknown") if isinstance(decision, dict) else "Unknown",
                 "analysts": selected_analysts,
+                # 期限贯通：结算登记从内存 result 直接读取（register_from_result），
+                # parameters 快照为 durable 备份；None=旧任务（结算回落默认 7 日）
+                "horizon": request.parameters.horizon if request.parameters else None,
             }
             return result
 

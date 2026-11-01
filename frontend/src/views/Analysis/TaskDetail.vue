@@ -10,6 +10,7 @@
         <!-- 状态未加载完成时显示占位，避免闪现"未知" -->
         <el-skeleton-item v-if="!taskStatus" variant="text" class="status-skeleton" />
         <el-tag v-else :type="statusTagType" size="small">{{ statusLabel }}</el-tag>
+        <SettlementBadge :task-id="taskId" style="margin-left: 8px;" />
       </div>
 
       <span class="elapsed" :title="'起算时间：' + startedAtText">已耗时 {{ elapsedText }}</span>
@@ -154,6 +155,7 @@ import TaskDetailSidebar from '@/components/Analysis/TaskDetailSidebar.vue'
 import ProcessPanel from '@/components/Analysis/ProcessPanel.vue'
 import LiveReportPanel from '@/components/Analysis/LiveReportPanel.vue'
 import TaskReportPanel from '@/components/Analysis/TaskReportPanel.vue'
+import SettlementBadge from '@/components/Settlement/SettlementBadge.vue'
 import { useAnalysisProcessStore } from '@/stores/analysisProcess'
 
 const processStore = useAnalysisProcessStore()

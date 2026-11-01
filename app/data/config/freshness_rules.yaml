@@ -5,6 +5,10 @@ CN:
     rule_type: trading_day_after_close
     threshold_minutes: 30
     reference_time: "15:00"
+  index_quotes:
+    rule_type: trading_day_after_close
+    threshold_minutes: 30
+    reference_time: "15:00"
   daily_indicators:
     rule_type: trading_day_after_close
     threshold_minutes: 60

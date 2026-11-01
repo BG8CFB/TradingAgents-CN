@@ -1,12 +1,28 @@
 import chromadb
 from chromadb.config import Settings
 import threading
-from typing import Any, Dict
+import uuid
+from typing import Any, Dict, List, Optional
 
 from app.core.env import get_env
 # 导入统一日志系统
 import logging
 logger = logging.getLogger("agents.utils.memory")
+
+
+def _filter_visible_asof(memories: list, as_of: str, n: int) -> list:
+    """按"结果可知日"过滤记忆（防前视，纯函数便于单测）。
+
+    - 无 resolution_date metadata 的文档（存量/P4-b 组件反思写入）→ 可见
+    - 有且 <= as_of（ISO 日期字典序比较）→ 可见（结算结果在该分析日已揭晓）
+    - 有且 > as_of → 不可见（历史日期分析不得看到当时尚未揭晓的教训）
+    最后截断到 n 条。
+    """
+    visible = [
+        m for m in memories
+        if not m.get("resolution_date") or str(m["resolution_date"])[:10] <= as_of
+    ]
+    return visible[:n]
 
 
 class ChromaDBManager:
@@ -323,30 +339,37 @@ class FinancialSituationMemory:
         """获取最后处理的文本信息"""
         return getattr(self, '_last_text_info', None)
 
-    def add_situations(self, situations_and_advice):
-        """Add financial situations and their corresponding advice. Parameter is a list of tuples (situation, rec)"""
+    def add_situations(self, situations_and_advice, metadata_list: Optional[List[Dict]] = None):
+        """Add financial situations and their corresponding advice. Parameter is a list of tuples (situation, rec)
+
+        metadata_list（可选，与元组一一对应）：附加 metadata（如结算教训的
+        decision_date / resolution_date / symbol / signal / user_id）。
+        ids 用 uuid：旧 count() 偏移法在两个写入方（结算反思与 P4-b 组件反思）
+        并发写入时会撞 id 互相覆盖文档。
+        """
 
         situations = []
         advice = []
         ids = []
         embeddings = []
-
-        offset = self.situation_collection.count()
+        metadatas = []
 
         for i, (situation, recommendation) in enumerate(situations_and_advice):
+            extra = metadata_list[i] if metadata_list and i < len(metadata_list) else {}
             situations.append(situation)
             advice.append(recommendation)
-            ids.append(str(offset + i))
+            ids.append(uuid.uuid4().hex)
             embeddings.append(self.get_embedding(situation))
+            metadatas.append({"recommendation": recommendation, **(extra or {})})
 
         self.situation_collection.add(
             documents=situations,
-            metadatas=[{"recommendation": rec} for rec in advice],
+            metadatas=metadatas,
             embeddings=embeddings,
             ids=ids,
         )
 
-    def get_memories(self, current_situation, n_matches=1):
+    def get_memories(self, current_situation, n_matches=1, as_of: Optional[str] = None):
         """Find matching recommendations using embeddings with smart truncation handling"""
         
         # 获取当前情况的embedding
@@ -367,10 +390,14 @@ class FinancialSituationMemory:
         actual_n_matches = min(n_matches, collection_count)
         
         try:
-            # 执行相似度查询
+            # 执行相似度查询（as_of 防前视：over-fetch 后按 resolution_date 过滤，
+            # 无日期的存量文档默认可见，见模块级 _filter_visible_asof）
+            fetch_n = actual_n_matches
+            if as_of:
+                fetch_n = min(collection_count, actual_n_matches * 3 + 10)
             results = self.situation_collection.query(
                 query_embeddings=[query_embedding],
-                n_results=actual_n_matches
+                n_results=fetch_n
             )
             
             # 处理查询结果
@@ -388,10 +415,14 @@ class FinancialSituationMemory:
                         'situation': doc,
                         'recommendation': metadata.get('recommendation', ''),
                         'similarity': 1.0 - distance,  # 转换为相似度分数
-                        'distance': distance
+                        'distance': distance,
+                        'resolution_date': metadata.get('resolution_date'),
                     }
                     memories.append(memory_item)
-                
+
+                if as_of:
+                    memories = _filter_visible_asof(memories, as_of, actual_n_matches)
+
                 # 记录查询信息
                 if hasattr(self, '_last_text_info') and self._last_text_info.get('was_truncated'):
                     logger.info(f"🔍 截断文本查询完成，找到{len(memories)}个相关记忆")
@@ -425,19 +456,24 @@ class FinancialSituationMemory:
 # ── 统一检索入口（写读对称：Reflector 写入的 memory 在辩论/裁决节点消费） ─────
 
 
-async def fetch_memory_brief(memory, situation: str, n: int = 2) -> str:
+async def fetch_memory_brief(memory, situation: str, n: int = 2, as_of: Optional[str] = None) -> str:
     """检索 n 条相似历史记忆并拼接为 prompt 注入文本。
 
     - ChromaDB 检索是同步阻塞调用，放线程池执行
     - memory 为 None → 返回空串（调用方决定是否注入/占位）
     - 检索失败 / 记忆库为空 → 占位文案（不阻断节点）
+    - as_of（分析基准日）：过滤掉当时尚未揭晓的结算教训（resolution_date > as_of）
     """
     import asyncio
 
     if memory is None or not situation:
         return ""
     try:
-        past = await asyncio.to_thread(memory.get_memories, situation, n_matches=n)
+        # as_of 仅在非空时传参：兼容尚未升级签名的自定义 memory 实现
+        if as_of:
+            past = await asyncio.to_thread(memory.get_memories, situation, n_matches=n, as_of=as_of)
+        else:
+            past = await asyncio.to_thread(memory.get_memories, situation, n_matches=n)
         if not past:
             return "暂无历史记忆数据可参考。"
         return "\n\n".join(rec.get("recommendation", "") for rec in past if rec.get("recommendation"))

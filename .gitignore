@@ -154,3 +154,6 @@ config/skills/.cache/
 config/agents/*.yaml.lock
 # MCP 配置写入锁（运行时产物）
 config/mcp.json.lock
+
+# 本地克隆的参考项目（第三方代码，仅本地研究用）
+/references/

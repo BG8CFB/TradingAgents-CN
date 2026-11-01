@@ -2,6 +2,7 @@
 
 from app.data.storage.mongo.repositories.basic_info_repo import BasicInfoRepo as BasicInfoRepo
 from app.data.storage.mongo.repositories.daily_quotes_repo import DailyQuotesRepo as DailyQuotesRepo
+from app.data.storage.mongo.repositories.index_quotes_repo import IndexQuotesRepo as IndexQuotesRepo
 from app.data.storage.mongo.repositories.daily_indicators_repo import DailyIndicatorsRepo as DailyIndicatorsRepo
 from app.data.storage.mongo.repositories.adj_factors_repo import AdjFactorsRepo as AdjFactorsRepo
 from app.data.storage.mongo.repositories.corporate_actions_repo import CorporateActionsRepo as CorporateActionsRepo

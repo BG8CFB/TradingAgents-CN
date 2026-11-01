@@ -4,7 +4,7 @@
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict, field_serializer, model_validator
+from pydantic import BaseModel, Field, ConfigDict, field_serializer, field_validator, model_validator
 from enum import Enum
 from bson import ObjectId
 from .user import PyObjectId
@@ -62,6 +62,23 @@ class AnalysisParameters(BaseModel):
         default=None,
         description="阶段覆盖 {stage_id: {enabled/rounds/concurrency}}，优先于 phaseN_* 旧字段",
     )
+
+    # 投资期限（short=7/mid=20/long=60 交易日，映射见 app/core/horizons.py）
+    horizon: Optional[str] = Field(
+        default=None,
+        description="投资期限档位 short/mid/long；None=未指定，结算按默认 7 交易日且不注入期限锚点（旧行为）",
+    )
+
+    @field_validator("horizon")
+    @classmethod
+    def _validate_horizon(cls, v: Optional[str]) -> Optional[str]:
+        """非法档位直接 422；None 放行（旧客户端/队列旧任务兼容）。"""
+        if v is None:
+            return v
+        allowed = {"short", "mid", "long"}
+        if v not in allowed:
+            raise ValueError(f"horizon 必须是 {'/'.join(sorted(allowed))} 之一，收到 {v!r}")
+        return v
 
     # MCP工具
     mcp_enabled: bool = Field(default=False, description="是否启用 MCP 工具")

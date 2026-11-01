@@ -11,6 +11,7 @@ _BUSINESS_COLLECTIONS: Dict[str, str] = {
     "basic_info": "stock_basic_info",
     "trade_calendar": "trade_calendar",
     "daily_quotes": "stock_daily_quotes",
+    "index_quotes": "index_daily_quotes",
     "daily_indicators": "stock_daily_indicators",
     "adj_factors": "stock_adj_factors",
     "corporate_actions": "stock_corporate_actions",

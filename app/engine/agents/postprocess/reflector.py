@@ -7,14 +7,17 @@ P4-b 声明式输入适配：反思入口不再按内置 5 槽各写一个读死
 的派生见 runtime._reflection_input。
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from app.engine.orchestrator.invoker import run_agent_turn
 import logging
 
 logger = logging.getLogger("engine.postprocess.reflector")
 
-from app.engine.prompts.parts import REFLECTION_SYSTEM_PROMPT  # noqa: E402
+from app.engine.prompts.parts import (  # noqa: E402
+    OUTCOME_REFLECTION_SYSTEM_PROMPT,
+    REFLECTION_SYSTEM_PROMPT,
+)
 
 
 class Reflector:
@@ -102,3 +105,48 @@ class Reflector:
             self._cached_situation = self._extract_current_situation(current_state)
             self._situation_hash = content_hash
         return self._cached_situation
+
+    async def reflect_on_outcome(self, decision_brief: str, outcome: Dict[str, Any]) -> Optional[str]:
+        """结算后结果反思：决策摘要 + 真实结算数字 → 2-4 句教训文本。
+
+        与 reflect_component（节点产出轴，P4-b 声明式反思）互补：本方法输入是
+        最终决策与结算闭环的真实收益/超额（上游 TradingAgents v0.4+ 的 outcome
+        reflection 范式），产出存入 trader_memory 供辩手/交易节点检索注入。
+
+        Args:
+            decision_brief: 决策概要（日期/标的/信号/置信度/摘要摘录）
+            outcome: 结算数字（return_pct / benchmark_return_pct / alpha_pct /
+                horizon_days 等，缺失项跳过不进 prompt）
+
+        Returns:
+            教训文本；失败/空响应返回 None（不外抛，调用方记 failed 状态）
+        """
+        lines = []
+        if outcome.get("horizon_days"):
+            lines.append(f"持有窗口：{outcome['horizon_days']} 个交易日")
+        if outcome.get("return_pct") is not None:
+            lines.append(f"区间收益：{float(outcome['return_pct']):+.2f}%")
+        if outcome.get("benchmark_return_pct") is not None:
+            bench = outcome.get("benchmark_symbol") or "基准"
+            lines.append(f"基准（{bench}）收益：{float(outcome['benchmark_return_pct']):+.2f}%")
+        if outcome.get("alpha_pct") is not None:
+            lines.append(f"超额收益：{float(outcome['alpha_pct']):+.2f}%")
+        user_prompt = f"决策摘要：\n{decision_brief}\n\n结算结果：\n" + "\n".join(lines)
+
+        try:
+            result = await run_agent_turn(
+                self.llm,
+                [],
+                user_prompt,
+                system=OUTCOME_REFLECTION_SYSTEM_PROMPT,
+                agent_key="reflection_outcome",
+                phase="reflection",
+                task_id=self.task_id,
+                user_id=self.user_id,
+                max_tokens=400,
+                temperature=0.2,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"结果反思失败(返回 None): {e}")
+            return None
+        return (result or "").strip() or None

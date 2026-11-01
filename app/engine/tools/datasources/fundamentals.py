@@ -7,7 +7,7 @@
 import json
 import logging
 from typing import Optional
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from app.utils.time_utils import now_utc, get_current_date, get_current_date_compact
 from app.engine.tools.common.tool_result import success_result, error_result, format_tool_result, ErrorCodes
@@ -41,10 +41,21 @@ def get_stock_fundamentals(
         current_date = get_current_date()
 
     if not start_date:
-        start_date = (now_utc() - timedelta(days=10)).strftime("%Y-%m-%d")
+        # 锚定到基准日：默认锚到今天会让历史日期分析的窗口为空（start > end）
+        start_date = (datetime.strptime(current_date, "%Y-%m-%d") - timedelta(days=10)).strftime("%Y-%m-%d")
 
     if not end_date:
         end_date = current_date
+    elif end_date > current_date:
+        end_date = current_date  # 历史分析不得越过基准日取数（防前视）
+
+    from app.engine.tools.common.param_validators import MCPToolValidators
+
+    window = MCPToolValidators.validate_date_window(start_date, end_date, as_of=current_date)
+    if not window:
+        return format_tool_result(
+            error_result(ErrorCodes.INVALID_PARAM, window.error_message, suggestion="请修正日期窗口后重试")
+        )
 
     try:
         from app.utils.stock_utils import StockUtils

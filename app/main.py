@@ -306,6 +306,24 @@ async def _init_scheduler(logger):
     set_scheduler_instance(apscheduler)
     logger.info("调度器服务已初始化（统一调度引擎）")
 
+    # 决策结算记分：每日收盘数据入库后结算到期决策（P0）
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+
+        from app.services.settlement_service import run_settlement_job
+        from app.worker.scheduler_setup import add_resilient_job
+
+        add_resilient_job(
+            apscheduler,
+            run_settlement_job,
+            CronTrigger(hour=20, minute=30, timezone=settings.TIMEZONE),
+            id="decision_settlement_daily",
+            name="决策结算记分",
+        )
+        logger.info("决策结算 job 已注册（每日 20:30）")
+    except Exception as e:
+        logger.warning(f"决策结算 job 注册失败（不阻塞应用）: {e}", exc_info=True)
+
     # 数据新鲜度巡检（catchup 兜底）：启动延迟巡检一次 + 周期巡检。
     # cron 的 misfire 过期即丢弃，停机期间错过的交易日由巡检发现落后并补数。
     if getattr(settings, "DATA_FRESHNESS_PATROL_ENABLED", True):
@@ -761,6 +779,11 @@ app.include_router(knowledge.router)
 
 # 通知模块（REST）
 app.include_router(notifications_router.router)
+
+# 决策结算记分卡
+from app.routers import settlement as settlement_router  # noqa: E402
+
+app.include_router(settlement_router.router)
 
 # WebSocket 通知模块
 app.include_router(websocket_notifications_router.router)

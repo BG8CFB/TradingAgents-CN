@@ -427,6 +427,7 @@ class FallbackRouter:
             "basic_info": lambda: provider.get_stock_list(market=market),
             "trade_calendar": lambda: provider.get_trade_calendar(exchange, start, end),
             "daily_quotes": lambda: self._fetch_daily_quotes(provider, symbol, start, end),
+            "index_quotes": lambda: provider.get_index_quotes(symbol, start, end),
             "daily_indicators": lambda: self._fetch_daily_indicators(provider, symbol, start, end),
             "financial_data": lambda: self._fetch_financial_batch(provider, symbol, start, end),
             "adj_factors": lambda: provider.get_adj_factors(symbol, start, end),

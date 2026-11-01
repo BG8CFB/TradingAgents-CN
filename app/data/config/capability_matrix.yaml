@@ -13,6 +13,8 @@ CN:
     tushare: full
     akshare: full
     baostock: full
+  index_quotes:
+    tushare: full
   daily_indicators:
     tushare: full
     akshare: partial

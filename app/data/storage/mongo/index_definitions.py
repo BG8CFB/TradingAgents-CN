@@ -33,6 +33,11 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
         ([("symbol", 1), ("trade_date", -1), ("period", 1)], True),
         ([("trade_date", -1)], False),
     ],
+    "index_quotes": [
+        # 指数日线：同 symbol 同交易日只保留一份（固定基准宇宙，无 period 维度）
+        ([("symbol", 1), ("trade_date", -1)], True),
+        ([("trade_date", -1)], False),
+    ],
     "daily_indicators": [
         ([("symbol", 1), ("trade_date", -1)], True),
         ([("trade_date", -1)], False),

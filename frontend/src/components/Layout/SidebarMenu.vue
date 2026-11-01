@@ -40,6 +40,12 @@
       <template #title>任务中心</template>
     </el-menu-item>
 
+    <!-- 结算记分卡 -->
+    <el-menu-item index="/settlement">
+      <el-icon><Trophy /></el-icon>
+      <template #title>结算记分卡</template>
+    </el-menu-item>
+
     <!-- 学习中心 -->
     <el-menu-item index="/learning">
       <el-icon><Reading /></el-icon>
@@ -114,6 +120,7 @@ import {
   DataLine,
   TrendCharts,
   List,
+  Trophy,
   Reading,
   Setting,
   InfoFilled,

@@ -300,6 +300,30 @@ const routes: RouteRecordRaw[] = [
   { path: '/queue', redirect: '/tasks' },
   { path: '/analysis/history', redirect: '/tasks?tab=completed' },
   {
+    path: '/settlement',
+    name: 'Settlement',
+    component: () => import('@/layouts/BasicLayout.vue'),
+    meta: {
+      title: '结算记分卡',
+      icon: 'Trophy',
+      requiresAuth: true,
+      transition: 'fade'
+    },
+    children: [
+      {
+        path: '',
+        name: 'SettlementHome',
+        component: () => import('@/views/Settlement/index.vue'),
+        meta: {
+          title: '结算记分卡',
+          icon: 'Trophy',
+          requiresAuth: true,
+          transition: 'fade'
+        }
+      }
+    ]
+  },
+  {
     path: '/reports',
     name: 'Reports',
     component: () => import('@/layouts/BasicLayout.vue'),
