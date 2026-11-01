@@ -12,6 +12,8 @@ from typing import Dict, Optional
 
 import logging
 
+from app.core.env import get_raw_env
+
 logger = logging.getLogger("app.llm.mcp")
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -19,11 +21,10 @@ _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 def expand_env(value: str) -> str:
     """${VAR} 环境变量展开（未定义的变量保留原样并告警）"""
-    import os
 
     def _sub(m: "re.Match[str]") -> str:
         var = m.group(1)
-        val = os.environ.get(var)
+        val = get_raw_env(var)
         if val is None:
             logger.warning(f"⚠️ [mcp] 环境变量 {var} 未定义，占位符保留原样")
             return m.group(0)

@@ -86,7 +86,12 @@ def get_full_symbol(symbol: str, market: str, exchange: str = "") -> str:
 
 
 def normalize_symbol(symbol: str, market: str) -> str:
-    """标准化股票代码（去掉后缀，补零）。"""
+    """标准化股票代码（去掉后缀，补零）。
+
+    .. deprecated:: 查询归一化的唯一权威是 ``app.data.core.symbols.normalize_symbol``
+        （CN 补零 6 位、支持前缀/更多后缀）；本函数仅为 ``get_full_symbol``
+        的伴生工具保留，勿在新代码中使用。
+    """
     if market == "HK":
         return str(symbol).upper().replace(".HK", "").lstrip("0").zfill(5)
     elif market == "CN":

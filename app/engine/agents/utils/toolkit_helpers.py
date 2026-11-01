@@ -58,7 +58,7 @@ def _get_stock_info_sync(market, symbol):
         result = _run_async(di.read(market, "basic_info", symbol=symbol))
         data = result.get("data")
         if data:
-            doc = data[0] if isinstance(data, list) and data else data
+            doc = data
             lines = [f"股票代码: {doc.get('symbol', symbol)}"]
             if doc.get("name"):
                 lines.append(f"股票名称: {doc.get('name')}")

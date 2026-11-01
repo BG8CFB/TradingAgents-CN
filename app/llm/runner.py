@@ -36,6 +36,17 @@ from .retry import DEFAULT_MAX_RETRIES, FallbackTriggeredError, with_retry
 
 logger = logging.getLogger("app.llm.runner")
 
+# token 用量记录函数：应用层启动时注入（token_usage_recorder.record）。
+# llm 层不 import services（依赖方向：应用层 → llm）；未注入时跳过记录。
+_usage_recorder = None
+
+
+def set_usage_recorder(record_fn) -> None:
+    """注入 token 用量记录函数（签名同 token_usage_recorder.record）。"""
+    global _usage_recorder
+    _usage_recorder = record_fn
+
+
 DEFAULT_MAX_TURNS = 16
 MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3  # 恢复消息注入次数上限
 RECOVERY_INSTRUCTION = (
@@ -152,10 +163,14 @@ async def run_conversation(
             await event_sink.emit(event_type, agent_key=agent_key, phase=phase, **payload)
 
     def record_usage(c: BaseLLMClient, resp: ChatResponse) -> None:
-        """token 用量落库（fire-and-forget，recorder 自吞错）"""
-        from app.services.token_usage_recorder import token_usage_recorder
+        """token 用量落库（fire-and-forget，recorder 自吞错）。
 
-        token_usage_recorder.record(
+        记录函数由应用层启动时注入（set_usage_recorder）；未注入时跳过——
+        llm 层不 import services（依赖方向：应用层 → llm）。
+        """
+        if _usage_recorder is None:
+            return
+        _usage_recorder(
             provider=getattr(c, "protocol", "unknown"),
             model_name=getattr(resp, "model", "") or getattr(c, "model", ""),
             usage=resp.usage,

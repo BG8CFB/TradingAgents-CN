@@ -72,7 +72,12 @@ def get_collection_name(domain: str, market: str) -> str:
         base = _BUSINESS_COLLECTIONS[domain]
         if market == "CN":
             return base
-        suffix = _MARKET_SUFFIX.get(market, "")
+        suffix = _MARKET_SUFFIX.get(market)
+        if suffix is None:
+            # 显式报错：小写 "hk"/"us" 等错误值曾静默回退为 CN 无后缀集合（跨市场读写风险）
+            raise ValueError(
+                f"未知市场类型: {market!r}（支持 CN/HK/US，入口请先归一化大小写）"
+            )
         return f"{base}{suffix}"
 
     raise KeyError(f"未知的 domain: {domain}")

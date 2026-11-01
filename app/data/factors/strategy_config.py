@@ -9,6 +9,8 @@ from typing import Dict, List
 
 import yaml
 
+from app.core.env import get_raw_env
+
 logger = logging.getLogger(__name__)
 
 _CONFIG_NAME = "strategies.yaml"
@@ -27,7 +29,7 @@ _cache_mtime: float | None = None
 def _locate() -> str:
     for path in _SEARCH_DIRS:
         if path == "env":
-            path = os.environ.get("SCREENING_STRATEGIES_FILE") or ""
+            path = get_raw_env("SCREENING_STRATEGIES_FILE") or ""
         if path and os.path.isfile(path):
             return path
     raise FileNotFoundError(f"未找到选股策略配置 {_CONFIG_NAME}")

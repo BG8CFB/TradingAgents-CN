@@ -31,8 +31,9 @@ if sys.platform == 'win32':
             pass
 
     except Exception as e:
-        # 如果设置失败，打印警告但继续运行
-        print(f"Warning: Failed to set UTF-8 encoding: {e}", file=sys.stderr)
+        # 如果设置失败，记录警告但继续运行（日志未初始化，走 lastResort 输出到 stderr）
+        import logging
+        logging.getLogger("app.startup").warning(f"UTF-8 编码设置失败: {e}")
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent

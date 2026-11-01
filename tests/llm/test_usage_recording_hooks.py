@@ -50,10 +50,13 @@ class CapturingRecorder:
 
 @pytest.fixture
 def capture(monkeypatch):
-    cap = CapturingRecorder()
-    import app.services.token_usage_recorder as mod
+    """经 runner 的用量记录注入缝截获调用。
 
-    monkeypatch.setattr(mod, "token_usage_recorder", cap)
+    生产接线在 main 启动（set_usage_recorder(token_usage_recorder.record)），
+    runner 不再 import services；测试直接注入捕获型替身驱动真实路径。
+    """
+    cap = CapturingRecorder()
+    monkeypatch.setattr("app.llm.runner._usage_recorder", cap.record)
     return cap
 
 

@@ -3,16 +3,16 @@ Data access convention tests — 消费层数据访问纪律（架构铁律的 l
 
 规则（对应架构文档「数据层发展路线」）：
 1. no-sdk-import:       消费方禁止直接 import 第三方数据源 SDK
-2. no-sources-import:   消费方禁止 import app.data.sources / app.data.processor
+2. no-internal-data-import: 消费方禁止 import app.data.sources / app.data.processor
+                        / app.data.storage / app.data.core.reader
                         （生产侧 worker 与数据层自身豁免）
 3. no-db-handle-in-services: services/engine 禁止直连 MongoDB 句柄
                         （应用层集合走应用仓储，业务数据必须经 DataInterface）
+4. exempt-snapshot:     豁免清单固化为快照断言——新增豁免必须显式更新快照，
+                        防止豁免范围静默膨胀（清偿一项就同步缩小快照）
 
 豁免机制：文件头注释 `# data-access-exempt: <原因>`（前 10 行内），
 lint 识别该标记放行并在输出中汇总，防止白名单漂移且可审计。
-
-enforcement 说明：数据层标准化改造（Phase 4 消费层收敛）完成前，
-ENFORCE=False 为 warn 模式（只打印不失败）；收敛完成后改为 True。
 """
 import ast
 from pathlib import Path
@@ -33,6 +33,14 @@ SDK_IMPORT_WHITELIST_PREFIXES = (
 SOURCES_IMPORT_WHITELIST_PREFIXES = (
     "data/",                 # 数据层内部
     "worker/",               # 生产侧同步 worker（写路径）
+)
+
+# 规则 2 禁止消费方 import 的数据层内部模块前缀
+INTERNAL_DATA_MODULE_PREFIXES = (
+    "app.data.sources",
+    "app.data.processor",
+    "app.data.storage",
+    "app.data.core.reader",
 )
 
 # 规则 3 检查目录
@@ -104,8 +112,8 @@ def test_no_sdk_import_in_consumers():
     _assert_no_violations(violations, "no-sdk-import")
 
 
-def test_no_sources_import_in_consumers():
-    """消费方禁止 import app.data.sources / app.data.processor 内部实现。"""
+def test_no_internal_data_import_in_consumers():
+    """消费方禁止 import app.data.sources / processor / storage / core.reader 内部实现。"""
     violations = []
     for f in _iter_py_files(APP_DIR):
         rel = _relpath(f)
@@ -116,9 +124,78 @@ def test_no_sources_import_in_consumers():
         tree = ast.parse(f.read_text(encoding="utf-8"))
         _, froms = _imported_roots(tree)
         for mod in froms:
-            if mod.startswith(("app.data.sources", "app.data.processor")):
+            if mod.startswith(INTERNAL_DATA_MODULE_PREFIXES):
                 violations.append(f"{rel}: from {mod} import ...")
-    _assert_no_violations(violations, "no-sources-import")
+    _assert_no_violations(violations, "no-internal-data-import")
+
+
+def _exempt_files():
+    """当前声明豁免的文件集合（相对 app/ 的 posix 路径，排序）。"""
+    return sorted(
+        _relpath(f) for f in _iter_py_files(APP_DIR) if _has_exempt_marker(f)
+    )
+
+
+def test_exempt_files_snapshot():
+    """豁免清单快照：新增/移除豁免必须显式更新本清单（防静默膨胀/漂移）。
+
+    - 新增豁免：先确认无法走 DataInterface 公开能力，再加文件头标记并加入快照
+    - 清偿豁免：移除标记后从快照删除对应条目
+    """
+    exempt_snapshot = [
+        "engine/agents/utils/embedding_resolver.py",
+        "engine/orchestrator/agents.py",
+        "engine/orchestrator/workflow/store.py",
+        "engine/tools/datasources/china_market.py",
+        "engine/tools/skill/state_store.py",
+        "routers/cn/data_viewer.py",
+        "routers/stocks.py",
+        "services/analysis_events.py",
+        "services/analysis_service.py",
+        "services/auth_service.py",
+        "services/basics_sync/utils.py",
+        "services/cache_service.py",
+        "services/chat/chat_service.py",
+        "services/chat/conversation_runner.py",
+        "services/chat/tools.py",
+        "services/cn_data_integrity_service.py",
+        "services/config/data_source_service.py",
+        "services/config/database_service.py",
+        "services/config/llm_service.py",
+        "services/config/market_service.py",
+        "services/config/system_service.py",
+        "services/database/backups.py",
+        "services/database/cleanup.py",
+        "services/database/status_checks.py",
+        "services/database_service.py",
+        "services/enhanced_screening_service.py",
+        "services/favorites_service.py",
+        "services/knowledge_service.py",
+        "services/model_capability_service.py",
+        "services/multi_source_basics_sync_service.py",
+        "services/news_data_service.py",
+        "services/notifications_service.py",
+        "services/operation_log_service.py",
+        "services/queue_service.py",
+        "services/quotes_ingestion_service.py",
+        "services/reports_service.py",
+        "services/scheduler_service.py",
+        "services/screening/insight_service.py",
+        "services/screening/strategy_service.py",
+        "services/screening_service.py",
+        "services/secret_service.py",
+        "services/settlement_service.py",
+        "services/tags_service.py",
+        "services/token_usage_recorder.py",
+        "services/usage_statistics_service.py",
+    ]
+    current = _exempt_files()
+    added = set(current) - set(exempt_snapshot)
+    removed = set(exempt_snapshot) - set(current)
+    assert not added and not removed, (
+        f"豁免清单与快照不一致——新增: {sorted(added)}；移除: {sorted(removed)}。\n"
+        "新增豁免需在文件头声明原因并更新本快照；清偿后同步缩小快照。"
+    )
 
 
 def test_no_db_handle_in_services_and_engine():

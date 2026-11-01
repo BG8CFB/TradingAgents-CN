@@ -42,6 +42,10 @@ async def real_mongo_db():
     await db_module.db_manager.init_mongodb()
     db_module.mongo_client = db_module.db_manager.mongo_client
     db_module.mongo_db = db_module.db_manager.mongo_db
+    # 业务集合索引由数据模块契约保障（core.database 启动链已不再创建）
+    from app.data.core.interface import DataInterface
+
+    await DataInterface.get_instance().ensure_indexes()
     yield db_module.get_mongo_db()
     await db_module.db_manager.close_connections()
     db_module.mongo_client = None

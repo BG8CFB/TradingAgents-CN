@@ -1,3 +1,4 @@
+# data-access-exempt: FactorScores/ScreeningRecommendations 仓储直连；仓储归位后移除
 """选股策略运行服务 — L0 消费层（读 factor_scores，过滤+排序+落库推荐）。
 
 边界：只经 DataInterface/repo 读标准库，不直连数据源；

@@ -1,3 +1,4 @@
+# data-access-exempt: FactorScoresRepo（应用层集合仓储暂居 data.storage）；仓储归位后移除
 """AI 问答助手的 5 个选股数据工具（func_to_tooldef 包装）。
 
 约定：

@@ -22,6 +22,17 @@ from .core.factory import create_client
 
 logger = logging.getLogger("app.llm.providers")
 
+# 系统配置加载器：应用层启动时注入（config_service.get_system_config）。
+# llm 层不 import services（依赖方向：应用层 → llm）；未注入时走 .env 回退。
+_system_config_loader = None
+
+
+def set_system_config_loader(loader) -> None:
+    """注入系统配置加载器（async，返回 system_config 或抛异常）。"""
+    global _system_config_loader
+    _system_config_loader = loader
+
+
 # provider → 默认协议推断（仅 anthropic 原生走 anthropic 协议，其余全部 openai 兼容）
 _PROVIDER_PROTOCOL = {
     "anthropic": "anthropic",
@@ -400,15 +411,14 @@ async def resolve_task_override_bundle(
     provider_defaults: Dict[str, Dict[str, Any]] = {}
     catalog_index: Dict[str, Dict[str, Optional[int]]] = {}
     try:
-        from app.services.config import config_service
-
-        system_config = await config_service.get_system_config()
-        configs = _normalize_llm_configs(
-            [c.model_dump() for c in (system_config.llm_configs or [])]
-        )
-        if configs:
-            provider_defaults = await _load_provider_defaults_async()
-            catalog_index = await _load_catalog_index_async()
+        if _system_config_loader is not None:
+            system_config = await _system_config_loader()
+            configs = _normalize_llm_configs(
+                [c.model_dump() for c in (system_config.llm_configs or [])]
+            )
+            if configs:
+                provider_defaults = await _load_provider_defaults_async()
+                catalog_index = await _load_catalog_index_async()
     except Exception as e:  # noqa: BLE001 - 数据库不可用时仅用入参
         logger.warning(f"[providers] 任务覆盖读取数据库配置失败: {e}")
     if not configs:
@@ -535,12 +545,11 @@ async def get_engine_clients() -> Dict[str, EngineClientBundle]:
     provider_defaults: Dict[str, Dict[str, Any]] = {}
     catalog_index: Dict[str, Dict[str, Optional[int]]] = {}
     try:
-        from app.services.config import config_service
-
-        system_config = await config_service.get_system_config()
-        configs = _normalize_llm_configs(
-            [c.model_dump() for c in (system_config.llm_configs or [])]
-        )
+        if _system_config_loader is not None:
+            system_config = await _system_config_loader()
+            configs = _normalize_llm_configs(
+                [c.model_dump() for c in (system_config.llm_configs or [])]
+            )
     except Exception as e:  # noqa: BLE001 - 独立使用 app/llm 时无数据库
         logger.info(f"[providers] 数据库配置不可用: {e}")
     if configs:

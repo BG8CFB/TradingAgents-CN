@@ -99,7 +99,7 @@ def get_realtime_stock_news(
         report_lines = [f"## {ticker} 实时新闻分析 ({curr_date})\n"]
         for item in items:
             title = item.get("title", "")
-            content = item.get("content", item.get("summary", ""))
+            content = item.get("content", "")
             source = item.get("source", item.get("data_source", ""))
             pub_time = item.get("publish_time", "")
             report_lines.append(f"- [{source} {pub_time}] {title}")
@@ -154,17 +154,8 @@ def get_stock_news_unified(
 
             # 1. 尝试获取AKShare东方财富新闻
             try:
-                clean_ticker = (
-                    ticker.replace(".SH", "")
-                    .replace(".SZ", "")
-                    .replace(".SS", "")
-                    .replace(".HK", "")
-                    .replace(".XSHE", "")
-                    .replace(".XSHG", "")
-                )
-
                 logger.debug(
-                    f"🇨🇳🇭🇰 [统一新闻工具] 尝试获取东方财富新闻: {clean_ticker}"
+                    f"🇨🇳🇭🇰 [统一新闻工具] 尝试获取东方财富新闻: {ticker}"
                 )
 
                 try:
@@ -172,7 +163,7 @@ def get_stock_news_unified(
 
                     _di = DataInterface.get_instance()
                     market_code = "CN" if market_info.get("is_china") else "HK"
-                    _r = _run_async(_di.read(market_code, "news", symbol=clean_ticker))
+                    _r = _run_async(_di.read(market_code, "news", symbol=ticker))
                     news_data = _r.get("data", [])
                     if news_data:
                         if isinstance(news_data, list):
@@ -214,14 +205,7 @@ def get_stock_news_unified(
             # 2. 获取Google新闻作为补充
             try:
                 if is_china:
-                    clean_ticker = (
-                        ticker.replace(".SH", "")
-                        .replace(".SZ", "")
-                        .replace(".SS", "")
-                        .replace(".XSHE", "")
-                        .replace(".XSHG", "")
-                    )
-                    search_query = f"{clean_ticker} 股票 公司 财报 新闻"
+                    search_query = f"{ticker} 股票 公司 财报 新闻"
                     logger.debug(
                         f"🇨🇳 [统一新闻工具] A股Google新闻搜索关键词: {search_query}"
                     )

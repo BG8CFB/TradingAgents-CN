@@ -210,6 +210,49 @@ async def _init_database(logger):
     logger.info("✅ UserService 数据库连接已初始化")
 
 
+async def _wire_module_injections(logger):
+    """跨模块依赖注入接线（依赖方向统一为应用层 → 各模块）。
+
+    - llm：系统配置加载器与 token 用量记录（llm 不再 import services）
+    - data.knowledge：向量模型配置解析（data 不再 import llm）
+    - 业务集合索引保障（core.database 不再 import data.storage）
+    """
+    try:
+        from app.services.config import config_service
+        from app.llm import providers as llm_providers
+
+        llm_providers.set_system_config_loader(config_service.get_system_config)
+        logger.info("✅ llm 系统配置加载器已注入")
+    except Exception as e:
+        logger.warning(f"⚠️ llm 系统配置加载器注入失败: {e}")
+
+    try:
+        from app.llm import runner as llm_runner
+        from app.services.token_usage_recorder import token_usage_recorder
+
+        llm_runner.set_usage_recorder(token_usage_recorder.record)
+        logger.info("✅ llm token 用量记录已注入")
+    except Exception as e:
+        logger.warning(f"⚠️ llm token 用量记录注入失败: {e}")
+
+    try:
+        from app.data.knowledge import config as kb_config
+        from app.llm.providers import resolve_embedding_config
+
+        kb_config.set_embedding_config_resolver(resolve_embedding_config)
+        logger.info("✅ 知识库向量配置解析器已注入")
+    except Exception as e:
+        logger.warning(f"⚠️ 知识库向量配置解析器注入失败: {e}")
+
+    try:
+        from app.data.core.interface import DataInterface
+
+        await DataInterface.get_instance().ensure_indexes()
+        logger.info("✅ 业务集合索引保障完成")
+    except Exception as e:
+        logger.warning(f"⚠️ 业务集合索引创建失败: {e}")
+
+
 async def _init_secrets(logger):
     """自动生成并持久化安全密钥（JWT/CSRF）。
 
@@ -448,6 +491,7 @@ async def lifespan(app: FastAPI):
     _check_default_secrets(logger)
 
     await _init_database(logger)
+    await _wire_module_injections(logger)
 
     # 注册主事件循环，供 worker thread 中的 async 操作使用
     # 注意：必须用 get_running_loop() 而非 get_event_loop()

@@ -1,3 +1,4 @@
+# data-access-exempt: 调 Reader 私有方法 _latest_sort_field；待上提为 DataInterface 公开能力后移除
 """数据查看器分页工具 — 三市场 /stock/{symbol} 抽样校验共用。
 
 问题背景：Reader 各域仓储的返回排序不统一（daily_quotes 升序、

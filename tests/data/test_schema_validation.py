@@ -144,9 +144,10 @@ class TestCollectionsMap:
         assert get_collection_name("daily_quotes", "CN") == "stock_daily_quotes"
         assert get_collection_name("basic_info", "HK") == "stock_basic_info_hk"
 
-    def test_invalid_market_returns_base_name(self):
-        result = get_collection_name("basic_info", "XX")
-        assert result == "stock_basic_info"
+    def test_invalid_market_raises(self):
+        # 静默回退 CN 无后缀集合曾是跨市场读写风险（审计组 8），现显式 fail-fast
+        with pytest.raises(ValueError):
+            get_collection_name("basic_info", "XX")
 
     def test_invalid_data_type_raises(self):
         with pytest.raises(KeyError):

@@ -63,6 +63,9 @@ class TestCollectionsIndexes:
         db = real_mongo_db
         for market in ("CN", "HK", "US"):
             for domain, collection_name in get_all_collections(market).items():
+                if domain not in INDEX_DEFINITIONS:
+                    # 元数据集合（kb_index_state 等）按设计无索引定义
+                    continue
                 info = await db[collection_name].index_information()
                 for fields, _unique in INDEX_DEFINITIONS[domain]:
                     name = default_index_name(fields)

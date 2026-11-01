@@ -1,14 +1,15 @@
 """知识库向量模型配置与文本编码（OpenAI 兼容 /v1/embeddings 通用协议）。
 
 向量模型只走云端 API：base_url + api_key + model_name（+ 可选 dimension），
-由用户在 Web UI「设置 → LLM」配置 model_type=embedding 的条目，
-解析优先级复用 app/llm/providers.py（模型配置 > 厂家配置）。
+由用户在 Web UI「设置 → LLM」配置 model_type=embedding 的条目。
+配置解析器由应用层启动时注入（set_embedding_config_resolver，实现复用
+app/llm/providers 的模型配置 > 厂家配置优先级）——数据模块不 import app.llm。
 """
 
 import logging
 import threading
 import time
-from typing import List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,17 @@ _cache_lock = threading.Lock()
 _cached_at: float = 0.0
 _cached_model: Optional[str] = None
 _cached_payload = None  # (provider, api_key, base_url, dimension)
+
+# 向量模型配置解析器（应用层注入；未注入视为未配置向量模型）
+_embedding_config_resolver: Optional[Callable] = None
+
+
+def set_embedding_config_resolver(resolver: Callable) -> None:
+    """注入向量模型配置解析器（main 启动时注册，返回 ResolvedConfig 或 None）。"""
+    global _embedding_config_resolver
+    _embedding_config_resolver = resolver
+    with _cache_lock:
+        _cached_at = 0.0  # 失效缓存，下次读取用新解析器
 
 
 class KBEmbeddingNotConfigured(RuntimeError):
@@ -39,9 +51,11 @@ def get_embedding_config(force_refresh: bool = False) -> Optional[dict]:
             ):
                 return _as_dict(_cached_model, _cached_payload)
 
-    from app.llm.providers import resolve_embedding_config
+    if _embedding_config_resolver is None:
+        # 未注入解析器（独立使用数据模块的场景）= 未配置向量模型
+        return None
 
-    resolved = resolve_embedding_config()
+    resolved = _embedding_config_resolver()
     if resolved is None:
         return None
     with _cache_lock:

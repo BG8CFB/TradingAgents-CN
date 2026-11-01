@@ -45,27 +45,10 @@ def _to_json_str(data) -> str:
     return str(data)
 
 
-def _normalize_symbol(symbol: str, market: str) -> str:
-    """清洗 symbol，去掉交易所后缀以匹配数据库存储格式"""
-    if market == "CN":
-        return (
-            symbol.replace(".SZ", "")
-            .replace(".SH", "")
-            .replace(".BJ", "")
-            .replace(".sz", "")
-            .replace(".sh", "")
-            .replace(".bj", "")
-        )
-    elif market == "HK":
-        return symbol.replace(".HK", "").replace(".hk", "").zfill(5)
-    return symbol.upper()
-
-
 def _read_daily_quotes(market: str, symbol: str, start_date: str, end_date: str):
     """统一读取日 K 线数据（CN/HK/US 共用），库空时按需刷新后重读"""
-    clean_symbol = _normalize_symbol(symbol, market)
     result = read_with_refresh(
-        market, "daily_quotes", symbol=clean_symbol, start_date=start_date, end_date=end_date
+        market, "daily_quotes", symbol=symbol, start_date=start_date, end_date=end_date
     )
     raw = result.get("data") if result else None
     if not raw:
@@ -196,11 +179,10 @@ def get_stock_data_minutes(
         freq_map = {"1min": "1", "5min": "5", "15min": "15", "30min": "30", "60min": "60"}
         freq_short = freq_map.get(freq, "30")
 
-        clean_symbol = _normalize_symbol(stock_code, "CN")
         result = read_with_refresh(
             "CN",
             "intraday_quotes",
-            symbol=clean_symbol,
+            symbol=stock_code,
             start_date=start_datetime,
             end_date=end_datetime,
             filters={"freq": freq_short},
@@ -268,9 +250,8 @@ def get_index_data(
                 market = mkt
                 break
 
-        clean_symbol = _normalize_symbol(stock_code, market)
         result = read_with_refresh(
-            market, "market_quotes", symbol=clean_symbol, start_date=start_date, end_date=end_date
+            market, "market_quotes", symbol=stock_code, start_date=start_date, end_date=end_date
         )
         index_data = result.get("data") if result else None
         if index_data:
@@ -346,9 +327,8 @@ def get_stock_indicators(
                 error_result(ErrorCodes.INVALID_PARAM, err, suggestion="请修正日期窗口后重试")
             )
 
-        clean_symbol = _normalize_symbol(stock_code, market_key)
         result = read_with_refresh(
-            market_key, "daily_indicators", symbol=clean_symbol, start_date=start_date, end_date=end_date
+            market_key, "daily_indicators", symbol=stock_code, start_date=start_date, end_date=end_date
         )
         raw = result.get("data") if result else None
 

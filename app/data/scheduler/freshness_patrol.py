@@ -212,9 +212,10 @@ async def run_patrol(trigger: str = "interval") -> Dict:
                         "compensated": [], "results": {}}
         engine = None
         try:
-            from app.worker.scheduler_setup import get_scheduler_engine
+            # SchedulerEngine 是数据模块自有组件，直接取单例（不经 app.worker 转发）
+            from app.data.scheduler.engine import SchedulerEngine
 
-            engine = get_scheduler_engine()
+            engine = SchedulerEngine.get_instance()
         except Exception as e:
             logger.warning("巡检无法获取调度引擎: %s", e)
 

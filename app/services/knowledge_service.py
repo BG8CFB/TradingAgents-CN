@@ -1,3 +1,4 @@
+# data-access-exempt: 知识库运维面直连（NewsRepo/knowledge 内部件）；阶段 3 收敛到公开契约
 """知识库服务层 — 路由与引擎消费知识库能力的统一入口。
 
 向量索引/检索实现在数据层 app/data/knowledge（公开包）；

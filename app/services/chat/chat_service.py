@@ -1,3 +1,4 @@
+# data-access-exempt: ChatRepo（应用层集合仓储暂居 data.storage）；仓储归位后移除
 """AI 问答选股助手服务 — 会话 CRUD + settings 读取 + 每日配额。
 
 设置键（system_configs.system_settings 透传，与 screening insight 同范式）：

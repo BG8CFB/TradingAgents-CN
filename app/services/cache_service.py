@@ -1,3 +1,4 @@
+# data-access-exempt: Redis/TTLCache 直连；连接生命周期治理（阶段 3）后收敛
 """缓存服务 — 封装 Redis + 内存 TTLCache 访问，供 routers 调用。
 
 设计目标：

@@ -13,7 +13,7 @@ from app.engine.tools.common.tool_result import (
     format_tool_result,
     ErrorCodes,
 )
-from app.core.async_utils import run_async
+from app.engine.tools.common.data_access import read_with_refresh
 
 logger = logging.getLogger(__name__)
 
@@ -34,74 +34,30 @@ def _get_market_for_code(stock_code: str) -> str:
     return "CN"
 
 
-def _clean_symbol(stock_code: str) -> str:
-    """清理股票代码后缀。"""
-    return (
-        stock_code.replace(".SH", "")
-        .replace(".SZ", "")
-        .replace(".SS", "")
-        .replace(".XSHE", "")
-        .replace(".XSHG", "")
-        .replace(".HK", "")
-    )
-
-
 def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
-    """内部辅助函数：通过 DataInterface 获取新闻数据列表。"""
+    """内部辅助函数：通过 DataInterface 获取新闻数据列表（库空自动补数重读）。"""
     news_list = []
     market = _get_market_for_code(stock_code)
-    clean_code = _clean_symbol(stock_code)
 
     try:
-        from app.data.core.interface import DataInterface
-
-        di = DataInterface.get_instance()
-        result = run_async(di.read(market, "news", symbol=clean_code))
-        data = result.get("data")
-
-        if data and isinstance(data, list):
-            for item in data[:max_results]:
-                news_list.append(
-                    {
-                        "title": item.get("title", "无标题"),
-                        "content": item.get("content", "") or item.get("summary", ""),
-                        "source": f"{item.get('data_source', item.get('source', '未知'))} (DB)",
-                        "publish_time": item.get("publish_time", now_utc()),
-                        "sentiment": item.get("sentiment", "neutral"),
-                        "url": item.get("url", ""),
-                    }
-                )
-            if news_list:
-                logger.info(f"[新闻工具] 数据库缓存命中: {len(news_list)} 条")
-                return news_list
+        result = read_with_refresh(market, "news", symbol=stock_code)
+        data = result.get("data") if result else None
+        source_tag = "Refreshed" if result and result.get("auto_refreshed") else "DB"
+        for item in (data or [])[:max_results]:
+            news_list.append(
+                {
+                    "title": item.get("title", "无标题"),
+                    "content": item.get("content", ""),
+                    "source": f"{item.get('data_source', item.get('source', '未知'))} ({source_tag})",
+                    "publish_time": item.get("publish_time", now_utc()),
+                    "sentiment": item.get("sentiment", "neutral"),
+                    "url": item.get("url", ""),
+                }
+            )
+        if news_list:
+            logger.info(f"[新闻工具] 数据库缓存命中: {len(news_list)} 条")
     except Exception as e:
         logger.warning(f"[新闻工具] 通过 DataInterface 获取失败: {e}")
-
-    # 回退：尝试 refresh 并重新读取
-    try:
-        from app.data.core.interface import DataInterface
-
-        di = DataInterface.get_instance()
-        refresh_result = run_async(di.refresh(market, clean_code, domains=["news"], force=True, timeout=30))
-        if refresh_result and refresh_result.domains.get("news"):
-            result = run_async(di.read(market, "news", symbol=clean_code))
-            data = result.get("data")
-            if data and isinstance(data, list):
-                for item in data[:max_results]:
-                    news_list.append(
-                        {
-                            "title": item.get("title", "无标题"),
-                            "content": item.get("content", "") or item.get("summary", ""),
-                            "source": f"{item.get('data_source', item.get('source', '未知'))} (Refreshed)",
-                            "publish_time": item.get("publish_time", now_utc()),
-                            "sentiment": item.get("sentiment", "neutral"),
-                            "url": item.get("url", ""),
-                        }
-                    )
-                if news_list:
-                    return news_list
-    except Exception as e:
-        logger.warning(f"[新闻工具] 刷新后获取失败: {e}")
 
     return news_list
 
@@ -158,7 +114,7 @@ def _fetch_market_news(max_results: int) -> list:
             out.append(
                 {
                     "title": item.get("title", "无标题"),
-                    "content": item.get("content", "") or item.get("summary", ""),
+                    "content": item.get("content", ""),
                     "source": f"{item.get('data_source', item.get('source', '未知'))} (市场新闻,非个股)",
                     "publish_time": item.get("publish_time", now_utc()),
                     "sentiment": item.get("sentiment", "neutral"),

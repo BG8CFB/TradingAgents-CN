@@ -34,10 +34,10 @@ class TestNormalizeSymbol:
         assert normalize_symbol("aapl", "US") == "AAPL"
         assert normalize_symbol("BRK.B", "US") == "BRK.B"
 
-    def test_empty_input_falls_back_to_padding(self):
-        # None/空串按空处理：CN 补零为 000000，检索不命中（调用方恒有 symbol）
-        assert normalize_symbol(None, "CN") == "000000"
-        assert normalize_symbol("", "CN") == "000000"
+    def test_empty_input_stays_empty(self):
+        # None/空串归一后保持空（不补出 "000000" 这类假码），查询自然落空
+        assert normalize_symbol(None, "CN") == ""
+        assert normalize_symbol("", "CN") == ""
         assert normalize_symbol(None, "US") == ""
 
 

@@ -1,3 +1,4 @@
+# data-access-exempt: 直接实例化 Reader；待改走 DataInterface 后移除
 """
 传统筛选服务（内部实现，请勿直接调用）
 

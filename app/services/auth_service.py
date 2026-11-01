@@ -1,3 +1,4 @@
+# data-access-exempt: Redis 连接直连；连接生命周期治理（阶段 3）后收敛
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import hashlib

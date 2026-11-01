@@ -171,9 +171,7 @@ def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[st
         from app.engine.tools.common.data_access import read_with_refresh
 
         filters = {"limit": 100}
-        symbol = None
-        if ts_code:
-            symbol = ts_code.replace(".SH", "").replace(".SZ", "").replace(".sh", "").replace(".sz", "").zfill(6)
+        symbol = ts_code
 
         if symbol:
             result = read_with_refresh("CN", "dragon_tiger", symbol=symbol, filters=filters)
@@ -224,8 +222,7 @@ def get_block_trade(
         from app.engine.tools.common.data_access import read_with_refresh
 
         if code:
-            symbol = code.replace(".SH", "").replace(".SZ", "").replace(".sh", "").replace(".sz", "").zfill(6)
-            result = read_with_refresh("CN", "block_trade", symbol=symbol)
+            result = read_with_refresh("CN", "block_trade", symbol=code)
         else:
             result = run_async(
                 DataInterface.get_instance().read("CN", "block_trade", start_date=start_date, end_date=end_date)

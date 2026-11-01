@@ -1,8 +1,10 @@
 """知识库工具函数：publish_ts 解析与 symbol 归一。"""
 
-import re
 from datetime import datetime, timezone
 from typing import Optional
+
+# symbol 归一化的唯一权威在 app/data/core/symbols.py；此处转发保持既有导入路径
+from app.data.core.symbols import normalize_symbol as _normalize
 
 # 时间键用数值（epoch 秒）而非字符串：规避 Chroma where 区间比较的字符串版本差异
 _TIME_FORMATS = (
@@ -12,8 +14,6 @@ _TIME_FORMATS = (
     "%Y-%m-%d",
     "%Y%m%d",
 )
-
-_SYMBOL_SUFFIX_RE = re.compile(r"\.(SH|SZ|SS|BJ|XSHE|XSHG|HK|hk|N|O|P)$")
 
 
 def parse_publish_ts(value: Optional[str]) -> Optional[float]:
@@ -53,15 +53,6 @@ def end_of_day_ts(date_str: str) -> Optional[float]:
     return dt.timestamp()
 
 
-def normalize_symbol(symbol: str, market: str) -> str:
-    """股票代码归一（与各市场 news 集合存储口径一致）。
-
-    CN：去交易所后缀补零 6 位；HK：去 .HK 补零 5 位；US：大写。
-    """
-    s = (symbol or "").strip()
-    s = _SYMBOL_SUFFIX_RE.sub("", s)
-    if market.upper() == "CN":
-        return s.zfill(6)
-    if market.upper() == "HK":
-        return s.zfill(5)
-    return s.upper()
+def normalize_symbol(symbol: str, market: str) -> str:  # noqa: F811 — 转发权威实现
+    """股票代码归一（转发 app.data.core.symbols.normalize_symbol）。"""
+    return _normalize(symbol, market)

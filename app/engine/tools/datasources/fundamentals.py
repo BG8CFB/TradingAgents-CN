@@ -74,15 +74,7 @@ def get_stock_fundamentals(
 
             try:
                 # 直接读标准库 financial_data 域，库空时按需刷新后重读
-                clean_symbol = (
-                    stock_code.replace(".SZ", "")
-                    .replace(".SH", "")
-                    .replace(".BJ", "")
-                    .replace(".sz", "")
-                    .replace(".sh", "")
-                    .replace(".bj", "")
-                )
-                fundamentals_raw = read_with_refresh("CN", "financial_data", symbol=clean_symbol)
+                fundamentals_raw = read_with_refresh("CN", "financial_data", symbol=stock_code)
                 _d = fundamentals_raw.get("data") if fundamentals_raw else None
                 if _d:
                     import pandas as pd
@@ -122,11 +114,7 @@ def get_stock_fundamentals(
 
             try:
                 _r_info = read_with_refresh("HK", "basic_info", symbol=stock_code)
-                hk_info = _r_info.get("data") if _r_info else None
-                if isinstance(hk_info, list) and hk_info:
-                    hk_info = hk_info[0]
-                elif not hk_info:
-                    hk_info = {}
+                hk_info = (_r_info.get("data") if _r_info else None) or {}
 
                 basic_info = f"""## 港股基础信息
 **名称**: {hk_info.get("name", "N/A")}
@@ -225,21 +213,6 @@ def get_company_performance_unified(
                 )
             )
 
-        # 清洗 symbol（去掉交易所后缀以匹配数据库存储格式）
-        if market_info["is_china"]:
-            symbol = (
-                stock_code.replace(".SZ", "")
-                .replace(".SH", "")
-                .replace(".BJ", "")
-                .replace(".sz", "")
-                .replace(".sh", "")
-                .replace(".bj", "")
-            )
-        elif market_info["is_hk"]:
-            symbol = stock_code.replace(".HK", "").replace(".hk", "").zfill(5)
-        else:
-            symbol = stock_code.upper()
-
         if not end_date:
             end_date = get_current_date_compact()
         if not start_date:
@@ -261,7 +234,7 @@ def get_company_performance_unified(
         result = read_with_refresh(
             market,
             "financial_data",
-            symbol=symbol,
+            symbol=stock_code,
             start_date=start_date,
             end_date=end_date,
             filters={"statement_type": stmt_type} if stmt_type else None,
@@ -308,22 +281,12 @@ def get_stock_basic_info(
         if market_info["is_china"]:
             market = "CN"
             market_name = "A股"
-            symbol = (
-                stock_code.replace(".SZ", "")
-                .replace(".SH", "")
-                .replace(".BJ", "")
-                .replace(".sz", "")
-                .replace(".sh", "")
-                .replace(".bj", "")
-            )
         elif market_info["is_hk"]:
             market = "HK"
             market_name = "港股"
-            symbol = stock_code.replace(".HK", "").replace(".hk", "").zfill(5)
         elif market_info["is_us"]:
             market = "US"
             market_name = "美股"
-            symbol = stock_code.upper()
         else:
             return format_tool_result(
                 error_result(
@@ -334,14 +297,11 @@ def get_stock_basic_info(
 
         logger.info(f"[基本信息] 获取 {market_name} {stock_code} 基本信息数据")
 
-        result = read_with_refresh(market, "basic_info", symbol=symbol)
+        result = read_with_refresh(market, "basic_info", symbol=stock_code)
         data = result.get("data") if result else None
 
         if data:
-            if isinstance(data, list):
-                data = data[0] if data else None
-            if data:
-                return format_tool_result(success_result(json.dumps(data, ensure_ascii=False, default=str)))
+            return format_tool_result(success_result(json.dumps(data, ensure_ascii=False, default=str)))
 
         return format_tool_result(
             error_result(

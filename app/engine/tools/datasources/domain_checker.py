@@ -22,20 +22,19 @@ class DomainAvailabilityChecker:
     """
 
     async def check_domain(self, market: str, domain: str) -> bool:
-        """检查单个域是否有数据"""
+        """检查单个域是否有数据（走 get_availability 契约）"""
         try:
             from app.data.core.interface import DataInterface
 
             di = DataInterface.get_instance()
-            stats = await di.get_domain_stats(market, [domain])
-            count = stats.get(domain, {}).get("records", 0)
-            return count > 0
+            avail = await di.get_availability(market, [domain])
+            return avail.get(domain, {}).get("has_data", False)
         except Exception as e:
             logger.debug(f"域可用性检查失败: {domain}: {e}")
             return False
 
     async def batch_check_domains(self, market: str, domains: List[str]) -> Dict[str, bool]:
-        """批量检测域状态，返回 {domain: has_data}"""
+        """批量检测域状态，返回 {domain: has_data}（走 get_availability 契约）"""
         if not domains:
             return {}
 
@@ -43,8 +42,19 @@ class DomainAvailabilityChecker:
             from app.data.core.interface import DataInterface
 
             di = DataInterface.get_instance()
-            stats = await di.get_domain_stats(market, domains)
-            return {d: stats.get(d, {}).get("records", 0) > 0 for d in domains}
+            try:
+                avail = await di.get_availability(market, list(domains))
+                return {d: avail.get(d, {}).get("has_data", False) for d in domains}
+            except ValueError:
+                # 含该市场未注册域：逐域探测，未注册按无数据处理
+                results: Dict[str, bool] = {}
+                for d in domains:
+                    try:
+                        avail = await di.get_availability(market, [d])
+                        results[d] = avail.get(d, {}).get("has_data", False)
+                    except ValueError:
+                        results[d] = False
+                return results
         except Exception as e:
             logger.warning(f"批量域检测失败: {e}")
             return {d: False for d in domains}

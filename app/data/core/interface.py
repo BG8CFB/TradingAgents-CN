@@ -1,19 +1,32 @@
 """DataInterface — 数据平台统一门面。消费层的唯一入口。"""
 
+import asyncio
 import logging
 import threading
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
+from app.data.core.errors import DataUnavailableError
 from app.data.core.result import RefreshResult
 from app.data.core.reader import Reader
 from app.data.core.refresh_service import DataRefreshService
 from app.data.core.registry.capability import CapabilityRegistry
 from app.data.core.registry.priority import PriorityConfig
+from app.data.core.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
 _instance: Optional["DataInterface"] = None
 _instance_lock = threading.Lock()
+
+_VALID_MARKETS = ("CN", "HK", "US")
+
+
+def _normalize_market(market: str) -> str:
+    """市场标识入口归一（大小写不敏感），非法值 fail-fast。"""
+    m = (market or "").strip().upper()
+    if m not in _VALID_MARKETS:
+        raise ValueError(f"未知市场类型: {market!r}（支持 CN/HK/US）")
+    return m
 
 
 class DataInterface:
@@ -51,6 +64,17 @@ class DataInterface:
         with _instance_lock:
             _instance = None
 
+    async def ensure_indexes(self) -> None:
+        """启动期业务集合索引保障（应用层组装时调用一次）。
+
+        业务集合索引的唯一事实源在 storage/mongo/index_definitions.py；
+        core.database 不再 import 数据模块，由应用层经本契约入口触发。
+        """
+        from app.data.storage.mongo.client import get_motor_db
+        from app.data.storage.mongo.index_definitions import ensure_all_market_indexes
+
+        await ensure_all_market_indexes(get_motor_db())
+
     # ── 数据读取 ──
 
     async def read(
@@ -61,31 +85,101 @@ class DataInterface:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         filters: Optional[Dict] = None,
+        *,
+        auto_refresh: bool = False,
+        refresh_timeout: int = 30,
     ) -> Dict:
-        """读取标准数据。
+        """读取标准数据（消费方唯一读入口）。
 
         Args:
-            market: 市场 (CN/HK/US)
-            domain: 数据域 (basic_info/daily_quotes/...)
-            symbol: 股票代码（可选，不传则查询全量）
+            market: 市场 (CN/HK/US，大小写不敏感)
+            domain: 数据域 (basic_info/daily_quotes/...)，未注册域抛 ValueError
+            symbol: 股票代码（可选，容忍多种写法：``000001.SZ`` / ``sz000001`` /
+                ``1`` 均归一为存储口径；envelope 的 symbol 回显归一化结果）
             start_date: 起始日期（可选）
             end_date: 结束日期（可选）
             filters: 额外过滤条件（可选，如 list_status/statement_type 等）
+            auto_refresh: 库空时自动触发该域按需刷新后重读一次（需 symbol，
+                无 symbol 时该选项无效）。刷新自身失败不抛异常，落 refresh 摘要。
+            refresh_timeout: auto_refresh 的刷新超时秒数
+
+        Returns:
+            envelope dict：{"data", "freshness", "market", "symbol", "domain",
+            "auto_refreshed", "refresh"}。形状不变式：列表语义域 data 恒为
+            List[Dict]（空为 ``[]``）；单例语义（basic_info + symbol）data 为
+            Dict（空为 ``None``）。
+
+        Raises:
+            ValueError: domain 未注册或 market 非法（编程错误，fail-fast）
+            DataUnavailableError: 存储故障（auto_refresh 补数后仍失败同样抛出）
         """
-        data, freshness = await self.reader.get_data(
-            market,
-            domain,
-            symbol,
-            start_date=start_date,
-            end_date=end_date,
-            filters=filters,
+        market = _normalize_market(market)
+        if not self.reader.supports_domain(domain):
+            raise ValueError(f"未注册的数据域: {domain!r}")
+        if symbol is not None:
+            symbol = normalize_symbol(symbol, market)
+
+        read_kwargs: Dict[str, Any] = dict(
+            start_date=start_date, end_date=end_date, filters=filters
         )
+
+        refreshed_summary: Optional[Dict] = None
+        auto_refreshed = False
+        try:
+            data, freshness = await self.reader.get_data(
+                market, domain, symbol, **read_kwargs
+            )
+        except Exception as e:
+            if not (auto_refresh and symbol):
+                raise DataUnavailableError(market, domain, e) from e
+            data = None
+
+        # 库空/首读失败 → 按需补数后重读一次（无 symbol 无法按股补数，不触发）
+        if auto_refresh and symbol and not data:
+            auto_refreshed = True
+            domain_result = None
+            try:
+                rr = await self.refresh(
+                    market, symbol, domains=[domain],
+                    force=True, timeout=refresh_timeout,
+                )
+                domain_result = rr.domains.get(domain) if rr else None
+            except Exception as e:  # noqa: BLE001 — 补数失败降级为摘要，不中断读取
+                logger.warning(f"[read] {market}/{domain}/{symbol} 按需刷新失败: {e}")
+            if domain_result is not None:
+                refreshed_summary = {
+                    "status": domain_result.status,
+                    "source": domain_result.source,
+                    "record_count": domain_result.record_count,
+                    "error": domain_result.error,
+                }
+                try:
+                    data, freshness = await self.reader.get_data(
+                        market, domain, symbol, **read_kwargs
+                    )
+                except Exception as e:
+                    raise DataUnavailableError(market, domain, e) from e
+            else:
+                refreshed_summary = {
+                    "status": "skipped", "source": None,
+                    "record_count": 0, "error": None,
+                }
+
+        # 形状钳制：单例语义折叠为单 dict，列表语义空结果为 []（不再吐 None）
+        if domain == "basic_info" and symbol:
+            if isinstance(data, list):
+                data = data[0] if data else None
+        elif data is None:
+            data = []
+
         return {
             "data": data,
             "freshness": freshness,
             "market": market,
             "symbol": symbol,
             "domain": domain,
+            "auto_refreshed": auto_refreshed,
+            "refresh": refreshed_summary,
         }
 
     async def read_latest(
@@ -96,6 +190,8 @@ class DataInterface:
         projection: Optional[Dict] = None,
     ) -> Optional[Dict]:
         """读取指定股票在某域的最新一条记录（排序键按域自动推导）。"""
+        market = _normalize_market(market)
+        symbol = normalize_symbol(symbol, market)
         return await self.reader.read_latest(market, domain, symbol, projection)
 
     async def read_latest_batch(
@@ -106,6 +202,8 @@ class DataInterface:
         projection: Optional[Dict] = None,
     ) -> Dict[str, Dict]:
         """批量读取多只股票各自的最新一条记录，返回 {symbol: doc}。"""
+        market = _normalize_market(market)
+        symbols = [normalize_symbol(s, market) for s in symbols]
         return await self.reader.read_latest_batch(
             market, domain, symbols, projection
         )
@@ -120,6 +218,8 @@ class DataInterface:
         limit: int = 0,
     ) -> List[Dict]:
         """批量读取多只股票的记录（不折叠）。"""
+        market = _normalize_market(market)
+        symbols = [normalize_symbol(s, market) for s in symbols]
         return await self.reader.read_batch(
             market, domain, symbols, projection, sort, limit
         )
@@ -132,7 +232,92 @@ class DataInterface:
         limit: int = 20,
     ) -> List[Dict]:
         """在 basic_info 中模糊搜索股票（symbol 前缀 / 名称包含）。"""
+        market = _normalize_market(market)
         return await self.reader.search_basic_info(market, query, fields, limit)
+
+    # ── 知识库检索（AI 数据面契约）──
+
+    async def kb_search(
+        self,
+        market: str,
+        symbol: str,
+        query: str,
+        *,
+        as_of: Optional[str] = None,
+        top_k: Optional[int] = None,
+        types: Optional[List[str]] = None,
+    ) -> List[Dict]:
+        """新闻知识库向量检索 top-K 语料（AI 侧知识通道的唯一入口）。
+
+        Args:
+            market: 市场 (CN/HK/US)
+            symbol: 股票代码（自动归一）
+            query: 检索文本（关键词或自然语言）
+            as_of: 截止日期，防前视硬约束——分析注入路径必须传分析日期
+            top_k: 返回条数（默认 6）
+            types: 语料类型过滤（news/announcement/…）
+
+        Returns:
+            语料 dict 列表；索引未就绪 / 未配置向量模型 / 无命中返回 []。
+        """
+        market = _normalize_market(market)
+        symbol = normalize_symbol(symbol, market)
+        from app.data.knowledge.retrieval import search
+
+        return await asyncio.to_thread(
+            search, market, symbol, query,
+            as_of, top_k if top_k is not None else 6, types,
+        )
+
+    async def kb_record_citation(self, doc: Dict) -> bool:
+        """写入一条引用校验记录（失败只记日志返回 False，不影响分析主链路）。"""
+        from app.data.knowledge.stats import record_citation_stats
+
+        return await asyncio.to_thread(record_citation_stats, doc)
+
+    # ── 数据可用性（AI 可用性面契约）──
+
+    async def get_availability(
+        self, market: str, domains: Optional[List[str]] = None
+    ) -> Dict[str, Dict]:
+        """查询各域数据可用性（configured 与 has_data 正交）。
+
+        - configured: 能力矩阵注册了源 → 可触发同步/refresh 补数
+        - has_data: 库内有记录 → 可立即 read
+        「有源无货」= 可补数；「无源有货」= 只能消费存量。
+
+        Args:
+            market: 市场 (CN/HK/US)
+            domains: 待查域列表；None = 该市场全部注册域；含未注册域抛 ValueError
+
+        Returns:
+            {domain: {"configured", "has_data", "records", "last_updated", "sources"}}
+        """
+        market = _normalize_market(market)
+        registered = set(self._registry.get_domains(market))
+        if domains is None:
+            targets = sorted(registered)
+        else:
+            unknown = [d for d in domains if d not in registered]
+            if unknown:
+                raise ValueError(f"未注册的数据域: {unknown}")
+            targets = list(dict.fromkeys(domains))
+
+        stats = await self.get_domain_stats(market, targets)
+        availability: Dict[str, Dict] = {}
+        for domain in targets:
+            stat = stats.get(domain, {})
+            records = stat.get("records", 0)
+            availability[domain] = {
+                "configured": True,
+                "has_data": records > 0,
+                "records": records,
+                "last_updated": stat.get("last_updated"),
+                "sources": self._registry.get_available_sources(
+                    domain, market=market
+                ) or [],
+            }
+        return availability
 
     # ── 筛选查询 ──
 
@@ -168,7 +353,9 @@ class DataInterface:
         force: bool = False,
         timeout: int = 30,
     ) -> RefreshResult:
-        """按需刷新指定股票数据。"""
+        """按需刷新指定股票数据（symbol 容忍多种写法，自动归一）。"""
+        market = _normalize_market(market)
+        symbol = normalize_symbol(symbol, market)
         return await self.refresh_service.refresh(
             market, symbol, domains, force, timeout
         )
@@ -208,11 +395,13 @@ class DataInterface:
             except Exception as e:
                 logger.warning(f"回调触发失败: {e}")
 
-        # 降级：尝试调度引擎（后台执行，立即返回标识）
+        # 降级：尝试调度引擎（后台执行，立即返回标识）。
+        # SchedulerEngine 本就是数据模块组件（app/data/scheduler/engine），
+        # 直接取其单例，不再绕道 app.worker（保持 data 不依赖上层）
         try:
-            from app.worker.scheduler_setup import get_scheduler_engine
+            from app.data.scheduler.engine import SchedulerEngine
 
-            engine = get_scheduler_engine()
+            engine = SchedulerEngine.get_instance()
             if engine:
                 result = engine.run_job_now(market, domain, mode=mode, source=source)
                 if result.get("status") in ("triggered", "already_running"):

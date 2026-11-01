@@ -341,7 +341,7 @@ async def _validate_kb_citations(
                 f"📎 [{agent_key}] 剔除无效引用 {stats['invalid_count']} 处: "
                 f"{stats['invalid_citations']}（有效 {stats['cited_count']}/{stats['injected_count']}）"
             )
-        from app.data.knowledge import record_citation_stats
+        from app.data.core.interface import DataInterface
 
         doc = {
             "task_id": task_id,
@@ -350,7 +350,7 @@ async def _validate_kb_citations(
             "analysis_date": trade_date,
             **stats,
         }
-        await asyncio.to_thread(record_citation_stats, doc)
+        await DataInterface.get_instance().kb_record_citation(doc)
         return cleaned
     except Exception as e:  # noqa: BLE001 - 校验失败保留原报告
         logger.warning(f"⚠️ [{agent_key}] 知识库引用校验失败，保留原报告: {e}")
@@ -358,53 +358,32 @@ async def _validate_kb_citations(
 
 
 async def _resolve_company(ticker: str) -> str:
-    """解析公司名称（CN/HK 走 DataInterface，US 走 yfinance 降级缓存）"""
+    """解析公司名称（CN/HK/US 主路径走 DataInterface，US miss 降级 yfinance）"""
     from app.utils.stock_utils import StockUtils
 
     market_info = StockUtils.get_market_info(ticker)
     company_name = ticker
     try:
+        from app.data.core.interface import DataInterface
+
+        di = DataInterface.get_instance()
         if market_info["is_china"]:
-            from app.data.core.interface import DataInterface
-
-            di = DataInterface.get_instance()
-            result = await di.read("CN", "basic_info", symbol=ticker)
-            data = result.get("data")
-            if data:
-                doc = data[0] if isinstance(data, list) and data else data
-                if doc.get("name"):
-                    company_name = doc["name"]
+            # basic_info+symbol 契约保证：data 恒为单 dict 或 None，name 键非空兜底
+            data = (await di.read("CN", "basic_info", symbol=ticker)).get("data")
+            if data and data.get("name"):
+                company_name = data["name"]
         elif market_info["is_hk"]:
-            from app.data.core.interface import DataInterface
-
-            clean_ticker = ticker.replace(".HK", "").replace(".hk", "").zfill(5)
-            di = DataInterface.get_instance()
-            result = await di.read("HK", "basic_info", symbol=clean_ticker)
-            data = result.get("data")
-            if data:
-                doc = data[0] if isinstance(data, list) and data else data
-                n = doc.get("name_zh") or doc.get("name_en") or doc.get("name")
-                if n:
-                    company_name = n
+            data = (await di.read("HK", "basic_info", symbol=ticker)).get("data")
+            if data and data.get("name"):
+                company_name = data["name"]
             else:
-                company_name = f"港股{clean_ticker}"
+                company_name = f"港股{ticker}"
         elif market_info["is_us"]:
             # 主路径：本地标准库 US basic_info（命中即返回）；
             # 本地缓存 miss 才降级 yfinance（网络调用放线程池）
-            from app.data.core.interface import DataInterface
-
-            us_name = None
-            di = DataInterface.get_instance()
-            for sym in (ticker, ticker.upper()):
-                result = await di.read("US", "basic_info", symbol=sym)
-                data = result.get("data")
-                if data:
-                    doc = data[0] if isinstance(data, list) and data else data
-                    us_name = doc.get("name") or doc.get("name_en") or doc.get("name_zh")
-                    if us_name:
-                        break
-            if us_name:
-                company_name = us_name
+            data = (await di.read("US", "basic_info", symbol=ticker)).get("data")
+            if data and data.get("name"):
+                company_name = data["name"]
             else:
                 company_name = await asyncio.to_thread(_get_us_company_name, ticker)
     except Exception as e:  # noqa: BLE001

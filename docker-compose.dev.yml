@@ -22,10 +22,11 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:-tradingagents123}
       MONGO_INITDB_DATABASE: tradingagents
       TZ: "Asia/Shanghai"
-    # WiredTiger 缓存默认取宿主内存 50%（本机 3.39GB），开发环境全市场行情
-    # 数据约 7.5GB，缓存全量热数据导致 cgroup 计费 5GB+。压到 1GB：
-    # 换来可预测的容器内存上限，代价是重查询多读磁盘（SSD 下可接受）。
-    command: ["mongod", "--wiredTigerCacheSizeGB", "1.0"]
+    # WiredTiger 缓存默认取宿主内存 50%（本机 3.39GB）。2026-11-01 实测库内
+    # dataSize 212MB + 索引 43MB，压到 512MB 已留足余量（工作集远小于此）：
+    # 容器内存上限可预测，代价是重查询多读磁盘（SSD 下可接受）。
+    # 全市场数据接入后（预计 GB 级）需回调至 1.0。
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.5"]
     ports:
       - "127.0.0.1:27017:27017"
     networks:
@@ -147,7 +148,10 @@ services:
       API_PROXY_TARGET: "http://backend:8000"
       CHOKIDAR_USEPOLLING: "true"
     # 🔥 开发模式：Vite dev server + HMR（使用 npmmirror 国内源加速）
-    command: ["sh", "-c", "npm config set registry https://registry.npmmirror.com && npm install && npx vite --host 0.0.0.0 --port 3000"]
+    # node_modules 在匿名卷中持久化：仅在缺失（首启/卷被清）时安装，避免
+    # 每次容器重启都跑 npm install 造成数分钟 CPU 冲高。改 package.json 后
+    # 需 docker compose exec frontend npm install 手动更新。
+    command: ["sh", "-c", "npm config set registry https://registry.npmmirror.com && ([ -d node_modules ] && echo 'node_modules exists, skip install' || npm install) && npx vite --host 0.0.0.0 --port 3000"]
     depends_on:
       - backend
     networks:

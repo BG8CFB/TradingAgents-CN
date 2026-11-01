@@ -1,3 +1,4 @@
+# data-access-exempt: FactorScores/ScreeningInsights/Recommendations 仓储直连；仓储归位后移除
 """L1 快速研判服务 — 独立单次 LLM 调用（不经过 engine/工作流）。
 
 成本边界（spec §4/§10）：

@@ -87,23 +87,26 @@ def get_knowledge_base_brief(
     if not stock_code:
         return format_tool_result(error_result(ErrorCodes.MISSING_PARAM, "未提供股票代码"))
 
+    from app.core.async_utils import run_async
     from app.core.config import settings
-    from app.data.knowledge.retrieval import search
-    from app.data.knowledge.util import normalize_symbol
+    from app.data.core.interface import DataInterface
 
     market = _resolve_market(stock_code)
-    symbol = normalize_symbol(stock_code, market)
     effective_top_k = top_k or settings.KB_EMBEDDING_TOP_K
 
     try:
-        refs = search(
-            market, symbol,
-            _injection_query(symbol, current_date or ""),
-            as_of=current_date,
-            top_k=effective_top_k,
+        di = DataInterface.get_instance()
+        # symbol 归一与 as_of 防前视均在数据层契约内完成
+        refs = run_async(
+            di.kb_search(
+                market, stock_code,
+                _injection_query(stock_code, current_date or ""),
+                as_of=current_date,
+                top_k=effective_top_k,
+            )
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[知识库工具] 检索失败 {symbol}@{market}: {e}")
+        logger.warning(f"[知识库工具] 检索失败 {stock_code}@{market}: {e}")
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, f"知识库检索失败: {e}"))
 
     if not refs:
@@ -134,7 +137,7 @@ def get_knowledge_base_brief(
             "序号只能取自 references 列表，不得引用列表之外的来源或编造序号"
         ),
     }
-    logger.info(f"[知识库工具] {symbol}@{market} 注入 {len(references)} 条（as_of={current_date}）")
+    logger.info(f"[知识库工具] {stock_code}@{market} 注入 {len(references)} 条（as_of={current_date}）")
     return format_tool_result(success_result(json.dumps(payload, ensure_ascii=False, indent=2)))
 
 

@@ -34,6 +34,27 @@ def _strip_nan(value: Any) -> Any:
     return value
 
 
+def _apply_projection(domain: str, data: Any) -> None:
+    """读取出口的字段方言投影（就地修改）——消费方不再做双字段兼容。
+
+    - news：保证 content 非空（缺失时回填 summary）
+    - basic_info：保证 name 键存在（name → name_zh → name_en 兜底链）
+    """
+    if domain == "news" and isinstance(data, list):
+        for doc in data:
+            if isinstance(doc, dict) and not doc.get("content"):
+                summary = doc.get("summary")
+                if summary:
+                    doc["content"] = summary
+    elif domain == "basic_info":
+        docs = data if isinstance(data, list) else [data]
+        for doc in docs:
+            if isinstance(doc, dict) and not doc.get("name"):
+                fallback = doc.get("name_zh") or doc.get("name_en")
+                if fallback:
+                    doc["name"] = fallback
+
+
 class Reader:
     """统一读取层。消费方通过 Reader 获取标准数据，不直接访问 MongoDB。"""
 
@@ -97,6 +118,10 @@ class Reader:
                 self._repo_cache[domain] = repo
                 return repo
             return None
+
+    def supports_domain(self, domain: str) -> bool:
+        """domain 是否有对应仓储（DataInterface 读取域校验用）。"""
+        return self._get_repo(domain) is not None
 
     async def get_data(
         self, market: str, domain: str, symbol: Optional[str] = None,
@@ -246,6 +271,9 @@ class Reader:
 
         if not data:
             return None, FreshnessState.UNKNOWN
+
+        # 出口投影：消除数据源字段方言（消费方不再做字段兼容）
+        _apply_projection(domain, data)
 
         # 新鲜度判定
         freshness = await self.check_freshness(market, symbol or "", domain, data)

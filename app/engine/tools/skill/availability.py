@@ -3,16 +3,16 @@ Skill 依赖可用性检查
 
 对标 builtin/domain_checker，但针对 skill 的依赖类型：
 - Python 包：importlib.util.find_spec
-- 环境变量：os.environ.get
+- 环境变量：get_raw_env
 
 不执行安装（安装由 dependency_installer 负责）。
 """
 
 import importlib.util
 import logging
-import os
 from typing import Dict, List
 
+from app.core.env import get_raw_env
 from app.engine.tools.skill.registry import SkillRegistry
 from app.models.skill import (
     SkillAvailability,
@@ -77,7 +77,7 @@ def check_python_package(package: str) -> tuple:
 
 def check_env_var(name: str) -> bool:
     """检查环境变量是否已设置"""
-    return bool(os.environ.get(name))
+    return bool(get_raw_env(name))
 
 
 def check_skill_dependencies(name: str) -> SkillAvailability:

@@ -1,3 +1,4 @@
+# data-access-exempt: ChatRepo（应用层集合仓储暂居 data.storage）；仓储归位后移除
 """AI 问答会话执行器 — run_conversation 封装 + 运行注册表 + stop。
 
 并发控制三层：

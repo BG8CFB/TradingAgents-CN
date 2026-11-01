@@ -7,14 +7,19 @@
 
 使用方：
 - app/data/scripts/init_collections.py（手动/CI 初始化，三市场）
-- app/core/database.py（启动时自动建索引，三市场）
+- app/main.py（启动时经 ensure_all_market_indexes 自动建索引，三市场）
 - app/data/storage/mongo/repositories/key_spec.py（域主键注册表，Phase 3）
 - tests/data/test_index_definitions.py（一致性断言）
 
 禁止在别处内联定义业务集合索引。
 """
 
+import logging
 from typing import Dict, List, Tuple
+
+from app.data.storage.mongo.collections import get_all_collections
+
+logger = logging.getLogger(__name__)
 
 # 索引定义: {domain → [(索引字段列表, 是否唯一), ...]}
 # 必须覆盖 app/data/storage/mongo/collections.py 中 _BUSINESS_COLLECTIONS 全部 21 个 domain
@@ -209,3 +214,52 @@ def get_unique_key(domain: str) -> List[str]:
         if unique:
             return [k for k, _ in fields]
     raise KeyError(f"domain {domain} 未定义唯一索引")
+
+
+async def ensure_all_market_indexes(db) -> None:
+    """启动期业务集合索引保障（三市场 + 旧索引清理 + basic_info 筛选辅助索引）。
+
+    由应用层启动流程在数据库连接就绪后调用（main lifespan）；核心层
+    core.database 不再 import 数据模块（依赖方向：应用层 → 数据模块）。
+    """
+    legacy_index_names = get_legacy_index_names()
+
+    for market in ("CN", "HK", "US"):
+        try:
+            collection_map = get_all_collections(market)
+        except Exception as e:
+            logger.warning(f"获取 {market} 市场集合映射失败: {e}")
+            continue
+
+        for data_type, collection_name in collection_map.items():
+            collection = db[collection_name]
+
+            # 清理旧版索引：废弃字段名（code/source）与含 data_source 的旧唯一键
+            legacy_names = ["code_1_source_1", "code_1"]
+            legacy_names.extend(legacy_index_names.get(data_type, []))
+            for idx_name in legacy_names:
+                try:
+                    await collection.drop_index(idx_name)
+                    logger.info(f"已删除旧索引 {collection_name}.{idx_name}")
+                except Exception:
+                    pass  # 索引不存在时跳过
+
+            for fields, unique in INDEX_DEFINITIONS.get(data_type, []):
+                try:
+                    await collection.create_index(fields, unique=unique)
+                except Exception as e:
+                    logger.warning(
+                        f"索引 {collection_name}.{default_index_name(fields)} "
+                        f"创建失败（可能存在重复数据，请运行去重迁移脚本）: {e}"
+                    )
+        logger.info(f"✅ {market} 市场业务集合索引创建完成")
+
+    # 筛选辅助索引（basic_info 投影字段排序用，非唯一键）
+    try:
+        basic_info = db["stock_basic_info"]
+        await basic_info.create_index([("industry", 1)])
+        await basic_info.create_index([("total_mv", -1)])
+        await basic_info.create_index([("pe", 1)])
+        await basic_info.create_index([("pb", 1)])
+    except Exception as e:
+        logger.warning(f"创建 stock_basic_info 辅助索引失败: {e}")
