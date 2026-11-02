@@ -108,13 +108,10 @@ async def update_hk_priority_config(
         di = DataInterface.get_instance()
         saved = await di.update_config(_MARKET, domain, request.priority)
         if not saved:
-            registry.set_user_priority(_MARKET, domain, request.priority)
-            return ok(
-                message=f"域 {domain} 优先级已更新（仅内存，持久化失败）",
-                data={"domain": domain, "priority": request.priority},
-            )
+            # 持久化失败必须如实报错：旧分支写的「仅内存生效」缓存实际无任何
+            # 读取方（写死状态），更新会被静默丢弃（组 2 治理，2026-11-02）
+            return fail(message=f"域 {domain} 优先级持久化失败，未生效，请重试", code=500)
 
-        registry.set_user_priority(_MARKET, domain, request.priority)
         return ok(
             message=f"域 {domain} 数据源优先级已更新并持久化",
             data={"domain": domain, "priority": request.priority},

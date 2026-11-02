@@ -4,11 +4,8 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from app.data.schema.base.enums import SupportLevel
-from app.data.storage.cache.memory_cache import TTLCache
 
 logger = logging.getLogger(__name__)
-
-_user_priority_cache = TTLCache(default_ttl=30)
 
 
 class CapabilityRegistry:
@@ -104,16 +101,6 @@ class CapabilityRegistry:
             if d == domain and source in src_map and (market is None or m == market):
                 return src_map[source]
         return SupportLevel.NONE
-
-    def set_user_priority(self, market: str, domain: str, sources: List[str]) -> None:
-        """用户自定义优先级（暂存内存，由 PriorityConfig 持久化）。
-
-        将用户优先级写入内存缓存（30s TTL），并同步更新
-        get_ordered_sources 中各市场的排序结果。
-        """
-        cache_key = f"priority:{market}:{domain}"
-        _user_priority_cache.set(cache_key, sources)
-        logger.info(f"用户优先级已更新: {market}/{domain} → {sources}")
 
     def get_matrix_summary(self, market: Optional[str] = None) -> Dict[str, Dict[str, str]]:
         """获取能力矩阵摘要 {domain: {source: level}}。若指定 market 则仅返回该市场。"""
