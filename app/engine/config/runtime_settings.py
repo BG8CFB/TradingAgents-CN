@@ -5,12 +5,15 @@ TradingAgents 运行时配置适配器（弱依赖）
 - 优先尝试从后端 app.services.config_provider 读取动态 system_settings（若可用）
 - 若不可用或在异步事件循环中无法同步等待，则回退到环境变量与默认值
 - 保持 TradingAgents 包独立性：不可用时静默回退，不引入硬依赖
+
+（历史 get_number/get_float/get_int/get_bool/use_app_cache_enabled 五个数值
+辅助函数零调用方，随治理清偿删除，2026-11-02；其中 use_app_cache_enabled
+计算后缺 return 恒返 None，属死代码里潜伏的缺陷，一并消除）
 """
 
 from __future__ import annotations
 
 import threading
-from typing import Any, Optional, Callable
 
 from app.core.env import get_env
 
@@ -41,96 +44,6 @@ def _get_system_settings_sync() -> dict:
         return _cached_settings
     _logger.debug("动态配置缓存为空，使用环境变量和默认值")
     return {}
-
-
-def _coerce(value: Any, caster: Callable[[Any], Any], default: Any) -> Any:
-    try:
-        if value is None:
-            return default
-        return caster(value)
-    except Exception as e:
-        _logger.debug(f"配置值转换失败，使用默认值: {e}")
-        return default
-
-
-def get_number(env_var: str, system_key: Optional[str], default: float | int, caster: Callable[[Any], Any]) -> float | int:
-    """按优先级获取数值配置：DB(system_settings) > ENV > default
-    - env_var: 环境变量名，例如 "TA_US_MIN_API_INTERVAL_SECONDS"
-    - system_key: 动态系统设置键名，例如 "ta_us_min_api_interval_seconds"（可为 None）
-    - default: 默认值
-    - caster: 类型转换函数，如 float 或 int
-    """
-    # 1) DB 动态设置
-    if system_key:
-        eff = _get_system_settings_sync()
-        if isinstance(eff, dict) and system_key in eff:
-            return _coerce(eff.get(system_key), caster, default)
-
-    # 2) 环境变量
-    env_val = get_env(env_var)
-    if env_val is not None and str(env_val).strip() != "":
-        return _coerce(env_val, caster, default)
-
-    # 3) 代码默认
-    return default
-
-
-def get_float(env_var: str, system_key: Optional[str], default: float) -> float:
-    return get_number(env_var, system_key, default, float)  # type: ignore[arg-type]
-
-
-def get_int(env_var: str, system_key: Optional[str], default: int) -> int:
-    return get_number(env_var, system_key, default, int)  # type: ignore[arg-type]
-
-
-# --- Boolean access helper ---------------------------------------------------
-
-def get_bool(env_var: str, system_key: Optional[str], default: bool) -> bool:
-    """按优先级获取布尔配置：DB(system_settings) > ENV > default"""
-    # 1) DB 动态设置
-    if system_key:
-        eff = _get_system_settings_sync()
-        if isinstance(eff, dict) and system_key in eff:
-            v = eff.get(system_key)
-            if isinstance(v, bool):
-                return v
-            if isinstance(v, (int, float)):
-                return bool(v)
-            if isinstance(v, str):
-                return str(v).strip().lower() in ("1", "true", "yes", "on")
-    # 2) 环境变量
-    env_val = get_env(env_var)
-    if env_val is not None and str(env_val).strip() != "":
-        return str(env_val).strip().lower() in ("1", "true", "yes", "on")
-    # 3) 代码默认
-    return default
-
-
-def use_app_cache_enabled(default: bool = False) -> bool:
-    """是否启用从 app 缓存（Mongo 集合）优先读取。ENV: TA_USE_APP_CACHE; DB: ta_use_app_cache
-    会记录一次评估日志，包含来源与原始ENV值，便于排查生效路径。
-    """
-    # 推断来源（DB/ENV/DEFAULT）
-    src = "default"
-    env_val = get_env("TA_USE_APP_CACHE")
-    try:
-        eff = _get_system_settings_sync()
-    except Exception as e:
-        _logger.debug(f"获取系统设置失败: {e}")
-        eff = {}
-    if isinstance(eff, dict) and "ta_use_app_cache" in eff:
-        src = "db"
-    elif env_val is not None and str(env_val).strip() != "":
-        src = "env"
-
-    # 最终值（遵循 DB > ENV > DEFAULT）
-    val = get_bool("TA_USE_APP_CACHE", "ta_use_app_cache", default)
-
-    try:
-        _logger.info(f"[runtime_settings] TA_USE_APP_CACHE evaluated -> {val} (source={src}, env={env_val})")
-    except Exception as e:
-        _logger.debug(f"日志写入失败: {e}")
-        pass
 
 
 # --- Timezone access helpers -------------------------------------------------
@@ -170,10 +83,6 @@ def get_zoneinfo(default: str = "Asia/Shanghai") -> _ZoneInfo:
 
 
 __all__ = [
-    "get_float",
-    "get_int",
-    "get_bool",
-    "use_app_cache_enabled",
     "get_timezone_name",
     "get_zoneinfo",
     "set_cached_settings",

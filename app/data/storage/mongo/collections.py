@@ -86,19 +86,10 @@ def get_collection_name(domain: str, market: str) -> str:
 def get_all_collections(market: str) -> Dict[str, str]:
     """返回指定市场的所有集合名映射 {domain: collection_name}。"""
     result = {}
-    suffix = "" if market == "CN" else _MARKET_SUFFIX.get(market, "")
+    suffix = "" if market == "CN" else _MARKET_SUFFIX[market]
     for domain, base in _BUSINESS_COLLECTIONS.items():
         result[domain] = f"{base}{suffix}"
     for domain, name in _METADATA_COLLECTIONS.items():
         result[domain] = name
     return result
 
-
-def is_metadata_collection(domain: str) -> bool:
-    """判断是否为元数据集合。"""
-    return domain in _METADATA_COLLECTIONS
-
-
-def get_all_domains() -> list:
-    """返回全部业务 domain 列表（供消费方枚举标准域，禁止引用 _BUSINESS_COLLECTIONS 私有常量）。"""
-    return list(_BUSINESS_COLLECTIONS.keys())

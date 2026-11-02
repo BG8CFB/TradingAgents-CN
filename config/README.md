@@ -5,7 +5,6 @@
 ## 文件说明
 
 - `usage.json` - Token使用统计数据（自动生成）
-- `models.json` - 模型配置文件（自动生成）
 - `pricing.json` - 定价配置文件（自动生成）
 - `settings.json` - 系统设置文件（自动生成）
 

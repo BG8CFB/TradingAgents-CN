@@ -943,7 +943,7 @@
 
             <div class="legacy-migration">
               <h4>传统配置迁移</h4>
-              <p>从 config/models.json 和 config/agents/ 目录迁移配置到数据库（追加模式，不删除已有配置）</p>
+              <p>将内置智能体种子同步到数据库（幂等：内置项按哈希覆盖升级，用户修改项不动）</p>
               <el-button type="warning" @click="migrateLegacyConfig" :loading="migrateLoading">
                 <el-icon><Refresh /></el-icon>
                 迁移传统配置
@@ -2111,7 +2111,7 @@ const migrateLegacyConfig = async () => {
   migrateLoading.value = true
   try {
     await ElMessageBox.confirm(
-      '将从 config/models.json 和 config/agents/ 迁移配置到数据库，已有配置不会被删除。确定继续？',
+      '将把内置智能体种子同步到数据库（幂等，不影响用户自定义配置）。确定继续？',
       '确认迁移',
       { type: 'warning' }
     )

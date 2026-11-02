@@ -598,7 +598,7 @@ class SystemService:
     # ---------- 传统配置迁移 ----------
 
     async def migrate_legacy_config(self) -> bool:
-        """从 YAML/JSON 文件迁移配置到数据库（内联实现，不依赖外部脚本）"""
+        """同步内置智能体种子到数据库（幂等；历史 YAML/JSON 迁移源已退役）。"""
         try:
             migrated_items: List[str] = []
 

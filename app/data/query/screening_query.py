@@ -713,13 +713,3 @@ class ScreeningQueryService:
             return False
         return True
 
-
-# 全局服务实例
-_screening_query_service: Optional[ScreeningQueryService] = None
-
-
-def get_screening_query_service() -> ScreeningQueryService:
-    global _screening_query_service
-    if _screening_query_service is None:
-        _screening_query_service = ScreeningQueryService()
-    return _screening_query_service

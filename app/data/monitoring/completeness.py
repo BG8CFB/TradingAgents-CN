@@ -42,9 +42,9 @@ class CompletenessChecker:
         active_stocks = await basic_cursor.to_list(length=None)
 
         # 批量查询当日有行情的股票，然后在内存中做差集
-        # H3 修复：过滤 period 字段，排除周线/月线数据混入日线检查。
-        # PeriodAggregationJob 将 period="weekly"/"monthly" 文档 upsert 到
-        # 同一集合，不过滤会导致周线/月线 symbol 被误判为"已有日线数据"。
+        # H3 修复：过滤 period 字段，排除周线/月线数据混入日线检查
+        # （历史后处理链曾设计往同一集合 upsert period="weekly"/"monthly"
+        #   文档，该链未启用已删除；过滤保留为防御）。
         existing_symbols = await db[quotes_coll].distinct(
             "symbol",
             {

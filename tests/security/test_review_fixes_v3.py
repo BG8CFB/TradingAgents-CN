@@ -96,7 +96,6 @@ class TestNoDunderImport:
             "app.data.storage.redis.market_state",
             "app.data.storage.redis.pubsub",
             "app.data.monitoring.alerts",
-            "app.engine.config.tushare_config",
             "app.worker.analysis_worker",
             "app.routers.auth_db",
         ],
@@ -106,14 +105,6 @@ class TestNoDunderImport:
         module = __import__(module_path, fromlist=["x"])
         src = inspect.getsource(module)
         assert "__import__" not in src, f"{module_path} 仍含 __import__"
-
-    def test_tushare_config_uses_module_level_logging(self):
-        """tushare_config 在模块顶层 import logging，而非 __import__('logging')。"""
-        from app.engine.config import tushare_config
-
-        src = inspect.getsource(tushare_config)
-        assert "import logging" in src
-        assert "__import__" not in src
 
     def test_counters_get_redis_via_standard_import(self, monkeypatch):
         """counters.SlidingWindowCounter 通过标准 import 拿到注入的 Redis 实例。

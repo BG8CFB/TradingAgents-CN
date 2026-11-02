@@ -5,6 +5,3 @@ from .provider import FinnhubUSProvider
 
 __all__ = ["FinnhubUSAdapter", "FinnhubUSProvider"]
 
-
-def get_finnhub_us_adapter():
-    return FinnhubUSAdapter()
