@@ -316,7 +316,11 @@ import {
   Download,
   Delete
 } from '@element-plus/icons-vue'
-import * as echarts from 'echarts'
+// echarts 按需引入：本页只用饼图（操作类型分布）+ 折线图（操作趋势）
+import { init as echartsInit, use as echartsUse, type EChartsType } from 'echarts/core'
+import { LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import {
   OperationLogsApi,
   type OperationLog,
@@ -339,7 +343,9 @@ const actionTypeChart = ref()
 const operationTrendChart = ref()
 
 // echarts 实例缓存：复用而非每次新建
-const chartInstances: { actionType?: echarts.ECharts; operationTrend?: echarts.ECharts } = {}
+const chartInstances: { actionType?: EChartsType; operationTrend?: EChartsType } = {}
+
+echartsUse([LineChart, PieChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 // 筛选表单
 const filterForm = reactive({
@@ -511,7 +517,7 @@ const renderCharts = () => {
   // 操作类型分布图
   if (actionTypeChart.value) {
     if (!chartInstances.actionType) {
-      chartInstances.actionType = echarts.init(actionTypeChart.value)
+      chartInstances.actionType = echartsInit(actionTypeChart.value)
     }
 
     const pieData = Object.entries(statsData.value.action_type_distribution).map(([type, count]) => ({
@@ -532,7 +538,7 @@ const renderCharts = () => {
   // 操作趋势图
   if (operationTrendChart.value) {
     if (!chartInstances.operationTrend) {
-      chartInstances.operationTrend = echarts.init(operationTrendChart.value)
+      chartInstances.operationTrend = echartsInit(operationTrendChart.value)
     }
 
     const hourlyData = statsData.value.hourly_distribution

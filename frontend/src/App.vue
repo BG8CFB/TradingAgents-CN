@@ -16,7 +16,8 @@
           mode="out-in"
           appear
         >
-          <component :is="Component" :key="route?.fullPath || 'default'" />
+          <!-- key 用路由名而非 fullPath：query 变化（如带股票代码跳分析页）不再销毁重建 BasicLayout -->
+          <component :is="Component" :key="String(route?.name) || 'default'" />
         </transition>
       </router-view>
 

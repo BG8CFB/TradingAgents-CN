@@ -15,7 +15,7 @@ from .client import MCPManager
 from .config import MCPServerConfig as NewServerConfig
 from .tools import mcp_tool_name
 
-logger = logging = logging.getLogger("app.llm.mcp.service")
+logger = logging.getLogger("app.llm.mcp.service")
 
 _manager: Optional[MCPManager] = None
 _lock = threading.Lock()

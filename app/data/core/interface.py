@@ -12,6 +12,7 @@ from app.data.core.refresh_service import DataRefreshService
 from app.data.core.registry.capability import CapabilityRegistry
 from app.data.core.registry.priority import PriorityConfig
 from app.data.core.symbols import normalize_symbol
+from app.data.storage.cache.memory_cache import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,9 @@ class DataInterface:
         from app.data.storage.mongo.repositories.metadata_repo import MetadataRepo
 
         self._metadata_repo = MetadataRepo()
+        # Dashboard 统计 60s 共享缓存（stats 与 overview 各自键位、键含 market+domains）：
+        # 数据本身分钟级更新，同步后 60s 内 dashboard 数字略旧是可接受的
+        self._dashboard_cache = TTLCache(default_ttl=60)
 
     @classmethod
     def get_instance(cls) -> "DataInterface":
@@ -623,7 +627,12 @@ class DataInterface:
     async def get_domain_stats(
         self, market: str, domains: List[str]
     ) -> Dict[str, Dict]:
-        """获取各域统计信息（记录数 + 最后更新时间）。"""
+        """获取各域统计信息（记录数 + 最后更新时间，60s 共享缓存）。"""
+        cache_key = f"stats:{market}:{','.join(domains)}"
+        cached = self._dashboard_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         from app.data.storage.mongo.client import get_motor_db
         from app.data.storage.mongo.collections import get_collection_name
 
@@ -645,6 +654,7 @@ class DataInterface:
             except Exception as e:
                 logger.debug(f"获取域统计失败: {domain}: {e}")
                 stats[domain] = {"records": 0, "last_updated": None}
+        self._dashboard_cache.set(cache_key, stats)
         return stats
 
     async def get_quotes_stats(self, market: str) -> Dict[str, int]:
@@ -669,7 +679,12 @@ class DataInterface:
     async def get_quality_overview(
         self, market: str, domains: List[str]
     ) -> Dict[str, Dict]:
-        """获取各域质量概览（记录数、完整率、最新日期）。"""
+        """获取各域质量概览（记录数、完整率、最新日期，60s 共享缓存）。"""
+        cache_key = f"overview:{market}:{','.join(domains)}"
+        cached = self._dashboard_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         from app.data.storage.mongo.client import get_motor_db
         from app.data.storage.mongo.collections import get_collection_name
 
@@ -699,6 +714,7 @@ class DataInterface:
                 }
             except Exception as e:
                 overview[domain] = {"error": str(e)}
+        self._dashboard_cache.set(cache_key, overview)
         return overview
 
     async def check_domain_quality(self, market: str, domain: str) -> Dict:

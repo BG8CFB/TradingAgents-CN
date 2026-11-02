@@ -745,6 +745,11 @@ onMounted(async () => {
   }
 
   // 读取路由查询参数以便从筛选页预填充（路由参数优先级最高）
+  applyRouteQuery()
+})
+
+/** 应用路由 query（筛选页批量分析入口）：预填股票代码并触发解析 */
+const applyRouteQuery = () => {
   const q = route.query as any
   if (q?.stocks) {
     const parts = String(q.stocks).split(',').map((s) => s.trim()).filter(Boolean)
@@ -753,6 +758,11 @@ onMounted(async () => {
     // 触发解析以更新 symbols
     parseStockCodes()
   }
+}
+
+// 同路由 query 变化（App.vue 按 route.name 复用组件实例）时重新预填
+watch(() => route.query, () => {
+  applyRouteQuery()
 })
 
 const removeStock = (index: number) => {

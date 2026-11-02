@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 // Element Plus 模板组件由 unplugin-vue-components 按需自动导入（含组件样式）；
 // 此处只集中补命令式服务的样式——业务代码显式 import 的 ElMessage/ElMessageBox
 // 与 v-loading 指令不经过 resolver，样式不会自动注入，缺了会裸奔（无样式的消息框/遮罩）
@@ -29,11 +28,6 @@ declare const __APP_VERSION__: string
 
 // 创建应用实例
 const app = createApp(App)
-
-// 注册Element Plus图标
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
-}
 
 // 使用插件
 const pinia = createPinia()

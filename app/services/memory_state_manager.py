@@ -36,6 +36,8 @@ class TaskState:
     current_step: str = ""
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+    # 完成态只存摘要（analysis_id/status/progress/decision）：全量结果以
+    # analysis_reports 为准，避免 LRU 内驻留数百 KB/任务的 state/messages
     result_data: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     
@@ -358,23 +360,6 @@ class MemoryStateManager:
                 "failed_tasks": status_counts.get("failed", 0)
             }
     
-    async def cleanup_old_tasks(self, max_age_hours: int = 24) -> int:
-        """清理旧任务"""
-        with self._lock:
-            cutoff_time = now_config_tz().timestamp() - (max_age_hours * 3600)
-            tasks_to_remove = []
-
-            for task_id, task in self._tasks.items():
-                if task.start_time and task.start_time.timestamp() < cutoff_time:
-                    if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
-                        tasks_to_remove.append(task_id)
-
-            for task_id in tasks_to_remove:
-                self._tasks.invalidate(task_id)
-
-            logger.info(f"🧹 清理了 {len(tasks_to_remove)} 个旧任务")
-            return len(tasks_to_remove)
-
     async def get_zombie_tasks(self, max_running_hours: int = 2) -> List[Dict[str, Any]]:
         """获取僵尸任务列表（不修改状态）
 
@@ -403,46 +388,6 @@ class MemoryStateManager:
                             "message": task.message,
                         })
             return result
-
-    async def cleanup_zombie_tasks(self, max_running_hours: int = 2) -> int:
-        """清理僵尸任务（长时间处于 running 状态的任务）
-
-        Args:
-            max_running_hours: 最大运行时长（小时），超过此时长的 running 任务将被标记为失败
-
-        Returns:
-            清理的任务数量
-        """
-        with self._lock:
-            cutoff_time = now_config_tz().timestamp() - (max_running_hours * 3600)
-            zombie_tasks = []
-
-            for task_id, task in self._tasks.items():
-                # 检查是否是长时间运行的任务
-                if task.status in [TaskStatus.RUNNING, TaskStatus.PENDING]:
-                    if task.start_time and task.start_time.timestamp() < cutoff_time:
-                        zombie_tasks.append(task_id)
-
-            # 将僵尸任务标记为失败
-            for task_id in zombie_tasks:
-                task = self._tasks.get(task_id)
-                if task is None:
-                    continue
-                task.status = TaskStatus.FAILED
-                task.end_time = now_config_tz()
-                task.error_message = f"任务超时（运行时间超过 {max_running_hours} 小时）"
-                task.message = "任务已超时，自动标记为失败"
-                task.progress = 0
-
-                if task.start_time:
-                    task.execution_time = (task.end_time - task.start_time).total_seconds()
-
-                logger.warning(f"⚠️ 僵尸任务已标记为失败: {task_id} (运行时间: {task.execution_time:.1f}秒)")
-
-            if zombie_tasks:
-                logger.info(f"🧹 清理了 {len(zombie_tasks)} 个僵尸任务")
-
-            return len(zombie_tasks)
 
     async def remove_task(self, task_id: str) -> bool:
         """从内存中删除任务

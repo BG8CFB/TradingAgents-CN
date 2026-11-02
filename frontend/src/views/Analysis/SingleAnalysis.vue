@@ -750,35 +750,46 @@ const validateStockCodeInput = () => {
   fetchStockInfo()
 }
 
+/** 应用路由 query（筛选页/仪表盘跳转入口）；路由参数优先级最高。
+ * 返回是否携带了新的股票代码（true 时调用方跳过进行中任务的缓存检查） */
+const applyRouteQuery = () => {
+  const q = route.query as any
+  const hasNewStock = !!q?.stock
+  if (hasNewStock) {
+    analysisForm.stockCode = String(q.stock)
+    // 🔥 关键修复：如果有新的股票代码，清除旧任务缓存
+    clearTaskCache()
+    console.log('🔄 检测到新股票代码，已清除旧任务缓存:', q.stock)
+
+    // 🆕 自动识别市场类型（如果URL中没有明确指定market参数）
+    if (!q?.market) {
+      const detectedMarket = getMarketByStockCode(analysisForm.stockCode)
+      analysisForm.market = detectedMarket as MarketType
+    }
+  }
+  if (q?.market) analysisForm.market = normalizeMarketForAnalysis(q.market) as MarketType
+  return hasNewStock
+}
+
 // 页面初始化
 onMounted(async () => {
-  await fetchAnalysts()
-  initializeModelSettings()
-
-  // 加载模型配置
-  try {
-    const defaultModels = await configApi.getDefaultModels()
-    modelSettings.value.analystModel = defaultModels.analyst_model
-    modelSettings.value.debateModel = defaultModels.debate_model
-
-    const llmConfigs = await configApi.getLLMConfigs()
-    availableModels.value = (llmConfigs as any).filter((config: any) => config.enabled && config.model_type !== 'embedding')
-  } catch (error) {
-    console.error('加载模型配置失败:', error)
-  }
-
-  // 加载MCP工具
-  loadingMcpTools.value = true
-  try {
-    const res = await mcpApi.listTools()
-    if (res.success && res.data) {
-      mcpTools.value = res.data
+  // 挂载请求治理：分析师列表 / 模型配置（默认模型+可用列表）/ MCP 工具三个独立请求
+  // 并行发起（此前 getDefaultModels+getLLMConfigs 被 onMounted 内联块与
+  // initializeModelSettings 重复请求两次），错误处理在各函数内部
+  const loadMcpTools = async () => {
+    loadingMcpTools.value = true
+    try {
+      const res = await mcpApi.listTools()
+      if (res.success && res.data) {
+        mcpTools.value = res.data
+      }
+    } catch (error) {
+      console.error('加载MCP工具失败:', error)
+    } finally {
+      loadingMcpTools.value = false
     }
-  } catch (error) {
-    console.error('加载MCP工具失败:', error)
-  } finally {
-    loadingMcpTools.value = false
   }
+  await Promise.all([fetchAnalysts(), initializeModelSettings(), loadMcpTools()])
 
   // 🆕 从用户偏好加载默认设置
   const authStore = useAuthStore()
@@ -810,26 +821,17 @@ onMounted(async () => {
   }
 
   // 接收一次路由参数（从筛选页带入）- 路由参数优先级最高
-  const q = route.query as any
-  const hasNewStock = !!q?.stock
-  if (hasNewStock) {
-    analysisForm.stockCode = String(q.stock)
-    // 🔥 关键修复：如果有新的股票代码，清除旧任务缓存
-    clearTaskCache()
-    console.log('🔄 检测到新股票代码，已清除旧任务缓存:', q.stock)
-
-    // 🆕 自动识别市场类型（如果URL中没有明确指定market参数）
-    if (!q?.market) {
-      const detectedMarket = getMarketByStockCode(analysisForm.stockCode)
-      analysisForm.market = detectedMarket as MarketType
-    }
-  }
-  if (q?.market) analysisForm.market = normalizeMarketForAnalysis(q.market) as MarketType
+  const hasNewStock = applyRouteQuery()
 
   // 轻量检查：缓存中有进行中任务时仅显示提示条（不再原地恢复）
   if (!hasNewStock) {
     await checkRunningTaskFromCache()
   }
+})
+
+// 同路由 query 变化（App.vue 按 route.name 复用组件实例）时重新应用股票/市场
+watch(() => route.query, () => {
+  applyRouteQuery()
 })
 
 // 提交分析

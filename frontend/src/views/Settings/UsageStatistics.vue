@@ -192,7 +192,11 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { DataAnalysis, Refresh, Document, Upload, Download, Money, Coin, FolderOpened } from '@element-plus/icons-vue'
-import * as echarts from 'echarts'
+// echarts 按需引入：本页用饼图（供应商）+ 柱图（模型）+ 折线（每日成本）
+import { init as echartsInit, use as echartsUse, type EChartsType } from 'echarts/core'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import {
   getUsageRecords,
   getUsageStatistics,
@@ -234,9 +238,11 @@ const modelChartRef = ref<HTMLElement>()
 const dailyChartRef = ref<HTMLElement>()
 
 // 图表实例
-let providerChart: echarts.ECharts | null = null
-let modelChart: echarts.ECharts | null = null
-let dailyChart: echarts.ECharts | null = null
+let providerChart: EChartsType | null = null
+let modelChart: EChartsType | null = null
+let dailyChart: EChartsType | null = null
+
+echartsUse([BarChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
 // 格式化时间戳
 const formatTimestamp = (timestamp: string) => {
@@ -307,7 +313,7 @@ const renderProviderChart = () => {
   if (!providerChartRef.value) return
 
   if (!providerChart) {
-    providerChart = echarts.init(providerChartRef.value)
+    providerChart = echartsInit(providerChartRef.value)
   }
 
   const data = Object.entries(statistics.value.by_provider).map(([name, value]: [string, any]) => ({
@@ -349,7 +355,7 @@ const renderModelChart = () => {
   if (!modelChartRef.value) return
 
   if (!modelChart) {
-    modelChart = echarts.init(modelChartRef.value)
+    modelChart = echartsInit(modelChartRef.value)
   }
 
   const data = Object.entries(statistics.value.by_model)
@@ -398,7 +404,7 @@ const renderDailyChart = () => {
   if (!dailyChartRef.value) return
 
   if (!dailyChart) {
-    dailyChart = echarts.init(dailyChartRef.value)
+    dailyChart = echartsInit(dailyChartRef.value)
   }
 
   const sortedData = Object.entries(statistics.value.by_date)

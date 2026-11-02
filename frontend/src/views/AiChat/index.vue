@@ -71,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch, computed } from 'vue'
+import { onMounted, onActivated, ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, Menu } from '@element-plus/icons-vue'
 import { useWindowSize } from '@vueuse/core'
@@ -88,7 +88,10 @@ const sessionDrawer = ref(false)
 const { width } = useWindowSize()
 const isMobile = computed(() => width.value < 768)
 
+let lastLoadedAt = 0
+
 onMounted(async () => {
+  lastLoadedAt = Date.now()
   try {
     await store.loadSessions()
     if (store.sessions.length) {
@@ -100,6 +103,15 @@ onMounted(async () => {
   } catch {
     ElMessage.error('初始化会话列表失败，请刷新重试')
   }
+})
+
+// keep-alive 复活新鲜度：距上次加载超过 60s 只刷新会话列表与配额展示，
+// 不动当前会话消息流（避免打断正在进行的对话）
+onActivated(() => {
+  if (Date.now() - lastLoadedAt <= 60 * 1000) return
+  lastLoadedAt = Date.now()
+  void store.loadSessions().catch(() => {})
+  void store.refreshQuota().catch(() => {})
 })
 
 // 轮次结束（审计落库）后刷新配额展示

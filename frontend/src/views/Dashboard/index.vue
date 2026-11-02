@@ -231,7 +231,7 @@
 // 显式组件名：BasicLayout 的 keep-alive include 名单按组件名匹配，
 // script-setup 无显式名时推断名为文件名 index，缓存永不生效
 defineOptions({ name: 'Dashboard' })
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Search,
@@ -277,7 +277,8 @@ const searchPlaceholder = computed(() => {
 const handleQuickAnalysis = () => {
   const code = searchStockCode.value.trim()
   if (!code) return
-  router.push({ path: '/analysis/single', query: { stock_code: code, market: searchMarket.value } })
+  // query 键名对齐 SingleAnalysis 的读取（q.stock），原 stock_code 从未被消费
+  router.push({ path: '/analysis/single', query: { stock: code, market: searchMarket.value } })
 }
 
 // ==================== 数据概览 ====================
@@ -372,7 +373,7 @@ const loadFavoriteStocks = async () => {
 
 const goToAnalysis = (stock: any) => {
   const code = stock.stock_code || stock.symbol || ''
-  router.push(`/analysis/single?stock_code=${code}`)
+  router.push(`/analysis/single?stock=${code}`)
 }
 
 const getPriceClass = (pct: number) => {
@@ -431,7 +432,10 @@ const shortcuts = [
 ]
 
 // ==================== 生命周期 ====================
-onMounted(async () => {
+let lastLoadedAt = 0
+
+const loadDashboardData = async () => {
+  lastLoadedAt = Date.now()
   appStore.checkApiConnection()
   // 先拉取自选股列表（store 缓存），loadStats 的 count 与 loadFavoriteStocks 的列表共享这一份
   await favoritesStore.fetch()
@@ -441,6 +445,15 @@ onMounted(async () => {
     loadFavoriteStocks(),
     loadMarketNews(),
   ])
+}
+
+onMounted(loadDashboardData)
+
+// keep-alive 复活新鲜度：距上次加载超过 60s 才重新拉数据（数据本身分钟级更新）
+onActivated(() => {
+  if (Date.now() - lastLoadedAt > 60 * 1000) {
+    void loadDashboardData()
+  }
 })
 </script>
 

@@ -74,7 +74,13 @@ async def register_jobs(scheduler: AsyncIOScheduler, basics_sync_service, run_ba
         async with _startup_sync_lock:
             await run_basics_sync_func(force=False, preferred_sources=preferred_sources)
 
-    _sync_task = asyncio.create_task(_run_startup_sync())
+    # 启动期同步任务走 task_registry（critical=False：shutdown 时统一 cancel，
+    # 与 task_registry 文档注释的 _startup_sync 设计一致），完成后回调记录结果
+    from app.core.task_registry import task_registry
+
+    _sync_task = task_registry.register(
+        _run_startup_sync(), name="basics_startup_sync", critical=False
+    )
     _sync_task.add_done_callback(_handle_basics_sync_task_result)
 
     if settings.SYNC_STOCK_BASICS_ENABLED:
@@ -147,13 +153,17 @@ async def register_jobs(scheduler: AsyncIOScheduler, basics_sync_service, run_ba
 
 
 def _start_scheduler_engine(scheduler: AsyncIOScheduler):
-    """启动新架构 SchedulerEngine，将域级同步任务注册到主调度器上。"""
+    """启动新架构 SchedulerEngine，将域级同步任务注册到主调度器上。
+
+    engine.start() 幂等：内部有 scheduler.running 与 _jobs_registered 双重
+    防重（main._init_scheduler 已先行 start 过时此处为 no-op），避免重复
+    注册与重复加载 schedule.yaml。
+    """
     try:
         from app.data.scheduler.engine import SchedulerEngine
 
         engine = SchedulerEngine(scheduler=scheduler)
-        engine._register_all_jobs()
-        engine._load_all_schedules()
+        engine.start()
 
         SchedulerEngine._instance = engine
         logger.info("SchedulerEngine 已集成到主调度器")

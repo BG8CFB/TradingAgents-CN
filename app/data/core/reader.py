@@ -174,7 +174,24 @@ class Reader:
         elif domain == "financial_data":
             if symbol:
                 statement_type = filters.get("statement_type")
-                data = await repo.get_by_symbol(symbol, market, statement_type=statement_type)
+                # limit 一并透传（此前静默丢弃）；repo 暂无 report_period 范围参数，
+                # start/end 就地过滤兜底，避免区间条件被静默忽略
+                limit = filters.get("limit", 20)
+                data = await repo.get_by_symbol(
+                    symbol, market, statement_type=statement_type, limit=limit
+                )
+                if data and (start_date or end_date):
+                    def _in_range(doc: Dict) -> bool:
+                        rp = str(doc.get("report_period") or "")
+                        if not rp:
+                            return True  # 无报告期的记录不因缺字段被过滤
+                        if start_date and rp < str(start_date):
+                            return False
+                        if end_date and rp > str(end_date):
+                            return False
+                        return True
+
+                    data = [d for d in data if _in_range(d)]
 
         elif domain == "market_quotes":
             if symbol:

@@ -138,6 +138,12 @@ class TushareCNProvider(BaseProvider):
         ts_code = self._to_ts_code(symbol)
         return await fetch_adj_factors(self._get_conn(), ts_code, start_date, end_date)
 
+    async def get_adj_factors_batch(self, trade_date: str, **kwargs) -> pd.DataFrame:
+        """按交易日批量获取全市场复权因子（调度全量同步用）。"""
+        from .api.adj_factors import fetch_adj_factors_by_date
+
+        return await fetch_adj_factors_by_date(self._get_conn(), trade_date)
+
     async def get_news(
         self, symbol: str, start_date: str, end_date: str, **kwargs
     ) -> pd.DataFrame:
@@ -181,6 +187,12 @@ class TushareCNProvider(BaseProvider):
         return await fetch_margin_detail(
             self._get_conn(), ts_code, start_date, end_date
         )
+
+    async def get_margin_trading_batch(self, trade_date: str, **kwargs) -> pd.DataFrame:
+        """按交易日批量获取全市场融资融券明细（调度全量同步用）。"""
+        from .api.margin_trading import fetch_margin_detail_by_date
+
+        return await fetch_margin_detail_by_date(self._get_conn(), trade_date)
 
     async def get_dragon_tiger(
         self,

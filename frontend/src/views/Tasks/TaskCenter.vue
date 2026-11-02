@@ -170,13 +170,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { List, Refresh, Download } from '@element-plus/icons-vue'
 import { analysisApi, type AnalysisTask } from '@/api/analysis'
-import { marked } from 'marked'
 import TaskResultDialog from '@/components/Global/TaskResultDialog.vue'
 import MobileTable from '@/components/Global/MobileTable.vue'
 import { formatDateTime } from '@/utils/datetime'
 
-
-marked.setOptions({ breaks: true, gfm: true })
 
 const route = useRoute()
 const router = useRouter()
@@ -213,8 +210,7 @@ const filters = ref<{ dateRange: string[]; market: string; status: string; stock
 const stats = ref({ pageTotal: 0, completed: 0, failed: 0, uniqueStocks: 0 })
 
 
-// WebSocket 连接管理
-let wsConnections: Map<string, WebSocket> = new Map()
+// 任务进度更新走 5s 轮询（setupPolling），不再为每个运行中任务建 WebSocket 连接
 let timer: ReturnType<typeof setInterval> | null = null
 
 const setupPolling = () => {
@@ -226,96 +222,6 @@ const setupPolling = () => {
   if (activeTab.value === 'running') {
     timer = setInterval(() => loadList(), 5000)
   }
-}
-
-// 连接 WebSocket 获取任务进度
-const connectTaskWebSocket = (taskId: string) => {
-  if (wsConnections.has(taskId)) {
-    return // 已连接
-  }
-
-  try {
-    const token = localStorage.getItem('auth-token') || ''
-    if (!token) {
-      console.warn(`WebSocket 跳过: 无 token, taskId=${taskId}`)
-      return
-    }
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const wsUrl = `${wsProtocol}//${host}/api/analysis/ws/task/${taskId}?token=${encodeURIComponent(token)}`
-
-    const ws = new WebSocket(wsUrl)
-
-    ws.onopen = () => {
-      console.log(`✅ WebSocket 连接成功: ${taskId}`)
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data)
-        if (message.type === 'progress_update') {
-          // 更新列表中的任务进度
-          const taskIndex = list.value.findIndex(t => t.task_id === taskId)
-          if (taskIndex >= 0) {
-            list.value[taskIndex].progress = message.progress
-            list.value[taskIndex].status = message.status
-            list.value[taskIndex].message = message.message
-            console.log(`📊 更新任务进度: ${taskId} -> ${message.progress}%`)
-          }
-        }
-      } catch (e) {
-        console.error('WebSocket 消息解析失败:', e)
-      }
-    }
-
-    ws.onerror = (error) => {
-      console.error(`❌ WebSocket 错误: ${taskId}`, error)
-    }
-
-    ws.onclose = () => {
-      console.log(`🔌 WebSocket 断开: ${taskId}`)
-      wsConnections.delete(taskId)
-    }
-
-    wsConnections.set(taskId, ws)
-  } catch (e) {
-    console.error('WebSocket 连接失败:', e)
-  }
-}
-
-// 断开所有 WebSocket 连接
-const disconnectAllWebSockets = () => {
-  wsConnections.forEach((ws) => {
-    try {
-      ws.close()
-    } catch (e) {
-      console.error('关闭 WebSocket 失败:', e)
-    }
-  })
-  wsConnections.clear()
-}
-
-// 清理不再需要活跃监控的 WebSocket 连接（任务已结束或已从列表消失）
-const cleanupStaleConnections = (activeTaskIds: Set<string>) => {
-  // 避免在迭代中删除，先收集待关闭的 taskId
-  const staleIds: string[] = []
-  wsConnections.forEach((_ws, taskId) => {
-    if (!activeTaskIds.has(taskId)) {
-      staleIds.push(taskId)
-    }
-  })
-  staleIds.forEach((taskId) => {
-    const ws = wsConnections.get(taskId)
-    if (ws) {
-      try {
-        ws.close()
-      } catch (e) {
-        console.error(`关闭陈旧 WebSocket 失败: taskId=${taskId}`, e)
-      }
-    }
-    // 从 Map 移除（若 onclose 已先触发 delete，这里是无害的幂等操作）
-    wsConnections.delete(taskId)
-  })
 }
 
 const statusParam = computed(() => {
@@ -345,19 +251,6 @@ const loadList = async () => {
     total.value = body.total ?? tasks.length
 
     list.value = tasks
-
-    // 收集当前页中仍需活跃监控的任务 ID，清理已结束或已从列表消失的连接
-    const activeTaskIds = new Set(
-      tasks
-        .filter((task) => task.status === 'processing' || task.status === 'running' || task.status === 'pending')
-        .map((task) => task.task_id)
-    )
-    cleanupStaleConnections(activeTaskIds)
-
-    // 为运行中的任务连接 WebSocket
-    activeTaskIds.forEach((taskId) => {
-      connectTaskWebSocket(taskId)
-    })
 
     // 统计：全部基于当前页数据，与分页 total（全局总数）分离，避免口径混用
     const completed = tasks.filter((x: AnalysisTask) => x.status === 'completed').length
@@ -586,7 +479,6 @@ onUnmounted(() => {
     clearInterval(timer)
     timer = null
   }
-  disconnectAllWebSockets()
 })
 
 const getStatusType = (status:string): 'success' | 'info' | 'warning' | 'danger' => {

@@ -57,25 +57,22 @@ logger = logging.getLogger("app.services.analysis_service")
 try:
     _di = DataInterface.get_instance()
 
-    def _get_stock_info_safe(stock_code: str):
-        """获取股票基础信息的安全封装。
+    async def _get_stock_info_async(stock_code: str):
+        """获取股票基础信息（异步直查）。
 
-        使用 :func:`app.core.async_utils.run_async` 统一处理同步→异步桥接：
-        - worker thread 上下文 → run_coroutine_threadsafe 调度到主循环
-        - 纯脚本上下文 → asyncio.run 创建新循环
-        - 主线程事件循环中调用 → 抛 RuntimeError 指引改用 await
+        旧实现经 run_async 桥接：在主线程事件循环内调用会抛 RuntimeError
+        被吞掉，任务创建时永远拿不到真名、只剩占位名；调用方均在 async
+        上下文，这里改为直接 await。
         """
-        from app.core.async_utils import run_async
-
         try:
-            result = run_async(_di.read("CN", "basic_info", symbol=stock_code))
+            result = await _di.read("CN", "basic_info", symbol=stock_code)
             return result.get("data") if result else None
         except Exception as e:
             logger.debug(f"获取股票信息失败: {e}")
             return None
 except Exception as e:
-    logger.debug(f"DataInterface 初始化失败，_get_stock_info_safe 不可用: {e}")
-    _get_stock_info_safe = None
+    logger.debug(f"DataInterface 初始化失败，_get_stock_info_async 不可用: {e}")
+    _get_stock_info_async = None
 
 # -----------------------------------------------------------------------------
 # Helper Functions (from simple_analysis_service.py)
@@ -484,8 +481,8 @@ class AnalysisService:
         except Exception as e:
             logger.warning(f"⚠️ [异步更新] 失败: {e}")
 
-    def _resolve_stock_name(self, code: Optional[str]) -> str:
-        """解析股票名称（带缓存）"""
+    async def _resolve_stock_name(self, code: Optional[str]) -> str:
+        """解析股票名称（带缓存，异步直查 basic_info）"""
         if not code:
             return ""
         cached = self._stock_name_cache.get(code)
@@ -493,14 +490,16 @@ class AnalysisService:
             return cached
         name = None
         try:
-            if _get_stock_info_safe:
-                info = _get_stock_info_safe(code)
+            if _get_stock_info_async:
+                info = await _get_stock_info_async(code)
                 if isinstance(info, dict):
                     name = info.get("name")
         except Exception as e:
             logger.debug(f"解析股票名称失败: {e}")
         if not name:
-            name = f"股票{code}"
+            # 查询失败/无名称时返回占位名但不写缓存，避免占位名长期驻留、
+            # 下次查询仍会尝试拿真名
+            return f"股票{code}"
         self._stock_name_cache.set(code, name)
         return name
 
@@ -603,18 +602,21 @@ class AnalysisService:
             if request.workflow_slug:
                 parameters["workflow_slug"] = request.workflow_slug
 
+            # 股票名称解析一次、两处复用（内存态 + DB 文档），避免重复查询
+            stock_name = await self._resolve_stock_name(stock_code)
+
             # 在内存中创建任务状态
             await self.memory_manager.create_task(
                 task_id=task_id,
                 user_id=user_id,
                 stock_code=stock_code,
                 parameters=parameters,
-                stock_name=self._resolve_stock_name(stock_code),
+                stock_name=stock_name,
             )
 
             # 写入MongoDB
             code = stock_code
-            name = self._resolve_stock_name(code)
+            name = stock_name
             try:
                 db = get_mongo_db()
                 await db.analysis_tasks.update_one(
@@ -793,14 +795,23 @@ class AnalysisService:
             # 保存结果
             await self._save_analysis_results_complete(task_id, result)
 
-            # 更新完成状态
+            # 更新完成状态：内存只留摘要——全量 result（含 state/messages 大对象）
+            # 已由 _save_analysis_results_complete 落入 analysis_reports 与
+            # analysis_tasks.result，内存 LRU 驻留全量会放大数百 KB/任务的占用；
+            # /result 端点读取全量时走 DB 路径
+            result_summary = {
+                "analysis_id": result.get("analysis_id"),
+                "status": "completed",
+                "progress": 100,
+                "decision": result.get("decision"),
+            }
             await self.memory_manager.update_task_status(
                 task_id=task_id,
                 status=TaskStatus.COMPLETED,
                 progress=100,
                 message="分析完成",
                 current_step="completed",
-                result_data=result,
+                result_data=result_summary,
             )
             await self._update_task_status(task_id, AnalysisStatus.COMPLETED, 100)
 
@@ -1537,6 +1548,9 @@ class AnalysisService:
         global_memory_manager = get_memory_state_manager()
         result = await global_memory_manager.get_task_dict(task_id)
         if result:
+            # 状态响应（/status 轮询、WS 鉴权、cancel/events 校验）只消费状态字段，
+            # 全量结果由 /result 端点按需读取，这里剥离避免大对象随轮询外带
+            result.pop("result_data", None)
             redis_progress = get_progress_by_id(task_id)
             if redis_progress:
                 result.update(
@@ -1569,8 +1583,14 @@ class AnalysisService:
 
         try:
             db = get_mongo_db()
-            # 按创建时间倒序
-            cursor = db.analysis_tasks.find(query).sort("created_at", -1).skip(offset).limit(limit)
+            # 按创建时间倒序；列表页不消费 result（约占单文档 99%）与
+            # workflow_snapshot，用 exclusion projection 避免 5s 轮询拉全量报告
+            cursor = (
+                db.analysis_tasks.find(query, {"result": 0, "workflow_snapshot": 0})
+                .sort("created_at", -1)
+                .skip(offset)
+                .limit(limit)
+            )
             db_tasks = await cursor.to_list(length=limit)
 
             # 批量获取内存中的实时状态（一次加锁，替代逐条查询）
@@ -1681,9 +1701,14 @@ class AnalysisService:
             # 获取总数
             total = await db.analysis_tasks.count_documents(query)
 
-            # 分页查询
+            # 分页查询；历史页同样排除 result/workflow_snapshot 大字段（见 list_user_tasks）
             skip = (page - 1) * page_size
-            cursor = db.analysis_tasks.find(query).sort("created_at", -1).skip(skip).limit(page_size)
+            cursor = (
+                db.analysis_tasks.find(query, {"result": 0, "workflow_snapshot": 0})
+                .sort("created_at", -1)
+                .skip(skip)
+                .limit(page_size)
+            )
             db_tasks = await cursor.to_list(length=page_size)
 
             # 批量获取内存中的实时状态（一次加锁，替代逐条查询）
@@ -1986,7 +2011,7 @@ class AnalysisService:
             document = {
                 "analysis_id": analysis_id,
                 "stock_symbol": stock_symbol,
-                "stock_name": self._resolve_stock_name(stock_symbol),
+                "stock_name": await self._resolve_stock_name(stock_symbol),
                 "analysis_date": analysis_date,
                 "market_type": market_type,
                 "status": result.get("status", "completed"),
@@ -2014,8 +2039,14 @@ class AnalysisService:
             # 写入报告集合
             insert_result = await db.analysis_reports.insert_one(document)
 
-            # 更新任务集合中的结果，携带 report_id 便于前端关联
-            document_for_task = {**document, "_id": insert_result.inserted_id}
+            # 任务集合只存瘦身引用拷贝（排除 reports 等大对象，全量以
+            # analysis_reports 为准）：result 保留 analysis_id 等索引键，供
+            # _find_report_by_task_id / reports_service 反查关联报告；
+            # 携带 report_id 便于前端关联
+            document_for_task = {
+                k: v for k, v in document.items() if k not in ("reports", "state")
+            }
+            document_for_task["_id"] = insert_result.inserted_id
             await db.analysis_tasks.update_one({"task_id": task_id}, {"$set": {"result": document_for_task}})
         except Exception as e:
             logger.error(f"❌ 保存DB结果失败: {e}")
@@ -2254,7 +2285,9 @@ class AnalysisService:
         """
         获取任务的完整分析结果数据。
 
-        查询顺序：内存 → analysis_reports（按 task_id / analysis_id）→ analysis_tasks.result。
+        查询顺序：analysis_reports（按 task_id / analysis_id）→ analysis_tasks.result。
+        不走内存：完成态内存仅存摘要（无 reports 全量），所有权校验由
+        DB 查询的 user_id 过滤承担。
 
         Args:
             task_id: 任务 ID
@@ -2263,19 +2296,7 @@ class AnalysisService:
         Returns:
             结果字典（含 "source" 标记），或 None。
         """
-        # 1) 内存中获取
-        task_status = await self.get_task_status(task_id)
-        if task_status and task_status.get("status") == "completed" and task_status.get("result_data"):
-            # 内存命中同样校验所有权
-            if user_id is None:
-                return task_status["result_data"]
-            owner = task_status.get("user_id")
-            if owner is None or owner == user_id:
-                return task_status["result_data"]
-            logger.warning(f"⚠️ 用户 {user_id} 越权读取任务结果 task_id={task_id} (owner={owner})")
-            return None
-
-        # 2) 从 analysis_reports 获取
+        # 1) 从 analysis_reports 获取
         mongo_result = await self._find_report_by_task_id(task_id, user_id)
         if mongo_result:
             result_data = {
@@ -2300,7 +2321,7 @@ class AnalysisService:
             }
             return result_data
 
-        # 3) 从 analysis_tasks.result 兜底（同样带 user_id 过滤 + 老数据兼容）
+        # 2) 从 analysis_tasks.result 兜底（同样带 user_id 过滤 + 老数据兼容）
         try:
             db = get_mongo_db()
             fallback_filter: Dict[str, Any] = {"task_id": task_id}

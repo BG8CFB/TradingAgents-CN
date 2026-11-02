@@ -4,7 +4,8 @@
 事件类型：
 - agent_start / agent_end        智能体节点开始/结束（payload: 名称、阶段、耗时）
 - llm_request / llm_response     每轮模型调用（payload: 消息数、估算 token、工具数；
-                                  request 首轮附完整 messages 数组、response 附本轮文本全文）
+                                  request 首轮附完整 messages 数组、response 附本轮文本全文；
+                                  超大文本按事件级上限截断，见下方截断常量）
 - text_delta                     流式文本增量（payload: text）——仅实时通道，不落库
 - thinking_delta                 流式思考增量（payload: text）——仅实时通道，不落库；
                                   聚合完整段由 thinking 事件落库回放
@@ -25,6 +26,7 @@ import asyncio
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 import logging
@@ -37,6 +39,9 @@ logger = logging.getLogger("app.llm.events")
 # 完整原文仍保存在主数据存储（reports 结果文档）中，不因截断丢失。
 TOOL_RESULT_MAX_CHARS = 8000  # 工具结果：8000 覆盖绝大多数行情/搜索返回，前端可直读
 REPORT_CONTENT_MAX_CHARS = 30000  # report_ready 报告内容：单份报告展示上限（总结报告偶发超长）
+MESSAGES_FULL_MAX_CHARS = 16000  # llm_request 首轮 messages 全文：全部 content 累计上限
+LLM_RESPONSE_TEXT_MAX_CHARS = 8000  # llm_response 本轮 assistant 正文
+THINKING_TEXT_MAX_CHARS = 4000  # thinking/reasoning 全文（推理模型思考块）
 
 # user_message_injected 不截断：用户消息本身体量可控，全文回放是消息审计的依据
 
@@ -86,15 +91,35 @@ def flatten_message_content(content: Any) -> str:
             return ""
 
 
-def messages_event_payload(messages: List[Any]) -> List[Dict[str, str]]:
-    """llm_request 的 messages 数组：[{role, content}]，content 经展平为纯文本"""
+def truncate_text(text: str, limit: int) -> str:
+    """事件 payload 文本截断：超限时保留前缀并标注原始长度（对齐 tool_result 截断写法）"""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"...[已截断，共 {len(text)} 字符]"
+
+
+def messages_event_payload(
+    messages: List[Any], max_total_chars: int = MESSAGES_FULL_MAX_CHARS
+) -> List[Dict[str, str]]:
+    """llm_request 的 messages 数组：[{role, content}]，content 经展平为纯文本。
+
+    体积控制：首轮大上下文（辩论历史/长新闻注入）全部 content 累计不超过
+    max_total_chars，预算耗尽后剩余消息只保留角色与截断标记。
+    """
     out: List[Dict[str, str]] = []
+    remaining = max_total_chars
     for m in messages or []:
         role = getattr(m, "role", "")
         role = getattr(role, "value", role)  # Role 枚举 → 字符串
+        content = flatten_message_content(getattr(m, "content", ""))
+        if len(content) > remaining:
+            content = content[:remaining] + f"...[已截断，共 {len(content)} 字符]"
+            remaining = 0
+        else:
+            remaining -= len(content)
         out.append({
             "role": str(role),
-            "content": flatten_message_content(getattr(m, "content", "")),
+            "content": content,
         })
     return out
 
@@ -103,6 +128,24 @@ def messages_event_payload(messages: List[Any]) -> List[Dict[str, str]]:
 REALTIME_ONLY = {"text_delta", "thinking_delta", "status"}
 # 仅经 on_progress 通道转发的事件（进度消息，走旧 progress_callback 兼容出口）
 PROGRESS_ONLY = {"progress"}
+
+# emit 级超大文本字段截断规则：event_type → {payload 字段: 上限}
+# （messages 全文截断在 messages_event_payload 内按累计预算处理，不在此表）
+_EVENT_TEXT_TRUNCATION: Dict[str, Dict[str, int]] = {
+    "llm_response": {"text": LLM_RESPONSE_TEXT_MAX_CHARS},
+    "thinking": {"text": THINKING_TEXT_MAX_CHARS},
+}
+
+
+def _truncate_payload_text(event_type: str, payload: Dict[str, Any]) -> None:
+    """按规则截断事件 payload 中的超大文本字段（实时与落库双通道同时生效）。"""
+    rules = _EVENT_TEXT_TRUNCATION.get(event_type)
+    if not rules:
+        return
+    for key, limit in rules.items():
+        value = payload.get(key)
+        if isinstance(value, str):
+            payload[key] = truncate_text(value, limit)
 
 
 @dataclass
@@ -114,9 +157,12 @@ class Event:
     event_type: str
     phase: str = ""
     payload: Dict[str, Any] = field(default_factory=dict)
+    # 落库通道专用时间戳（BSON Date，flush 时补写）：analysis_events 的 TTL
+    # 索引按此字段过期清理；不进实时通道（WS 的 json.dumps 不支持 datetime）
+    created_at: Optional[datetime] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        doc = {
             "task_id": self.task_id,
             "seq": self.seq,
             "ts": self.ts,
@@ -125,6 +171,9 @@ class Event:
             "event_type": self.event_type,
             "payload": self.payload,
         }
+        if self.created_at is not None:
+            doc["created_at"] = self.created_at
+        return doc
 
 
 class EventSink:
@@ -168,6 +217,7 @@ class EventSink:
     # ---- 发射 ----
 
     async def emit(self, event_type: str, agent_key: str = "", phase: str = "", **payload: Any) -> Event:
+        _truncate_payload_text(event_type, payload)
         self._seq += 1
         ev = Event(
             task_id=self.task_id,
@@ -210,6 +260,11 @@ class EventSink:
             return
         batch, self._buffer = self._buffer, []
         self._last_flush = time.time()
+        # 落库批次补写 BSON Date 时间戳（analysis_events TTL 过期依据）；
+        # 实时通道已在 emit 时序列化完毕，不受此补写影响
+        now_dt = datetime.now(timezone.utc)
+        for ev in batch:
+            ev.created_at = now_dt
         try:
             result = self._on_persist(batch)
             if asyncio.iscoroutine(result):

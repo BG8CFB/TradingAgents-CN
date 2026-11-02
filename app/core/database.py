@@ -342,6 +342,8 @@ async def create_database_indexes(db):
             await tasks.create_index([("task_id", 1)], unique=True)
             await tasks.create_index([("user_id", 1), ("created_at", -1)])
             await tasks.create_index([("status", 1), ("created_at", -1)])
+            # result 瘦身为引用后，result.analysis_id 成为报告关联查询键
+            await tasks.create_index([("result.analysis_id", 1)])
             logger.info("✅ analysis_tasks 集合索引创建完成")
         except Exception as e:
             logger.warning(f"⚠️ 创建 analysis_tasks 索引失败: {e}")
@@ -350,6 +352,12 @@ async def create_database_indexes(db):
         try:
             events = db["analysis_events"]
             await events.create_index([("task_id", 1), ("seq", 1)])
+            # TTL 90 天：MongoDB TTL 只对 BSON Date 字段生效——created_at 由
+            # EventSink.flush 在落库批次补写（ts 是 epoch float，不能作 TTL 键）；
+            # 存量无该字段的事件不会被 TTL 清理
+            await events.create_index(
+                [("created_at", 1)], expireAfterSeconds=90 * 24 * 3600
+            )
             logger.info("✅ analysis_events 集合索引创建完成")
         except Exception as e:
             logger.warning(f"⚠️ 创建 analysis_events 索引失败: {e}")
@@ -373,6 +381,11 @@ async def create_database_indexes(db):
             op_logs = db["operation_logs"]
             await op_logs.create_index([("timestamp", -1)])
             await op_logs.create_index([("user_id", 1), ("timestamp", -1)])
+            # TTL 90 天：timestamp 为 naive datetime（BSON Date 存储），TTL 可生效；
+            # naive 本地时间与 UTC 的偏差对 90 天量级可忽略
+            await op_logs.create_index(
+                [("timestamp", 1)], expireAfterSeconds=90 * 24 * 3600
+            )
             logger.info("✅ operation_logs 集合索引创建完成")
         except Exception as e:
             logger.warning(f"⚠️ 创建 operation_logs 索引失败: {e}")
@@ -406,6 +419,12 @@ async def create_database_indexes(db):
         try:
             token_usage = db["token_usage"]
             await token_usage.create_index([("timestamp", -1), ("provider", 1)])
+            # TTL 180 天。MongoDB TTL 只对 BSON Date 生效：写入方
+            # （token_usage_recorder）随 ISO 字符串 timestamp 一并落 created_at
+            # datetime，TTL 键为 created_at；timestamp 字符串索引保留供查询
+            await token_usage.create_index(
+                [("created_at", 1)], expireAfterSeconds=180 * 24 * 3600
+            )
             logger.info("✅ token_usage 集合索引创建完成")
         except Exception as e:
             logger.warning(f"⚠️ 创建 token_usage 索引失败: {e}")

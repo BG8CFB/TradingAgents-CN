@@ -430,13 +430,13 @@ class FallbackRouter:
             "index_quotes": lambda: provider.get_index_quotes(symbol, start, end),
             "daily_indicators": lambda: self._fetch_daily_indicators(provider, symbol, start, end),
             "financial_data": lambda: self._fetch_financial_batch(provider, symbol, start, end),
-            "adj_factors": lambda: provider.get_adj_factors(symbol, start, end),
+            "adj_factors": lambda: self._fetch_adj_factors_batch(provider, symbol, start, end),
             "corporate_actions": lambda: provider.get_corporate_actions(symbol, start, end),
             "news": lambda: provider.get_news(None if symbol == "__all__" else symbol, start, end),
             "market_quotes": lambda: provider.get_market_quotes([symbol]),
             "intraday_quotes": lambda: provider.get_intraday_quotes(symbol, start, end),
             "money_flow": lambda: self._fetch_money_flow_batch(provider, symbol, start, end),
-            "margin_trading": lambda: provider.get_margin_trading(symbol, start, end),
+            "margin_trading": lambda: self._fetch_margin_trading_batch(provider, symbol, start, end),
             "dragon_tiger": lambda: provider.get_dragon_tiger(symbol, start, end),
             "block_trade": lambda: provider.get_block_trade(symbol, start, end),
         }
@@ -538,6 +538,76 @@ class FallbackRouter:
         if type(provider).get_financial_data_batch is base_method:
             return self._BATCH_NOT_SUPPORTED
         return await provider.get_financial_data_batch()
+
+    async def _fetch_adj_factors_batch(self, provider, symbol: str, start: str, end: str):
+        """获取复权因子：per-symbol 模式或按交易日批量模式。
+
+        批量拉最近 6 个交易日（与 daily_quotes 同窗口）：复权因子随行情
+        每日发布，窗口式重拉可自愈单日缺失；单日无数据（停市/未发布）
+        跳过不阻塞其他日。BaseProvider 未定义批量基方法（改动范围受限），
+        能力探测用 getattr——仅覆写了该方法的源（CN tushare）进入批量分支，
+        其余源返回 _BATCH_NOT_SUPPORTED 静默跳过，不误记熔断。
+        """
+        if symbol != "__all__":
+            return await provider.get_adj_factors(symbol, start, end)
+        batch_method = getattr(provider, "get_adj_factors_batch", None)
+        if not callable(batch_method):
+            return self._BATCH_NOT_SUPPORTED
+
+        from app.data.sources.base.exceptions import DataNotFoundError
+
+        dates = await self._recent_sync_trade_dates(provider.market, 6)
+        if not dates:
+            return self._BATCH_NOT_SUPPORTED  # 无可用交易日，skip 不误记熔断
+
+        import pandas as pd
+
+        frames = []
+        for d in dates:
+            try:
+                df = await batch_method(d)
+            except DataNotFoundError:
+                logger.debug(f"{provider.name} adj_factors {d} 无数据，跳过")
+                continue
+            if df is not None and not df.empty:
+                frames.append(df)
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
+    async def _fetch_margin_trading_batch(self, provider, symbol: str, start: str, end: str):
+        """获取融资融券明细：per-symbol 模式或按交易日批量模式。
+
+        批量拉最近 6 个交易日（两融明细每日盘后更新上一交易日数据，
+        窗口式重拉可自愈延迟发布）；单日无数据跳过不阻塞其他日。
+        能力探测同 _fetch_adj_factors_batch（getattr，见其注释）。
+        """
+        if symbol != "__all__":
+            return await provider.get_margin_trading(symbol, start, end)
+        batch_method = getattr(provider, "get_margin_trading_batch", None)
+        if not callable(batch_method):
+            return self._BATCH_NOT_SUPPORTED
+
+        from app.data.sources.base.exceptions import DataNotFoundError
+
+        dates = await self._recent_sync_trade_dates(provider.market, 6)
+        if not dates:
+            return self._BATCH_NOT_SUPPORTED  # 无可用交易日，skip 不误记熔断
+
+        import pandas as pd
+
+        frames = []
+        for d in dates:
+            try:
+                df = await batch_method(d)
+            except DataNotFoundError:
+                logger.debug(f"{provider.name} margin_trading {d} 无数据，跳过")
+                continue
+            if df is not None and not df.empty:
+                frames.append(df)
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
 
     async def _fetch_money_flow_batch(self, provider, symbol: str, start: str, end: str):
         """获取资金流向：per-symbol 模式或按交易日批量模式。

@@ -155,6 +155,9 @@ class TokenUsageRecorder:
 
             doc = {
                 "timestamp": now_utc().isoformat(),
+                # TTL 键：datetime 类型（ISO 字符串对 MongoDB TTL 无效），
+                # 与 core/database.py 的 expireAfterSeconds 索引配套
+                "created_at": now_utc(),
                 "provider": provider,
                 "model_name": model_name,
                 "input_tokens": input_tokens,

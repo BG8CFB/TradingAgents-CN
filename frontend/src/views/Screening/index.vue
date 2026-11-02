@@ -410,7 +410,7 @@
 // 显式组件名：BasicLayout 的 keep-alive include 名单按组件名匹配，
 // script-setup 无显式名时推断名为文件名 index，缓存永不生效
 defineOptions({ name: 'StockScreening' })
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, TrendCharts, Download, Star, Connection, Warning } from '@element-plus/icons-vue'
@@ -834,7 +834,10 @@ const loadCurrentDataSource = async () => {
 }
 
 // 生命周期
-onMounted(() => {
+let lastLoadedAt = 0
+
+const loadPageData = () => {
+  lastLoadedAt = Date.now()
   // 加载字段配置和行业列表
   loadFieldConfig()
   loadIndustries()
@@ -842,6 +845,15 @@ onMounted(() => {
   loadFavorites()
   // 加载当前数据源
   loadCurrentDataSource()
+}
+
+onMounted(loadPageData)
+
+// keep-alive 复活新鲜度：距上次加载超过 60s 才重新拉数据（自选集/数据源状态可能已变化）
+onActivated(() => {
+  if (Date.now() - lastLoadedAt > 60 * 1000) {
+    loadPageData()
+  }
 })
 </script>
 

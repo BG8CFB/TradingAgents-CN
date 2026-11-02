@@ -11,7 +11,7 @@ from typing import Optional
 
 import pandas as pd
 
-from app.data.sources.tushare_common.caller import call_tushare
+from app.data.sources.tushare_common.caller import call_tushare, call_tushare_paged
 
 from .connection import TushareConnection
 
@@ -39,4 +39,19 @@ async def fetch_margin_detail(
 
     return await call_tushare(
         conn, "margin_detail", _SOURCE, _DOMAIN, f"ts_code={ts_code}", **kwargs
+    )
+
+
+async def fetch_margin_detail_by_date(
+    conn: TushareConnection, trade_date: str
+) -> Optional[pd.DataFrame]:
+    """按交易日一次拉全市场融资融券明细（官方 margin_detail 支持 trade_date 不带 ts_code）。
+
+    单日全市场两融标的 3000+ 行，仍走 offset/limit 翻页防御上游上限
+    （官方单次最大 6000 行）；列名与逐 symbol 模式一致，走同一 normalizer 入库。
+    """
+    date_str = str(trade_date).replace("-", "")
+    return await call_tushare_paged(
+        conn, "margin_detail", _SOURCE, _DOMAIN, f"trade_date={date_str}",
+        trade_date=date_str,
     )

@@ -32,34 +32,41 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
     "trade_calendar": [
         ([("exchange", 1), ("cal_date", 1)], True),
         ([("cal_date", 1)], False),
+        ([("updated_at", -1)], False),
     ],
     "daily_quotes": [
         # 单版本覆盖：同 symbol 同交易日同周期只保留一份（当前生效源）
         ([("symbol", 1), ("trade_date", -1), ("period", 1)], True),
         ([("trade_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "index_quotes": [
         # 指数日线：同 symbol 同交易日只保留一份（固定基准宇宙，无 period 维度）
         ([("symbol", 1), ("trade_date", -1)], True),
         ([("trade_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "daily_indicators": [
         ([("symbol", 1), ("trade_date", -1)], True),
         ([("trade_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "adj_factors": [
         ([("symbol", 1), ("trade_date", -1)], True),
+        ([("updated_at", -1)], False),
     ],
     "corporate_actions": [
         # 同一 symbol 同一除权日同一行动类型唯一
         ([("symbol", 1), ("ex_date", -1), ("action_type", 1)], True),
         ([("ex_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "financial_data": [
         # 财务数据：按报告期+报表类型唯一
         ([("symbol", 1), ("report_period", -1), ("statement_type", 1)], True),
         ([("symbol", 1), ("announce_date", -1)], False),
         ([("report_period", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "market_quotes": [
         ([("symbol", 1)], True),
@@ -68,37 +75,45 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
     "news": [
         ([("content_hash", 1)], True),
         ([("symbol", 1), ("pub_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "connect_status": [
         # 互联互通持股：按 symbol + 日期唯一
         ([("symbol", 1), ("trade_date", -1)], True),
+        ([("updated_at", -1)], False),
     ],
     "southbound_holding": [
         # 南向持股：按 symbol + 日期唯一
         ([("symbol", 1), ("trade_date", -1)], True),
+        ([("updated_at", -1)], False),
     ],
     "pre_post_market": [
         # 盘前盘后：按 symbol + trade_date + session_type 唯一
         ([("symbol", 1), ("trade_date", -1), ("session_type", 1)], True),
+        ([("updated_at", -1)], False),
     ],
     "intraday_quotes": [
         # 分钟线：按 symbol + datetime + freq 唯一
         ([("symbol", 1), ("datetime", -1), ("freq", 1)], True),
         ([("datetime", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "money_flow": [
         # 资金流向：按 symbol + 日期唯一
         ([("symbol", 1), ("trade_date", -1)], True),
+        ([("updated_at", -1)], False),
     ],
     "margin_trading": [
         # 融资融券：按 symbol + 日期唯一
         ([("symbol", 1), ("trade_date", -1)], True),
+        ([("updated_at", -1)], False),
     ],
     "dragon_tiger": [
         # 龙虎榜：同一 symbol 同一交易日可能有多个上榜理由（reason 不同），
         # 唯一索引必须包含 reason 才不会丢数据
         ([("symbol", 1), ("trade_date", -1), ("reason", 1)], True),
         ([("trade_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "block_trade": [
         # 大宗交易：同一 symbol 同一交易日同一买卖方唯一
@@ -106,26 +121,31 @@ INDEX_DEFINITIONS: Dict[str, List[Tuple[List[tuple], bool]]] = {
         #  不用浮点 price 做唯一键，避免精度风险）
         ([("symbol", 1), ("trade_date", -1), ("buyer", 1), ("seller", 1)], True),
         ([("trade_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "tushare_universe": [
         # Tushare 指数成分：按 symbol + trade_date 唯一
         ([("symbol", 1), ("trade_date", -1)], True),
+        ([("updated_at", -1)], False),
     ],
     "factor_scores": [
         # L0 因子日频快照：每股每日一行（计算产物，单版本）
         ([("symbol", 1), ("trade_date", -1)], True),
         ([("trade_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "screening_recommendations": [
         # 每日推荐：每策略每日一条（job 覆盖写入）
         ([("strategy_id", 1), ("trade_date", -1)], True),
         ([("trade_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     "screening_insights": [
         # 手动 L1 研判审计日志：append-only；(user_id, created_at) 为准代理唯一键
         # （created_at 每次调用生成、微秒精度），兼防同用户重复提交
         ([("user_id", 1), ("created_at", -1)], True),
         ([("trade_date", -1)], False),
+        ([("updated_at", -1)], False),
     ],
     # === 元数据集合（无市场后缀，三市场共用，market 字段区分） ===
     "sync_checkpoints": [

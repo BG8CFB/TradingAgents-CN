@@ -16,14 +16,9 @@ basic_info:
   depends_on:
     - trade_calendar
 
-connect_status:
-  cron: "0 9 * * 1"
-  timezone: "Asia/Hong_Kong"
-  mode: full
-  description: "每周一 09:00 全量同步港股通名单"
-  source: "akshare_hk"
-  depends_on:
-    - basic_info
+# connect_status 已于 2026-11-01 摘除：两源（akshare_hk/tushare_hk）0 成功、
+# 熔断 open、集合 0 条（source_health 证据），每周一恒失败空转。
+# 未来上游接口恢复可用后恢复本条目（Job 类 HKConnectStatusJob 仍保留）。
 
 daily_quotes:
   cron: "30 18 * * 1-5"
@@ -43,14 +38,10 @@ daily_indicators:
   depends_on:
     - daily_quotes
 
-southbound_holding:
-  cron: "30 19 * * 1-5"
-  timezone: "Asia/Hong_Kong"
-  mode: incremental
-  description: "每交易日 19:30 增量同步南向持股"
-  source: "tushare_hk"
-  depends_on:
-    - connect_status
+# southbound_holding 已于 2026-11-01 摘除：两源 0 成功、熔断 open、集合 0 条
+# （source_health 证据），且其依赖 connect_status 同日摘除。未来上游
+# （tushare_hk hk_hold 或 akshare 接口）恢复后连同 connect_status 一起恢复
+# （Job 类 HKSouthboundHoldingJob 仍保留）。
 
 corporate_actions:
   cron: "0 20 * * *"

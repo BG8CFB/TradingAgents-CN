@@ -48,14 +48,10 @@ daily_indicators:
   depends_on:
     - daily_quotes
 
-adj_factors:
-  cron: "30 18 * * 1-5"
-  timezone: "America/New_York"
-  mode: incremental
-  description: "每交易日 18:30 ET 增量/推导复权因子"
-  depends_on:
-    - daily_quotes
-    - corporate_actions
+# adj_factors 已于 2026-11-01 摘除：增量语义下拉不到数据（source_health 显示
+# 每交易日空转 ~8.8 分钟、0 条入库）。批量化改造（按 trade_date 全市场）优先
+# 落在 CN（tushare adj_factor）；US 无可用批量上游。未来 US 源支持按日批量
+# （或推导链路落地）后恢复本条目（Job 类 USAdjFactorsJob 仍保留在 registry）。
 
 financial_data:
   cron: "0 21 * * *"
@@ -70,12 +66,10 @@ market_quotes:
   description: "每交易日 16:01 ET 全量收盘快照"
   source: "yfinance"
 
-pre_post_market:
-  cron: "*/5 4-20 * * 1-5"
-  timezone: "America/New_York"
-  mode: incremental
-  description: "盘前 04:00-09:30 / 盘后 16:00-20:00 每 5 分钟"
-  source: "finnhub"
+# pre_post_market 已于 2026-11-01 摘除：finnhub 免费层无盘前盘后数据，
+# 且 fallback_router method_map 无该域映射，每 5 分钟恒失败（source_health
+# 0 成功、熔断 open、集合 0 条）。未来上游（finnhub 付费层或其他源）支持
+# 盘前盘后行情并接入 method_map 后恢复（Job 类 USPrePostMarketJob 仍保留）。
 
 news:
   cron: "0 */1 * * *"

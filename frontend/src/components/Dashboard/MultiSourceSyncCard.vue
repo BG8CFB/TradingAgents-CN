@@ -75,13 +75,13 @@
                   v-if="source.state === 'closed'"
                   class="status-success"
                 >
-                  <component :is="'SuccessFilled'" />
+                  <SuccessFilled />
                 </el-icon>
                 <el-icon
                   v-else-if="source.state === 'open'"
                   class="status-error"
                 >
-                  <component :is="'CircleCloseFilled'" />
+                  <CircleCloseFilled />
                 </el-icon>
               </div>
               <div class="source-priority">{{ source.stateLabel }}</div>
@@ -129,7 +129,9 @@ import { ElMessage } from 'element-plus'
 import {
   Connection,
   ArrowRight,
-  Refresh
+  Refresh,
+  SuccessFilled,
+  CircleCloseFilled
 } from '@element-plus/icons-vue'
 import {
   getSyncStatus as getMarketSyncStatus,

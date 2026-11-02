@@ -270,8 +270,33 @@ import {
   Download,
   Search
 } from '@element-plus/icons-vue'
-import * as echarts from 'echarts'
+// echarts 按需引入：本页用折线（成本趋势）+ 饼图（成本分布）+ 柱图（供应商请求）
+import {
+  init as echartsInit,
+  getInstanceByDom as echartsGetInstanceByDom,
+  use as echartsUse,
+  type EChartsType,
+} from 'echarts/core'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import {
+  GridComponent,
+  LegendComponent,
+  TitleComponent,
+  TooltipComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { getUsageStatistics, getUsageRecords } from '@/api/usage'
+
+echartsUse([
+  BarChart,
+  LineChart,
+  PieChart,
+  GridComponent,
+  LegendComponent,
+  TitleComponent,
+  TooltipComponent,
+  CanvasRenderer,
+])
 
 // 时间范围 → 天数映射
 const timeRangeDays: Record<string, number> = {
@@ -295,16 +320,16 @@ const totalRecords = ref(0)
 const tokenTrendChart = ref()
 const costDistributionChart = ref()
 const providerChart = ref()
-let chartInstances: echarts.ECharts[] = []
+let chartInstances: EChartsType[] = []
 
 /**
  * 在指定 DOM 上创建 ECharts 实例，自动 dispose 旧实例以避免内存泄漏。
  * 返回的实例会被统一追踪，在 onBeforeUnmount 中批量 dispose。
  */
-const createChart = (dom: HTMLElement): echarts.ECharts => {
-  const existing = echarts.getInstanceByDom(dom)
+const createChart = (dom: HTMLElement): EChartsType => {
+  const existing = echartsGetInstanceByDom(dom)
   if (existing) existing.dispose()
-  const chart = echarts.init(dom)
+  const chart = echartsInit(dom)
   chartInstances.push(chart)
   return chart
 }

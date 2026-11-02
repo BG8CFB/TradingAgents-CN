@@ -48,35 +48,28 @@ class QuotesIngestionService:
         self._rotation_sources = ["tushare", "akshare_eastmoney", "akshare_sina"]
         self._rotation_index = 0  # 当前轮换索引
 
-    def _find_latest_trade_date(self) -> Optional[str]:
+    async def _find_latest_trade_date(self) -> Optional[str]:
         """获取最新交易日期（YYYYMMDD 格式），基于新架构。
 
-        通过 :func:`run_async` 统一处理同步→异步桥接。
+        调用链（run_once 等）全部运行在主事件循环上，直接 await；
+        不得再用 run_async 桥接（其在主循环内会抛 RuntimeError 被吞）。
         """
         try:
-            from app.core.async_utils import run_async
             from app.data.storage.mongo.repositories.daily_quotes_repo import DailyQuotesRepo
             repo = DailyQuotesRepo()
-            return run_async(repo.get_latest_date("__all__", "CN"))
+            return await repo.get_latest_date("__all__", "CN")
         except Exception as e:
             logger.warning(f"获取最新交易日失败: {e}")
             return None
 
-    def _get_realtime_quotes(self) -> Tuple[Optional[Dict], Optional[str]]:
-        """获取全市场实时行情快照，基于新架构。
-
-        通过 :func:`run_async` 统一处理同步→异步桥接。
-        """
+    async def _get_realtime_quotes(self) -> Tuple[Optional[Dict], Optional[str]]:
+        """获取全市场实时行情快照，基于新架构（调用方在主事件循环，直接 await）。"""
         try:
-            from app.core.async_utils import run_async
             from app.data.core.interface import DataInterface
 
-            async def _fetch():
-                di = DataInterface.get_instance()
-                result = await di.read("CN", "market_quotes", symbol="__all__")
-                return result.get("data")
-
-            data = run_async(_fetch())
+            di = DataInterface.get_instance()
+            result = await di.read("CN", "market_quotes", symbol="__all__")
+            data = result.get("data")
             if data is not None:
                 return data, "data_interface"
             return None, None
@@ -518,7 +511,7 @@ class QuotesIngestionService:
 
             # 获取最新交易日
             try:
-                latest_trade_date = self._find_latest_trade_date()
+                latest_trade_date = await self._find_latest_trade_date()
                 if not latest_trade_date:
                     logger.warning("⚠️ 无法获取最新交易日，跳过历史数据导入")
                     return
@@ -585,12 +578,12 @@ class QuotesIngestionService:
         """一次性补齐上一笔收盘快照（用于冷启动或数据陈旧）。允许在休市期调用。"""
         try:
             # 使用近实时快照作为兜底，休市期返回的即为最后收盘数据
-            quotes_map, source = self._get_realtime_quotes()
+            quotes_map, source = await self._get_realtime_quotes()
             if not quotes_map:
                 logger.warning("backfill: 未获取到行情数据，跳过")
                 return
             try:
-                trade_date = self._find_latest_trade_date() or format_date_compact(now_config_tz())
+                trade_date = await self._find_latest_trade_date() or format_date_compact(now_config_tz())
             except Exception as e:
                 logger.debug(f"获取最新交易日失败，使用当前日期: {e}")
                 trade_date = format_date_compact(now_config_tz())
@@ -610,16 +603,17 @@ class QuotesIngestionService:
                 return
 
             # 如果集合不为空但数据陈旧，使用实时接口更新
-            latest_td = self._find_latest_trade_date()
+            latest_td = await self._find_latest_trade_date()
             if await self._collection_stale(latest_td):
                 logger.info("🔁 触发休市期/启动期 backfill 以填充最新收盘数据")
                 await self.backfill_last_close_snapshot()
         except Exception as e:
             logger.warning(f"backfill 触发检查失败（忽略）: {e}")
 
-    def _fetch_quotes_from_source(self, source_type: str, akshare_api: Optional[str] = None) -> Tuple[Optional[Dict], Optional[str]]:
+    async def _fetch_quotes_from_source(self, source_type: str, akshare_api: Optional[str] = None) -> Tuple[Optional[Dict], Optional[str]]:
         """
-        从指定数据源获取行情
+        从指定数据源获取行情（调用链 run_once 运行在主事件循环上，内部直接 await；
+        不得经 run_async 桥接——其在主循环内抛 RuntimeError 会被 except 吞成"无数据"）
 
         Args:
             source_type: "tushare" | "akshare"
@@ -629,9 +623,6 @@ class QuotesIngestionService:
             (quotes_map, source_name)
         """
         try:
-            from app.core.async_utils import run_async
-            from app.data.core.interface import DataInterface
-
             if source_type == "tushare":
                 # 检查是否可以调用 Tushare
                 if not self._can_call_tushare():
@@ -639,12 +630,7 @@ class QuotesIngestionService:
 
                 logger.info("📊 使用 Tushare 接口获取实时行情")
 
-                async def _fetch_tushare():
-                    di = DataInterface.get_instance()
-                    result = await di.read("CN", "market_quotes", symbol="__all__")
-                    return result.get("data")
-
-                data = run_async(_fetch_tushare())
+                data, _ = await self._get_realtime_quotes()
                 if data is not None:
                     self._record_tushare_call()
                     if isinstance(data, dict):
@@ -663,12 +649,7 @@ class QuotesIngestionService:
                 api_name = akshare_api or "eastmoney"
                 logger.info(f"📊 使用 AKShare {api_name} 接口获取实时行情")
 
-                async def _fetch_akshare():
-                    di = DataInterface.get_instance()
-                    result = await di.read("CN", "market_quotes", symbol="__all__")
-                    return result.get("data")
-
-                data = run_async(_fetch_akshare())
+                data, _ = await self._get_realtime_quotes()
                 if data is not None:
                     if isinstance(data, dict):
                         return data, f"akshare_{api_name}"
@@ -727,7 +708,7 @@ class QuotesIngestionService:
             source_type, akshare_api = self._get_next_source()
 
             # 尝试获取行情
-            quotes_map, source_name = self._fetch_quotes_from_source(source_type, akshare_api)
+            quotes_map, source_name = await self._fetch_quotes_from_source(source_type, akshare_api)
 
             if not quotes_map:
                 logger.warning(f"⚠️ {source_name or source_type} 未获取到行情数据，跳过本次入库")

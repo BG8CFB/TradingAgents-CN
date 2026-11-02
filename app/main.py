@@ -349,6 +349,17 @@ async def _init_scheduler(logger):
     set_scheduler_instance(apscheduler)
     logger.info("调度器服务已初始化（统一调度引擎）")
 
+    # 接入 scheduler_setup.register_jobs：basics 同步 / 实时行情入库 /
+    # A股完整性检查 / KB 增量索引 / 每日推荐等非域级任务统一注册
+    # （此前 register_jobs 无调用方，上述任务全部缺失调度）
+    from app.services.multi_source_basics_sync_service import (
+        get_multi_source_sync_service,
+    )
+    from app.worker.scheduler_setup import register_jobs
+
+    basics_sync = get_multi_source_sync_service()
+    await register_jobs(apscheduler, basics_sync, basics_sync.run_full_sync)
+
     # 决策结算记分：每日收盘数据入库后结算到期决策（P0）
     try:
         from apscheduler.triggers.cron import CronTrigger

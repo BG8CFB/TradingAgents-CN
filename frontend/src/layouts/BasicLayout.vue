@@ -55,16 +55,11 @@
       <!-- 页面内容 -->
       <main class="main-content">
         <div class="content-wrapper">
+          <!-- 不加内层 transition：App.vue 外层已有 out-in 过渡，双层动画会串联加倍耗时 -->
           <router-view v-slot="{ Component, route }">
-            <transition
-              :name="route.meta.transition || 'fade'"
-              mode="out-in"
-              appear
-            >
-              <keep-alive :include="keepAliveComponents">
-                <component :is="Component" :key="route.fullPath" />
-              </keep-alive>
-            </transition>
+            <keep-alive :include="keepAliveComponents">
+              <component :is="Component" :key="route.fullPath" />
+            </keep-alive>
           </router-view>
         </div>
       </main>
@@ -292,31 +287,5 @@ watch(() => route.fullPath, () => {
   .footer {
     height: 48px;
   }
-}
-
-// 路由过渡动画
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-.slide-left-enter-active,
-.slide-left-leave-active {
-  transition: all 0.3s ease;
-}
-
-.slide-left-enter-from {
-  transform: translateX(30px);
-  opacity: 0;
-}
-
-.slide-left-leave-to {
-  transform: translateX(-30px);
-  opacity: 0;
 }
 </style>

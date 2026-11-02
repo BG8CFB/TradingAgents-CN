@@ -955,30 +955,12 @@ async function fetchLatestAnalysis() {
     if (tasks && tasks.length > 0) {
       const latestTask = tasks[0]
       console.log('✅ [fetchLatestAnalysis] 找到任务:', latestTask)
-      console.log('🔍 [fetchLatestAnalysis] latestTask.result_data:', latestTask.result_data)
-      console.log('🔍 [fetchLatestAnalysis] latestTask.result:', latestTask.result)
-      console.log('🔍 [fetchLatestAnalysis] latestTask.task_id:', latestTask.task_id)
-      console.log('🔍 [fetchLatestAnalysis] latestTask.end_time:', latestTask.end_time)
 
       // 保存任务信息（包含 end_time 等）
       lastTaskInfo.value = latestTask
 
-      // 优先使用 result_data 字段（后端实际返回的字段名）
-      if (latestTask.result_data) {
-        lastAnalysis.value = latestTask.result_data
-        analysisStatus.value = 'completed'
-        console.log('✅ 加载历史分析报告成功 (result_data):', latestTask.result_data)
-        console.log('🔍 [fetchLatestAnalysis] lastAnalysis.value.reports:', lastAnalysis.value?.reports)
-      }
-      // 兼容旧的 result 字段
-      else if (latestTask.result) {
-        lastAnalysis.value = latestTask.result
-        analysisStatus.value = 'completed'
-        console.log('✅ 加载历史分析报告成功 (result):', latestTask.result)
-        console.log('🔍 [fetchLatestAnalysis] lastAnalysis.value.reports:', lastAnalysis.value?.reports)
-      }
-      // 否则尝试通过 task_id 获取结果
-      else if (latestTask.task_id) {
+      // 列表接口已瘦身（列表项不含 result/result_data），统一经 getTaskResult 拉全量报告
+      if (latestTask.task_id) {
         console.log('🔍 [fetchLatestAnalysis] 通过task_id获取结果:', latestTask.task_id)
         try {
           const resultResp: any = await analysisApi.getTaskResult(latestTask.task_id)
