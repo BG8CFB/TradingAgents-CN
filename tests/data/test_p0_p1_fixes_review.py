@@ -20,13 +20,9 @@
 
 import hashlib
 import inspect
-import time
-from datetime import datetime, timedelta, timezone
 
-import pandas as pd
 import pytest
 
-from app.data.schema.base.enums import RefreshStatus
 
 
 # ============================================================================
