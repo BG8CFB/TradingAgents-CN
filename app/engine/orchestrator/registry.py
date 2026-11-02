@@ -4,7 +4,7 @@
 - pipeline.py 四张表（_NODE_SLUG_MAP / _NODE_DISPLAY_FALLBACK / _NODE_EVENT_KEYS / _SLUG_ALIAS）
 - prompts/builder.py report_display_names() 与 stage_2/trader.py 的复制副本
 - services/report_titles.py _REPORT_KEY_SLUG_ALIAS（5 条，缺 risk_manager_decision）
-- services/analysis_service.py known_report_titles 固定清单
+- app/services/analysis/ 包 known_report_titles 固定清单（原单文件已拆分）
 - dynamic_analyst.py _get_non_analyst_mappings 进度文案
 - 前端 agentDisplayNames.ts REPORT_KEY_SLUG_ALIAS（经 /api/registry/display-names 下发替代）
 

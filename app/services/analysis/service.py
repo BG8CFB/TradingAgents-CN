@@ -24,12 +24,11 @@ from app.services.analysis.executor import ExecutorMixin
 from app.services.analysis.prefetch import PrefetchMixin
 from app.services.analysis.reports import ReportsMixin
 from app.services.analysis.tasks import TasksMixin
-from app.services.memory_state_manager import TaskStatus, get_memory_state_manager
+from app.services.memory_state_manager import get_memory_state_manager
 from app.services.progress.tracker import RedisProgressTracker
 from app.services.queue_service import QueueService
 from app.services.usage_statistics_service import UsageStatisticsService
 from app.services.websocket_manager import get_websocket_manager
-from app.utils.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -101,31 +100,6 @@ class AnalysisService(TasksMixin, ReportsMixin, PrefetchMixin, ExecutorMixin):
     # -------------------------------------------------------------------------
     # Private Methods
     # -------------------------------------------------------------------------
-    async def _update_progress_async(self, task_id: str, progress: int, message: str):
-        """异步更新进度（内存和MongoDB）"""
-        try:
-            await self.memory_manager.update_task_status(
-                task_id=task_id,
-                status=TaskStatus.RUNNING,
-                progress=progress,
-                message=message,
-                current_step=message,
-            )
-            db = get_mongo_db()
-            await db.analysis_tasks.update_one(
-                {"task_id": task_id},
-                {
-                    "$set": {
-                        "progress": progress,
-                        "current_step": message,
-                        "message": message,
-                        "updated_at": now_utc(),
-                    }
-                },
-            )
-        except Exception as e:
-            logger.warning(f"⚠️ [异步更新] 失败: {e}")
-
     async def _resolve_stock_name(self, code: Optional[str]) -> str:
         """解析股票名称（带缓存，异步直查 basic_info）"""
         if not code:

@@ -476,12 +476,8 @@ def _check_default_secrets(logger: logging.Logger):
         )
 
 
-async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
-    setup_logging()
-    logger = logging.getLogger("app.main")
-
-    # 设置默认异步线程池上限（影响 asyncio.to_thread / run_in_executor 默认池）
+def _setup_async_runtime(logger):
+    """设置默认异步线程池上限（影响 asyncio.to_thread / run_in_executor 默认池）。"""
     try:
         import asyncio as _asyncio
         from concurrent.futures import ThreadPoolExecutor
@@ -493,36 +489,32 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ 设置默认线程池上限失败: {e}")
 
-    # 验证启动配置
+
+def _validate_startup(logger):
+    """启动配置校验 + 默认密钥安全检查。"""
     from app.core.startup_validator import validate_startup_config
 
     validate_startup_config()
-
-    # 安全检查：默认密钥告警
     _check_default_secrets(logger)
 
-    await _init_database(logger)
-    await _wire_module_injections(logger)
 
-    # 注册主事件循环，供 worker thread 中的 async 操作使用
-    # 注意：必须用 get_running_loop() 而非 get_event_loop()
-    # - lifespan 在已运行的 loop 中执行，get_event_loop() 在 Python 3.12+ 抛 DeprecationWarning
-    # - get_event_loop() 在没有 running loop 时会创建新 loop，但 lifespan 不会用它
+def _register_main_loop(logger):
+    """注册主事件循环（async_utils 桥与 token 用量记录器的跨线程写入依赖）。
+
+    必须用 get_running_loop() 而非 get_event_loop()：lifespan 在已运行的
+    loop 中执行，get_event_loop() 在 Python 3.12+ 抛 DeprecationWarning。
+    """
     from app.core.async_utils import set_main_loop
 
     set_main_loop(asyncio.get_running_loop())
 
-    # 注入主循环给 token 用量记录器（跨线程 fire-and-forget 写 Mongo，模式同 analysis_events）
     from app.services.token_usage_recorder import token_usage_recorder
 
     token_usage_recorder.set_server_loop(asyncio.get_running_loop())
 
-    await _init_secrets(logger)
-    await _init_system_defaults(logger)
 
-    # ==================== 工作流/智能体种子同步（幂等） ====================
-    # agent_specs / workflow_specs 注入与升级；首次迁移会保留旧 YAML 中的用户修改。
-    # 失败不阻断启动——store 读取路径自带本地种子降级。
+def _sync_workflow_seeds(logger):
+    """工作流/智能体种子同步（幂等；失败不阻断——读取路径自带本地种子降级）。"""
     try:
         from app.engine.orchestrator.workflow import seeder as workflow_seeder
 
@@ -530,12 +522,140 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ 工作流种子同步失败（读取将降级本地种子）: {e}", exc_info=True)
 
+
+def _start_source_health_monitor(logger):
+    """启动数据源健康监控（每 30s 刷入 MongoDB），返回实例供 shutdown 停止。"""
+    from app.data.monitoring.source_health import SourceHealthMonitor
+
+    monitor = SourceHealthMonitor()
+    monitor.start()
+    logger.info("✅ 数据源健康监控已启动（每 30s 刷入 MongoDB）")
+    return monitor
+
+
+async def _ensure_skill_dependencies(logger):
+    """Skill 依赖启动时重装（幂等；容器重启后 site-packages 会丢失）。
+
+    自动安装可在 settings.SKILL_AUTO_INSTALL=false 时关闭。
+    """
+    try:
+        from app.engine.tools.skill.dependency_installer import (
+            ensure_all_skills_dependencies,
+        )
+
+        result = await ensure_all_skills_dependencies()
+        logger.info(
+            f"✅ Skill 依赖检查完成: total={result['total']}, "
+            f"installed={result['installed']}, "
+            f"failed={result['failed']}, skipped={result['skipped']}"
+        )
+    except Exception as e:
+        logger.warning(f"⚠️  Skill 依赖启动安装失败（不阻塞启动）: {e}")
+
+
+async def _shutdown_backend(logger, scheduler, health_monitor):
+    """关闭时清理（顺序：先停止产生新任务的服务 → 等待 task_registry 完成 → 关闭 DB）。"""
+    # 0a. 停止 Redis 自愈协程
+    try:
+        from app.middleware.rate_limit import stop_redis_recovery_loop
+
+        stop_redis_recovery_loop()
+    except Exception as e:
+        logger.warning(f"Redis 自愈协程停止失败: {e}")
+
+    # 0. 停止数据源健康监控
+    try:
+        health_monitor.stop()
+        logger.info("🛑 数据源健康监控已停止")
+    except Exception as e:
+        logger.warning(f"数据源健康监控停止失败: {e}")
+
+    # 1. MCP 健康检查任务由 task_registry.shutdown 统一 cancel（见下方 4.5）
+    # 这里仅关闭 MCP 连接
+    try:
+        from app.llm.mcp import service as mcp_service
+
+        await mcp_service.shutdown()
+        logger.info("🛑 MCP 连接已关闭")
+    except Exception as e:
+        logger.warning(f"MCP 连接关闭失败: {e}")
+
+    # 3. 停止调度监控（必须在调度器之前停止）
+    try:
+        from app.data.scheduler.monitors import SchedulerMonitor
+
+        monitor = SchedulerMonitor()
+        monitor.stop()
+        logger.info("🛑 调度任务监控已停止")
+    except Exception as e:
+        logger.warning(f"调度任务监控停止失败: {e}")
+
+    # 3.1 停止调度器
+    if scheduler:
+        try:
+            scheduler.shutdown(wait=True)
+            logger.info("🛑 Scheduler stopped")
+        except Exception as e:
+            logger.warning(f"Scheduler shutdown error: {e}")
+
+    # 4. 关闭分析服务线程池
+    try:
+        from app.services.analysis import get_analysis_service
+
+        svc = get_analysis_service()
+        svc._shutdown_pool(wait=True)
+        logger.info("🛑 Analysis service thread pool stopped")
+    except Exception as e:
+        logger.warning(f"Analysis service thread pool shutdown error: {e}")
+
+    # 4.5 等待 task_registry 中所有 critical 后台任务完成（如操作日志 flush）
+    # 必须在 close_db 之前，否则 critical 任务写入会失败
+    try:
+        from app.core.task_registry import task_registry
+
+        await task_registry.shutdown(timeout=5.0)
+        stats = task_registry.get_stats()
+        logger.info(
+            f"🛑 TaskRegistry shutdown 完成: created={stats['total_created']} "
+            f"completed={stats['total_completed']} failed={stats['total_failed']}"
+        )
+    except Exception as e:
+        logger.warning(f"TaskRegistry shutdown 失败: {e}")
+
+    # 5. 关闭数据库连接（先失效数据侧桥接缓存，防重连后指向已关闭实例）
+    try:
+        from app.data.core.interface import DataInterface
+
+        DataInterface.get_instance().reset_connections()
+    except Exception as e:
+        logger.debug(f"数据侧连接缓存重置失败（可能未初始化）: {e}")
+    await close_db()
+    logger.info("TradingAgents FastAPI backend stopped")
+
+
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    setup_logging()
+    logger = logging.getLogger("app.main")
+
+    _setup_async_runtime(logger)
+    _validate_startup(logger)
+
+    await _init_database(logger)
+    await _wire_module_injections(logger)
+    _register_main_loop(logger)
+
+    await _init_secrets(logger)
+    await _init_system_defaults(logger)
+
+    _sync_workflow_seeds(logger)
+
     await _migrate_protocol_to_providers(logger)
     await _init_config_bridge(logger)
     await _apply_dynamic_settings(logger)
 
     # 启动 Redis 自愈协程（限流中间件依赖）
-    from app.middleware.rate_limit import start_redis_recovery_loop, stop_redis_recovery_loop
+    from app.middleware.rate_limit import start_redis_recovery_loop
 
     start_redis_recovery_loop()
 
@@ -560,110 +680,14 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ MCP 初始化失败: {e}", exc_info=True)
         logger.warning("⚠️  应用将在 MCP 功能不可用的情况下继续运行")
 
-    # ==================== 数据源健康监控 ====================
-    from app.data.monitoring.source_health import SourceHealthMonitor
+    health_monitor = _start_source_health_monitor(logger)
 
-    health_monitor = SourceHealthMonitor()
-    health_monitor.start()
-    logger.info("✅ 数据源健康监控已启动（每 30s 刷入 MongoDB）")
-
-    # ==================== Skill 依赖启动时重装（幂等） ====================
-    # 容器重启后 site-packages 会丢失，此处从 skill_state 重装已记录的依赖。
-    # 自动安装可在 settings.SKILL_AUTO_INSTALL=false 时关闭。
-    try:
-        from app.engine.tools.skill.dependency_installer import (
-            ensure_all_skills_dependencies,
-        )
-
-        result = await ensure_all_skills_dependencies()
-        logger.info(
-            f"✅ Skill 依赖检查完成: total={result['total']}, "
-            f"installed={result['installed']}, "
-            f"failed={result['failed']}, skipped={result['skipped']}"
-        )
-    except Exception as e:
-        logger.warning(f"⚠️  Skill 依赖启动安装失败（不阻塞启动）: {e}")
+    await _ensure_skill_dependencies(logger)
 
     try:
         yield
     finally:
-        # 关闭时清理（顺序：先停止产生新任务的服务 → 等待 task_registry 完成 → 关闭 DB）
-        # 0a. 停止 Redis 自愈协程
-        try:
-            from app.middleware.rate_limit import stop_redis_recovery_loop
-
-            stop_redis_recovery_loop()
-        except Exception as e:
-            logger.warning(f"Redis 自愈协程停止失败: {e}")
-
-        # 0. 停止数据源健康监控
-        try:
-            health_monitor.stop()
-            logger.info("🛑 数据源健康监控已停止")
-        except Exception as e:
-            logger.warning(f"数据源健康监控停止失败: {e}")
-
-        # 1. MCP 健康检查任务由 task_registry.shutdown 统一 cancel（见下方 4.5）
-        # 这里仅关闭 MCP 连接
-        try:
-            from app.llm.mcp import service as mcp_service
-
-            await mcp_service.shutdown()
-            logger.info("🛑 MCP 连接已关闭")
-        except Exception as e:
-            logger.warning(f"MCP 连接关闭失败: {e}")
-
-        # 3. 停止调度监控（必须在调度器之前停止）
-        try:
-            from app.data.scheduler.monitors import SchedulerMonitor
-
-            monitor = SchedulerMonitor()
-            monitor.stop()
-            logger.info("🛑 调度任务监控已停止")
-        except Exception as e:
-            logger.warning(f"调度任务监控停止失败: {e}")
-
-        # 3.1 停止调度器
-        if scheduler:
-            try:
-                scheduler.shutdown(wait=True)
-                logger.info("🛑 Scheduler stopped")
-            except Exception as e:
-                logger.warning(f"Scheduler shutdown error: {e}")
-
-        # 4. 关闭分析服务线程池
-        try:
-            from app.services.analysis import get_analysis_service
-
-            svc = get_analysis_service()
-            svc._shutdown_pool(wait=True)
-            logger.info("🛑 Analysis service thread pool stopped")
-        except Exception as e:
-            logger.warning(f"Analysis service thread pool shutdown error: {e}")
-
-        # 4.5 等待 task_registry 中所有 critical 后台任务完成（如操作日志 flush）
-        # 必须在 close_db 之前，否则 critical 任务写入会失败
-        try:
-            from app.core.task_registry import task_registry
-
-            await task_registry.shutdown(timeout=5.0)
-            stats = task_registry.get_stats()
-            logger.info(
-                f"🛑 TaskRegistry shutdown 完成: created={stats['total_created']} "
-                f"completed={stats['total_completed']} failed={stats['total_failed']}"
-            )
-        except Exception as e:
-            logger.warning(f"TaskRegistry shutdown 失败: {e}")
-
-        # 5. 关闭数据库连接（先失效数据侧桥接缓存，防重连后指向已关闭实例）
-        try:
-            from app.data.core.interface import DataInterface
-
-            DataInterface.get_instance().reset_connections()
-        except Exception as e:
-            logger.debug(f"数据侧连接缓存重置失败（可能未初始化）: {e}")
-        await close_db()
-        logger.info("TradingAgents FastAPI backend stopped")
+        await _shutdown_backend(logger, scheduler, health_monitor)
 
 
 # 创建FastAPI应用
