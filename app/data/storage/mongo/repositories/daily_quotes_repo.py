@@ -2,55 +2,22 @@
 
 from typing import Dict, List, Optional
 
-from pymongo import UpdateOne
-
-from app.data.storage.mongo.client import get_motor_db
-from app.data.storage.mongo.collections import get_collection_name
-from app.data.storage.mongo.bulk_utils import batched_bulk_write
-from app.data.storage.mongo.repositories.key_spec import build_filter
+from app.data.storage.mongo.repositories.base import MongoBaseRepo
 
 
-class DailyQuotesRepo:
+class DailyQuotesRepo(MongoBaseRepo):
     """stock_daily_quotes 集合仓储。"""
 
-    async def upsert_many(self, records: List[Dict], market: str) -> int:
-        if not records:
-            return 0
-        db = get_motor_db()
-        coll = db[get_collection_name("daily_quotes", market)]
-        ops = []
-        for rec in records:
-            try:
-                filter_doc = build_filter("daily_quotes", rec)
-            except KeyError:
-                continue  # 缺少唯一键字段的记录跳过
-            ops.append(UpdateOne(
-                filter_doc,
-                {"$set": rec},
-                upsert=True,
-            ))
-        if not ops:
-            return 0
-        return await batched_bulk_write(coll, ops)
+    domain = "daily_quotes"
+    # 升序（时间自然序）：K线取尾部最新、周期聚合等消费方依赖此序，
+    # 展示层的"最新优先"由查看器路由统一处理。
+    range_sort_direction = 1
 
     async def get_by_symbol_and_range(
         self, symbol: str, market: str, start_date: str, end_date: str,
         period: Optional[str] = None,
     ) -> List[Dict]:
-        db = get_motor_db()
-        coll = db[get_collection_name("daily_quotes", market)]
-        query = {"symbol": symbol, "trade_date": {"$gte": start_date, "$lte": end_date}}
-        if period:
-            query["period"] = period
-        # 升序（时间自然序）：K线取尾部最新、周期聚合等消费方依赖此序，
-        # 展示层的"最新优先"由查看器路由统一处理。
-        cursor = coll.find(query, {"_id": 0}).sort("trade_date", 1)
-        return await cursor.to_list(length=None)
-
-    async def get_latest_date(self, symbol: str, market: str) -> Optional[str]:
-        db = get_motor_db()
-        coll = db[get_collection_name("daily_quotes", market)]
-        doc = await coll.find_one(
-            {"symbol": symbol}, {"trade_date": 1}, sort=[("trade_date", -1)]
+        extra_query = {"period": period} if period else None
+        return await super().get_by_symbol_and_range(
+            symbol, market, start_date, end_date, extra_query=extra_query,
         )
-        return doc["trade_date"] if doc else None

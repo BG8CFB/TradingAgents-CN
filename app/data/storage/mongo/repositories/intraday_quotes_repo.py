@@ -2,43 +2,20 @@
 
 from typing import Dict, List
 
-from pymongo import UpdateOne
-
-from app.data.storage.mongo.client import get_motor_db
-from app.data.storage.mongo.collections import get_collection_name
-from app.data.storage.mongo.bulk_utils import batched_bulk_write
-from app.data.storage.mongo.repositories.key_spec import build_filter
+from app.data.storage.mongo.repositories.base import MongoBaseRepo
 
 
-class IntradayQuotesRepo:
+class IntradayQuotesRepo(MongoBaseRepo):
     """stock_intraday_quotes 集合仓储。"""
 
-    async def upsert_many(self, records: List[Dict], market: str) -> int:
-        if not records:
-            return 0
-        db = get_motor_db()
-        coll = db[get_collection_name("intraday_quotes", market)]
-        ops = []
-        for rec in records:
-            try:
-                filter_doc = build_filter("intraday_quotes", rec)
-            except KeyError:
-                continue  # 缺少唯一键字段的记录跳过
-            ops.append(UpdateOne(
-                filter_doc,
-                {"$set": rec},
-                upsert=True,
-            ))
-        if not ops:
-            return 0
-        return await batched_bulk_write(coll, ops)
+    domain = "intraday_quotes"
 
     async def get_by_symbol_and_range(
         self, symbol: str, market: str, start_datetime: str, end_datetime: str,
         freq: str = None,
     ) -> List[Dict]:
-        db = get_motor_db()
-        coll = db[get_collection_name("intraday_quotes", market)]
+        # 专有变体：区间字段是 datetime（非 trade_date），与基类模板不同构
+        coll = self._coll(market)
         query: Dict = {"symbol": symbol, "datetime": {"$gte": start_datetime, "$lte": end_datetime}}
         if freq:
             query["freq"] = freq

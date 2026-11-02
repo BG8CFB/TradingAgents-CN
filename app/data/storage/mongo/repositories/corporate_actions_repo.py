@@ -2,41 +2,18 @@
 
 from typing import Dict, List
 
-from pymongo import UpdateOne
-
-from app.data.storage.mongo.client import get_motor_db
-from app.data.storage.mongo.collections import get_collection_name
-from app.data.storage.mongo.bulk_utils import batched_bulk_write
-from app.data.storage.mongo.repositories.key_spec import build_filter
+from app.data.storage.mongo.repositories.base import MongoBaseRepo
 
 
-class CorporateActionsRepo:
+class CorporateActionsRepo(MongoBaseRepo):
 
-    async def upsert_many(self, records: List[Dict], market: str) -> int:
-        if not records:
-            return 0
-        db = get_motor_db()
-        coll = db[get_collection_name("corporate_actions", market)]
-        ops = []
-        for rec in records:
-            try:
-                filter_doc = build_filter("corporate_actions", rec)
-            except KeyError:
-                continue  # 缺少唯一键字段的记录跳过
-            ops.append(UpdateOne(
-                filter_doc,
-                {"$set": rec},
-                upsert=True,
-            ))
-        if not ops:
-            return 0
-        return await batched_bulk_write(coll, ops)
+    domain = "corporate_actions"
 
     async def get_by_symbol_and_range(
         self, symbol: str, market: str, start_date: str, end_date: str
     ) -> List[Dict]:
-        db = get_motor_db()
-        coll = db[get_collection_name("corporate_actions", market)]
+        # 专有变体：区间字段是 ex_date（非 trade_date），与基类模板不同构
+        coll = self._coll(market)
         cursor = coll.find(
             {"symbol": symbol, "ex_date": {"$gte": start_date, "$lte": end_date}},
             {"_id": 0},
