@@ -17,10 +17,13 @@ from pathlib import Path
 APP_DIR = Path(__file__).parent.parent.parent / "app"
 
 # 2026-11-02 基线：app/ 下 logger.error( 不带 exc_info 的调用总数（AST 口径）。
-# 阶段 3.6 批量补齐 except 块内 369 处后，剩余 84 处均不在 except 块内
-# （无活跃异常上下文，exc_info 会打 "NoneType: None" 噪音，暂保留）。
+# 阶段 3.6 批量补齐 except 块内 369 处后，剩余 84 处均不在 except 块内；
+# 同日语义治理收尾：80 处降级 warning（校验拒绝/未找到/操作结果通报），
+# 1 处补 exc_info（git_installer 回调 t.exception()），棘轮 84 → 3。
+# 剩余 3 处为真故障但拿不到异常对象（异常在监听器层已消费/正常返回 None），
+# 保持 error 不降级，exc_info=True 会打 "NoneType: None" 噪音，暂保留。
 # 每批修复后把该数字下调到当前实测值，只减不增。
-EXC_INFO_BASELINE = 84
+EXC_INFO_BASELINE = 3
 
 
 def _iter_app_py_files():

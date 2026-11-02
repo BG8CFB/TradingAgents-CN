@@ -174,7 +174,7 @@ class SchedulerService:
         try:
             job = self.scheduler.get_job(job_id)
             if not job:
-                logger.error(f"❌ 任务 {job_id} 不存在")
+                logger.warning(f"❌ 任务 {job_id} 不存在")
                 return False
 
             # 检查任务是否被暂停（next_run_time 为 None 表示暂停）
@@ -472,7 +472,7 @@ class SchedulerService:
             # 查找执行记录
             execution = await db.scheduler_executions.find_one({"_id": ObjectId(execution_id)})
             if not execution:
-                logger.error(f"❌ 执行记录不存在: {execution_id}")
+                logger.warning(f"❌ 执行记录不存在: {execution_id}")
                 return False
 
             if execution.get("status") != "running":
@@ -517,7 +517,7 @@ class SchedulerService:
             # 查找执行记录
             execution = await db.scheduler_executions.find_one({"_id": ObjectId(execution_id)})
             if not execution:
-                logger.error(f"❌ 执行记录不存在: {execution_id}")
+                logger.warning(f"❌ 执行记录不存在: {execution_id}")
                 return False
 
             # 更新为failed状态
@@ -556,12 +556,12 @@ class SchedulerService:
             # 查找执行记录
             execution = await db.scheduler_executions.find_one({"_id": ObjectId(execution_id)})
             if not execution:
-                logger.error(f"❌ 执行记录不存在: {execution_id}")
+                logger.warning(f"❌ 执行记录不存在: {execution_id}")
                 return False
 
             # 不允许删除正在执行的任务
             if execution.get("status") == "running":
-                logger.error(f"❌ 不能删除正在执行的任务: {execution_id}")
+                logger.warning(f"❌ 不能删除正在执行的任务: {execution_id}")
                 return False
 
             # 删除记录
@@ -571,7 +571,7 @@ class SchedulerService:
                 logger.info(f"✅ 已删除执行记录: {execution.get('job_name', execution.get('job_id'))} (execution_id={execution_id})")
                 return True
             else:
-                logger.error(f"❌ 删除执行记录失败: {execution_id}")
+                logger.warning(f"❌ 删除执行记录失败: {execution_id}")
                 return False
 
         except Exception as e:
@@ -1000,7 +1000,7 @@ class SchedulerService:
             # 检查任务是否存在
             job = self.scheduler.get_job(job_id)
             if not job:
-                logger.error(f"❌ 任务 {job_id} 不存在")
+                logger.warning(f"❌ 任务 {job_id} 不存在")
                 return False
 
             db = self._get_db()

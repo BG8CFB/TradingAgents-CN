@@ -798,7 +798,7 @@ class StockDataPreparer:
 
             # 同步失败
             message = f"数据同步失败: {last_error}"
-            logger.error(f"❌ [数据同步] {message}")
+            logger.warning(f"❌ [数据同步] {message}")
             return {
                 "success": False,
                 "message": message,

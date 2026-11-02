@@ -295,7 +295,7 @@ class DataSourceService:
                             logger.info(f"✅ [TEST] Truncated values match, using complete API Key from database (length: {len(api_key)})")
                         else:
                             # 不同，说明用户修改了但修改得不完整
-                            logger.error("❌ [TEST] Truncated API Key doesn't match database value, user may have modified it incorrectly")
+                            logger.warning("❌ [TEST] Truncated API Key doesn't match database value, user may have modified it incorrectly")
                             return {
                                 "success": False,
                                 "message": "API Key 格式错误：检测到截断标记但与数据库中的值不匹配，请输入完整的 API Key",
@@ -308,7 +308,7 @@ class DataSourceService:
                             }
                     else:
                         # 数据库中没有有效的 API Key
-                        logger.error("❌ [TEST] No valid API Key in database")
+                        logger.warning("❌ [TEST] No valid API Key in database")
                         return {
                             "success": False,
                             "message": "API Key 无效：数据库和 .env 中均未配置有效的 Token，请在 Web UI 配置管理中添加或在 .env 中设置",
@@ -340,7 +340,7 @@ class DataSourceService:
                         logger.info(f"🔑 [TEST] Using API Key from database (length: {len(api_key)})")
                     else:
                         # 数据库中没有有效的 API Key
-                        logger.error("❌ [TEST] No valid API Key in database")
+                        logger.warning("❌ [TEST] No valid API Key in database")
                         return {
                             "success": False,
                             "message": "API Key 无效：数据库和 .env 中均未配置有效的 Token，请在 Web UI 配置管理中添加或在 .env 中设置",
@@ -388,7 +388,7 @@ class DataSourceService:
                             }
                         }
                     else:
-                        logger.error("❌ [TEST] Tushare API returned empty data")
+                        logger.warning("❌ [TEST] Tushare API returned empty data")
                         return {
                             "success": False,
                             "message": "Tushare API 返回数据为空",
@@ -602,7 +602,7 @@ class DataSourceService:
                             logger.info(f"✅ [TEST] Truncated values match, using complete API Key from database (length: {len(api_key)})")
                         else:
                             # 不同，说明用户修改了但修改得不完整
-                            logger.error("❌ [TEST] Truncated API Key doesn't match database value")
+                            logger.warning("❌ [TEST] Truncated API Key doesn't match database value")
                             return {
                                 "success": False,
                                 "message": "API Key 格式错误：检测到截断标记但与数据库中的值不匹配，请输入完整的 API Key",
@@ -615,7 +615,7 @@ class DataSourceService:
                             }
                     else:
                         # 数据库中没有有效的 API Key
-                        logger.error("❌ [TEST] No valid API Key in database")
+                        logger.warning("❌ [TEST] No valid API Key in database")
                         return {
                             "success": False,
                             "message": "API Key 无效：数据库和 .env 中均未配置有效的 API Key，请在 Web UI 配置管理中添加或在 .env 中设置",
@@ -646,7 +646,7 @@ class DataSourceService:
                         used_db_credentials = True
                         logger.info(f"🔑 [TEST] Using API Key from database (length: {len(api_key)})")
                     else:
-                        logger.error("❌ [TEST] No valid API Key in database")
+                        logger.warning("❌ [TEST] No valid API Key in database")
                         return {
                             "success": False,
                                 "message": "API Key 无效：数据库和 .env 中均未配置有效的 API Key，请在 Web UI 配置管理中添加或在 .env 中设置",

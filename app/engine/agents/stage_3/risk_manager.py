@@ -58,7 +58,7 @@ def create_risk_manager(llm, memory):
 
             if not base_prompt:
                 error_msg = "❌ 未找到 risk-manager 智能体配置，请检查 agent_specs 智能体库（DB）。"
-                logger.error(error_msg)
+                logger.warning(error_msg)
                 raise ValueError(error_msg)
 
             context_prefix = build_context_prefix(ticker, company_name, currency)

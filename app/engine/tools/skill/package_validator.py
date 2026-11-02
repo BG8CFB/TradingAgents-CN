@@ -62,7 +62,7 @@ def validate_skill_package(dir_path: Path) -> Tuple[Optional[str], Optional[str]
     # R13-ET-02：skill_name 来源于包内容（SKILL.md 仅 .strip() 处理），
     # 若含 ../ 等路径片段可写入项目任意目录，必须拒绝
     if not SKILL_NAME_PATTERN.match(skill_name):
-        logger.error(f"[SkillPackageValidator] skill_name 含非法字符，拒绝: {skill_name!r}")
+        logger.warning(f"[SkillPackageValidator] skill_name 含非法字符，拒绝: {skill_name!r}")
         return skill_name, (
             f"skill_name 含非法字符（仅允许字母、数字、下划线、连字符）: {skill_name}"
         )

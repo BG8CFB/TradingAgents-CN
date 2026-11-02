@@ -336,7 +336,7 @@ class QueueService:
                     "dead_letter_at": str(int(time.time())),
                     "retry_count": current_retries,
                 })
-                logger.error(
+                logger.warning(
                     f"任务 {task_id} 已达重试上限 {max_retries}，移入死信队列"
                 )
                 return

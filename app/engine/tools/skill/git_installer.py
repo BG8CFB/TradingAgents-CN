@@ -418,7 +418,10 @@ def uninstall_skill(skill_name: str, force: bool = False) -> dict:
             task = asyncio.ensure_future(store.delete_state(skill_name))
             task.add_done_callback(
                 lambda t: (
-                    logger.error(f"删除 skill_state 异步失败: {t.exception()}")
+                    logger.error(
+                        f"删除 skill_state 异步失败: {t.exception()}",
+                        exc_info=t.exception(),
+                    )
                     if not t.cancelled() and t.exception()
                     else None
                 )

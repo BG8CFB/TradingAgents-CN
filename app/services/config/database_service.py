@@ -87,7 +87,7 @@ class DatabaseService:
 
             config = await self._get_system_config()
             if not config:
-                logger.error("❌ 系统配置为空")
+                logger.warning("❌ 系统配置为空")
                 return False
 
             # 查找并更新配置
@@ -99,7 +99,7 @@ class DatabaseService:
                     break
 
             if not found:
-                logger.error(f"❌ 数据库配置 '{db_config.name}' 不存在")
+                logger.warning(f"❌ 数据库配置 '{db_config.name}' 不存在")
                 return False
 
             # 保存配置
@@ -107,7 +107,7 @@ class DatabaseService:
             if result:
                 logger.info(f"✅ 数据库配置 '{db_config.name}' 更新成功")
             else:
-                logger.error(f"❌ 数据库配置 '{db_config.name}' 更新失败")
+                logger.warning(f"❌ 数据库配置 '{db_config.name}' 更新失败")
 
             return result
 

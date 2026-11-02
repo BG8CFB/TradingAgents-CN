@@ -571,7 +571,7 @@ async def add_llm_config(
                 logger.debug(f"记录操作日志失败: {_log_err}")
             return {"message": "大模型配置更新成功", "model_name": llm_config.model_name}
         else:
-            logger.error("大模型配置保存失败")
+            logger.warning("大模型配置保存失败")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="大模型配置更新失败"

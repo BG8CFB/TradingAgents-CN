@@ -48,7 +48,7 @@ def load_manifest(skill_dir: str) -> Optional[SkillManifest]:
         return None
 
     if not isinstance(data, dict):
-        logger.error(f"manifest 顶层必须是字典 {manifest_path}")
+        logger.warning(f"manifest 顶层必须是字典 {manifest_path}")
         return None
 
     # 兼容 manifest 中 dependencies.python 写法 → 映射到 python_dependencies

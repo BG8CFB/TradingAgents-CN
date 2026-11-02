@@ -648,7 +648,7 @@ pre, code {
             if PDFKIT_ERROR:
                 error_msg += f"\n错误详情: {PDFKIT_ERROR}"
 
-            logger.error(f"❌ {error_msg}")
+            logger.warning(f"❌ {error_msg}")
             raise Exception(error_msg)
 
         # 生成 Markdown 内容

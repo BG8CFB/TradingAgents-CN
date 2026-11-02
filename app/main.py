@@ -461,7 +461,7 @@ def _check_default_secrets(logger: logging.Logger):
         if not is_using_default_secret(env_key):
             continue
         if is_production:
-            logger.error(
+            logger.warning(
                 f"{'!' * 70}\n"
                 f"  FATAL: {env_key} 使用了默认/示例值，生产环境禁止启动！\n"
                 f"  请在 .env 中设置强随机密钥后重试。\n"

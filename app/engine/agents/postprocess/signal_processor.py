@@ -88,7 +88,7 @@ class SignalProcessor:
 
         # 验证输入参数
         if not full_signal or not isinstance(full_signal, str) or len(full_signal.strip()) == 0:
-            logger.error(f"❌ [SignalProcessor] 输入信号为空或无效: {repr(full_signal)}")
+            logger.warning(f"❌ [SignalProcessor] 输入信号为空或无效: {repr(full_signal)}")
             return {
                 'action': '持有',
                 'target_price': None,
@@ -146,7 +146,7 @@ class SignalProcessor:
         # 全量注入，不截断：截断会丢失决策依据的尾部内容
         human_content = full_signal
         if not human_content or len(human_content.strip()) == 0:
-            logger.error("❌ [SignalProcessor] human消息内容为空")
+            logger.warning("❌ [SignalProcessor] human消息内容为空")
             return self._get_default_decision()
 
         logger.debug(f"🔍 [SignalProcessor] 准备调用LLM，信号长度: {len(full_signal)}")

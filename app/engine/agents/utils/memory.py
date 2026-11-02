@@ -235,7 +235,7 @@ class FinancialSituationMemory:
                             logger.info("💡 无可用降级选项，记忆功能降级")
                             return [0.0] * 1024
                     else:
-                        logger.error(f"❌ DashScope API错误: {error_msg}")
+                        logger.warning(f"❌ DashScope API错误: {error_msg}")
                         return [0.0] * 1024  # 返回空向量而不是抛出异常
 
             except Exception as e:

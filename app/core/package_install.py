@@ -30,11 +30,11 @@ def validate_package_spec(package: str, version: str = "") -> None:
     校验包名与版本约束字符，非法即抛 ValueError（防 requirements 注入）。
     """
     if not PACKAGE_RE.match(package):
-        logger.error(f"[PackageInstall] 包名含非法字符，拒绝安装: {package!r}")
+        logger.warning(f"[PackageInstall] 包名含非法字符，拒绝安装: {package!r}")
         raise ValueError(f"包名含非法字符（仅允许字母、数字、下划线、连字符、点）: {package}")
 
     if version and not VERSION_RE.match(version):
-        logger.error(f"[PackageInstall] 版本约束含非法字符，拒绝安装: {package}{version!r}")
+        logger.warning(f"[PackageInstall] 版本约束含非法字符，拒绝安装: {package}{version!r}")
         raise ValueError(f"版本约束含非法字符（禁止换行、空格、-- 选项）: {package}{version}")
 
 

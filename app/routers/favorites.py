@@ -120,7 +120,7 @@ async def add_favorite(
         if success:
             return ok({"stock_code": request.stock_code}, "添加成功")
         else:
-            logger.error("❌ 添加失败: success=False")
+            logger.warning("❌ 添加失败: success=False")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="添加失败"

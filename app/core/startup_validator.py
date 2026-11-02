@@ -138,10 +138,10 @@ class StartupValidator:
 
             if not env_value:
                 self.result.missing_required.append(config)
-                logger.error(f"❌ 缺少必需配置: {config.key}（未在环境变量/.env 中设置）")
+                logger.warning(f"❌ 缺少必需配置: {config.key}（未在环境变量/.env 中设置）")
             elif config.validator and not config.validator(str(env_value)):
                 self.result.invalid_configs.append((config, "配置值格式不正确"))
-                logger.error(f"❌ 配置格式错误: {config.key}")
+                logger.warning(f"❌ 配置格式错误: {config.key}")
             else:
                 logger.debug(f"✅ {config.key}: 已配置")
     
@@ -195,7 +195,7 @@ class StartupValidator:
                             "使用了不安全的默认占位符（docker-*/change-me 等），请改为强随机值",
                         )
                     )
-                    logger.error(
+                    logger.warning(
                         f"❌ {secret_key} 在生产模式下使用了不安全默认值，启动被拒绝"
                     )
                 else:

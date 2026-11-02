@@ -210,7 +210,7 @@ class LLMService:
 
             config = await self._get_system_config()
             if not config:
-                logger.error("❌ 系统配置为空")
+                logger.warning("❌ 系统配置为空")
                 return False
 
             original_count = len(config.llm_configs)
@@ -234,7 +234,7 @@ class LLMService:
 
             save_result = await self._save_system_config(config)
             if not save_result:
-                logger.error(
+                logger.warning(
                     f"💾 保存失败: provider={provider}, model_name={model_name}"
                 )
             return save_result
@@ -1292,14 +1292,14 @@ class LLMService:
                                     "message": f"{display_name} API连接测试成功",
                                 }
                             else:
-                                logger.error("❌ [Google AI 测试] 文本为空")
+                                logger.warning("❌ [Google AI 测试] 文本为空")
                                 return {
                                     "success": False,
                                     "message": f"{display_name} API响应内容为空",
                                 }
                         else:
                             # content 中没有 parts，可能是因为 MAX_TOKENS 或其他原因
-                            logger.error("❌ [Google AI 测试] content 中没有 parts")
+                            logger.warning("❌ [Google AI 测试] content 中没有 parts")
                             logger.info(f"   content 的键: {list(content.keys())}")
 
                             if finish_reason == "MAX_TOKENS":
@@ -1313,14 +1313,14 @@ class LLMService:
                                     "message": f"{display_name} API响应格式异常（缺少 parts，finishReason: {finish_reason}）",
                                 }
                     else:
-                        logger.error("❌ [Google AI 测试] candidate 中缺少 'content'")
+                        logger.warning("❌ [Google AI 测试] candidate 中缺少 'content'")
                         logger.info(f"   candidate 的键: {list(candidate.keys())}")
                         return {
                             "success": False,
                             "message": f"{display_name} API响应格式异常（缺少 content）",
                         }
                 else:
-                    logger.error(
+                    logger.warning(
                         "❌ [Google AI 测试] 缺少 candidates 或 candidates 为空"
                     )
                     return {
@@ -1328,7 +1328,7 @@ class LLMService:
                         "message": f"{display_name} API无有效候选响应",
                     }
             elif response.status_code == 400:
-                logger.error(
+                logger.warning(
                     f"❌ [Google AI 测试] 400 错误，响应内容: {response.text[:500]}"
                 )
                 try:
@@ -1345,7 +1345,7 @@ class LLMService:
                         "message": f"{display_name} API请求格式错误",
                     }
             elif response.status_code == 403:
-                logger.error(
+                logger.warning(
                     f"❌ [Google AI 测试] 403 错误，响应内容: {response.text[:500]}"
                 )
                 return {
@@ -1353,7 +1353,7 @@ class LLMService:
                     "message": f"{display_name} API密钥无效或权限不足",
                 }
             elif response.status_code == 503:
-                logger.error(
+                logger.warning(
                     f"❌ [Google AI 测试] 503 错误，响应内容: {response.text[:500]}"
                 )
                 try:
@@ -1378,7 +1378,7 @@ class LLMService:
                         "message": f"{display_name} 服务暂时不可用 (HTTP 503)",
                     }
             else:
-                logger.error(
+                logger.warning(
                     f"❌ [Google AI 测试] {response.status_code} 错误，响应内容: {response.text[:500]}"
                 )
                 return {
@@ -1882,10 +1882,10 @@ class LLMService:
                     error_msg = error_detail.get("error", {}).get(
                         "message", f"HTTP {response.status_code}"
                     )
-                    logger.error(f"❌ [{display_name}] API测试失败")
-                    logger.error(f"   请求URL: {url}")
-                    logger.error(f"   状态码: {response.status_code}")
-                    logger.error(f"   错误详情: {error_detail}")
+                    logger.warning(f"❌ [{display_name}] API测试失败")
+                    logger.warning(f"   请求URL: {url}")
+                    logger.warning(f"   状态码: {response.status_code}")
+                    logger.warning(f"   错误详情: {error_detail}")
                     return {
                         "success": False,
                         "message": f"{display_name} API测试失败: {error_msg}",
@@ -2074,7 +2074,7 @@ class LLMService:
                         "message": f"成功获取 {len(formatted_models)} 个常用模型（已过滤）",
                     }
                 else:
-                    logger.error("❌ 响应格式异常，期望 'data' 字段为列表")
+                    logger.warning("❌ 响应格式异常，期望 'data' 字段为列表")
                     return {
                         "success": False,
                         "message": f"{display_name} API 响应格式异常（缺少 data 字段或格式不正确）",
@@ -2092,7 +2092,7 @@ class LLMService:
                     error_msg = error_detail.get("error", {}).get(
                         "message", f"HTTP {response.status_code}"
                     )
-                    logger.error(f"❌ API 错误: {error_msg}")
+                    logger.warning(f"❌ API 错误: {error_msg}")
                     return {
                         "success": False,
                         "message": f"{display_name} API请求失败: {error_msg}",

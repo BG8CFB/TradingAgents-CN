@@ -73,11 +73,11 @@ class LogExportService:
             logger.debug(f"🔍 [list_log_files] 是否为目录: {self.log_dir.is_dir()}")
 
             if not self.log_dir.exists():
-                logger.error(f"❌ [list_log_files] 日志目录不存在: {self.log_dir}")
+                logger.warning(f"❌ [list_log_files] 日志目录不存在: {self.log_dir}")
                 return []
 
             if not self.log_dir.is_dir():
-                logger.error(f"❌ [list_log_files] 路径不是目录: {self.log_dir}")
+                logger.warning(f"❌ [list_log_files] 路径不是目录: {self.log_dir}")
                 return []
 
             # 列出目录中的所有文件（调试用）

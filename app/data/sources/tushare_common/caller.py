@@ -96,7 +96,7 @@ async def call_tushare(
 
     method = getattr(api, method_name, None)
     if method is None:
-        logger.error(f"{source} 不支持的接口: {method_name}")
+        logger.warning(f"{source} 不支持的接口: {method_name}")
         return None
 
     try:

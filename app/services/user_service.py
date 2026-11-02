@@ -64,7 +64,7 @@ class UserService:
         """创建用户"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return None
 
             users_collection = self.db.users
@@ -129,7 +129,7 @@ class UserService:
         """用户认证"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return None
 
             users_collection = self.db.users
@@ -175,7 +175,7 @@ class UserService:
         """根据用户名获取用户"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return None
 
             user_doc = await self.db.users.find_one({"username": username})
@@ -193,7 +193,7 @@ class UserService:
         """根据用户ID获取用户"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return None
 
             if not ObjectId.is_valid(user_id):
@@ -214,7 +214,7 @@ class UserService:
         """更新用户信息"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return None
 
             users_collection = self.db.users
@@ -267,7 +267,7 @@ class UserService:
                 return False
 
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return False
 
             new_hashed_password = self.hash_password(new_password)
@@ -285,7 +285,7 @@ class UserService:
                 logger.info(f"✅ 密码修改成功: {username}")
                 return True
             else:
-                logger.error(f"❌ 密码修改失败: {username}")
+                logger.warning(f"❌ 密码修改失败: {username}")
                 return False
 
         except Exception as e:
@@ -299,7 +299,7 @@ class UserService:
         """重置密码（管理员操作）"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return False
 
             new_hashed_password = self.hash_password(new_password)
@@ -317,7 +317,7 @@ class UserService:
                 logger.info(f"✅ 密码重置成功: {username}")
                 return True
             else:
-                logger.error(f"❌ 密码重置失败: {username}")
+                logger.warning(f"❌ 密码重置失败: {username}")
                 return False
 
         except Exception as e:
@@ -336,11 +336,11 @@ class UserService:
         """创建管理员用户"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return None
 
             if not password:
-                logger.error("创建管理员用户失败: 未提供管理员密码")
+                logger.warning("创建管理员用户失败: 未提供管理员密码")
                 return None
 
             users_collection = self.db.users
@@ -394,7 +394,7 @@ class UserService:
         """获取用户列表"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return []
 
             cursor = self.db.users.find().skip(skip).limit(limit)
@@ -431,7 +431,7 @@ class UserService:
         """禁用用户"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return False
 
             result = await self.db.users.update_one(
@@ -462,7 +462,7 @@ class UserService:
         """激活用户"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return False
 
             result = await self.db.users.update_one(
@@ -493,7 +493,7 @@ class UserService:
         """设置用户管理员状态。"""
         try:
             if self.db is None:
-                logger.error("数据库未初始化")
+                logger.warning("数据库未初始化")
                 return False
 
             result = await self.db.users.update_one(

@@ -98,7 +98,7 @@ def create_generic_debater(llm, node: DebateNodeBinding, group: DebateGroup, hor
             base_prompt = load_agent_config(node.slug)
             if not base_prompt:
                 error_msg = f"❌ 未找到 {node.slug} 智能体配置，请检查 agent_specs 智能体库（DB）。"
-                logger.error(error_msg)
+                logger.warning(error_msg)
                 raise ValueError(error_msg)
 
             # 期限锚点（mid/long）：尾置，重解读周期表述
@@ -237,7 +237,7 @@ def create_generic_judge(llm, node: DebateNodeBinding, group: DebateGroup, memor
             base_prompt = load_agent_config(node.slug)
             if not base_prompt:
                 error_msg = f"❌ 未找到 {node.slug} 智能体配置，请检查 agent_specs 智能体库（DB）。"
-                logger.error(error_msg)
+                logger.warning(error_msg)
                 raise ValueError(error_msg)
 
             # 期限锚点（mid/long）：裁决按本次分析期限评估各方证据

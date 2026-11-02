@@ -663,7 +663,7 @@ class QuotesIngestionService:
                 return None, None
 
             else:
-                logger.error(f"未知数据源类型: {source_type}")
+                logger.warning(f"未知数据源类型: {source_type}")
                 return None, None
 
         except Exception as e:

@@ -185,7 +185,7 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull", *, gr
             base_prompt = load_agent_config(cfg["slug"])
             if not base_prompt:
                 error_msg = f"❌ 未找到 {cfg['slug']} 智能体配置，请检查 agent_specs 智能体库（DB）。"
-                logger.error(error_msg)
+                logger.warning(error_msg)
                 raise ValueError(error_msg)
 
             from app.engine.prompts.builder import (

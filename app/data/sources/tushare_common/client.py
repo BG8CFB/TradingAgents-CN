@@ -117,7 +117,7 @@ class TushareClient:
     def connect_sync(self) -> bool:
         """同步连接：Token → set_token → pro_api → 试探探测。"""
         if not TUSHARE_AVAILABLE:
-            logger.error(f"{self.source_name}: tushare 库不可用")
+            logger.warning(f"{self.source_name}: tushare 库不可用")
             return False
 
         token = self._token or self.resolve_token()
@@ -134,7 +134,7 @@ class TushareClient:
 
         probe = getattr(api, self.probe_endpoint, None)
         if probe is None:
-            logger.error(f"{self.source_name}: 试探接口不存在: {self.probe_endpoint}")
+            logger.warning(f"{self.source_name}: 试探接口不存在: {self.probe_endpoint}")
             return False
 
         try:

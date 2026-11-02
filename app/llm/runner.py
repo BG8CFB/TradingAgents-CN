@@ -343,7 +343,7 @@ async def run_conversation(
                 )
                 messages.append(Message(role=Role.USER, content=RECOVERY_INSTRUCTION))
                 continue
-            logger.error("❌ [runner] 截断恢复耗尽，保留截断结果继续")
+            logger.warning("❌ [runner] 截断恢复耗尽，保留截断结果继续")
             # 拼接各截断轮已生成文本（此前只取最后一轮，前几轮内容被整体丢弃）
             result.final_text = "".join(truncated_text_parts).strip() or resp.text()
             result.stop_reason = resp.stop_reason.value

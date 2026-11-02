@@ -87,7 +87,7 @@ def create_trader(llm, memory, horizon=None):
             base_prompt = load_agent_config("trader")
             if not base_prompt:
                 error_msg = "❌ 未找到 trader 智能体配置，请检查 agent_specs 智能体库（DB）。"
-                logger.error(error_msg)
+                logger.warning(error_msg)
                 raise ValueError(error_msg)
 
             # 动态环境信息注入（仅事实陈述）
