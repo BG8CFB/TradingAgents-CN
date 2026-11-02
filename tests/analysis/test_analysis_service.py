@@ -14,7 +14,7 @@ class TestHelperFunctions:
     """辅助函数测试 — 纯逻辑，无外部依赖"""
 
     def test_get_default_provider_by_model(self):
-        from app.services.analysis_service import _get_default_provider_by_model
+        from app.services.analysis.providers import _get_default_provider_by_model
 
         assert _get_default_provider_by_model("qwen-turbo") == "dashscope"
         assert _get_default_provider_by_model("gpt-4o") == "openai"
@@ -22,14 +22,14 @@ class TestHelperFunctions:
         assert _get_default_provider_by_model("unknown-model") == "dashscope"
 
     def test_get_default_backend_url(self):
-        from app.services.analysis_service import _get_default_backend_url
+        from app.services.analysis.providers import _get_default_backend_url
 
         assert "openai.com" in _get_default_backend_url("openai")
         assert "deepseek.com" in _get_default_backend_url("deepseek")
         assert "dashscope" in _get_default_backend_url("dashscope")
 
     def test_serialize_for_response_converts_objectid(self):
-        from app.services.analysis_service import AnalysisService
+        from app.services.analysis import AnalysisService
         from bson import ObjectId
 
         svc = AnalysisService.__new__(AnalysisService)
@@ -48,7 +48,7 @@ class TestAnalysisServiceWithSimDB:
 
     @pytest.mark.asyncio
     async def test_search_returns_list(self, sim_db):
-        from app.services.analysis_service import AnalysisService
+        from app.services.analysis import AnalysisService
 
         original = db_module.mongo_db
         db_module.mongo_db = sim_db
@@ -61,7 +61,7 @@ class TestAnalysisServiceWithSimDB:
 
     @pytest.mark.asyncio
     async def test_search_with_market_filter(self, sim_db):
-        from app.services.analysis_service import AnalysisService
+        from app.services.analysis import AnalysisService
 
         await sim_db.stock_basic_info.insert_one({
             "code": "000001",
@@ -81,7 +81,7 @@ class TestAnalysisServiceWithSimDB:
     @pytest.mark.asyncio
     async def test_mark_task_failed_returns_false_for_missing(self, sim_db):
         """标记不存在的任务应返回 False 或 True（取决于实现）"""
-        from app.services.analysis_service import AnalysisService
+        from app.services.analysis import AnalysisService
 
         original = db_module.mongo_db
         db_module.mongo_db = sim_db
@@ -97,9 +97,9 @@ class TestAnalysisServiceWithSimDB:
 class TestGetAnalysisServiceSingleton:
 
     def test_get_analysis_service_returns_instance(self):
-        from app.services.analysis_service import AnalysisService, get_analysis_service
+        from app.services.analysis import AnalysisService, get_analysis_service
 
-        import app.services.analysis_service as mod
+        import app.services.analysis.service as mod
         mod.analysis_service = None
 
         svc = get_analysis_service()

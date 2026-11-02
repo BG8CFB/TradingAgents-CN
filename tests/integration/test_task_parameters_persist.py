@@ -9,7 +9,7 @@ from datetime import datetime
 import pytest
 
 from app.models.analysis import AnalysisParameters, SingleAnalysisRequest
-from app.services.analysis_service import get_analysis_service
+from app.services.analysis import get_analysis_service
 
 TEST_USER_ID = "507f1f77bcf86cd799439011"
 

@@ -3,7 +3,7 @@
 
 覆盖内容：
 - app.routers.health.get_version() 优先从 pyproject.toml 读取
-- app.services.analysis_service._TASK_STATUS_MESSAGES 覆盖所有可能状态
+- app.services.analysis.tasks._TASK_STATUS_MESSAGES 覆盖所有可能状态
 - 映射表内不存在 "任务{status}中..." 这类语法错误模板
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from app.routers.health import get_version
-from app.services.analysis_service import _TASK_STATUS_MESSAGES
+from app.services.analysis.tasks import _TASK_STATUS_MESSAGES
 
 
 def test_get_version_reads_pyproject_toml():

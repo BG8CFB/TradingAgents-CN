@@ -17,7 +17,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from app.services.queue_service import get_queue_service  # noqa: E402 (intentional late import)
-from app.services.analysis_service import get_analysis_service  # noqa: E402 (intentional late import)
+from app.services.analysis import get_analysis_service  # noqa: E402 (intentional late import)
 from app.core.database import init_database, close_database  # noqa: E402 (intentional late import)
 # Redis 连接由 init_database() 统一管理，不再单独初始化
 from app.core.config import settings  # noqa: E402 (intentional late import)

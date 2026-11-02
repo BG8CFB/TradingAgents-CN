@@ -6,7 +6,7 @@
 
 import pytest
 
-from app.services.analysis_service import AnalysisService
+from app.services.analysis import AnalysisService
 
 pytestmark = pytest.mark.requires_db
 

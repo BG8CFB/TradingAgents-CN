@@ -633,7 +633,7 @@ async def lifespan(app: FastAPI):
 
         # 4. 关闭分析服务线程池
         try:
-            from app.services.analysis_service import get_analysis_service
+            from app.services.analysis import get_analysis_service
 
             svc = get_analysis_service()
             svc._shutdown_pool(wait=True)

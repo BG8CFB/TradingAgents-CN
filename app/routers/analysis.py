@@ -36,7 +36,7 @@ async def submit_single_analysis(
         logger.info(f"🎯 收到单股分析请求, 用户: {user.get('username', 'unknown')}")
 
         # 延迟导入，避免循环引用
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
 
         # 立即创建任务记录并返回，不等待执行完成
         analysis_service = get_analysis_service()
@@ -57,7 +57,7 @@ async def submit_single_analysis(
                 # 重新获取服务实例，确保在正确的上下文中
                 logger.info("🔧 [BackgroundTask] 正在获取服务实例...")
                 # 延迟导入，避免循环引用
-                from app.services.analysis_service import get_analysis_service
+                from app.services.analysis import get_analysis_service
                 service = get_analysis_service()
                 logger.info(f"✅ [BackgroundTask] 服务实例获取成功: {id(service)}")
 
@@ -94,7 +94,7 @@ async def get_task_status_new(
     """获取分析任务状态（新版异步实现）"""
     try:
         # 延迟导入，避免循环引用
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         analysis_service = get_analysis_service()
 
         # 管理员不限制所有权；普通用户仅能查自己的任务状态
@@ -133,7 +133,7 @@ async def get_task_result(
         logger.info(f"🔍 [RESULT] 获取任务结果: {task_id}")
 
         # 延迟导入，避免循环引用
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         analysis_service = get_analysis_service()
 
         # 管理员不限制所有权；普通用户仅能读取自己的任务结果
@@ -532,7 +532,7 @@ async def list_user_tasks(
 ):
     """获取用户的任务列表"""
     try:
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         logger.info(f"📋 查询用户任务列表: {user['id']}")
 
         tasks = await get_analysis_service().list_user_tasks(
@@ -571,7 +571,7 @@ async def submit_batch_analysis(
         logger.info(f"🎯 [批量分析] 收到批量分析请求: title={request.title}")
 
         # 延迟导入，避免循环引用
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         simple_service = get_analysis_service()
         
         batch_id = str(uuid.uuid4())
@@ -619,7 +619,7 @@ async def submit_batch_analysis(
             """并发执行所有分析任务"""
             # 延迟导入，避免循环引用
             try:
-                from app.services.analysis_service import get_analysis_service
+                from app.services.analysis import get_analysis_service
                 simple_service = get_analysis_service()
             except Exception as svc_err:
                 logger.error(f"❌ [批量分析] 获取分析服务失败，{len(task_ids)} 个任务无法执行: {svc_err}", exc_info=True)
@@ -707,7 +707,7 @@ async def cancel_task(
         # 运行中任务被 worker 领取后 Redis 键即删除，仅查队列会恒 404（取消功能失效）。
         task = await svc.get_task(task_id)
         if not task:
-            from app.services.analysis_service import get_analysis_service
+            from app.services.analysis import get_analysis_service
             task = await get_analysis_service().get_task_with_status_fallback(
                 task_id, user_id=user["id"]
             )
@@ -739,7 +739,7 @@ async def get_user_analysis_history(
 ):
     """获取用户分析历史（支持基础筛选与分页）"""
     try:
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         query_symbol = symbol or stock_code
 
         # 使用新的 query_user_tasks 方法，支持数据库层面的筛选和分页
@@ -864,7 +864,7 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
     logger.info(f"🔌 [WS] 认证成功: user={user_id}, admin={is_admin}, task_id={task_id}")
 
     try:
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         analysis_service = get_analysis_service()
         # 管理员不限制所有权；普通用户仅能查自己的任务状态（与 HTTP 路径一致）
         effective_user_id = None if is_admin else user_id
@@ -953,7 +953,7 @@ async def get_task_events(
     管理员可查任意任务；普通用户仅能查自己的。
     """
     from app.services.analysis_events import load_events
-    from app.services.analysis_service import get_analysis_service
+    from app.services.analysis import get_analysis_service
 
     if order not in ("asc", "desc"):
         raise HTTPException(status_code=400, detail="order 仅支持 asc/desc")
@@ -992,7 +992,7 @@ async def get_task_overview(
     股票信息统一走 DataInterface（basic_info + daily_quotes 最新收盘价），
     读取失败或无数据时 stock_info=null，不影响任务信息返回。
     """
-    from app.services.analysis_service import get_analysis_service
+    from app.services.analysis import get_analysis_service
 
     try:
         user_id = None if user.get("is_admin") else user["id"]
@@ -1060,7 +1060,7 @@ async def get_task_details(
         return t
 
     # 回退 MongoDB：队列数据过期后仍可查历史任务详情
-    from app.services.analysis_service import get_analysis_service
+    from app.services.analysis import get_analysis_service
     analysis_service = get_analysis_service()
     user_id = None if user.get("is_admin") else user["id"]
     fallback = await analysis_service.get_task_with_status_fallback(task_id, user_id)
@@ -1083,7 +1083,7 @@ async def mark_task_as_failed(
     try:
         # 验证任务所有权：先查 Redis，未找到则回退 MongoDB
         task = await svc.get_task(task_id)
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         analysis_svc = get_analysis_service()
         if not task or task.get("user") != user["id"]:
             if not await analysis_svc.validate_task_ownership(task_id, user["id"]):
@@ -1121,7 +1121,7 @@ async def delete_task(
     所有权验证支持 Redis → MongoDB 双源回退，兼容已过期的失败/完成任务。
     """
     try:
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         analysis_svc = get_analysis_service()
 
         deleted = await analysis_svc.delete_task_by_id(task_id, user_id=user["id"])
@@ -1152,7 +1152,7 @@ async def get_analysis_stats(
 ):
     """获取分析统计信息"""
     try:
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         svc = get_analysis_service()
 
         stats = await svc.get_analysis_stats(
@@ -1180,7 +1180,7 @@ async def search_stocks(
 ):
     """搜索股票"""
     try:
-        from app.services.analysis_service import get_analysis_service
+        from app.services.analysis import get_analysis_service
         svc = get_analysis_service()
 
         results = await svc.search_stock_basic_info(query, market, limit)

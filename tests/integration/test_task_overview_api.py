@@ -7,7 +7,7 @@
 import pytest
 
 from app.models.analysis import AnalysisParameters, SingleAnalysisRequest
-from app.services.analysis_service import get_analysis_service
+from app.services.analysis import get_analysis_service
 
 
 @pytest.fixture(autouse=True)

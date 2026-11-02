@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services.analysis_service import _TASK_STATUS_MESSAGES
+from app.services.analysis.tasks import _TASK_STATUS_MESSAGES
 
 
 def _utc(seconds_ago: float) -> datetime:

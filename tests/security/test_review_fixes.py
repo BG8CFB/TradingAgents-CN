@@ -279,9 +279,9 @@ class TestWebSocketFailClosedOrder:
                 token = AuthService.create_access_token(sub="test_user")
                 return {"token": token}
 
-        from app.services import analysis_service as svc_mod
+        from app.services import analysis as svc_mod
 
-        # 用 monkeypatch 让 analysis_service.get_analysis_service 抛异常
+        # 用 monkeypatch 让 analysis.get_analysis_service 抛异常
         # （函数内导入路径）
         class _BoomAnalysisService:
             async def get_task_with_status_fallback(self, task_id):
