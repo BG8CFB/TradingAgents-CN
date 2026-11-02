@@ -7,7 +7,6 @@ A 股数据完整性检查服务
   3. 数据时间连续性检测
   4. 跨域一致性检测（日线 ↔ 指标 ↔ 复权因子）
 """
-# data-access-exempt: 数据完整性巡检服务（只读检查业务集合，属监控白名单）
 
 import logging
 from dataclasses import dataclass, field

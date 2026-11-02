@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from app.core.config import settings
 from app.data.storage.mongo.collections import get_collection_name
-from app.worker.base_sync_service import BaseSyncService
+from app.data.sync.base_sync_service import BaseSyncService
 
 logger = logging.getLogger(__name__)
 

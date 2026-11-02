@@ -4,7 +4,7 @@ PR5 测试 — HK/US 数据源异常分类 + FallbackRouter 单例
 覆盖：
 - C1 HK/US 异常映射正确性（通过源码静态分析 + ImportError 触发验证）
 - C4 FallbackRouter 单例（get_instance 返回同一实例、状态共享）
-- C4 单例化不破坏现有调用方（refresh_service / sync_job / multi_source_basics_sync / domain_sync）
+- C4 单例化不破坏现有调用方（refresh_service / sync_job / multi_source_basics_sync）
 """
 
 import importlib
@@ -327,23 +327,17 @@ class TestFallbackRouterCallersUseSingleton:
         assert "FallbackRouter(registry, priority)" not in src, "sync_job 不应再用构造器"
 
     def test_multi_source_basics_sync_uses_get_instance(self):
-        from app.services import multi_source_basics_sync_service
+        from app.data.sync import multi_source_basics_sync_service
         src = inspect.getsource(multi_source_basics_sync_service)
         assert "FallbackRouter.get_instance()" in src, "multi_source_basics_sync 应使用 get_instance()"
-
-    def test_base_domain_sync_uses_get_instance(self):
-        from app.worker.cn.domain_sync import base_domain_sync
-        src = inspect.getsource(base_domain_sync)
-        assert "FallbackRouter.get_instance()" in src, "base_domain_sync 应使用 get_instance()"
 
     def test_no_caller_creates_router_with_capability_registry_arg(self):
         """任何调用方都不应再传 CapabilityRegistry() 给 FallbackRouter。"""
         from app.data.core import refresh_service
         from app.data.scheduler.jobs.base import sync_job
-        from app.services import multi_source_basics_sync_service
-        from app.worker.cn.domain_sync import base_domain_sync
+        from app.data.sync import multi_source_basics_sync_service
 
-        for mod in [refresh_service, sync_job, multi_source_basics_sync_service, base_domain_sync]:
+        for mod in [refresh_service, sync_job, multi_source_basics_sync_service]:
             src = inspect.getsource(mod)
             # 出现这种模式说明还在用旧构造器
             assert "FallbackRouter(CapabilityRegistry()" not in src, (

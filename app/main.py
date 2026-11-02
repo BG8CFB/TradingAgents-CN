@@ -352,7 +352,7 @@ async def _init_scheduler(logger):
     # 接入 scheduler_setup.register_jobs：basics 同步 / 实时行情入库 /
     # A股完整性检查 / KB 增量索引 / 每日推荐等非域级任务统一注册
     # （此前 register_jobs 无调用方，上述任务全部缺失调度）
-    from app.services.multi_source_basics_sync_service import (
+    from app.data.sync.multi_source_basics_sync_service import (
         get_multi_source_sync_service,
     )
     from app.worker.scheduler_setup import register_jobs

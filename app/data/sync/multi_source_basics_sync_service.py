@@ -6,7 +6,6 @@ Multi-source stock basics synchronization service
 - Upserts into MongoDB collection `stock_basic_info`
 - Provides unified interface for different data sources
 """
-# data-access-exempt: 生产侧同步服务写路径（读兜底已加 projection/limit，写路径待 Repo 化收敛）
 from __future__ import annotations
 
 import asyncio
@@ -21,7 +20,7 @@ from pymongo import UpdateOne
 
 from app.core.database import get_mongo_db
 from app.data.storage.mongo.collections import get_collection_name
-from app.services.basics_sync import add_financial_metrics as _add_financial_metrics_util
+from app.data.sync.basics_sync import add_financial_metrics as _add_financial_metrics_util
 
 
 logger = logging.getLogger(__name__)

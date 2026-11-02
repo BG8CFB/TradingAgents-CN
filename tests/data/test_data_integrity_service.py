@@ -11,14 +11,14 @@ class TestIntegrityReport:
     """测试 IntegrityReport 数据类（纯内存逻辑，无外部依赖）。"""
 
     def test_empty_report(self):
-        from app.services.cn_data_integrity_service import IntegrityReport
+        from app.data.sync.cn_data_integrity_service import IntegrityReport
         report = IntegrityReport()
         assert not report.has_errors
         assert report.error_count == 0
         assert report.warning_count == 0
 
     def test_report_with_errors(self):
-        from app.services.cn_data_integrity_service import IntegrityReport, IntegrityIssue
+        from app.data.sync.cn_data_integrity_service import IntegrityReport, IntegrityIssue
         report = IntegrityReport()
         report.issues.append(IntegrityIssue(
             severity="error", domain="daily_quotes",
@@ -28,7 +28,7 @@ class TestIntegrityReport:
         assert report.error_count == 1
 
     def test_report_with_warnings(self):
-        from app.services.cn_data_integrity_service import IntegrityReport, IntegrityIssue
+        from app.data.sync.cn_data_integrity_service import IntegrityReport, IntegrityIssue
         report = IntegrityReport()
         report.issues.append(IntegrityIssue(
             severity="warning", domain="daily_quotes",
@@ -38,7 +38,7 @@ class TestIntegrityReport:
         assert report.warning_count == 1
 
     def test_to_dict(self):
-        from app.services.cn_data_integrity_service import IntegrityReport, IntegrityIssue
+        from app.data.sync.cn_data_integrity_service import IntegrityReport, IntegrityIssue
         report = IntegrityReport(checked_at="2026-05-19T10:00:00")
         report.issues.append(IntegrityIssue(
             severity="error", domain="daily_quotes",
@@ -52,7 +52,7 @@ class TestIntegrityReport:
         assert d["issues"][0]["domain"] == "daily_quotes"
 
     def test_report_with_mixed_issues(self):
-        from app.services.cn_data_integrity_service import IntegrityReport, IntegrityIssue
+        from app.data.sync.cn_data_integrity_service import IntegrityReport, IntegrityIssue
         report = IntegrityReport()
         report.issues.append(IntegrityIssue(
             severity="error", domain="daily_quotes",
@@ -74,7 +74,7 @@ class TestIntegrityService:
     @pytest.mark.asyncio
     async def test_db_connection_failure_generates_error_report(self):
         """数据库连接失败时生成错误报告。"""
-        from app.services.cn_data_integrity_service import DataIntegrityService
+        from app.data.sync.cn_data_integrity_service import DataIntegrityService
 
         svc = DataIntegrityService()
 
@@ -89,7 +89,7 @@ class TestIntegrityService:
     @pytest.mark.asyncio
     async def test_full_check_returns_report(self, inject_sim_db):
         """使用 SimulatedMongoDB 的完整检查返回有效报告。"""
-        from app.services.cn_data_integrity_service import DataIntegrityService
+        from app.data.sync.cn_data_integrity_service import DataIntegrityService
 
         await inject_sim_db["stock_basic_info"].insert_many([
             {"symbol": "000001", "name": "平安银行"},
@@ -114,7 +114,7 @@ class TestIntegrityService:
     @pytest.mark.asyncio
     async def test_full_check_saves_report_to_sim_db(self, inject_sim_db):
         """完整检查后将报告保存到 SimulatedMongoDB。"""
-        from app.services.cn_data_integrity_service import DataIntegrityService
+        from app.data.sync.cn_data_integrity_service import DataIntegrityService
 
         svc = DataIntegrityService()
 
@@ -134,7 +134,7 @@ class TestIntegrityService:
     @pytest.mark.asyncio
     async def test_null_field_detection(self, inject_sim_db):
         """检测到空值字段时生成 error 级别问题。"""
-        from app.services.cn_data_integrity_service import DataIntegrityService
+        from app.data.sync.cn_data_integrity_service import DataIntegrityService
 
         await inject_sim_db["stock_daily_quotes"].insert_many([
             {"symbol": "000001", "trade_date": "2024-06-15", "close": 10.5},
@@ -154,7 +154,7 @@ class TestIntegrityService:
         assert len(null_issues) > 0
 
     def test_singleton(self):
-        from app.services.cn_data_integrity_service import get_integrity_service
+        from app.data.sync.cn_data_integrity_service import get_integrity_service
         s1 = get_integrity_service()
         s2 = get_integrity_service()
         assert s1 is s2

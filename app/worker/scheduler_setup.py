@@ -107,7 +107,7 @@ async def register_jobs(scheduler: AsyncIOScheduler, basics_sync_service, run_ba
 
     # ── Quotes ingestion（实时行情入库）──
     if settings.QUOTES_INGEST_ENABLED:
-        from app.services.quotes_ingestion_service import QuotesIngestionService
+        from app.data.sync.quotes_ingestion_service import QuotesIngestionService
 
         quotes_ingestion = QuotesIngestionService()
         await quotes_ingestion.ensure_indexes()
@@ -189,7 +189,7 @@ def _handle_basics_sync_task_result(task: asyncio.Task) -> None:
 
 def _register_hk_auxiliary_jobs(sched: AsyncIOScheduler):
     """注册港股辅助任务（基础信息同步 + 日线同步 + 状态检查，默认暂停）。"""
-    from app.worker.hk.hk_sync_service import (
+    from app.data.sync.hk_sync_service import (
         run_hk_basic_info_sync, run_hk_daily_quotes_sync, run_hk_status_check,
     )
     tz = settings.TIMEZONE
@@ -226,7 +226,7 @@ def _register_hk_auxiliary_jobs(sched: AsyncIOScheduler):
 
 def _register_us_auxiliary_jobs(sched: AsyncIOScheduler):
     """注册美股辅助任务（基础信息同步 + 日线同步 + 状态检查，默认暂停）。"""
-    from app.worker.us.us_sync_service import (
+    from app.data.sync.us_sync_service import (
         run_us_basic_info_sync, run_us_daily_quotes_sync, run_us_status_check,
     )
     tz = settings.TIMEZONE
@@ -277,7 +277,7 @@ async def _run_kb_incremental_index():
 async def _run_cn_integrity_check():
     """A股数据完整性检查"""
     try:
-        from app.services.cn_data_integrity_service import get_integrity_service
+        from app.data.sync.cn_data_integrity_service import get_integrity_service
         service = get_integrity_service()
         report = await service.run_full_check()
         logger.info("完整性检查完成: errors=%d, warnings=%d", report.error_count, report.warning_count)

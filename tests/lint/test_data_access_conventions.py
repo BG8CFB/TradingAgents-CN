@@ -28,6 +28,7 @@ FORBIDDEN_SDKS = {"tushare", "akshare", "baostock", "yfinance", "finnhub", "alph
 # 规则 1/2 白名单目录/文件（相对 app/ 的 posix 路径前缀）
 SDK_IMPORT_WHITELIST_PREFIXES = (
     "data/sources",          # 数据源层自身
+    "data/sync",             # 同步生产域（源探测/权限频控属生产职责）
     "services/config/data_source_service.py",  # 数据源连通性测试功能
 )
 SOURCES_IMPORT_WHITELIST_PREFIXES = (
@@ -153,12 +154,10 @@ def test_exempt_files_snapshot():
         "services/analysis_events.py",
         "services/analysis_service.py",
         "services/auth_service.py",
-        "services/basics_sync/utils.py",
         "services/cache_service.py",
         "services/chat/chat_service.py",
         "services/chat/conversation_runner.py",
         "services/chat/tools.py",
-        "services/cn_data_integrity_service.py",
         "services/config/data_source_service.py",
         "services/config/database_service.py",
         "services/config/llm_service.py",
@@ -172,12 +171,10 @@ def test_exempt_files_snapshot():
         "services/favorites_service.py",
         "services/knowledge_service.py",
         "services/model_capability_service.py",
-        "services/multi_source_basics_sync_service.py",
         "services/news_data_service.py",
         "services/notifications_service.py",
         "services/operation_log_service.py",
         "services/queue_service.py",
-        "services/quotes_ingestion_service.py",
         "services/reports_service.py",
         "services/scheduler_service.py",
         "services/screening/insight_service.py",

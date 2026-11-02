@@ -307,7 +307,7 @@ class TestPriorityConfigImport:
     """
 
     def test_priority_config_imported_in_module(self):
-        from app.services import multi_source_basics_sync_service as m
+        from app.data.sync import multi_source_basics_sync_service as m
 
         src = inspect.getsource(m)
         # 必须有 PriorityConfig 的导入语句
@@ -317,7 +317,7 @@ class TestPriorityConfigImport:
 
     def test_priority_config_usage_does_not_raise_name_error(self):
         """通过实际加载确认 NameError 已修复。"""
-        from app.services.multi_source_basics_sync_service import (
+        from app.data.sync.multi_source_basics_sync_service import (
             MultiSourceBasicsSyncService,
         )
         # 触发 import 时不会抛 NameError 即可
@@ -527,7 +527,7 @@ class TestAllFixesIntegrated:
             "app.data.sources.us.finnhub.api.market_quotes",
             "app.data.sources.us.finnhub.api.news",
             # multi_source_basics_sync_service P0
-            "app.services.multi_source_basics_sync_service",
+            "app.data.sync.multi_source_basics_sync_service",
             # Tencent HK P1
             "app.data.sources.hk.tencent_hk.api.market_quotes",
             # locks P1
@@ -539,7 +539,7 @@ class TestAllFixesIntegrated:
     def test_dependencies_among_fixes_resolve(self):
         """修复点之间的依赖（如 locks 被 service 调用）能正确解析。"""
         from app.data.storage.redis.locks import DistributedLock
-        from app.services.multi_source_basics_sync_service import (
+        from app.data.sync.multi_source_basics_sync_service import (
             MultiSourceBasicsSyncService,
         )
 

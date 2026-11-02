@@ -259,10 +259,10 @@ result = await di.read("CN", "000001", "daily_quotes",
 
 - `main.py` — App entry, lifespan, APScheduler
 - `routers/` — API handlers (auth, analysis, config, MCP, tools); sub-dirs `config/` and `sync/` for per-domain/market routes. Every router: `prefix="/api/<domain>"`, English Title-Case `tags=[]`, no direct MongoDB calls
-- `services/` — Business logic (analysis, screening, sync, quotes ingestion)
+- `services/` — Business logic (analysis, screening)
 - `models/` — MongoDB models (Motor async driver)
 - `core/` — Config, database, logging, config bridge
-- `worker/` — Background tasks (`cn/`, `hk/`, `us/` per-market sync workers)
+- `worker/` — 应用层任务装配：`scheduler_setup.py`（调度编排组装点）+ `analysis_worker.py`（分析任务进程）。数据同步生产已归位 `app/data/sync/`
 - `middleware/` — Request/response middleware
 
 ### LLM Integration (`app/llm/`)

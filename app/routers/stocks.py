@@ -617,7 +617,7 @@ async def get_quotes_sync_status(
 ):
     """获取实时行情同步状态（替代原 /api/stock-data/sync-status/quotes）"""
     try:
-        from app.services.quotes_ingestion_service import QuotesIngestionService
+        from app.data.sync.quotes_ingestion_service import QuotesIngestionService
         service = QuotesIngestionService()
         status_data = await service.get_sync_status()
         return ok(data=status_data)

@@ -1,7 +1,6 @@
 import asyncio
 import logging
 
-# data-access-exempt: quotes ingestion 生产侧写路径（Phase 4 收敛读路径，写路径待 MarketQuotesRepo 化）
 from datetime import datetime, time as dtime, timedelta
 from typing import Dict, Optional, Tuple
 from zoneinfo import ZoneInfo

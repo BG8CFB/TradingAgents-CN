@@ -31,8 +31,8 @@ _instance_lock = threading.Lock()
 def _ensure_singleton() -> "FallbackRouter":
     """获取进程级 FallbackRouter 单例。
 
-    所有调用方（refresh_service / sync_job / multi_source_basics_sync /
-    domain_sync）共享同一份 circuit_breaker + rate_limiter 状态。
+    所有调用方（refresh_service / sync_job / multi_source_basics_sync）
+    共享同一份 circuit_breaker + rate_limiter 状态。
     """
     global _instance
     if _instance is None:
@@ -103,8 +103,8 @@ class FallbackRouter:
     def get_instance(cls) -> "FallbackRouter":
         """获取进程级单例（首次调用时构造，后续复用）。
 
-        保证 sync_job、refresh_service、multi_source_basics_sync、
-        domain_sync 等所有调用方共享同一份熔断器 + 限流器状态。
+        保证 sync_job、refresh_service、multi_source_basics_sync
+        等所有调用方共享同一份熔断器 + 限流器状态。
         """
         return _ensure_singleton()
 
@@ -251,10 +251,9 @@ class FallbackRouter:
     ):
         """单数据源尝试：熔断检查 → 限流 → 重试获取 → 标准化 → 校验。
 
-        从 fetch() 的循环体抽取，供两类调用方复用同一套四件套语义：
-        1. fetch() 内部（标准 symbol 维度获取）
-        2. worker 侧 BaseMarketDomainSync（自定义 provider 方法 + kwargs 的
-           批量域同步，如 HK/US market_quotes 全市场快照）
+        从 fetch() 的循环体抽取，供 fetch() 内部（标准 symbol 维度获取）与
+        批量域同步调用方（如 HK/US market_quotes 全市场快照，现位于
+        app/data/sync）复用同一套四件套语义
 
         Args:
             raw_fetch: ``async (provider) -> raw``，返回原始数据；
