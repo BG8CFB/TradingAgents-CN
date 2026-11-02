@@ -793,7 +793,7 @@ async function fetchKline() {
     const res = await stocksApi.getKline(symbol.value, param as any, 200, 'none')
     if (seq !== klineSeq) return  // 已被新请求覆盖，丢弃旧响应
     const d: any = (res as any)?.data || {}
-    klineSource.value = d.source
+    klineSource.value = d.freshness ?? d.source  // 兼容旧键 source（历史上是 freshness 的错标）
     const items: any[] = Array.isArray(d.items) ? d.items : []
 
     const category: string[] = []

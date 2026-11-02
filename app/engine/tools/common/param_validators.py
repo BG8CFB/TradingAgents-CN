@@ -41,54 +41,55 @@ class MCPToolValidators:
     STOCK_CODE_US = re.compile(r"^[A-Z]{1,5}$")
 
     @staticmethod
-    def validate_stock_code(code: str, market_type: str = "cn") -> ValidationResult:
+    def validate_symbol(symbol: str, market_type: str = "CN") -> ValidationResult:
         """
         验证股票代码格式
 
         Args:
-            code: 股票代码
-            market_type: 市场类型 ("cn", "hk", "us")
+            symbol: 股票代码
+            market_type: 市场类型 ("CN", "HK", "US"；小写传入自动归一)
 
         Returns:
             ValidationResult
         """
-        if not code or not isinstance(code, str):
+        if not symbol or not isinstance(symbol, str):
             return ValidationResult(False, "股票代码不能为空")
 
-        code = code.strip().upper()
+        symbol = symbol.strip().upper()
 
         # 处理带市场后缀的代码
-        if "." in code:
-            parts = code.split(".")
-            code = parts[0]
+        if "." in symbol:
+            parts = symbol.split(".")
+            symbol = parts[0]
             suffix = parts[1].upper()
             if suffix in ["SH", "SZ"]:
-                market_type = "cn"
+                market_type = "CN"
             elif suffix == "HK":
-                market_type = "hk"
+                market_type = "HK"
             elif suffix in ["US", "NYSE", "NASDAQ", "AMEX"]:
-                market_type = "us"
+                market_type = "US"
 
-        # 根据市场类型验证
-        if market_type.lower() in ["cn", "a股", "a", "china"]:
-            if not MCPToolValidators.STOCK_CODE_CN.match(code):
-                return ValidationResult(False, f"A股代码格式错误：{code}，应为6位数字")
-        elif market_type.lower() in ["hk", "港股", "hongkong"]:
-            if not MCPToolValidators.STOCK_CODE_HK.match(code):
-                return ValidationResult(False, f"港股代码格式错误：{code}，应为4-5位数字")
-        elif market_type.lower() in ["us", "美股", "usa", "united states"]:
-            if not MCPToolValidators.STOCK_CODE_US.match(code):
-                return ValidationResult(False, f"美股代码格式错误：{code}，应为1-5位大写字母")
+        # 根据市场类型验证（统一归一大写后比较，兼容小写传入）
+        market = market_type.upper() if isinstance(market_type, str) else ""
+        if market in ["CN", "A股", "A", "CHINA"]:
+            if not MCPToolValidators.STOCK_CODE_CN.match(symbol):
+                return ValidationResult(False, f"A股代码格式错误：{symbol}，应为6位数字")
+        elif market in ["HK", "港股", "HONGKONG"]:
+            if not MCPToolValidators.STOCK_CODE_HK.match(symbol):
+                return ValidationResult(False, f"港股代码格式错误：{symbol}，应为4-5位数字")
+        elif market in ["US", "美股", "USA", "UNITED STATES"]:
+            if not MCPToolValidators.STOCK_CODE_US.match(symbol):
+                return ValidationResult(False, f"美股代码格式错误：{symbol}，应为1-5位大写字母")
         else:
             # 自动检测
-            if MCPToolValidators.STOCK_CODE_CN.match(code):
+            if MCPToolValidators.STOCK_CODE_CN.match(symbol):
                 return ValidationResult(True)
-            elif MCPToolValidators.STOCK_CODE_HK.match(code):
+            elif MCPToolValidators.STOCK_CODE_HK.match(symbol):
                 return ValidationResult(True)
-            elif MCPToolValidators.STOCK_CODE_US.match(code):
+            elif MCPToolValidators.STOCK_CODE_US.match(symbol):
                 return ValidationResult(True)
             else:
-                return ValidationResult(False, f"股票代码格式错误：{code}，无法识别市场类型")
+                return ValidationResult(False, f"股票代码格式错误：{symbol}，无法识别市场类型")
 
         return ValidationResult(True)
 
@@ -320,9 +321,9 @@ class MCPToolValidators:
 
 
 # 便捷函数
-def validate_stock_code(code: str, market_type: str = "cn") -> Tuple[bool, str]:
+def validate_symbol(symbol: str, market_type: str = "CN") -> Tuple[bool, str]:
     """验证股票代码，返回 (is_valid, error_message)"""
-    result = MCPToolValidators.validate_stock_code(code, market_type)
+    result = MCPToolValidators.validate_symbol(symbol, market_type)
     return result.is_valid, result.error_message
 
 

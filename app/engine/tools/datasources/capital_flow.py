@@ -18,7 +18,7 @@ def get_money_flow(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     query_type: Optional[str] = None,
-    ts_code: Optional[str] = None,
+    symbol: Optional[str] = None,
     content_type: Optional[str] = None,
     trade_date: Optional[str] = None,
 ) -> str:
@@ -29,7 +29,7 @@ def get_money_flow(
         start_date: 开始日期，格式 YYYYMMDD，默认 1 个月前
         end_date: 结束日期，格式 YYYYMMDD，默认今天
         query_type: 查询类型，支持 stock(个股)、market(大盘)、sector(板块)
-        ts_code: 股票或板块代码
+        symbol: 股票或板块代码
         content_type: 板块类型，支持 industry(行业)、concept(概念)、area(地域)
         trade_date: 指定交易日期，格式 YYYYMMDD
 
@@ -43,25 +43,24 @@ def get_money_flow(
             if not start_date:
                 start_date = (now_utc() - timedelta(days=30)).strftime("%Y%m%d")
 
-        symbol = ts_code or "market"
         try:
             from app.engine.tools.common.data_access import read_with_refresh
 
             # symbol 为 "market" 时是市场级查询，无法按需刷新，helper 内部会自动跳过
             result = read_with_refresh(
-                "CN", "money_flow", symbol=symbol, start_date=start_date, end_date=end_date
+                "CN", "money_flow", symbol=symbol or "market", start_date=start_date, end_date=end_date
             )
             data = result.get("data") if result else None
             if data:
                 df = pd.DataFrame(data) if isinstance(data, list) else data
-                return format_tool_result(success_result(format_result(df, f"Money Flow: {ts_code or query_type}")))
+                return format_tool_result(success_result(format_result(df, f"Money Flow: {symbol or query_type}")))
         except Exception as e:
             logger.debug(f"资金流向数据获取失败: {e}")
 
         return format_tool_result(
             error_result(
                 ErrorCodes.DATA_FETCH_ERROR,
-                f"资金流向数据暂不可用: {ts_code or query_type}",
+                f"资金流向数据暂不可用: {symbol or query_type}",
                 suggestion="请先通过同步任务获取资金流向数据，或确认数据源已配置",
             )
         )
@@ -74,7 +73,7 @@ def get_margin_trade(
     data_type: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    ts_code: Optional[str] = None,
+    symbol: Optional[str] = None,
     exchange: Optional[str] = None,
 ) -> str:
     """
@@ -84,7 +83,7 @@ def get_margin_trade(
         data_type: 数据类型，支持 margin_secs、margin、margin_detail、slb_len_mm
         start_date: 开始日期，格式 YYYYMMDD，默认 1 个月前
         end_date: 结束日期，格式 YYYYMMDD，默认今天
-        ts_code: 股票代码
+        symbol: 股票代码
         exchange: 交易所，支持 SSE、SZSE、BSE
 
     Returns:
@@ -96,7 +95,7 @@ def get_margin_trade(
         if not start_date:
             start_date = (now_utc() - timedelta(days=30)).strftime("%Y%m%d")
 
-        symbol = ts_code or "market"
+        symbol = symbol or "market"
         try:
             from app.engine.tools.common.data_access import read_with_refresh
 

@@ -251,11 +251,16 @@ async def get_kline(
                 if aggregated and isinstance(aggregated, list):
                     kline_data = aggregated
 
+            freshness = result.get("freshness", "unknown")
+            freshness_val = getattr(freshness, "value", freshness)
             return ok(data={
-                'code': normalized_code,
+                'symbol': normalized_code,
+                'code': normalized_code,  # 兼容键（已废弃，使用 symbol）
                 'period': period,
                 'items': kline_data,
-                'source': result.get("freshness", "unknown")
+                'freshness': freshness_val,
+                # 兼容键：历史上 freshness 被错标为 source，前端迁移后移除
+                'source': freshness_val,
             })
         except Exception as e:
             logger.error(f"获取{market}股票{code}K线数据失败: {e}", exc_info=True)

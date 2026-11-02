@@ -151,13 +151,13 @@ def get_china_market_overview(date: str = None, include_indices: bool = True, in
     return format_tool_result(success_result(combined_result))
 
 
-def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[str] = None) -> str:
+def get_dragon_tiger_inst(trade_date: Optional[str] = None, symbol: Optional[str] = None) -> str:
     """
     获取龙虎榜机构明细。
 
     Args:
         trade_date: 交易日期，格式 YYYYMMDD，默认今天
-        ts_code: 股票代码，可选
+        symbol: 股票代码，可选
 
     Returns:
         JSON 格式的 ToolResult
@@ -166,12 +166,11 @@ def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[st
         if not trade_date:
             trade_date = get_current_date_compact()
 
-        logger.info(f"获取龙虎榜数据: 日期{trade_date}, 股票{ts_code}")
+        logger.info(f"获取龙虎榜数据: 日期{trade_date}, 股票{symbol}")
 
         from app.engine.tools.common.data_access import read_with_refresh
 
         filters = {"limit": 100}
-        symbol = ts_code
 
         if symbol:
             result = read_with_refresh("CN", "dragon_tiger", symbol=symbol, filters=filters)
@@ -198,7 +197,7 @@ def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[st
 
 
 def get_block_trade(
-    start_date: Optional[str] = None, end_date: Optional[str] = None, code: Optional[str] = None
+    start_date: Optional[str] = None, end_date: Optional[str] = None, symbol: Optional[str] = None
 ) -> str:
     """
     获取大宗交易数据。
@@ -206,7 +205,7 @@ def get_block_trade(
     Args:
         start_date: 开始日期，格式 YYYYMMDD，默认 7 天前
         end_date: 结束日期，格式 YYYYMMDD，默认今天
-        code: 股票代码，可选
+        symbol: 股票代码，可选
 
     Returns:
         JSON 格式的 ToolResult
@@ -217,12 +216,12 @@ def get_block_trade(
         if not start_date:
             start_date = (now_utc() - timedelta(days=7)).strftime("%Y%m%d")
 
-        logger.info(f"获取大宗交易数据: 日期范围 {start_date}-{end_date}, 股票{code}")
+        logger.info(f"获取大宗交易数据: 日期范围 {start_date}-{end_date}, 股票{symbol}")
 
         from app.engine.tools.common.data_access import read_with_refresh
 
-        if code:
-            result = read_with_refresh("CN", "block_trade", symbol=code)
+        if symbol:
+            result = read_with_refresh("CN", "block_trade", symbol=symbol)
         else:
             result = run_async(
                 DataInterface.get_instance().read("CN", "block_trade", start_date=start_date, end_date=end_date)

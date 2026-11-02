@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_stock_fundamentals(
-    stock_code: str, current_date: str = None, start_date: str = None, end_date: str = None
+    symbol: str, current_date: str = None, start_date: str = None, end_date: str = None
 ) -> str:
     """
     获取股票基本面财务数据和估值指标。
@@ -26,7 +26,7 @@ def get_stock_fundamentals(
     返回包括财务报表、估值指标、盈利能力等基本面数据。
 
     Args:
-        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        symbol: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
         current_date: 当前日期，格式 YYYY-MM-DD，默认今天
         start_date: 开始日期，格式 YYYY-MM-DD，默认 10 天前
         end_date: 结束日期，格式 YYYY-MM-DD，默认今天
@@ -34,7 +34,7 @@ def get_stock_fundamentals(
     Returns:
         JSON 格式的 ToolResult
     """
-    logger.info(f"[基本面工具] 分析股票: {stock_code}")
+    logger.info(f"[基本面工具] 分析股票: {symbol}")
     start_time = now_utc()
 
     if not current_date:
@@ -60,7 +60,7 @@ def get_stock_fundamentals(
     try:
         from app.utils.stock_utils import StockUtils
 
-        market_info = StockUtils.get_market_info(stock_code)
+        market_info = StockUtils.get_market_info(symbol)
         is_china = market_info["is_china"]
         is_hk = market_info["is_hk"]
         market_info["is_us"]
@@ -74,7 +74,7 @@ def get_stock_fundamentals(
 
             try:
                 # 直接读标准库 financial_data 域，库空时按需刷新后重读
-                fundamentals_raw = read_with_refresh("CN", "financial_data", symbol=stock_code)
+                fundamentals_raw = read_with_refresh("CN", "financial_data", symbol=symbol)
                 _d = fundamentals_raw.get("data") if fundamentals_raw else None
                 if _d:
                     import pandas as pd
@@ -113,7 +113,7 @@ def get_stock_fundamentals(
             logger.info("[基本面工具] 处理港股数据...")
 
             try:
-                _r_info = read_with_refresh("HK", "basic_info", symbol=stock_code)
+                _r_info = read_with_refresh("HK", "basic_info", symbol=symbol)
                 hk_info = (_r_info.get("data") if _r_info else None) or {}
 
                 basic_info = f"""## 港股基础信息
@@ -131,7 +131,7 @@ def get_stock_fundamentals(
         else:
             logger.info("[基本面工具] 处理美股数据...")
             try:
-                _r = read_with_refresh("US", "financial_data", symbol=stock_code.upper())
+                _r = read_with_refresh("US", "financial_data", symbol=symbol.upper())
                 us_info = _r.get("data") if _r else None
                 if us_info:
                     import pandas as pd
@@ -148,7 +148,7 @@ def get_stock_fundamentals(
 
         execution_time = (now_utc() - start_time).total_seconds()
 
-        combined_result = f"""# {stock_code} 基本面分析
+        combined_result = f"""# {symbol} 基本面分析
 
 **股票类型**: {market_info["market_name"]}
 **分析日期**: {current_date}
@@ -164,7 +164,7 @@ def get_stock_fundamentals(
 
 
 def get_company_performance_unified(
-    stock_code: str,
+    symbol: str,
     data_type: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -177,7 +177,7 @@ def get_company_performance_unified(
     自动识别股票市场类型，通过 DataInterface 统一获取。
 
     Args:
-        stock_code: 股票代码，如 "000001.SZ"(A股)、"00700.HK"(港股)、"AAPL"(美股)
+        symbol: 股票代码，如 "000001.SZ"(A股)、"00700.HK"(港股)、"AAPL"(美股)
         data_type: 数据类型：forecast/express/indicators/income/balance/cashflow
         start_date: 开始日期，格式 YYYYMMDD 或 YYYY-MM-DD，默认 1 年前
         end_date: 结束日期，格式 YYYYMMDD 或 YYYY-MM-DD，默认今天
@@ -190,7 +190,7 @@ def get_company_performance_unified(
     try:
         from app.utils.stock_utils import StockUtils
 
-        market_info = StockUtils.get_market_info(stock_code)
+        market_info = StockUtils.get_market_info(symbol)
 
         if market_info["is_china"]:
             market = "CN"
@@ -202,13 +202,13 @@ def get_company_performance_unified(
             market = "US"
             market_name = "美股"
             if ind_name:
-                logger.warning(f"ind_name 参数仅对港股有效，美股 {stock_code} 将忽略此参数")
+                logger.warning(f"ind_name 参数仅对港股有效，美股 {symbol} 将忽略此参数")
                 ind_name = None
         else:
             return format_tool_result(
                 error_result(
                     ErrorCodes.UNKNOWN_MARKET,
-                    f"无法识别股票代码 {stock_code} 的市场类型",
+                    f"无法识别股票代码 {symbol} 的市场类型",
                     suggestion="检查股票代码格式是否正确",
                 )
             )
@@ -218,7 +218,7 @@ def get_company_performance_unified(
         if not start_date:
             start_date = (now_utc() - timedelta(days=360)).strftime("%Y%m%d")
 
-        logger.info(f"[{market_name}业绩] 获取数据: {stock_code}, data_type: {data_type}")
+        logger.info(f"[{market_name}业绩] 获取数据: {symbol}, data_type: {data_type}")
 
         # data_type → statement_type 映射（API 层用 indicators，数据库存 indicator）
         _DT_TO_STMT = {
@@ -234,7 +234,7 @@ def get_company_performance_unified(
         result = read_with_refresh(
             market,
             "financial_data",
-            symbol=stock_code,
+            symbol=symbol,
             start_date=start_date,
             end_date=end_date,
             filters={"statement_type": stmt_type} if stmt_type else None,
@@ -244,12 +244,12 @@ def get_company_performance_unified(
             import pandas as pd
 
             data = pd.DataFrame(perf_data) if isinstance(perf_data, list) else perf_data
-            return format_tool_result(success_result(format_result(data, f"{stock_code} Performance ({market})")))
+            return format_tool_result(success_result(format_result(data, f"{symbol} Performance ({market})")))
 
         return format_tool_result(
             error_result(
                 ErrorCodes.DATA_FETCH_ERROR,
-                f"无法获取{market_name}业绩数据: {stock_code}, data_type: {data_type}（请先同步 financial_data 数据）",
+                f"无法获取{market_name}业绩数据: {symbol}, data_type: {data_type}（请先同步 financial_data 数据）",
                 suggestion="建议先同步对应市场的 financial_data 数据",
             )
         )
@@ -260,7 +260,7 @@ def get_company_performance_unified(
 
 
 def get_stock_basic_info(
-    stock_code: str,
+    symbol: str,
 ) -> str:
     """
     获取股票基本信息。
@@ -268,7 +268,7 @@ def get_stock_basic_info(
     返回公司名称、行业分类、上市日期、注册资本等基本信息。
 
     Args:
-        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        symbol: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
 
     Returns:
         JSON 格式的 ToolResult
@@ -276,7 +276,7 @@ def get_stock_basic_info(
     try:
         from app.utils.stock_utils import StockUtils
 
-        market_info = StockUtils.get_market_info(stock_code)
+        market_info = StockUtils.get_market_info(symbol)
 
         if market_info["is_china"]:
             market = "CN"
@@ -291,13 +291,13 @@ def get_stock_basic_info(
             return format_tool_result(
                 error_result(
                     ErrorCodes.UNKNOWN_MARKET,
-                    f"无法识别股票代码 {stock_code} 的市场类型",
+                    f"无法识别股票代码 {symbol} 的市场类型",
                 )
             )
 
-        logger.info(f"[基本信息] 获取 {market_name} {stock_code} 基本信息数据")
+        logger.info(f"[基本信息] 获取 {market_name} {symbol} 基本信息数据")
 
-        result = read_with_refresh(market, "basic_info", symbol=stock_code)
+        result = read_with_refresh(market, "basic_info", symbol=symbol)
         data = result.get("data") if result else None
 
         if data:
@@ -306,7 +306,7 @@ def get_stock_basic_info(
         return format_tool_result(
             error_result(
                 ErrorCodes.DATA_FETCH_ERROR,
-                f"无法获取 {stock_code} 的基本信息（请先同步 basic_info 数据）",
+                f"无法获取 {symbol} 的基本信息（请先同步 basic_info 数据）",
             )
         )
 

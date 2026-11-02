@@ -50,11 +50,11 @@ def pop_injection(key: str) -> Optional[List[Dict]]:
         return _injection_ledger.pop(key, None)
 
 
-def _resolve_market(stock_code: str) -> str:
+def _resolve_market(symbol: str) -> str:
     from app.utils.stock_utils import StockUtils
 
     try:
-        market_info = StockUtils.get_market_info(stock_code)
+        market_info = StockUtils.get_market_info(symbol)
         if market_info.get("is_hk"):
             return "HK"
         if market_info.get("is_us"):
@@ -71,7 +71,7 @@ def _injection_query(symbol: str, current_date: str) -> str:
 
 
 def get_knowledge_base_brief(
-    stock_code: str,
+    symbol: str,
     current_date: Optional[str] = None,
     top_k: Optional[int] = None,
     injection_key: Optional[str] = None,
@@ -79,19 +79,19 @@ def get_knowledge_base_brief(
     """预检索知识库 top-K 语料，返回 ToolResult JSON。
 
     Args:
-        stock_code: 股票代码（如 000001.SZ / 00700.HK / AAPL）
+        symbol: 股票代码（如 000001.SZ / 00700.HK / AAPL）
         current_date: 分析日期（as_of 截断，防前视）
         top_k: 返回条数（缺省取 settings.KB_EMBEDDING_TOP_K）
         injection_key: 注入台账键（task_id::agent_key），供报告落板后引用校验
     """
-    if not stock_code:
+    if not symbol:
         return format_tool_result(error_result(ErrorCodes.MISSING_PARAM, "未提供股票代码"))
 
     from app.core.async_utils import run_async
     from app.core.config import settings
     from app.data.core.interface import DataInterface
 
-    market = _resolve_market(stock_code)
+    market = _resolve_market(symbol)
     effective_top_k = top_k or settings.KB_EMBEDDING_TOP_K
 
     try:
@@ -99,19 +99,19 @@ def get_knowledge_base_brief(
         # symbol 归一与 as_of 防前视均在数据层契约内完成
         refs = run_async(
             di.kb_search(
-                market, stock_code,
-                _injection_query(stock_code, current_date or ""),
+                market, symbol,
+                _injection_query(symbol, current_date or ""),
                 as_of=current_date,
                 top_k=effective_top_k,
             )
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[知识库工具] 检索失败 {stock_code}@{market}: {e}")
+        logger.warning(f"[知识库工具] 检索失败 {symbol}@{market}: {e}")
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, f"知识库检索失败: {e}"))
 
     if not refs:
         return format_tool_result(no_data_result(
-            message=f"知识库暂无 {stock_code} 可检索语料（索引未就绪、语料未同步或未配置向量模型）",
+            message=f"知识库暂无 {symbol} 可检索语料（索引未就绪、语料未同步或未配置向量模型）",
             suggestion="这是正常状态，不要重试；可基于其他新闻数据继续分析",
         ))
 
@@ -137,7 +137,7 @@ def get_knowledge_base_brief(
             "序号只能取自 references 列表，不得引用列表之外的来源或编造序号"
         ),
     }
-    logger.info(f"[知识库工具] {stock_code}@{market} 注入 {len(references)} 条（as_of={current_date}）")
+    logger.info(f"[知识库工具] {symbol}@{market} 注入 {len(references)} 条（as_of={current_date}）")
     return format_tool_result(success_result(json.dumps(payload, ensure_ascii=False, indent=2)))
 
 

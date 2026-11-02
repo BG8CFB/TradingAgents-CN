@@ -18,12 +18,12 @@ from app.engine.tools.common.data_access import read_with_refresh
 logger = logging.getLogger(__name__)
 
 
-def _get_market_for_code(stock_code: str) -> str:
+def _get_market_for_code(symbol: str) -> str:
     """根据股票代码判断市场。"""
     try:
         from app.utils.stock_utils import StockUtils
 
-        market_info = StockUtils.get_market_info(stock_code)
+        market_info = StockUtils.get_market_info(symbol)
         if market_info.get("is_hk"):
             return "HK"
         if market_info.get("is_us"):
@@ -34,13 +34,13 @@ def _get_market_for_code(stock_code: str) -> str:
     return "CN"
 
 
-def _fetch_news_data(stock_code: str, max_results: int = 10) -> list:
+def _fetch_news_data(symbol: str, max_results: int = 10) -> list:
     """内部辅助函数：通过 DataInterface 获取新闻数据列表（库空自动补数重读）。"""
     news_list = []
-    market = _get_market_for_code(stock_code)
+    market = _get_market_for_code(symbol)
 
     try:
-        result = read_with_refresh(market, "news", symbol=stock_code)
+        result = read_with_refresh(market, "news", symbol=symbol)
         data = result.get("data") if result else None
         source_tag = "Refreshed" if result and result.get("auto_refreshed") else "DB"
         for item in (data or [])[:max_results]:
@@ -153,25 +153,25 @@ def _filter_news_asof(news_list: list, as_of: str) -> list:
     return out
 
 
-def get_stock_news(stock_code: str, max_results: int = 10, current_date: str = None) -> str:
+def get_stock_news(symbol: str, max_results: int = 10, current_date: str = None) -> str:
     """
     获取指定股票的最新新闻。
 
     返回格式化的新闻列表，包含标题、来源、时间和摘要。
 
     Args:
-        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        symbol: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
         max_results: 返回的最大新闻数，建议范围 5-20，默认 10
         current_date: 分析基准日（注入 trade_date）；发布晚于该日的新闻被剔除，防止历史分析前视
 
     Returns:
         JSON 格式的 ToolResult，包含 status、data、error_code、suggestion 字段
     """
-    if not stock_code:
+    if not symbol:
         return format_tool_result(error_result(ErrorCodes.MISSING_PARAM, "未提供股票代码"))
 
     try:
-        news_list = _fetch_news_data(stock_code, max_results)
+        news_list = _fetch_news_data(symbol, max_results)
         news_list = _filter_news_asof(news_list, current_date)
 
         if news_list:
@@ -190,11 +190,11 @@ def get_stock_news(stock_code: str, max_results: int = 10, current_date: str = N
         market_news = _filter_news_asof(_fetch_market_news(max_results), current_date)
         if market_news:
             return format_tool_result(success_result(
-                _format_news_list(market_news, f"市场新闻兜底（未找到 {stock_code} 个股新闻）")
+                _format_news_list(market_news, f"市场新闻兜底（未找到 {symbol} 个股新闻）")
             ))
 
         return format_tool_result(
-            no_data_result(message=f"未找到 {stock_code} 的新闻数据", suggestion="这是正常状态，不要重试或尝试其他参数")
+            no_data_result(message=f"未找到 {symbol} 的新闻数据", suggestion="这是正常状态，不要重试或尝试其他参数")
         )
     except Exception as e:
         logger.error(f"get_stock_news failed: {e}", exc_info=True)

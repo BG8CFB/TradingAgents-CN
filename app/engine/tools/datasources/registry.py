@@ -96,7 +96,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["daily_quotes"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.market", "get_stock_data"),
-            inject_args={"stock_code": "ticker", "current_date": "trade_date"},
+            inject_args={"symbol": "ticker", "current_date": "trade_date"},
             description="股票日线行情数据（开盘价、最高价、最低价、收盘价、成交量；窗口锚定分析日）",
         ),
         DatasourceSpec(
@@ -106,7 +106,7 @@ def _build_registry() -> List[DatasourceSpec]:
             markets=["CN"],
             fn=_lazy_import(f"{_M}.market", "get_stock_data_minutes"),
             inject_args={
-                "stock_code": "ticker",
+                "symbol": "ticker",
                 "market_type": _resolve_market_type,
                 "freq": "30min",
                 "current_date": "trade_date",
@@ -119,7 +119,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["market_quotes"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.market", "get_index_data"),
-            inject_args={"stock_code": "ticker", "current_date": "trade_date"},
+            inject_args={"symbol": "ticker", "current_date": "trade_date"},
             description="指数日线行情数据（窗口截止到分析日）",
         ),
         DatasourceSpec(
@@ -128,7 +128,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["financial_data"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.fundamentals", "get_company_performance_unified"),
-            inject_args={"stock_code": "ticker", "data_type": "indicators"},
+            inject_args={"symbol": "ticker", "data_type": "indicators"},
             description="公司业绩预告、快报、财务指标、利润表、资产负债表、现金流量表",
         ),
         DatasourceSpec(
@@ -137,7 +137,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["daily_quotes", "financial_data", "basic_info"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.fundamentals", "get_stock_fundamentals"),
-            inject_args={"stock_code": "ticker", "current_date": "trade_date"},
+            inject_args={"symbol": "ticker", "current_date": "trade_date"},
             description="基本面综合分析（价格走势 + 财务数据 + 公司信息）",
         ),
         DatasourceSpec(
@@ -146,7 +146,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["news"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.news", "get_stock_news"),
-            inject_args={"stock_code": "ticker", "max_results": 15, "current_date": "trade_date"},
+            inject_args={"symbol": "ticker", "max_results": 15, "current_date": "trade_date"},
             description="股票相关新闻（标题、来源、时间、摘要、情绪；发布晚于分析日的剔除）",
         ),
         DatasourceSpec(
@@ -155,7 +155,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["news"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.sentiment", "get_stock_sentiment"),
-            inject_args={"stock_code": "ticker", "current_date": "trade_date"},
+            inject_args={"symbol": "ticker", "current_date": "trade_date"},
             description="基于新闻情感标签的市场情绪统计（正面/负面/中性计数与评分）",
         ),
         # ── 知识库（stock_news 语料向量化检索，公共事实与记忆区分开） ──
@@ -166,7 +166,7 @@ def _build_registry() -> List[DatasourceSpec]:
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.knowledge", "get_knowledge_base_brief"),
             inject_args={
-                "stock_code": "ticker",
+                "symbol": "ticker",
                 "current_date": "trade_date",
                 "injection_key": _kb_injection_key,
             },
@@ -191,7 +191,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["dragon_tiger"],
             markets=["CN"],
             fn=_lazy_import(f"{_M}.china_market", "get_dragon_tiger_inst"),
-            inject_args={"ts_code": "ticker", "trade_date": "trade_date_compact"},
+            inject_args={"symbol": "ticker", "trade_date": "trade_date_compact"},
             description="龙虎榜机构明细",
         ),
         DatasourceSpec(
@@ -200,7 +200,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["block_trade"],
             markets=["CN"],
             fn=_lazy_import(f"{_M}.china_market", "get_block_trade"),
-            inject_args={"code": "ticker"},
+            inject_args={"symbol": "ticker"},
             description="大宗交易数据",
         ),
         DatasourceSpec(
@@ -209,7 +209,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["money_flow"],
             markets=["CN"],
             fn=_lazy_import(f"{_M}.capital_flow", "get_money_flow"),
-            inject_args={"ts_code": "ticker", "query_type": "stock"},
+            inject_args={"symbol": "ticker", "query_type": "stock"},
             description="个股资金流向数据",
         ),
         DatasourceSpec(
@@ -218,7 +218,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["margin_trading"],
             markets=["CN"],
             fn=_lazy_import(f"{_M}.capital_flow", "get_margin_trade"),
-            inject_args={"data_type": "margin", "ts_code": "ticker"},
+            inject_args={"data_type": "margin", "symbol": "ticker"},
             description="融资融券数据",
         ),
         DatasourceSpec(
@@ -227,7 +227,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["daily_indicators"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.market", "get_stock_indicators"),
-            inject_args={"stock_code": "ticker", "current_date": "trade_date"},
+            inject_args={"symbol": "ticker", "current_date": "trade_date"},
             description="股票估值指标（PE/PB/PS/市值/换手率等；窗口截止到分析日）",
         ),
         DatasourceSpec(
@@ -236,7 +236,7 @@ def _build_registry() -> List[DatasourceSpec]:
             domains=["basic_info"],
             markets=["CN", "HK", "US"],
             fn=_lazy_import(f"{_M}.fundamentals", "get_stock_basic_info"),
-            inject_args={"stock_code": "ticker"},
+            inject_args={"symbol": "ticker"},
             description="股票基本信息（名称、行业、上市日期等）",
         ),
     ]

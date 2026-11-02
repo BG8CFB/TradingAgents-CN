@@ -66,7 +66,7 @@ _MARKET_MAP = {
 
 
 def get_stock_data(
-    stock_code: str,
+    symbol: str,
     market_type: str = "cn",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -78,7 +78,7 @@ def get_stock_data(
     返回开盘价、最高价、最低价、收盘价、成交量等行情数据。
 
     Args:
-        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        symbol: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
         market_type: 市场类型: "cn"(A股)、"us"(美股)、"hk"(港股)，默认自动推断
         start_date: 开始日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认基准日 1 个月前
         end_date: 结束日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认基准日
@@ -90,7 +90,7 @@ def get_stock_data(
     try:
         from app.utils.stock_utils import StockUtils
 
-        market_info = StockUtils.get_market_info(stock_code)
+        market_info = StockUtils.get_market_info(symbol)
 
         market_key = None
         for attr, (mkt, name) in _MARKET_MAP.items():
@@ -122,7 +122,7 @@ def get_stock_data(
                 error_result(ErrorCodes.INVALID_PARAM, err, suggestion="请修正日期窗口后重试")
             )
 
-        data = _read_daily_quotes(market_key, stock_code, start_date, end_date)
+        data = _read_daily_quotes(market_key, symbol, start_date, end_date)
 
         if data is not None:
             return format_tool_result(success_result(_to_json_str(data)))
@@ -130,7 +130,7 @@ def get_stock_data(
             return format_tool_result(
                 error_result(
                     ErrorCodes.UNKNOWN_MARKET,
-                    f"无法获取 {stock_code} 的行情数据（请先同步 daily_quotes 数据）",
+                    f"无法获取 {symbol} 的行情数据（请先同步 daily_quotes 数据）",
                     suggestion="请使用标准格式的股票代码，如 000001.SZ、00700.HK、AAPL",
                 )
             )
@@ -142,7 +142,7 @@ def get_stock_data(
 
 def get_stock_data_minutes(
     market_type: str,
-    stock_code: str,
+    symbol: str,
     start_datetime: Optional[str] = None,
     end_datetime: Optional[str] = None,
     freq: str = "30min",
@@ -153,7 +153,7 @@ def get_stock_data_minutes(
 
     Args:
         market_type: 市场类型，目前仅支持 "cn"
-        stock_code: 股票代码，如 "600519.SH"
+        symbol: 股票代码，如 "600519.SH"
         start_datetime: 开始时间，格式 YYYY-MM-DD HH:mm:ss，默认基准日 1 天前
         end_datetime: 结束时间，格式 YYYY-MM-DD HH:mm:ss，默认基准日收盘
         freq: 频率，支持 "1min"、"5min"、"15min"、"30min"、"60min"，默认 "30min"
@@ -182,7 +182,7 @@ def get_stock_data_minutes(
         result = read_with_refresh(
             "CN",
             "intraday_quotes",
-            symbol=stock_code,
+            symbol=symbol,
             start_date=start_datetime,
             end_date=end_datetime,
             filters={"freq": freq_short},
@@ -192,11 +192,11 @@ def get_stock_data_minutes(
             import pandas as pd
 
             data = pd.DataFrame(intraday_data) if isinstance(intraday_data, list) else intraday_data
-            return format_tool_result(success_result(format_result(data, f"{stock_code} {freq} Data")))
+            return format_tool_result(success_result(format_result(data, f"{symbol} {freq} Data")))
 
         return format_tool_result(
             error_result(
-                ErrorCodes.DATA_FETCH_ERROR, f"无法获取分钟级行情数据: {stock_code}（请先同步 intraday_quotes 数据）"
+                ErrorCodes.DATA_FETCH_ERROR, f"无法获取分钟级行情数据: {symbol}（请先同步 intraday_quotes 数据）"
             )
         )
     except Exception as e:
@@ -205,7 +205,7 @@ def get_stock_data_minutes(
 
 
 def get_index_data(
-    stock_code: str,
+    symbol: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     current_date: Optional[str] = None,
@@ -214,7 +214,7 @@ def get_index_data(
     获取指数日线行情。
 
     Args:
-        stock_code: 指数代码，如 "000001.SH"
+        symbol: 指数代码，如 "000001.SH"
         start_date: 开始日期，格式 YYYYMMDD，默认基准日 3 个月前
         end_date: 结束日期，格式 YYYYMMDD，默认基准日
         current_date: 分析基准日（注入 trade_date），窗口截止到该日，防止历史分析前视
@@ -243,7 +243,7 @@ def get_index_data(
             )
 
         # 动态推导市场
-        market_info = StockUtils.get_market_info(stock_code)
+        market_info = StockUtils.get_market_info(symbol)
         market = "CN"
         for attr, (mkt, _) in _MARKET_MAP.items():
             if market_info.get(attr):
@@ -251,18 +251,18 @@ def get_index_data(
                 break
 
         result = read_with_refresh(
-            market, "market_quotes", symbol=stock_code, start_date=start_date, end_date=end_date
+            market, "market_quotes", symbol=symbol, start_date=start_date, end_date=end_date
         )
         index_data = result.get("data") if result else None
         if index_data:
             import pandas as pd
 
             data = pd.DataFrame(index_data) if isinstance(index_data, list) else index_data
-            return format_tool_result(success_result(format_result(data, f"Index: {stock_code}")))
+            return format_tool_result(success_result(format_result(data, f"Index: {symbol}")))
 
         return format_tool_result(
             error_result(
-                ErrorCodes.DATA_FETCH_ERROR, f"指数行情数据暂不可用: {stock_code}（请先同步 market_quotes 数据）"
+                ErrorCodes.DATA_FETCH_ERROR, f"指数行情数据暂不可用: {symbol}（请先同步 market_quotes 数据）"
             )
         )
     except Exception as e:
@@ -271,7 +271,7 @@ def get_index_data(
 
 
 def get_stock_indicators(
-    stock_code: str,
+    symbol: str,
     market_type: str = "cn",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -283,7 +283,7 @@ def get_stock_indicators(
     返回 PE、PB、PS、总市值、流通市值、换手率等每日估值指标。
 
     Args:
-        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        symbol: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
         market_type: 市场类型: "cn"(A股)、"us"(美股)、"hk"(港股)，默认自动推断
         start_date: 开始日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认基准日 1 个月前
         end_date: 结束日期，格式 YYYY-MM-DD 或 YYYYMMDD，默认基准日
@@ -295,7 +295,7 @@ def get_stock_indicators(
     try:
         from app.utils.stock_utils import StockUtils
 
-        market_info = StockUtils.get_market_info(stock_code)
+        market_info = StockUtils.get_market_info(symbol)
 
         market_key = None
         for attr, (mkt, name) in _MARKET_MAP.items():
@@ -328,7 +328,7 @@ def get_stock_indicators(
             )
 
         result = read_with_refresh(
-            market_key, "daily_indicators", symbol=stock_code, start_date=start_date, end_date=end_date
+            market_key, "daily_indicators", symbol=symbol, start_date=start_date, end_date=end_date
         )
         raw = result.get("data") if result else None
 
@@ -336,12 +336,12 @@ def get_stock_indicators(
             import pandas as pd
 
             data = pd.DataFrame(raw) if isinstance(raw, list) and raw else raw
-            return format_tool_result(success_result(format_result(data, f"{stock_code} Indicators")))
+            return format_tool_result(success_result(format_result(data, f"{symbol} Indicators")))
 
         return format_tool_result(
             error_result(
                 ErrorCodes.DATA_FETCH_ERROR,
-                f"无法获取 {stock_code} 的估值指标数据（请先同步 daily_indicators 数据）",
+                f"无法获取 {symbol} 的估值指标数据（请先同步 daily_indicators 数据）",
             )
         )
 

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_stock_sentiment(
-    stock_code: str,
+    symbol: str,
     current_date: str,
 ) -> str:
     """
@@ -22,19 +22,19 @@ def get_stock_sentiment(
     注意：此工具基于新闻数据中已有的 sentiment 字段进行统计，不执行实时NLP分析。
 
     Args:
-        stock_code: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
+        symbol: 股票代码，如 "000001.SZ"(A股)、"AAPL"(美股)、"00700.HK"(港股)
         current_date: 当前日期，格式 YYYY-MM-DD
 
     Returns:
         JSON 格式的 ToolResult
     """
-    logger.info(f"[新闻情绪统计] 分析股票: {stock_code}")
+    logger.info(f"[新闻情绪统计] 分析股票: {symbol}")
     start_time = now_utc()
 
     try:
         from app.utils.stock_utils import StockUtils
 
-        market_info = StockUtils.get_market_info(stock_code)
+        market_info = StockUtils.get_market_info(symbol)
         is_china = market_info["is_china"]
         is_hk = market_info["is_hk"]
         market_info["is_us"]
@@ -44,7 +44,7 @@ def get_stock_sentiment(
         if is_china or is_hk:
             from app.engine.tools.datasources.news import _fetch_news_data
 
-            news_list = _fetch_news_data(stock_code, 20)
+            news_list = _fetch_news_data(symbol, 20)
 
             if news_list:
                 positive = 0
@@ -66,7 +66,7 @@ def get_stock_sentiment(
                 sentiment_summary = f"""
 ## 中文市场情绪分析
 
-**股票**: {stock_code} ({market_info["market_name"]})
+**股票**: {symbol} ({market_info["market_name"]})
 **分析日期**: {current_date}
 **分析周期**: 近期新闻
 
@@ -90,7 +90,7 @@ def get_stock_sentiment(
                 from app.data.core.interface import DataInterface
 
                 _di = DataInterface.get_instance()
-                _r = run_async(_di.read("US", "news", symbol=stock_code.upper()))
+                _r = run_async(_di.read("US", "news", symbol=symbol.upper()))
                 reddit_info = _r.get("data")
                 if reddit_info:
                     result_data.append(f"## 美股新闻舆情\n{reddit_info}")
@@ -102,7 +102,7 @@ def get_stock_sentiment(
 
         execution_time = (now_utc() - start_time).total_seconds()
 
-        combined_result = f"""# {stock_code} 市场情绪分析
+        combined_result = f"""# {symbol} 市场情绪分析
 
 **股票类型**: {market_info["market_name"]}
 **分析日期**: {current_date}
