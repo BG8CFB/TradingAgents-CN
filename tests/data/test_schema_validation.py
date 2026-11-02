@@ -74,7 +74,7 @@ class TestTradeCalendarSchema:
 class TestSyncMetadataSchema:
     def test_checkpoint(self):
         schema = SyncCheckpointSchema(
-            market="CN", domain="daily_quotes", source="tushare",
+            market="CN", domain="daily_quotes", data_source="tushare",
             last_sync_date="2026-05-19", status="success",
         )
         doc = schema.to_db_doc()
@@ -93,7 +93,7 @@ class TestSyncMetadataSchema:
 
     def test_source_health(self):
         schema = SourceHealthSchema(
-            market="CN", source="tushare", domain="daily_quotes",
+            market="CN", data_source="tushare", domain="daily_quotes",
             circuit_state="closed", success_rate_1h=0.95,
         )
         assert schema.circuit_state == "closed"

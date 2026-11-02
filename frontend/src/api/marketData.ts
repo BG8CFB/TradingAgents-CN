@@ -41,7 +41,7 @@ export interface DomainStat {
 }
 
 export interface SourceHealthItem {
-  source: string
+  data_source: string
   domain: string
   circuit_state: string
   success_rate_1h: number | null
@@ -101,7 +101,7 @@ export interface DashboardData {
 
 export interface SyncCheckpoint {
   domain: string
-  source: string
+  data_source: string
   last_sync_date: string
   last_sync_time: string
   status: string
@@ -112,7 +112,7 @@ export interface SyncCheckpoint {
 export interface SyncEvent {
   event_type: string
   domain: string
-  source: string
+  data_source: string
   symbol: string | null
   record_count: number
   duration_ms: number

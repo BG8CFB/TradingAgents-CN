@@ -21,12 +21,12 @@
           <span>{{ unhealthySources.length }} 个数据源出现异常，已触发熔断或处于半开状态</span>
         </div>
         <div class="alert-list">
-          <div v-for="h in unhealthySources" :key="`${h.source}-${h.domain}`" class="alert-item">
+          <div v-for="h in unhealthySources" :key="`${h.data_source}-${h.domain}`" class="alert-item">
             <div class="alert-info">
               <el-tag :type="h.circuit_state === 'open' ? 'danger' : 'warning'" size="small" effect="dark" round>
                 {{ h.circuit_state === 'open' ? '熔断' : '半开' }}
               </el-tag>
-              <span class="alert-source">{{ h.source?.toUpperCase() }}</span>
+              <span class="alert-source">{{ h.data_source?.toUpperCase() }}</span>
               <el-icon class="alert-arrow"><Right /></el-icon>
               <span class="alert-domain">{{ domainLabel(h.domain) }}</span>
             </div>
@@ -341,8 +341,8 @@ async function savePriority() {
 
 async function handleReset(h: SourceHealthItem) {
   try {
-    await resetCircuitBreaker(props.market, h.source, h.domain)
-    ElMessage.success(`${h.source}/${domainLabel(h.domain)} 熔断器已重置`)
+    await resetCircuitBreaker(props.market, h.data_source, h.domain)
+    ElMessage.success(`${h.data_source}/${domainLabel(h.domain)} 熔断器已重置`)
     loadConfig()
   } catch {
     ElMessage.error('重置失败')

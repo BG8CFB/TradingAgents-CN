@@ -117,7 +117,7 @@ class BaseSyncJob(ABC):
                 for symbol in symbols:
                     result = await self._fetch_and_write(router, symbol, start_date)
                     total_count += result.get("count", 0)
-                    last_source = result.get("source")
+                    last_source = result.get("data_source")
             else:
                 concurrency = _resolve_sync_concurrency(self.market)
                 semaphore = asyncio.Semaphore(concurrency)
@@ -140,7 +140,7 @@ class BaseSyncJob(ABC):
                         )
                         continue
                     total_count += res.get("count", 0)
-                    src = res.get("source")
+                    src = res.get("data_source")
                     if src:
                         last_source = src
 
@@ -159,7 +159,7 @@ class BaseSyncJob(ABC):
                     "event_type": "SYNC_SUCCESS",
                     "market": self.market,
                     "domain": self.domain,
-                    "source": last_source,
+                    "data_source": last_source,
                     "record_count": total_count,
                     "latency_ms": elapsed,
                 }
@@ -195,8 +195,8 @@ class BaseSyncJob(ABC):
 
         if result.success and result.records:
             count = await self._write_records(result.records)
-            return {"count": count, "source": result.source}
-        return {"count": 0, "source": result.source, "error": result.error}
+            return {"count": count, "data_source": result.source}
+        return {"count": 0, "data_source": result.source, "error": result.error}
 
     async def _write_records(self, records: list) -> int:
         """写入仓储。"""

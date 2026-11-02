@@ -107,7 +107,7 @@ class TestSourceHealthMonitor:
     def test_compute_health_zero_division_safe(self):
         monitor = self._create_monitor()
         stats = {
-            "market": "CN", "source": "tushare", "domain": "daily_quotes",
+            "market": "CN", "data_source": "tushare", "domain": "daily_quotes",
             "success_count": 0, "failure_count": 0,
             "total_latency_ms": 0, "call_count": 0,
             "last_success_at": None, "last_failure_at": None, "last_error": None,
@@ -213,12 +213,12 @@ class TestAlertService:
 
         service = AlertService()
         await service.send_alert("致命", "数据源全部不可用", AlertLevel.CRITICAL,
-                                 source="tushare")
+                                 data_source="tushare")
 
         events = await inject_sim_db["sync_events"].find({}).to_list()
         event = events[-1]
         assert event["level"] == "critical"
-        assert event["source"] == "tushare"
+        assert event["data_source"] == "tushare"
 
     @pytest.mark.asyncio
     async def test_sse_not_pushed_when_disabled(self, inject_sim_db):

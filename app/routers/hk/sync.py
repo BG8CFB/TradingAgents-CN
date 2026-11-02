@@ -55,7 +55,7 @@ async def refresh_hk_stock(
         for d, dr in result.domains.items():
             domain_dict[d] = {
                 "status": dr.status,
-                "source": dr.source,
+                "data_source": dr.source,
                 "fallback_from": dr.fallback_from,
                 "records": dr.record_count,
                 "error": dr.error,
@@ -66,7 +66,7 @@ async def refresh_hk_stock(
             "status": result.status,
             "domains": domain_dict,
             "duration_ms": result.total_latency_ms,
-            "source": result.source_used,
+            "data_source": result.source_used,
             "fallback_from": result.fallback_from,
             "error": result.error,
         })

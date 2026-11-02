@@ -47,17 +47,17 @@ async def get_us_sources_health(user: dict = Depends(get_current_user)):
     return await di.get_source_health(_MARKET)
 
 
-@router.post("/sources/health/{source}/{domain}/reset")
+@router.post("/sources/health/{data_source}/{domain}/reset")
 async def reset_circuit_breaker(
-    source: str,
+    data_source: str,
     domain: str,
     user: dict = Depends(require_admin),
 ):
     """重置指定数据源的熔断器（需管理员权限）"""
     try:
         di = DataInterface.get_instance()
-        await di.reset_source_circuit(_MARKET, source, domain)
-        return ok(message=f"熔断器 {source}/{domain} 已重置")
+        await di.reset_source_circuit(_MARKET, data_source, domain)
+        return ok(message=f"熔断器 {data_source}/{domain} 已重置")
     except Exception as e:
         return fail(message=f"重置失败: {e}", code=500)
 

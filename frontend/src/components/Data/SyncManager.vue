@@ -80,12 +80,12 @@
         </div>
         <div class="panel-body">
           <div v-if="checkpoints.length > 0" class="checkpoint-list">
-            <div v-for="cp in checkpoints" :key="`${cp.domain}-${cp.source}`" class="checkpoint-item">
+            <div v-for="cp in checkpoints" :key="`${cp.domain}-${cp.data_source}`" class="checkpoint-item">
               <div class="cp-left">
                 <div class="cp-dot" :class="cp.status === 'success' ? 'success' : 'error'"></div>
                 <div class="cp-info">
                   <div class="cp-domain">{{ domainLabel(cp.domain) }}</div>
-                  <div class="cp-source">{{ cp.source?.toUpperCase() || '--' }}</div>
+                  <div class="cp-source">{{ cp.data_source?.toUpperCase() || '--' }}</div>
                 </div>
               </div>
               <div class="cp-right">
@@ -139,7 +139,7 @@
                     <span class="event-domain">{{ domainLabel(ev.domain) }}</span>
                   </div>
                   <div class="event-detail">
-                    <span v-if="ev.source">{{ ev.source.toUpperCase() }}</span>
+                    <span v-if="ev.data_source">{{ ev.data_source.toUpperCase() }}</span>
                     <span v-if="ev.record_count">{{ ev.record_count }} 条</span>
                     <span v-if="ev.fallback_from" class="fallback">从 {{ ev.fallback_from }} 降级</span>
                   </div>

@@ -54,7 +54,7 @@ class TestSyncCheckpointSchema:
     """验证 SyncCheckpointSchema 新增字段正确。"""
 
     def test_new_fields_all_optional_with_defaults(self):
-        s = SyncCheckpointSchema(market="CN", domain="daily_quotes", source="tushare")
+        s = SyncCheckpointSchema(market="CN", domain="daily_quotes", data_source="tushare")
         doc = s.to_db_doc()
         assert doc["market"] == "CN"
         assert "scope" not in doc
@@ -64,7 +64,7 @@ class TestSyncCheckpointSchema:
 
     def test_new_fields_when_set(self):
         s = SyncCheckpointSchema(
-            market="CN", domain="daily_quotes", source="tushare",
+            market="CN", domain="daily_quotes", data_source="tushare",
             scope="single", trigger="manual", symbol="000001", duration_ms=200,
             last_sync_date="2026-06-19", status="success", record_count=5,
         )

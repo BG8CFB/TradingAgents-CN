@@ -31,7 +31,7 @@ class AlertService:
         level: AlertLevel = AlertLevel.INFO,
         market: Optional[str] = None,
         domain: Optional[str] = None,
-        source: Optional[str] = None,
+        data_source: Optional[str] = None,
     ):
         """发送告警。"""
         alert_data = {
@@ -40,7 +40,7 @@ class AlertService:
             "level": level.value,
             "market": market,
             "domain": domain,
-            "source": source,
+            "data_source": data_source,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -94,7 +94,7 @@ class AlertService:
                 "event_type": "ALERT",
                 "market": alert_data.get("market"),
                 "domain": alert_data.get("domain"),
-                "source": alert_data.get("source"),
+                "data_source": alert_data.get("data_source"),
                 "level": alert_data.get("level"),
                 "title": alert_data.get("title"),
                 "message": alert_data.get("message"),

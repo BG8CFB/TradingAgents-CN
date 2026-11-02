@@ -71,7 +71,7 @@ class SourceHealthMonitor:
             if key not in self._stats:
                 self._stats[key] = {
                     "market": market,
-                    "source": source,
+                    "data_source": source,
                     "domain": domain,
                     "success_count": 0,
                     "failure_count": 0,
@@ -190,7 +190,11 @@ class SourceHealthMonitor:
 
         return {
             "market": stats["market"],
-            "source": stats["source"],
+            # data_source 为标准键；兼容期同步保留 legacy source 别名：
+            # 内存路径（interface.get_source_health 回退分支）不经仓储投影，
+            # 仍读 source 的消费方（core/health.py、sync/base_sync_service）依赖它
+            "data_source": stats["data_source"],
+            "source": stats["data_source"],
             "domain": stats["domain"],
             "circuit_state": stats.get("circuit_state", "closed"),
             "success_rate": round(success_rate, 4),
@@ -240,7 +244,7 @@ class SourceHealthMonitor:
                 try:
                     await self._repo.upsert_health(
                         stats_copy["market"],
-                        stats_copy["source"],
+                        stats_copy["data_source"],
                         stats_copy["domain"],
                         health,
                     )

@@ -46,7 +46,7 @@ async def _seed_checkpoint(db, market: str, domain: str, cp_date: str):
     await db["sync_checkpoints"].insert_one({
         "market": market,
         "domain": domain,
-        "source": "scheduled",
+        "data_source": "scheduled",
         "last_sync_date": cp_date,
         "last_sync_time": "2026-10-01T00:00:00+00:00",
         "status": "success",
