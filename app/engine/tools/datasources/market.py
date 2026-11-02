@@ -136,7 +136,7 @@ def get_stock_data(
             )
 
     except Exception as e:
-        logger.error(f"get_stock_data failed: {e}")
+        logger.error(f"get_stock_data failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, f"获取股票数据失败: {str(e)}"))
 
 
@@ -200,7 +200,7 @@ def get_stock_data_minutes(
             )
         )
     except Exception as e:
-        logger.error(f"get_stock_data_minutes failed: {e}")
+        logger.error(f"get_stock_data_minutes failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
@@ -266,7 +266,7 @@ def get_index_data(
             )
         )
     except Exception as e:
-        logger.error(f"get_index_data failed: {e}")
+        logger.error(f"get_index_data failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
@@ -346,5 +346,5 @@ def get_stock_indicators(
         )
 
     except Exception as e:
-        logger.error(f"get_stock_indicators failed: {e}")
+        logger.error(f"get_stock_indicators failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

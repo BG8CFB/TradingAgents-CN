@@ -171,7 +171,7 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
                 )
             except Exception as e:
                 # create_task 失败（极少见），降级同步
-                logger.error(f"调度操作日志失败，降级同步: {e}")
+                logger.error(f"调度操作日志失败，降级同步: {e}", exc_info=True)
                 try:
                     await self._log_operation(
                         user_info=user_info,
@@ -182,7 +182,7 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
                         user_agent=user_agent,
                     )
                 except Exception as fallback_exc:
-                    logger.error(f"记录操作日志失败（同步降级）: {fallback_exc}")
+                    logger.error(f"记录操作日志失败（同步降级）: {fallback_exc}", exc_info=True)
 
         return response
 
@@ -375,7 +375,7 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
             )
 
         except Exception as e:
-            logger.error(f"记录操作日志失败: {e}")
+            logger.error(f"记录操作日志失败: {e}", exc_info=True)
 
 
 # 便捷函数：手动记录操作日志
@@ -408,4 +408,4 @@ async def manual_log_operation(
             session_id=user_info.get("session_id")
         )
     except Exception as e:
-        logger.error(f"手动记录操作日志失败: {e}")
+        logger.error(f"手动记录操作日志失败: {e}", exc_info=True)

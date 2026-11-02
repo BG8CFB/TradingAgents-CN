@@ -286,7 +286,7 @@ class SkillRegistry:
             try:
                 content = Path(skill_path).read_text(encoding="utf-8")
             except Exception as e:
-                logger.error(f"读取技能内容失败 {name}: {e}")
+                logger.error(f"读取技能内容失败 {name}: {e}", exc_info=True)
                 content = None
 
         if content is not None:

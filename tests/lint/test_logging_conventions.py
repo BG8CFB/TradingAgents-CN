@@ -5,7 +5,7 @@
 1. no-print:      app/ 业务代码禁止 print()（app/scripts/ 一次性脚本豁免；
                   入口引导一律走 logging，配置前由 lastResort 输出 stderr）
 2. error-exc-info ratchet: logger.error(...) 必须携带 exc_info=True。
-                  存量 473 处（2026-11-01 基线）以棘轮方式收敛：
+                  存量 84 处（2026-11-02 基线，均不在 except 块内）以棘轮方式收敛：
                   只许减少不许增加；每批修复后手动下调 EXC_INFO_BASELINE。
 
 ratchet 说明：批量修复属治理计划阶段 3（错误处理与日志组），
@@ -16,9 +16,11 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).parent.parent.parent / "app"
 
-# 2026-11-01 基线：app/ 下 logger.error( 不带 exc_info 的调用总数（AST 口径）。
+# 2026-11-02 基线：app/ 下 logger.error( 不带 exc_info 的调用总数（AST 口径）。
+# 阶段 3.6 批量补齐 except 块内 369 处后，剩余 84 处均不在 except 块内
+# （无活跃异常上下文，exc_info 会打 "NoneType: None" 噪音，暂保留）。
 # 每批修复后把该数字下调到当前实测值，只减不增。
-EXC_INFO_BASELINE = 473
+EXC_INFO_BASELINE = 84
 
 
 def _iter_app_py_files():

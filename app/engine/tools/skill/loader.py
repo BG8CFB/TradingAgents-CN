@@ -57,7 +57,7 @@ def parse_skill_metadata(file_path: str) -> dict:
     try:
         content = path.read_text(encoding="utf-8")
     except Exception as e:
-        logger.error(f"读取 Skill 文件失败 {file_path}: {e}")
+        logger.error(f"读取 Skill 文件失败 {file_path}: {e}", exc_info=True)
         return {"file_path": file_path}
 
     match = _FRONTMATTER_PATTERN.match(content)
@@ -70,7 +70,7 @@ def parse_skill_metadata(file_path: str) -> dict:
     try:
         parsed = yaml.safe_load(yaml_block)
     except yaml.YAMLError as e:
-        logger.error(f"Skill frontmatter YAML 解析失败 {file_path}: {e}")
+        logger.error(f"Skill frontmatter YAML 解析失败 {file_path}: {e}", exc_info=True)
         return {"file_path": file_path}
 
     if not isinstance(parsed, dict):
@@ -179,7 +179,7 @@ def load_skill_content(
         logger.debug(f"成功加载技能内容: {skill_name} ({file_path})")
         return content
     except Exception as e:
-        logger.error(f"读取技能内容失败 {skill_name}: {e}")
+        logger.error(f"读取技能内容失败 {skill_name}: {e}", exc_info=True)
         return None
 
 

@@ -304,7 +304,7 @@ def create_researcher(llm, memory, side: Literal["bull", "bear"] = "bull", *, gr
                 os.replace(tmp_filename, filename)
                 logger.info(f"{emoji} [{label}研究员] 已更新报告文件: {filename}")
             except Exception as e:
-                logger.error(f"{emoji} [ERROR] 保存报告文件失败: {e}")
+                logger.error(f"{emoji} [ERROR] 保存报告文件失败: {e}", exc_info=True)
 
             # ── 10. 状态返回（history/current_response 等由 export_legacy_state 派生）──
 

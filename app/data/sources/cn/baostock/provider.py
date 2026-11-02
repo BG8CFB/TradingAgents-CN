@@ -50,7 +50,7 @@ class BaoStockCNProvider(BaseProvider):
             self.connected = True
             return True
         except Exception as e:
-            logger.error(f"BaoStock 连接失败: {e}")
+            logger.error(f"BaoStock 连接失败: {e}", exc_info=True)
             return False
 
     def is_available(self) -> bool:

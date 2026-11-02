@@ -67,7 +67,7 @@ class OperationLogService:
             return str(result.inserted_id)
             
         except Exception as e:
-            logger.error(f"创建操作日志失败: {e}")
+            logger.error(f"创建操作日志失败: {e}", exc_info=True)
             raise RuntimeError(f"创建操作日志失败: {str(e)}") from e
     
     async def get_logs(self, query: OperationLogQuery) -> Tuple[List[OperationLogResponse], int]:
@@ -128,7 +128,7 @@ class OperationLogService:
             return logs, total
             
         except Exception as e:
-            logger.error(f"获取操作日志失败: {e}")
+            logger.error(f"获取操作日志失败: {e}", exc_info=True)
             raise RuntimeError(f"获取操作日志失败: {str(e)}") from e
 
     async def get_all_for_export(
@@ -169,7 +169,7 @@ class OperationLogService:
             logger.info(f"📋 导出操作日志: 返回 {len(logs)} 条 (limit={limit})")
             return logs
         except Exception as e:
-            logger.error(f"导出操作日志失败: {e}")
+            logger.error(f"导出操作日志失败: {e}", exc_info=True)
             raise RuntimeError(f"导出操作日志失败: {str(e)}") from e
 
     async def get_stats(self, days: int = 30) -> OperationLogStats:
@@ -235,7 +235,7 @@ class OperationLogService:
             return stats
             
         except Exception as e:
-            logger.error(f"获取操作日志统计失败: {e}")
+            logger.error(f"获取操作日志统计失败: {e}", exc_info=True)
             raise RuntimeError(f"获取操作日志统计失败: {str(e)}") from e
     
     async def clear_logs(self, days: Optional[int] = None, action_type: Optional[str] = None) -> Dict[str, Any]:
@@ -266,7 +266,7 @@ class OperationLogService:
             }
             
         except Exception as e:
-            logger.error(f"清空操作日志失败: {e}")
+            logger.error(f"清空操作日志失败: {e}", exc_info=True)
             raise RuntimeError(f"清空操作日志失败: {str(e)}") from e
     
     async def get_log_by_id(self, log_id: str) -> Optional[OperationLogResponse]:
@@ -282,7 +282,7 @@ class OperationLogService:
             return OperationLogResponse(**doc)
 
         except Exception as e:
-            logger.error(f"获取操作日志详情失败: {e}")
+            logger.error(f"获取操作日志详情失败: {e}", exc_info=True)
             return None
 
 

@@ -50,7 +50,7 @@ class FinnhubUSProvider(BaseProvider):
                 logger.info(f"Finnhub-US: {len(df)} 只美股")
             return df
         except Exception as e:
-            logger.error(f"Finnhub-US 股票列表失败: {e}")
+            logger.error(f"Finnhub-US 股票列表失败: {e}", exc_info=True)
             return None
 
     async def get_daily_quotes(
@@ -85,7 +85,7 @@ class FinnhubUSProvider(BaseProvider):
 
             return await asyncio.to_thread(_fetch)
         except Exception as e:
-            logger.error(f"Finnhub-US 行情失败 {symbol}: {e}")
+            logger.error(f"Finnhub-US 行情失败 {symbol}: {e}", exc_info=True)
             return None
 
     async def get_news(

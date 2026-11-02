@@ -34,7 +34,7 @@ class UsageStatisticsService:
             logger.info(f"✅ 添加使用记录成功: {record.provider}/{record.model_name}")
             return True
         except Exception as e:
-            logger.error(f"❌ 添加使用记录失败: {e}")
+            logger.error(f"❌ 添加使用记录失败: {e}", exc_info=True)
             return False
 
     async def get_usage_records(
@@ -85,7 +85,7 @@ class UsageStatisticsService:
             logger.info(f"✅ 获取使用记录成功: {len(records)} 条")
             return records
         except Exception as e:
-            logger.error(f"❌ 获取使用记录失败: {e}")
+            logger.error(f"❌ 获取使用记录失败: {e}", exc_info=True)
             return []
 
     async def get_usage_statistics(
@@ -423,7 +423,7 @@ class UsageStatisticsService:
             logger.info(f"✅ 获取使用统计成功: {stats.total_requests} 条记录")
             return stats
         except Exception as e:
-            logger.error(f"❌ 获取使用统计失败: {e}")
+            logger.error(f"❌ 获取使用统计失败: {e}", exc_info=True)
             return UsageStatistics()
 
     async def get_task_usage(self, task_id: str) -> Dict:
@@ -487,7 +487,7 @@ class UsageStatisticsService:
             result["by_phase"] = _rows(facet.get("by_phase"), "phase")
             return result
         except Exception as e:
-            logger.error(f"❌ 获取任务用量失败: {e}")
+            logger.error(f"❌ 获取任务用量失败: {e}", exc_info=True)
             return result
 
     async def get_cost_by_provider(self, days: int = 7) -> Dict[str, float]:
@@ -518,7 +518,7 @@ class UsageStatisticsService:
             logger.info(f"✅ 删除旧记录成功: {deleted_count} 条")
             return deleted_count
         except Exception as e:
-            logger.error(f"❌ 删除旧记录失败: {e}")
+            logger.error(f"❌ 删除旧记录失败: {e}", exc_info=True)
             return 0
 
 

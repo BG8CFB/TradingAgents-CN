@@ -7,10 +7,13 @@
 - TTLCache 实例通过 ``register_memory_cache`` 注入（由 app 启动时调用）。
 """
 
+import logging
 from typing import Dict, List, Optional, Tuple
 
 from app.data.storage.cache.memory_cache import TTLCache
 from app.data.storage.redis.client import get_redis
+
+logger = logging.getLogger(__name__)
 
 # 系统内部缓存键前缀：禁止通过 /items/{key} 接口删除
 # 这些前缀承载认证状态、会话、限流配额等关键状态；误删会让用户被锁死或绕过限流
@@ -83,8 +86,8 @@ class CacheService:
                         "used_memory_peak_human", "N/A"
                     ),
                 }
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"读取 Redis info 失败（统计降级）: {e}")
 
         memory_size = self._memory_cache.size() if self._memory_cache else 0
         return {
@@ -117,8 +120,8 @@ class CacheService:
                             deleted += 1
                 if cursor == 0:
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"扫描删除缓存键失败（部分清理）: {e}")
         return deleted
 
     async def clear_all(self) -> int:
@@ -137,8 +140,8 @@ class CacheService:
                         deleted += len(keys)
                     if cursor == 0:
                         break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"清空 Redis 缓存键失败: {e}")
         if self._memory_cache:
             self._memory_cache.clear()
         return deleted
@@ -170,8 +173,8 @@ class CacheService:
                 ttl = await redis.ttl(key)
                 key_type = await redis.type(key)
                 items.append({"key": key_str, "ttl": ttl, "type": key_type})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"读取缓存键详情失败: {e}")
 
         return {
             "items": items,
@@ -194,8 +197,8 @@ class CacheService:
             try:
                 deleted = await redis.delete(key)
                 redis_deleted = deleted > 0
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"删除缓存键 {key} 失败: {e}")
 
         memory_deleted = False
         if self._memory_cache:

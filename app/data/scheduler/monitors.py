@@ -233,7 +233,7 @@ class SchedulerMonitor:
                 if self._loop_count % self._stale_check_interval == 0:
                     self.check_stale_tasks()
             except Exception as e:
-                logger.error(f"监控循环异常: {e}")
+                logger.error(f"监控循环异常: {e}", exc_info=True)
 
     def _check_timeouts(self) -> None:
         """检查超时任务。"""

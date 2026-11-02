@@ -160,11 +160,11 @@ class MultiSourceBasicsSyncService:
                     logger.warning(f"⚠️ 批量写入超时 (第{retry_count}次重试)，等待{wait_time}秒后重试...")
                     await asyncio.sleep(wait_time)
                 else:
-                    logger.error(f"❌ 批量写入失败，已重试{max_retries}次: {e}")
+                    logger.error(f"❌ 批量写入失败，已重试{max_retries}次: {e}", exc_info=True)
                     return 0, 0
 
             except Exception as e:
-                logger.error(f"❌ 批量写入失败: {e}")
+                logger.error(f"❌ 批量写入失败: {e}", exc_info=True)
                 return 0, 0
 
         return inserted, updated
@@ -361,7 +361,7 @@ class MultiSourceBasicsSyncService:
                     ops.append(UpdateOne({"symbol": code, "data_source": data_source}, {"$set": doc}, upsert=True))
 
                 except Exception as e:
-                    logger.error(f"Error processing stock {row.get('ts_code', 'unknown')}: {e}")
+                    logger.error(f"Error processing stock {row.get('ts_code', 'unknown')}: {e}", exc_info=True)
                     errors += 1
 
                 # 🔥 分批执行数据库操作

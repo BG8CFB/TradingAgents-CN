@@ -129,7 +129,7 @@ class LLMService:
                 return SystemConfig(**config_data)
             return None
         except Exception as e:
-            logger.error(f"❌ 获取系统配置失败: {e}")
+            logger.error(f"❌ 获取系统配置失败: {e}", exc_info=True)
             return None
 
     async def _save_system_config(self, config) -> bool:
@@ -174,7 +174,7 @@ class LLMService:
                 )
                 return True
         except Exception as e:
-            logger.error(f"保存系统配置失败: {e}")
+            logger.error(f"保存系统配置失败: {e}", exc_info=True)
             return False
 
     # ==================== LLM 配置管理 ====================
@@ -195,7 +195,7 @@ class LLMService:
 
             return await self._save_system_config(config)
         except Exception as e:
-            logger.error(f"更新LLM配置失败: {e}")
+            logger.error(f"更新LLM配置失败: {e}", exc_info=True)
             return False
 
     async def delete_llm_config(self, provider: str, model_name: str) -> bool:
@@ -240,7 +240,7 @@ class LLMService:
             return save_result
 
         except Exception as e:
-            logger.error(f"❌ 删除LLM配置失败: {e}")
+            logger.error(f"❌ 删除LLM配置失败: {e}", exc_info=True)
             logger.error("删除LLM配置失败", exc_info=True)
             return False
 
@@ -263,7 +263,7 @@ class LLMService:
             return await self._save_system_config(config)
 
         except Exception as e:
-            logger.error(f"设置默认LLM失败: {e}")
+            logger.error(f"设置默认LLM失败: {e}", exc_info=True)
             return False
 
     async def test_llm_config(self, llm_config: LLMConfig) -> Dict[str, Any]:
@@ -374,7 +374,7 @@ class LLMService:
 
         except Exception as e:
             response_time = time.time() - start_time
-            logger.error(f"测试大模型配置失败: {e}")
+            logger.error(f"测试大模型配置失败: {e}", exc_info=True)
             return {
                 "success": False,
                 "message": f"连接失败: {str(e)}",
@@ -658,7 +658,7 @@ class LLMService:
             result = await providers_collection.insert_one(provider_data)
             return str(result.inserted_id)
         except Exception as e:
-            logger.error(f"添加厂家失败: {e}")
+            logger.error(f"添加厂家失败: {e}", exc_info=True)
             raise
 
     async def update_llm_provider(
@@ -693,7 +693,7 @@ class LLMService:
             # 修复：matched_count > 0 表示找到了记录（即使没有修改）
             return result.matched_count > 0
         except Exception as e:
-            logger.error(f"更新厂家失败: {e}")
+            logger.error(f"更新厂家失败: {e}", exc_info=True)
             logger.error("更新厂家失败", exc_info=True)
             return False
 
@@ -736,7 +736,7 @@ class LLMService:
             return success
 
         except Exception as e:
-            logger.error(f"❌ 删除厂家失败: {e}")
+            logger.error(f"❌ 删除厂家失败: {e}", exc_info=True)
             logger.error("删除厂家失败", exc_info=True)
             return False
 
@@ -770,7 +770,7 @@ class LLMService:
 
             return result.matched_count > 0
         except Exception as e:
-            logger.error(f"切换厂家状态失败: {e}")
+            logger.error(f"切换厂家状态失败: {e}", exc_info=True)
             return False
 
     async def init_aggregator_providers(self) -> Dict[str, Any]:
@@ -882,7 +882,7 @@ class LLMService:
             }
 
         except Exception as e:
-            logger.error(f"❌ 初始化聚合渠道失败: {e}")
+            logger.error(f"❌ 初始化聚合渠道失败: {e}", exc_info=True)
             logger.error("初始化聚合渠道失败", exc_info=True)
             return {"success": False, "error": str(e), "message": "初始化聚合渠道失败"}
 
@@ -1029,7 +1029,7 @@ class LLMService:
             }
 
         except Exception as e:
-            logger.error(f"环境变量迁移失败: {e}")
+            logger.error(f"环境变量迁移失败: {e}", exc_info=True)
             return {"success": False, "error": str(e), "message": "环境变量迁移失败"}
 
     # ==================== 厂家 API 测试 ====================
@@ -1079,7 +1079,7 @@ class LLMService:
             return test_result
 
         except Exception as e:
-            logger.error(f"测试厂家API失败: {e}")
+            logger.error(f"测试厂家API失败: {e}", exc_info=True)
             return {"success": False, "message": f"测试失败: {str(e)}"}
 
     async def _test_provider_connection(
@@ -1892,10 +1892,10 @@ class LLMService:
                     }
                 except Exception as e:
                     logger.debug(f"解析API测试错误详情失败: {e}")
-                    logger.error(f"❌ [{display_name}] API测试失败")
-                    logger.error(f"   请求URL: {url}")
-                    logger.error(f"   状态码: {response.status_code}")
-                    logger.error(f"   响应内容: {response.text[:500]}")
+                    logger.error(f"❌ [{display_name}] API测试失败", exc_info=True)
+                    logger.error(f"   请求URL: {url}", exc_info=True)
+                    logger.error(f"   状态码: {response.status_code}", exc_info=True)
+                    logger.error(f"   响应内容: {response.text[:500]}", exc_info=True)
                     return {
                         "success": False,
                         "message": f"{display_name} API测试失败: HTTP {response.status_code}",
@@ -1995,7 +1995,7 @@ class LLMService:
             return result
 
         except Exception as e:
-            logger.error(f"获取模型列表失败: {e}")
+            logger.error(f"获取模型列表失败: {e}", exc_info=True)
             logger.error("获取模型列表失败", exc_info=True)
             return {"success": False, "message": f"获取模型列表失败: {str(e)}"}
 
@@ -2105,7 +2105,7 @@ class LLMService:
                     }
 
         except Exception as e:
-            logger.error(f"❌ 异常: {e}")
+            logger.error(f"❌ 异常: {e}", exc_info=True)
             logger.error("API请求异常", exc_info=True)
             return {
                 "success": False,

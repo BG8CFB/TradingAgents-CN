@@ -95,7 +95,7 @@ async def get_database_status(
             "data": status_info
         }
     except Exception as e:
-        logger.error(f"获取数据库状态失败: {e}")
+        logger.error(f"获取数据库状态失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "获取数据库状态失败")
@@ -115,7 +115,7 @@ async def get_database_stats(
             "data": stats
         }
     except Exception as e:
-        logger.error(f"获取数据库统计失败: {e}")
+        logger.error(f"获取数据库统计失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "获取数据库统计失败")
@@ -135,7 +135,7 @@ async def test_database_connections(
             "data": results
         }
     except Exception as e:
-        logger.error(f"测试数据库连接失败: {e}")
+        logger.error(f"测试数据库连接失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "测试数据库连接失败")
@@ -160,7 +160,7 @@ async def create_backup(
             "data": backup_info
         }
     except Exception as e:
-        logger.error(f"创建备份失败: {e}")
+        logger.error(f"创建备份失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "创建备份失败")
@@ -179,7 +179,7 @@ async def list_backups(
             "data": backups
         }
     except Exception as e:
-        logger.error(f"获取备份列表失败: {e}")
+        logger.error(f"获取备份列表失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "获取备份列表失败")
@@ -281,7 +281,7 @@ async def export_data(
             media_type='application/octet-stream'
         )
     except Exception as e:
-        logger.error(f"导出数据失败: {e}")
+        logger.error(f"导出数据失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "导出数据失败")
@@ -301,7 +301,7 @@ async def delete_backup(
             "message": "备份删除成功"
         }
     except Exception as e:
-        logger.error(f"删除备份失败: {e}")
+        logger.error(f"删除备份失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "删除备份失败")
@@ -322,7 +322,7 @@ async def cleanup_analysis_results(
             "data": result
         }
     except Exception as e:
-        logger.error(f"清理分析结果失败: {e}")
+        logger.error(f"清理分析结果失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "清理分析结果失败")
@@ -343,7 +343,7 @@ async def cleanup_operation_logs(
             "data": result
         }
     except Exception as e:
-        logger.error(f"清理操作日志失败: {e}")
+        logger.error(f"清理操作日志失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "清理操作日志失败")

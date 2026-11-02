@@ -48,7 +48,7 @@ class YFinanceUSProvider(BaseProvider):
                 df["symbol"] = ticker
             return df
         except Exception as e:
-            logger.error(f"yfinance-US 行情失败 {symbol}: {e}")
+            logger.error(f"yfinance-US 行情失败 {symbol}: {e}", exc_info=True)
             return None
 
     async def get_corporate_actions(

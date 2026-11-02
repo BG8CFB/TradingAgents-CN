@@ -152,7 +152,7 @@ def create_risk_manager(llm, memory):
                 os.replace(tmp_filename, filename)
                 logger.info(f"👔 [Risk Manager] 已生成裁决报告: {filename}")
             except Exception as e:
-                logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}")
+                logger.error(f"👔 [ERROR] 保存裁决报告失败: {e}", exc_info=True)
 
             # 7. 更新状态（canonical：仅裁决结论，其余键由 export_legacy_state 派生）
             new_risk_debate_state = dict(risk_debate_state)

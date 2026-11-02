@@ -205,7 +205,7 @@ class SystemInitService:
             logger.info(f"✅ 数据导入完成，共插入 {total_inserted} 条文档")
             
         except Exception as e:
-            logger.error(f"❌ 导入初始数据失败: {e}")
+            logger.error(f"❌ 导入初始数据失败: {e}", exc_info=True)
 
     @classmethod
     async def _ensure_default_admin(cls, db: AsyncIOMotorDatabase):

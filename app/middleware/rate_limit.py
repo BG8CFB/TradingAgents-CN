@@ -240,7 +240,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if blocked:
                 return blocked
         except Exception as exc:
-            logger.error(f"速率限制检查失败: {exc}")
+            logger.error(f"速率限制检查失败: {exc}", exc_info=True)
             # 兜底：敏感路径在异常时也 fail-closed
             if _is_sensitive_path(request.url.path):
                 return _redis_unavailable_response(request.url.path)
@@ -345,7 +345,7 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             if blocked:
                 return blocked
         except Exception as exc:
-            logger.error(f"配额检查失败: {exc}")
+            logger.error(f"配额检查失败: {exc}", exc_info=True)
 
         return await call_next(request)
 
@@ -379,7 +379,7 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 quota_key, max_quota=self.daily_quota, ttl=86400
             )
         except Exception as exc:
-            logger.error(f"原子配额检查失败: {exc}")
+            logger.error(f"原子配额检查失败: {exc}", exc_info=True)
             return None  # 降级放行
 
         if not result["allowed"]:

@@ -49,7 +49,7 @@ class DatabaseService:
                 return SystemConfig(**config_data)
             return None
         except Exception as e:
-            logger.error(f"❌ 获取系统配置失败: {e}")
+            logger.error(f"❌ 获取系统配置失败: {e}", exc_info=True)
             return None
 
     async def _save_system_config(self, config) -> bool:
@@ -75,7 +75,7 @@ class DatabaseService:
             await config_collection.insert_one(config_dict)
             return True
         except Exception as e:
-            logger.error(f"❌ 保存系统配置失败: {e}")
+            logger.error(f"❌ 保存系统配置失败: {e}", exc_info=True)
             return False
 
     # ==================== 数据库配置管理 ====================
@@ -129,7 +129,7 @@ class DatabaseService:
             return None
 
         except Exception as e:
-            logger.error(f"❌ 获取数据库配置失败: {e}")
+            logger.error(f"❌ 获取数据库配置失败: {e}", exc_info=True)
             return None
 
     async def get_database_configs(self) -> List[DatabaseConfig]:
@@ -142,7 +142,7 @@ class DatabaseService:
             return config.database_configs
 
         except Exception as e:
-            logger.error(f"❌ 获取数据库配置列表失败: {e}")
+            logger.error(f"❌ 获取数据库配置列表失败: {e}", exc_info=True)
             return []
 
     # ==================== 数据库连接测试 ====================
@@ -292,7 +292,7 @@ class DatabaseService:
                     }
                 except Exception as e:
                     error_msg = str(e)
-                    logger.error(f"❌ MongoDB 连接测试失败: {error_msg}")
+                    logger.error(f"❌ MongoDB 连接测试失败: {error_msg}", exc_info=True)
 
                     if "Authentication failed" in error_msg or "auth failed" in error_msg.lower():
                         message = "认证失败，请检查用户名和密码"
@@ -599,7 +599,7 @@ class DatabaseService:
 
         except Exception as e:
             response_time = time.time() - start_time
-            logger.error(f"❌ 测试数据库配置失败: {e}")
+            logger.error(f"❌ 测试数据库配置失败: {e}", exc_info=True)
             return {
                 "success": False,
                 "message": f"连接失败: {str(e)}",

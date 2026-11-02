@@ -66,7 +66,7 @@ def get_money_flow(
             )
         )
     except Exception as e:
-        logger.error(f"get_money_flow failed: {e}")
+        logger.error(f"get_money_flow failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
@@ -118,5 +118,5 @@ def get_margin_trade(
             )
         )
     except Exception as e:
-        logger.error(f"get_margin_trade failed: {e}")
+        logger.error(f"get_margin_trade failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

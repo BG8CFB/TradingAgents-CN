@@ -29,7 +29,7 @@ class TushareCNProvider(BaseProvider):
             self.connected = await conn.connect()
             return self.connected
         except Exception as e:
-            logger.error(f"Tushare 连接失败: {e}")
+            logger.error(f"Tushare 连接失败: {e}", exc_info=True)
             self.connected = False
             return False
 

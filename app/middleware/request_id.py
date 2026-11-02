@@ -65,7 +65,8 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             # 记录请求异常信息（脱敏：异常消息可能含 MongoDB URI 密码、SQL 片段等）
             sanitized_exc = mask_uri_password(str(exc))
             logger.error(
-                f"{request.method} {request.url.path} - ERROR - {process_time:.3f}s - {sanitized_exc}"
+                f"{request.method} {request.url.path} - ERROR - {process_time:.3f}s - {sanitized_exc}",
+                exc_info=True,
             )
 
             from fastapi.responses import JSONResponse

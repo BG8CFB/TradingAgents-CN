@@ -115,7 +115,7 @@ async def get_provider_by_model_name(model_name: str) -> str:
         return _get_default_provider_by_model(model_name)
 
     except Exception as e:
-        logger.error(f"❌ 查找模型供应商失败: {e}")
+        logger.error(f"❌ 查找模型供应商失败: {e}", exc_info=True)
         return _get_default_provider_by_model(model_name)
 
 
@@ -264,7 +264,7 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
         )
         return result
     except Exception as e:
-        logger.error(f"❌ [同步查询] 查找模型供应商失败: {e}")
+        logger.error(f"❌ [同步查询] 查找模型供应商失败: {e}", exc_info=True)
         provider = _get_default_provider_by_model(model_name)
         fallback_result = {
             "provider": provider,
@@ -637,7 +637,7 @@ class AnalysisService:
                     upsert=True,
                 )
             except Exception as e:
-                logger.error(f"❌ 创建任务时写入MongoDB失败: {e}")
+                logger.error(f"❌ 创建任务时写入MongoDB失败: {e}", exc_info=True)
 
             return {
                 "task_id": task_id,
@@ -646,7 +646,7 @@ class AnalysisService:
             }
 
         except Exception as e:
-            logger.error(f"❌ 创建分析任务失败: {e}")
+            logger.error(f"❌ 创建分析任务失败: {e}", exc_info=True)
             raise
 
     async def execute_analysis_background(self, task_id: str, user_id: str, request: SingleAnalysisRequest):
@@ -738,7 +738,7 @@ class AnalysisService:
                     # 在主循环中调度发送任务
                     asyncio.run_coroutine_threadsafe(ws_manager.send_progress_update(task_id, message), loop)
                 except Exception as e:
-                    logger.error(f"WebSocket 广播失败: {e}")
+                    logger.error(f"WebSocket 广播失败: {e}", exc_info=True)
 
             def create_progress_tracker():
                 return RedisProgressTracker(
@@ -843,7 +843,7 @@ class AnalysisService:
                 logger.debug(f"发送分析完成通知失败: {e}")
 
         except Exception as e:
-            logger.error(f"❌ 后台分析任务失败: {task_id} - {e}")
+            logger.error(f"❌ 后台分析任务失败: {task_id} - {e}", exc_info=True)
             if progress_tracker:
                 progress_tracker.mark_failed(str(e))
             await self.memory_manager.update_task_status(
@@ -949,7 +949,7 @@ class AnalysisService:
                 "message": f"已提交{len(tasks)}个分析任务到队列",
             }
         except Exception as e:
-            logger.error(f"提交批量分析任务失败: {e}")
+            logger.error(f"提交批量分析任务失败: {e}", exc_info=True)
             raise
 
     async def cancel_task(self, task_id: str) -> bool:
@@ -959,7 +959,7 @@ class AnalysisService:
             await self.queue_service.cancel_task(task_id)
             return True
         except Exception as e:
-            logger.error(f"取消任务失败: {task_id} - {e}")
+            logger.error(f"取消任务失败: {task_id} - {e}", exc_info=True)
             return False
 
     # -------------------------------------------------------------------------
@@ -1016,7 +1016,6 @@ class AnalysisService:
             各域的刷新状态 {domain: status}
         """
         from app.core.async_utils import run_async
-        from app.data.core.interface import DataInterface
 
         # 传入 domains=None，由 DataRefreshService 拉取全部支持的域
         di = DataInterface.get_instance()
@@ -1414,7 +1413,7 @@ class AnalysisService:
             return result
 
         except Exception as e:
-            logger.error(f"❌ 分析执行失败: {task_id} - {e}")
+            logger.error(f"❌ 分析执行失败: {task_id} - {e}", exc_info=True)
             raise
 
         finally:
@@ -1620,7 +1619,7 @@ class AnalysisService:
             return self._serialize_for_response(enriched)
 
         except Exception as e:
-            logger.error(f"❌ 获取用户任务列表失败 (DB): {e}")
+            logger.error(f"❌ 获取用户任务列表失败 (DB): {e}", exc_info=True)
             # 降级：如果 DB 失败，尝试返回内存中的数据
             status_enum = None
             if status:
@@ -1742,7 +1741,7 @@ class AnalysisService:
             )
 
         except Exception as e:
-            logger.error(f"❌ 查询用户任务列表失败 (DB): {e}")
+            logger.error(f"❌ 查询用户任务列表失败 (DB): {e}", exc_info=True)
             # 降级处理：使用 list_user_tasks 获取并手动过滤（不太精确但可用）
             all_tasks = await self.list_user_tasks(user_id, status, limit=1000)  # 获取最近1000条
 
@@ -1794,7 +1793,7 @@ class AnalysisService:
                 update_data["completed_at"] = now_utc()
             await db.analysis_tasks.update_one({"task_id": task_id}, {"$set": update_data})
         except Exception as e:
-            logger.error(f"❌ 更新任务状态失败: {task_id} - {e}")
+            logger.error(f"❌ 更新任务状态失败: {task_id} - {e}", exc_info=True)
 
     async def _save_analysis_results_complete(self, task_id: str, result: Dict[str, Any]):
         """完整的分析结果保存"""
@@ -1805,7 +1804,7 @@ class AnalysisService:
             # 2. 保存到数据库 (Web Style)
             await self._save_analysis_result_web_style(task_id, result)
         except Exception as e:
-            logger.error(f"❌ 保存结果失败: {e}")
+            logger.error(f"❌ 保存结果失败: {e}", exc_info=True)
 
     async def _save_modular_reports_to_data_dir(self, result: Dict[str, Any], stock_symbol: str) -> Dict[str, str]:
         """保存分模块报告到data目录 - 完全采用web目录的文件结构"""
@@ -1929,7 +1928,7 @@ class AnalysisService:
 
             return saved_files
         except Exception as e:
-            logger.error(f"❌ 保存分模块报告失败: {e}")
+            logger.error(f"❌ 保存分模块报告失败: {e}", exc_info=True)
             return {}
 
     async def _save_analysis_result_web_style(self, task_id: str, result: Dict[str, Any]):
@@ -2049,7 +2048,7 @@ class AnalysisService:
             document_for_task["_id"] = insert_result.inserted_id
             await db.analysis_tasks.update_one({"task_id": task_id}, {"$set": {"result": document_for_task}})
         except Exception as e:
-            logger.error(f"❌ 保存DB结果失败: {e}")
+            logger.error(f"❌ 保存DB结果失败: {e}", exc_info=True)
 
     # -------------------------------------------------------------------------
     # Router-facing Methods (added for analysis.py DB abstraction)
@@ -2404,7 +2403,7 @@ class AnalysisService:
             )
             return result.modified_count > 0
         except Exception as e:
-            logger.error(f"❌ mark_task_failed 失败: {e}")
+            logger.error(f"❌ mark_task_failed 失败: {e}", exc_info=True)
             return False
 
     async def validate_task_ownership(self, task_id: str, user_id: str) -> bool:
@@ -2424,7 +2423,7 @@ class AnalysisService:
             task_doc = await db.analysis_tasks.find_one({"task_id": task_id}, {"user_id": 1})
             return task_doc is not None and task_doc.get("user_id") == user_id
         except Exception as e:
-            logger.error(f"❌ validate_task_ownership 查询失败: {e}")
+            logger.error(f"❌ validate_task_ownership 查询失败: {e}", exc_info=True)
             return False
 
     async def delete_task_by_id(self, task_id: str, user_id: Optional[str] = None) -> bool:
@@ -2458,7 +2457,7 @@ class AnalysisService:
             await self.memory_manager.remove_task(task_id)
             return False
         except Exception as e:
-            logger.error(f"❌ delete_task_by_id 失败: {e}")
+            logger.error(f"❌ delete_task_by_id 失败: {e}", exc_info=True)
             return False
 
     async def get_analysis_stats(
@@ -2530,7 +2529,7 @@ class AnalysisService:
                 "analysis_by_market": by_market,
             }
         except Exception as e:
-            logger.error(f"❌ get_analysis_stats 失败: {e}")
+            logger.error(f"❌ get_analysis_stats 失败: {e}", exc_info=True)
             raise
 
     async def search_stock_basic_info(
@@ -2543,7 +2542,6 @@ class AnalysisService:
         在 stock_basic_info 集合中搜索股票（支持名称/代码/符号模糊匹配）。
         """
         try:
-            from app.data.core.interface import DataInterface
 
             di = DataInterface.get_instance()
             docs = await di.search_basic_info("CN", query, fields=["symbol", "name"], limit=limit)
@@ -2562,7 +2560,7 @@ class AnalysisService:
                 )
             return results
         except Exception as e:
-            logger.error(f"❌ search_stock_basic_info 失败: {e}")
+            logger.error(f"❌ search_stock_basic_info 失败: {e}", exc_info=True)
             raise
 
 

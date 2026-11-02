@@ -132,7 +132,7 @@ def get_china_market_overview(date: str = None, include_indices: bool = True, in
                 result_sections.append("## 板块表现\n\n板块数据暂时无法获取 (空数据)")
 
         except Exception as e:
-            logger.error(f"[中国市场工具] 获取板块数据失败: {e}")
+            logger.error(f"[中国市场工具] 获取板块数据失败: {e}", exc_info=True)
             result_sections.append(f"## 板块表现\n\n获取失败: {e}")
 
     execution_time = (now_utc() - start_time).total_seconds()
@@ -193,7 +193,7 @@ def get_dragon_tiger_inst(trade_date: Optional[str] = None, ts_code: Optional[st
             error_result(ErrorCodes.DATA_FETCH_ERROR, f"无法获取龙虎榜数据: {trade_date}（请先同步 dragon_tiger 数据）")
         )
     except Exception as e:
-        logger.error(f"get_dragon_tiger_inst failed: {e}")
+        logger.error(f"get_dragon_tiger_inst failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
@@ -243,5 +243,5 @@ def get_block_trade(
             error_result(ErrorCodes.DATA_FETCH_ERROR, "无法获取大宗交易数据（请先同步 block_trade 数据）")
         )
     except Exception as e:
-        logger.error(f"get_block_trade failed: {e}")
+        logger.error(f"get_block_trade failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

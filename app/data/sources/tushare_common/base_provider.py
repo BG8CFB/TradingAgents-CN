@@ -69,7 +69,7 @@ class TushareBaseProvider(BaseProvider):
             self.connected = False
             raise
         except Exception as e:
-            logger.error(f"{self.name} 连接失败: {e}")
+            logger.error(f"{self.name} 连接失败: {e}", exc_info=True)
             self.connected = False
             return False
 
@@ -92,7 +92,7 @@ class TushareBaseProvider(BaseProvider):
             logger.debug(f"{self.name} {label} 失败: {e}")
             return None
         except Exception as e:
-            logger.error(f"{self.name} {label} 失败: {e}")
+            logger.error(f"{self.name} {label} 失败: {e}", exc_info=True)
             return None
 
     async def _call(self, domain: str, context: str = "", **params) -> Optional[pd.DataFrame]:

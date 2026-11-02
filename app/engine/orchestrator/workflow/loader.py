@@ -89,7 +89,7 @@ def check_required_inputs(spec: WorkflowSpec, plan) -> List[str]:
     # 键形态与 DynamicAnalystFactory.get_agent_config 的三种解析方式对齐
     # （slug / internal_key / 中文名），前端任一形态的选择都能命中报告键映射
     analyst_keys: Dict[str, Tuple[str, ...]] = {}
-    for identity in registry._load_identities():
+    for identity in registry.load_identities():
         if not identity.is_analyst:
             continue
         internal_key = identity.slug.replace("-analyst", "").replace("-", "_")

@@ -88,7 +88,7 @@ async def recommend_models(current_user: dict = Depends(get_current_user)):
 
         return ok(response_data, "模型推荐成功")
     except Exception as e:
-        logger.error(f"模型推荐失败: {e}")
+        logger.error(f"模型推荐失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "模型推荐失败"))
 
 
@@ -106,6 +106,6 @@ async def get_model_capability(model_name: str, current_user: dict = Depends(get
 
         return ok(config, f"获取模型 {model_name} 能力信息成功")
     except Exception as e:
-        logger.error(f"获取模型能力信息失败: {e}")
+        logger.error(f"获取模型能力信息失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取模型能力信息失败"))
 

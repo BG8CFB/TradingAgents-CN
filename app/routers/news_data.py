@@ -85,7 +85,7 @@ async def query_stock_news(
                     logger.warning(f"⚠️ 实时获取新闻失败: {symbol}")
 
             except Exception as e:
-                logger.error(f"❌ 实时获取新闻异常: {e}")
+                logger.error(f"❌ 实时获取新闻异常: {e}", exc_info=True)
 
         return ok(data={
                 "symbol": symbol,
@@ -203,4 +203,4 @@ async def _execute_news_refresh(symbol: Optional[str]):
                 # 修复既存缺陷：此处原为不带 await 的 trigger_job 调用（协程从未执行）
                 engine.run_job_now("CN", "news")
     except Exception as e:
-        logger.error(f"❌ 后台新闻刷新失败: {e}")
+        logger.error(f"❌ 后台新闻刷新失败: {e}", exc_info=True)

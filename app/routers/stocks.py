@@ -108,7 +108,7 @@ async def get_quote(
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"获取{market}股票{code}行情失败: {e}")
+            logger.error(f"获取{market}股票{code}行情失败: {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=safe_error_message(e, "获取行情失败")
@@ -164,7 +164,7 @@ async def get_fundamentals(
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"获取{market}股票{code}基础信息失败: {e}")
+            logger.error(f"获取{market}股票{code}基础信息失败: {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=safe_error_message(e, "获取基础信息失败")
@@ -258,7 +258,7 @@ async def get_kline(
                 'source': result.get("freshness", "unknown")
             })
         except Exception as e:
-            logger.error(f"获取{market}股票{code}K线数据失败: {e}")
+            logger.error(f"获取{market}股票{code}K线数据失败: {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=safe_error_message(e, "获取K线数据失败")

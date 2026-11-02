@@ -87,7 +87,7 @@ class SystemService:
             return await self._create_default_config()
 
         except Exception as e:
-            logger.error(f"❌ 从数据库获取配置失败: {e}")
+            logger.error(f"❌ 从数据库获取配置失败: {e}", exc_info=True)
             return None
 
     async def _create_default_config(self) -> SystemConfig:
@@ -262,7 +262,7 @@ class SystemService:
             return await self.save_system_config(config)
 
         except Exception as e:
-            logger.error(f"设置默认数据源失败: {e}")
+            logger.error(f"设置默认数据源失败: {e}", exc_info=True)
             return False
 
     async def update_system_settings(self, settings: Dict[str, Any]) -> bool:
@@ -298,7 +298,7 @@ class SystemService:
             return result
 
         except Exception as e:
-            logger.error(f"更新系统设置失败: {e}")
+            logger.error(f"更新系统设置失败: {e}", exc_info=True)
             return False
 
     async def get_system_settings(self) -> Dict[str, Any]:
@@ -309,7 +309,7 @@ class SystemService:
                 return {}
             return config.system_settings
         except Exception as e:
-            logger.error(f"获取系统设置失败: {e}")
+            logger.error(f"获取系统设置失败: {e}", exc_info=True)
             return {}
 
     # ==================== 配置导入导出 ====================
@@ -345,7 +345,7 @@ class SystemService:
                 return None
             return {"customModes": specs}
         except Exception as e:
-            logger.error(f"读取智能体库失败 [phase={phase}]: {e}")
+            logger.error(f"读取智能体库失败 [phase={phase}]: {e}", exc_info=True)
             return None
 
     def _write_agent_yaml(self, phase: int, data: Dict[str, Any]) -> bool:
@@ -363,7 +363,7 @@ class SystemService:
             logger.info(f"Agent 配置已写入 agent_specs (phase={phase})")
             return True
         except Exception as e:
-            logger.error(f"写入智能体库失败 [phase={phase}]: {e}")
+            logger.error(f"写入智能体库失败 [phase={phase}]: {e}", exc_info=True)
             return False
 
     # ---------- 导出 ----------
@@ -592,7 +592,7 @@ class SystemService:
             return True
 
         except Exception as e:
-            logger.error(f"验证配置数据失败: {e}")
+            logger.error(f"验证配置数据失败: {e}", exc_info=True)
             return False
 
     # ---------- 传统配置迁移 ----------

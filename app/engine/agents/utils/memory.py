@@ -62,7 +62,7 @@ class ChromaDBManager:
 
                 self._initialized = True
             except Exception as e:
-                logger.error(f"❌ [ChromaDB] 初始化失败: {e}")
+                logger.error(f"❌ [ChromaDB] 初始化失败: {e}", exc_info=True)
                 # 使用最简单的配置作为备用
                 try:
                     settings = Settings(
@@ -101,7 +101,7 @@ class ChromaDBManager:
                         collection = self._client.get_collection(name=name)
                         logger.info(f"📚 [ChromaDB] 并发创建后获取集合: {name}")
                     except Exception as final_error:
-                        logger.error(f"❌ [ChromaDB] 集合操作失败: {name}, 错误: {final_error}")
+                        logger.error(f"❌ [ChromaDB] 集合操作失败: {name}, 错误: {final_error}", exc_info=True)
                         raise final_error
 
             # 缓存集合
@@ -228,7 +228,7 @@ class FinancialSituationMemory:
                                 logger.info(f"✅ OpenAI降级成功，维度: {len(embedding)}")
                                 return embedding
                             except Exception as fallback_error:
-                                logger.error(f"❌ OpenAI降级失败: {str(fallback_error)}")
+                                logger.error(f"❌ OpenAI降级失败: {str(fallback_error)}", exc_info=True)
                                 logger.info("💡 所有降级选项失败，记忆功能降级")
                                 return [0.0] * 1024
                         else:
@@ -257,20 +257,20 @@ class FinancialSituationMemory:
                             logger.info(f"✅ OpenAI降级成功，维度: {len(embedding)}")
                             return embedding
                         except Exception as fallback_error:
-                            logger.error(f"❌ OpenAI降级失败: {str(fallback_error)}")
+                            logger.error(f"❌ OpenAI降级失败: {str(fallback_error)}", exc_info=True)
                             logger.info("💡 所有降级选项失败，记忆功能降级")
                             return [0.0] * 1024
                     else:
                         logger.info("💡 无可用降级选项，记忆功能降级")
                         return [0.0] * 1024
                 elif 'import' in error_str:
-                    logger.error(f"❌ DashScope包未安装: {str(e)}")
+                    logger.error(f"❌ DashScope包未安装: {str(e)}", exc_info=True)
                 elif 'connection' in error_str:
-                    logger.error(f"❌ DashScope网络连接错误: {str(e)}")
+                    logger.error(f"❌ DashScope网络连接错误: {str(e)}", exc_info=True)
                 elif 'timeout' in error_str:
-                    logger.error(f"❌ DashScope请求超时: {str(e)}")
+                    logger.error(f"❌ DashScope请求超时: {str(e)}", exc_info=True)
                 else:
-                    logger.error(f"❌ DashScope embedding异常: {str(e)}")
+                    logger.error(f"❌ DashScope embedding异常: {str(e)}", exc_info=True)
                 
                 logger.warning("⚠️ 记忆功能降级，返回空向量")
                 return [0.0] * 1024
@@ -312,15 +312,15 @@ class FinancialSituationMemory:
                 else:
                     # 其他类型的错误
                     if 'attributeerror' in error_str:
-                        logger.error(f"❌ {self.llm_provider} API调用错误: {str(e)}")
+                        logger.error(f"❌ {self.llm_provider} API调用错误: {str(e)}", exc_info=True)
                     elif 'connectionerror' in error_str or 'connection' in error_str:
-                        logger.error(f"❌ {self.llm_provider}网络连接错误: {str(e)}")
+                        logger.error(f"❌ {self.llm_provider}网络连接错误: {str(e)}", exc_info=True)
                     elif 'timeout' in error_str:
-                        logger.error(f"❌ {self.llm_provider}请求超时: {str(e)}")
+                        logger.error(f"❌ {self.llm_provider}请求超时: {str(e)}", exc_info=True)
                     elif 'keyerror' in error_str:
-                        logger.error(f"❌ {self.llm_provider}响应格式错误: {str(e)}")
+                        logger.error(f"❌ {self.llm_provider}响应格式错误: {str(e)}", exc_info=True)
                     else:
-                        logger.error(f"❌ {self.llm_provider} embedding异常: {str(e)}")
+                        logger.error(f"❌ {self.llm_provider} embedding异常: {str(e)}", exc_info=True)
                 
                 logger.warning("⚠️ 记忆功能降级，返回空向量")
                 return [0.0] * 1024
@@ -434,7 +434,7 @@ class FinancialSituationMemory:
             return memories
             
         except Exception as e:
-            logger.error(f"❌ 记忆查询失败: {str(e)}")
+            logger.error(f"❌ 记忆查询失败: {str(e)}", exc_info=True)
             return []
 
     def get_cache_info(self):

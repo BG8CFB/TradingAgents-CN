@@ -51,7 +51,7 @@ class MarketService:
             categories.sort(key=lambda x: x.sort_order)
             return categories
         except Exception as e:
-            logger.error(f"❌ 获取市场分类失败: {e}")
+            logger.error(f"❌ 获取市场分类失败: {e}", exc_info=True)
             return []
 
     async def _create_default_market_categories(self) -> List[MarketCategory]:
@@ -122,7 +122,7 @@ class MarketService:
             await categories_collection.insert_one(category.model_dump())
             return True
         except Exception as e:
-            logger.error(f"❌ 添加市场分类失败: {e}")
+            logger.error(f"❌ 添加市场分类失败: {e}", exc_info=True)
             return False
 
     async def update_market_category(self, category_id: str, updates: Dict[str, Any]) -> bool:
@@ -138,7 +138,7 @@ class MarketService:
             )
             return result.modified_count > 0
         except Exception as e:
-            logger.error(f"❌ 更新市场分类失败: {e}")
+            logger.error(f"❌ 更新市场分类失败: {e}", exc_info=True)
             return False
 
     async def delete_market_category(self, category_id: str) -> bool:
@@ -158,7 +158,7 @@ class MarketService:
             result = await categories_collection.delete_one({"id": category_id})
             return result.deleted_count > 0
         except Exception as e:
-            logger.error(f"❌ 删除市场分类失败: {e}")
+            logger.error(f"❌ 删除市场分类失败: {e}", exc_info=True)
             return False
 
     # ========== 模型目录管理 ==========
@@ -175,7 +175,7 @@ class MarketService:
 
             return catalogs
         except Exception as e:
-            logger.error(f"获取模型目录失败: {e}")
+            logger.error(f"获取模型目录失败: {e}", exc_info=True)
             return []
 
     async def get_provider_models(self, provider: str) -> Optional[ModelCatalog]:
@@ -189,7 +189,7 @@ class MarketService:
                 return ModelCatalog(**doc)
             return None
         except Exception as e:
-            logger.error(f"获取厂家模型目录失败: {e}")
+            logger.error(f"获取厂家模型目录失败: {e}", exc_info=True)
             return None
 
     async def save_model_catalog(self, catalog: ModelCatalog) -> bool:
@@ -209,7 +209,7 @@ class MarketService:
 
             return result.acknowledged
         except Exception as e:
-            logger.error(f"保存模型目录失败: {e}")
+            logger.error(f"保存模型目录失败: {e}", exc_info=True)
             return False
 
     async def delete_model_catalog(self, provider: str) -> bool:
@@ -221,7 +221,7 @@ class MarketService:
             result = await catalog_collection.delete_one({"provider": provider})
             return result.deleted_count > 0
         except Exception as e:
-            logger.error(f"删除模型目录失败: {e}")
+            logger.error(f"删除模型目录失败: {e}", exc_info=True)
             return False
 
     async def init_default_model_catalog(self, force: bool = False) -> bool:
@@ -354,5 +354,5 @@ class MarketService:
 
             return result
         except Exception as e:
-            logger.error(f"获取模型列表失败: {e}")
+            logger.error(f"获取模型列表失败: {e}", exc_info=True)
             return []

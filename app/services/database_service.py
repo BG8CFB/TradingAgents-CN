@@ -107,7 +107,7 @@ class DatabaseService:
                             "note": "视图不支持统计"
                         }
                     else:
-                        logger.error(f"获取集合 {collection_name} 统计失败: {e}")
+                        logger.error(f"获取集合 {collection_name} 统计失败: {e}", exc_info=True)
                         return {
                             "name": collection_name,
                             "type": "unknown",

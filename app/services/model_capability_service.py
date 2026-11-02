@@ -276,7 +276,7 @@ class ModelCapabilityService:
             llm_configs = self._get_llm_configs_from_db()
             enabled_models = [c for c in llm_configs if c.enabled]
         except Exception as e:
-            logger.error(f"获取模型配置失败: {e}")
+            logger.error(f"获取模型配置失败: {e}", exc_info=True)
             return "", ""
 
         if not enabled_models:

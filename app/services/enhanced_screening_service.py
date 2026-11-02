@@ -162,7 +162,7 @@ class EnhancedScreeningService:
             }
 
         except Exception as e:
-            logger.error(f"❌ 股票筛选失败: {e}")
+            logger.error(f"❌ 股票筛选失败: {e}", exc_info=True)
             took_ms = int((time.time() - start_time) * 1000)
 
             return {

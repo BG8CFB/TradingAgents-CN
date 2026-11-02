@@ -223,7 +223,7 @@ def _build_dynamic_identities() -> List[AgentIdentity]:
     return rows
 
 
-def _load_identities() -> List[AgentIdentity]:
+def load_identities() -> List[AgentIdentity]:
     """全部身份（静态 9 节点 + 动态分析师），进程内缓存一次"""
     global _identities_cache
     if _identities_cache is None:
@@ -247,7 +247,7 @@ def clear_registry_cache() -> None:
 
 def get_identity_by_node(node_name: str) -> Optional[AgentIdentity]:
     """执行节点名 → 身份（分析师节点名动态段命中；未命中 None）"""
-    for identity in _load_identities():
+    for identity in load_identities():
         if identity.node_name == node_name:
             return identity
     return None
@@ -255,7 +255,7 @@ def get_identity_by_node(node_name: str) -> Optional[AgentIdentity]:
 
 def get_identity_by_slug(slug: str) -> Optional[AgentIdentity]:
     """slug → 身份（含分析师动态段）"""
-    for identity in _load_identities():
+    for identity in load_identities():
         if identity.slug == slug:
             return identity
     return None
@@ -282,7 +282,7 @@ def slug_for_node(node_name: str) -> str:
 def _report_key_slug_index() -> Dict[str, str]:
     """报告键（去 _report 后缀的基键）→ slug 索引 = 旧 _SLUG_ALIAS 的超集"""
     index: Dict[str, str] = {}
-    for identity in _load_identities():
+    for identity in load_identities():
         for key in identity.report_keys:
             base = key[: -len(_REPORT_SUFFIX)] if key.endswith(_REPORT_SUFFIX) else key
             index[base] = identity.slug
@@ -314,7 +314,7 @@ def report_title(report_key: str, display_name: str = "") -> str:
 def analyst_report_display_names() -> Dict[str, str]:
     """分析师 report_key → 「{中文名}报告」（旧 builder.report_display_names 等价）"""
     names: Dict[str, str] = {}
-    for identity in _load_identities():
+    for identity in load_identities():
         if identity.is_analyst and identity.name:
             names[f"{identity.internal_key}{_REPORT_SUFFIX}"] = f"{identity.name}报告"
     return names
@@ -333,12 +333,12 @@ def progress_text(node_name: str) -> Optional[str]:
 
 def builtin_progress_texts() -> Dict[str, str]:
     """内置 9 非分析师节点的进度文案（旧 _get_non_analyst_mappings 等价）"""
-    return {i.node_name: i.progress_name for i in _load_identities() if not i.is_analyst}
+    return {i.node_name: i.progress_name for i in load_identities() if not i.is_analyst}
 
 
 def names_by_slug() -> Dict[str, str]:
     """slug → YAML 中文名（旧 report_titles._load_slug_names 三文件全量等价：静态 9 + phase1 全部）"""
-    return {i.slug: i.name for i in _load_identities() if i.name}
+    return {i.slug: i.name for i in load_identities() if i.name}
 
 
 def all_display_keys() -> Dict[str, str]:
@@ -349,7 +349,7 @@ def all_display_keys() -> Dict[str, str]:
     键）与 event_key。值为裸 YAML 中文名（前端现状语义，不带「报告」后缀）。
     """
     keys: Dict[str, str] = {}
-    for identity in _load_identities():
+    for identity in load_identities():
         name = identity.name
         if not name:
             continue

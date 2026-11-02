@@ -175,7 +175,7 @@ def load_all_skill_entrypoints() -> Dict[str, List[str]]:
                 if register_skill_entrypoint(spec):
                     registered_names.append(ep.name)
             except Exception as e:
-                logger.error(f"[SkillEntry] 注册 {tool_id} 失败: {e}")
+                logger.error(f"[SkillEntry] 注册 {tool_id} 失败: {e}", exc_info=True)
                 unavailable.setdefault(name, []).append(f"{ep.name}: {e}")
 
         if registered_names:

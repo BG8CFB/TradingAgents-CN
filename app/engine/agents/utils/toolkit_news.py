@@ -195,11 +195,12 @@ def get_stock_news_unified(
                         result_data.append("## 东方财富新闻\n暂无新闻数据")
                 except Exception as inner_e:
                     logger.error(
-                        f"❌ [统一新闻工具] 东方财富新闻获取失败: {inner_e}"
+                        f"❌ [统一新闻工具] 东方财富新闻获取失败: {inner_e}",
+                        exc_info=True,
                     )
                     result_data.append(f"## 东方财富新闻\n获取失败: {inner_e}")
             except Exception as em_e:
-                logger.error(f"❌ [统一新闻工具] 东方财富新闻获取失败: {em_e}")
+                logger.error(f"❌ [统一新闻工具] 东方财富新闻获取失败: {em_e}", exc_info=True)
                 result_data.append(f"## 东方财富新闻\n获取失败: {em_e}")
 
             # 2. 获取Google新闻作为补充
@@ -224,7 +225,7 @@ def get_stock_news_unified(
                 result_data.append(f"## Google新闻\n{news_data}")
                 logger.debug("🇨🇳🇭🇰 [统一新闻工具] 成功获取Google新闻")
             except Exception as google_e:
-                logger.error(f"❌ [统一新闻工具] Google新闻获取失败: {google_e}")
+                logger.error(f"❌ [统一新闻工具] Google新闻获取失败: {google_e}", exc_info=True)
                 result_data.append(f"## Google新闻\n获取失败: {google_e}")
 
         else:
@@ -261,5 +262,5 @@ def get_stock_news_unified(
 
     except Exception as e:
         error_msg = f"统一新闻工具执行失败: {str(e)}"
-        logger.error(f"❌ [统一新闻工具] {error_msg}")
+        logger.error(f"❌ [统一新闻工具] {error_msg}", exc_info=True)
         return error_msg

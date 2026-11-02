@@ -61,7 +61,7 @@ async def resolve_company_name(ticker: str, market_info: dict) -> str:
 
         return f"股票{ticker}"
     except Exception as exc:
-        logger.error(f"❌ 获取公司名称失败: {exc}")
+        logger.error(f"❌ 获取公司名称失败: {exc}", exc_info=True)
         return f"股票{ticker}"
 
 
@@ -90,7 +90,7 @@ def load_agent_config(slug: str) -> str:
             return ""
         return entry.get("roleDefinition", "")
     except Exception as e:
-        logger.error(f"加载配置文件失败: {e}")
+        logger.error(f"加载配置文件失败: {e}", exc_info=True)
         return ""
 
 
@@ -102,5 +102,5 @@ def load_agent_display_name(slug: str) -> str:
             return ""
         return str(entry.get("name", "") or "")
     except Exception as e:
-        logger.error(f"加载智能体显示名失败: {e}")
+        logger.error(f"加载智能体显示名失败: {e}", exc_info=True)
         return ""

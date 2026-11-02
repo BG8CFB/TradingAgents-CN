@@ -961,7 +961,9 @@ class SettlementService:
             if planned <= today:
                 return 0
             return sum(1 for d in after if today < d <= planned)
-        except Exception:
+        except Exception as e:
+            # 静默返回 None 会让该决策的剩余天数不可知、可能永不结算且无从排查
+            logger.warning(f"计算剩余交易日失败（决策 {decision_date}）: {e}", exc_info=True)
             return None
 
 

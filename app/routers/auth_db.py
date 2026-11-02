@@ -309,7 +309,7 @@ async def login(payload: LoginRequest, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ 登录异常: {e}")
+        logger.error(f"❌ 登录异常: {e}", exc_info=True)
         await log_operation(
             user_id="unknown",
             username=payload.username or "unknown",
@@ -401,7 +401,7 @@ async def refresh_token(payload: RefreshTokenRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Refresh token处理异常: {str(e)}")
+        logger.error(f"❌ Refresh token处理异常: {str(e)}", exc_info=True)
         raise HTTPException(status_code=401, detail=safe_error_message(e, "Token刷新失败"))
 
 class LogoutRequest(BaseModel):
@@ -459,7 +459,7 @@ async def logout(request: Request, user: dict = Depends(get_current_user)):
             "message": "登出成功"
         }
     except Exception as e:
-        logger.error(f"记录登出日志失败: {e}")
+        logger.error(f"记录登出日志失败: {e}", exc_info=True)
         return {
             "success": True,
             "data": {},
@@ -600,7 +600,7 @@ async def change_password(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"修改密码失败: {e}")
+        logger.error(f"修改密码失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "修改密码失败"))
 
 @router.post("/reset-password")
@@ -628,7 +628,7 @@ async def reset_password(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"重置密码失败: {e}")
+        logger.error(f"重置密码失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "重置密码失败"))
 
 class RegisterRequest(BaseModel):
@@ -715,5 +715,5 @@ async def register(payload: RegisterRequest, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ 注册异常: {e}")
+        logger.error(f"❌ 注册异常: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="注册过程中发生系统错误")

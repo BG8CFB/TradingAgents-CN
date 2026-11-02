@@ -68,7 +68,7 @@ class DatabaseManager:
             logger.info(f"⏱️  超时配置: connectTimeout={settings.MONGO_CONNECT_TIMEOUT_MS}ms, socketTimeout={settings.MONGO_SOCKET_TIMEOUT_MS}ms")
 
         except Exception as e:
-            logger.error(f"❌ MongoDB连接失败: {e}")
+            logger.error(f"❌ MongoDB连接失败: {e}", exc_info=True)
             self._mongo_healthy = False
             raise
 
@@ -99,7 +99,7 @@ class DatabaseManager:
             logger.info(f"🔗 连接池大小: {settings.REDIS_MAX_CONNECTIONS}")
 
         except Exception as e:
-            logger.error(f"❌ Redis连接失败: {e}")
+            logger.error(f"❌ Redis连接失败: {e}", exc_info=True)
             self._redis_healthy = False
             raise
 
@@ -119,7 +119,7 @@ class DatabaseManager:
                 mongo_db = None
                 logger.info("✅ MongoDB连接已关闭")
             except Exception as e:
-                logger.error(f"❌ 关闭MongoDB连接时出错: {e}")
+                logger.error(f"❌ 关闭MongoDB连接时出错: {e}", exc_info=True)
 
         # 关闭Redis连接
         if self.redis_client:
@@ -130,7 +130,7 @@ class DatabaseManager:
                 redis_client = None
                 logger.info("✅ Redis连接已关闭")
             except Exception as e:
-                logger.error(f"❌ 关闭Redis连接时出错: {e}")
+                logger.error(f"❌ 关闭Redis连接时出错: {e}", exc_info=True)
 
         # 关闭Redis连接池
         if self.redis_pool:
@@ -140,7 +140,7 @@ class DatabaseManager:
                 redis_pool = None
                 logger.info("✅ Redis连接池已关闭")
             except Exception as e:
-                logger.error(f"❌ 关闭Redis连接池时出错: {e}")
+                logger.error(f"❌ 关闭Redis连接池时出错: {e}", exc_info=True)
 
     async def health_check(self) -> dict:
         """数据库健康检查"""
@@ -161,7 +161,7 @@ class DatabaseManager:
             else:
                 health_status["mongodb"]["status"] = "disconnected"
         except Exception as e:
-            logger.error(f"MongoDB health check failed: {e}")
+            logger.error(f"MongoDB health check failed: {e}", exc_info=True)
             health_status["mongodb"] = {
                 "status": "unhealthy",
                 "details": {"error": "MongoDB 连接异常，请检查服务状态"}
@@ -180,7 +180,7 @@ class DatabaseManager:
             else:
                 health_status["redis"]["status"] = "disconnected"
         except Exception as e:
-            logger.error(f"Redis health check failed: {e}")
+            logger.error(f"Redis health check failed: {e}", exc_info=True)
             health_status["redis"] = {
                 "status": "unhealthy",
                 "details": {"error": "Redis 连接异常，请检查服务状态"}
@@ -228,7 +228,7 @@ async def init_database():
         await init_database_views_and_indexes()
 
     except Exception as e:
-        logger.error(f"💥 数据库初始化失败: {e}")
+        logger.error(f"💥 数据库初始化失败: {e}", exc_info=True)
         raise
 
 
@@ -508,7 +508,7 @@ def close_mongo_db_sync():
                 _sync_mongo_db = None
                 logger.info("✅ 同步MongoDB连接已关闭")
         except Exception as exc:
-            logger.error(f"❌ 关闭同步MongoDB连接失败: {exc}")
+            logger.error(f"❌ 关闭同步MongoDB连接失败: {exc}", exc_info=True)
 
 
 def get_redis_client() -> Redis:

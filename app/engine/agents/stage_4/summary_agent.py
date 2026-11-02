@@ -278,8 +278,8 @@ def create_summary_agent(llm):
             structured_data["degraded"] = False
 
         except json.JSONDecodeError as e:
-            logger.error(f"❌ [Summary Agent] JSON 解析失败: {e}")
-            logger.error(f"   原始内容: {content}")
+            logger.error(f"❌ [Summary Agent] JSON 解析失败: {e}", exc_info=True)
+            logger.error(f"   原始内容: {content}", exc_info=True)
             # 回退默认值（口径与其他兜底一致：confidence=0 / risk=High，
             # 不再给 50/Medium 的"看似正常"数值）
             structured_data = {

@@ -288,7 +288,7 @@ async def run_conversation(
                 await emit("compact", level="reactive", messages=len(messages))
                 continue
             result.stop_reason = "context_window_exceeded"
-            logger.error("❌ [runner] reactive compact 后仍超窗，停止")
+            logger.error("❌ [runner] reactive compact 后仍超窗，停止", exc_info=True)
             break
 
         messages.append(resp.message)

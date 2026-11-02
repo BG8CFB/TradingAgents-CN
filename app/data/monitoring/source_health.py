@@ -216,7 +216,7 @@ class SourceHealthMonitor:
             try:
                 self._flush_to_mongo()
             except Exception as e:
-                logger.error(f"健康度刷入失败: {e}")
+                logger.error(f"健康度刷入失败: {e}", exc_info=True)
 
     def _flush_to_mongo(self):
         """将内存统计刷入 MongoDB。

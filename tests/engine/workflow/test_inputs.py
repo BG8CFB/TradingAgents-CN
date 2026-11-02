@@ -135,7 +135,7 @@ def _contracts_and_analyst_keys():
     }
     analyst_keys = {
         i.slug: tuple(i.report_keys)
-        for i in registry._load_identities()
+        for i in registry.load_identities()
         if i.is_analyst
     }
     return contracts, analyst_keys

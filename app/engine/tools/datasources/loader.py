@@ -62,7 +62,7 @@ def load_datasource_tools(toolkit_config: Optional[Dict] = None) -> List[ToolInf
             all_tools.append(tool)
 
         except Exception as e:  # noqa: BLE001 - 单工具失败不阻断整体加载
-            logger.error(f"❌ 包装工具 {spec.tool_id} 失败: {e}")
+            logger.error(f"❌ 包装工具 {spec.tool_id} 失败: {e}", exc_info=True)
 
     logger.info(f"✅ 预注入数据源加载完成: {len(all_tools)} 个")
     return all_tools

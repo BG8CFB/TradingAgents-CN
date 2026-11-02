@@ -134,7 +134,7 @@ class SchedulerEngine:
                 )
                 logger.info("注册调度: %s (%s %s)", job_id, cron_expr, timezone)
             except Exception as e:
-                logger.error("注册调度失败 %s: %s", job_id, e)
+                logger.error("注册调度失败 %s: %s", job_id, e, exc_info=True)
 
     def _make_job_func(self, market: str, domain: str):
         """创建任务函数 — 从 JobRegistry 查找并执行对应 Job。"""
@@ -200,7 +200,7 @@ class SchedulerEngine:
             result = await job_instance.execute()
             logger.debug("调度完成 %s/%s: %s", market, domain, result)
         except Exception as e:
-            logger.error("调度执行失败 %s/%s: %s", market, domain, e)
+            logger.error("调度执行失败 %s/%s: %s", market, domain, e, exc_info=True)
             # M14 修复：监控回调用独立 try-except 包裹，避免回调异常
             # 掩盖任务的真实执行结果或导致成功任务被误标为失败。
             if monitor:
@@ -260,7 +260,7 @@ class SchedulerEngine:
                 )
                 return job_id
             except Exception as e:
-                logger.error("手动触发失败 %s: %s", job_id, e)
+                logger.error("手动触发失败 %s: %s", job_id, e, exc_info=True)
         return ""
 
     def run_job_now(

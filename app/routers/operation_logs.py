@@ -67,7 +67,7 @@ async def get_operation_logs(
         )
         
     except Exception as e:
-        logger.error(f"获取操作日志列表失败: {e}")
+        logger.error(f"获取操作日志列表失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "获取操作日志列表失败")
@@ -93,7 +93,7 @@ async def get_operation_log_stats(
         )
         
     except Exception as e:
-        logger.error(f"获取操作日志统计失败: {e}")
+        logger.error(f"获取操作日志统计失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "获取操作日志统计失败")
@@ -128,7 +128,7 @@ async def clear_operation_logs(
         )
 
     except Exception as e:
-        logger.error(f"清空操作日志失败: {e}")
+        logger.error(f"清空操作日志失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "清空操作日志失败")
@@ -190,7 +190,7 @@ async def export_logs_csv(
         )
         
     except Exception as e:
-        logger.error(f"导出操作日志CSV失败: {e}")
+        logger.error(f"导出操作日志CSV失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=safe_error_message(e, "导出操作日志CSV失败")

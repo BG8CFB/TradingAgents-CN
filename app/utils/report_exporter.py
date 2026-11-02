@@ -660,7 +660,7 @@ pre, code {
             return self._generate_pdf_with_pdfkit(html_content)
         except Exception as e:
             error_msg = f"PDF 生成失败: {e}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}", exc_info=True)
             raise Exception(error_msg)
 
 

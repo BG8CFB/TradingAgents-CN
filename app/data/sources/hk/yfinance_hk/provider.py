@@ -42,7 +42,7 @@ class YFinanceHKProvider(BaseProvider):
             logger.debug(f"yfinance-HK 行情失败 {symbol}: {e}")
             return None
         except Exception as e:
-            logger.error(f"yfinance-HK 行情失败 {symbol}: {e}")
+            logger.error(f"yfinance-HK 行情失败 {symbol}: {e}", exc_info=True)
             return None
 
     async def get_corporate_actions(

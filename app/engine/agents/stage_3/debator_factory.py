@@ -295,7 +295,7 @@ def create_debator(llm, side: Literal["risky", "safe", "neutral"] = "risky", *, 
                 os.replace(tmp_filename, filename)
                 logger.info(f"{emoji} [{label}] 已更新报告文件: {filename}")
             except Exception as e:
-                logger.error(f"{emoji} [ERROR] 保存报告文件失败: {e}")
+                logger.error(f"{emoji} [ERROR] 保存报告文件失败: {e}", exc_info=True)
 
             # ── 10. 构造返回状态（history/current_* 等由 export_legacy_state 派生）──
             new_risk_debate_state["latest_speaker"] = cfg["speaker"]

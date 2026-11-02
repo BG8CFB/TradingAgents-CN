@@ -79,6 +79,19 @@ class DataInterface:
 
         await ensure_all_market_indexes(get_motor_db())
 
+    def reset_connections(self) -> None:
+        """失效数据侧桥接缓存（应用层 shutdown 时在 close_db 前调用）。
+
+        storage 层对 core 连接有懒缓存——core 关闭后不重置会让缓存指向
+        已关闭的客户端（重连场景下读写旧实例）。
+        """
+        from app.data.storage.mongo import client as mongo_bridge
+        from app.data.storage.redis import client as redis_bridge
+
+        mongo_bridge.reset_client()
+        redis_bridge.reset_client()
+        logger.info("数据侧连接桥接缓存已重置")
+
     # ── 数据读取 ──
 
     async def read(

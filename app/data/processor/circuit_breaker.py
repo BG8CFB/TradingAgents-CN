@@ -65,13 +65,9 @@ def load_source_cooldown_config() -> Dict[str, List[int]]:
     Returns:
         dict[source_name -> [initial, mid, max]]，读取失败或未配置返回空 dict。
     """
-    import yaml
-    from pathlib import Path
-
-    config_path = Path(__file__).parent.parent / "config" / "source_limits.yaml"
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            limits_config = yaml.safe_load(f) or {}
+        from app.data.config import load_yaml
+        limits_config = load_yaml("source_limits.yaml")
     except Exception as e:
         logger.warning(f"加载熔断冷却配置失败，使用默认阶梯: {e}")
         return {}

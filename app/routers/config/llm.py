@@ -408,7 +408,7 @@ async def test_provider_api(
         logger.info(f"API测试结果: {result}")
         return result
     except Exception as e:
-        logger.error(f"测试厂家API失败: {e}")
+        logger.error(f"测试厂家API失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"测试厂家API失败: {str(e)}"
@@ -452,7 +452,7 @@ async def get_llm_configs(
 
         return _sanitize_llm_configs(filtered_configs)
     except Exception as e:
-        logger.error(f"获取大模型配置失败: {e}")
+        logger.error(f"获取大模型配置失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取大模型配置失败: {str(e)}"
@@ -536,8 +536,8 @@ async def add_llm_config(
             llm_config = LLMConfig(**llm_config_data)
             logger.info("LLMConfig对象创建成功")
         except Exception as e:
-            logger.error(f"LLMConfig对象创建失败: {e}")
-            logger.error(f"失败的数据: {llm_config_data}")
+            logger.error(f"LLMConfig对象创建失败: {e}", exc_info=True)
+            logger.error(f"失败的数据: {llm_config_data}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"配置数据验证失败: {str(e)}"
@@ -579,9 +579,9 @@ async def add_llm_config(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"添加大模型配置异常: {e}")
+        logger.error(f"添加大模型配置异常: {e}", exc_info=True)
         import traceback
-        logger.error(f"异常堆栈: {traceback.format_exc()}")
+        logger.error(f"异常堆栈: {traceback.format_exc()}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"添加大模型配置失败: {str(e)}"
@@ -632,7 +632,7 @@ async def delete_llm_config(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"删除大模型配置异常 - {provider}/{model_name}: {e}")
+        logger.error(f"删除大模型配置异常 - {provider}/{model_name}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"删除大模型配置失败: {str(e)}"

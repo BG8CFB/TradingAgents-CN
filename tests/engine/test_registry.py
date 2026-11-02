@@ -175,7 +175,7 @@ class TestCompleteness:
     """完备性：9 内置节点六标识非空、别名并集覆盖、动态段覆盖 phase1 全部分析师"""
 
     def _static_identities(self):
-        return [i for i in registry._load_identities() if not i.is_analyst]
+        return [i for i in registry.load_identities() if not i.is_analyst]
 
     def test_nine_builtin_nodes(self):
         statics = self._static_identities()
@@ -212,11 +212,11 @@ class TestCompleteness:
         from app.engine.agents.analysts.dynamic_analyst import DynamicAnalystFactory
 
         phase1_slugs = {a["slug"] for a in DynamicAnalystFactory.get_all_agents() if a.get("slug")}
-        registry_slugs = {i.slug for i in registry._load_identities() if i.is_analyst}
+        registry_slugs = {i.slug for i in registry.load_identities() if i.is_analyst}
         assert phase1_slugs == registry_slugs
 
     def test_analyst_identity_shape(self):
-        analysts = [i for i in registry._load_identities() if i.is_analyst]
+        analysts = [i for i in registry.load_identities() if i.is_analyst]
         assert analysts
         for identity in analysts:
             assert identity.kind == KIND_ANALYST

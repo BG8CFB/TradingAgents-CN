@@ -129,7 +129,7 @@ class AnalysisWorker:
                 pass
 
         except Exception as e:
-            logger.error(f"Worker启动失败: {e}")
+            logger.error(f"Worker启动失败: {e}", exc_info=True)
             raise
         finally:
             await self._cleanup()
@@ -209,7 +209,8 @@ class AnalysisWorker:
             except asyncio.TimeoutError:
                 logger.error(
                     f"❌ 任务超时: {task_id} - {stock_code} "
-                    f"(超过 {task_timeout} 秒)"
+                    f"(超过 {task_timeout} 秒)",
+                    exc_info=True,
                 )
                 raise
 
@@ -227,7 +228,7 @@ class AnalysisWorker:
             try:
                 await self.queue_service.ack_task(task_id, success)
             except Exception as e:
-                logger.error(f"确认任务失败: {task_id} - {e}")
+                logger.error(f"确认任务失败: {task_id} - {e}", exc_info=True)
 
             self.current_task = None
 
@@ -244,7 +245,7 @@ class AnalysisWorker:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"心跳异常: {e}")
+                logger.error(f"心跳异常: {e}", exc_info=True)
                 await asyncio.sleep(5)
 
     async def _send_heartbeat(self):
@@ -264,7 +265,7 @@ class AnalysisWorker:
             await redis_service.set_json(heartbeat_key, heartbeat_data, ttl=self.heartbeat_interval * 2)
 
         except Exception as e:
-            logger.error(f"发送心跳失败: {e}")
+            logger.error(f"发送心跳失败: {e}", exc_info=True)
 
     async def _cleanup_loop(self):
         """清理循环，定期清理过期任务"""
@@ -276,7 +277,7 @@ class AnalysisWorker:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"清理任务异常: {e}")
+                logger.error(f"清理任务异常: {e}", exc_info=True)
 
     async def _cleanup(self):
         """清理资源"""
@@ -289,13 +290,13 @@ class AnalysisWorker:
             heartbeat_key = f"worker:{self.worker_id}:heartbeat"
             await redis_service.redis.delete(heartbeat_key)
         except Exception as e:
-            logger.error(f"清理心跳记录失败: {e}")
+            logger.error(f"清理心跳记录失败: {e}", exc_info=True)
 
         try:
             # 关闭数据库连接（Redis 由 database.py 统一管理）
             await close_database()
         except Exception as e:
-            logger.error(f"关闭数据库连接失败: {e}")
+            logger.error(f"关闭数据库连接失败: {e}", exc_info=True)
 
 
 async def main():
@@ -320,7 +321,7 @@ async def main():
     except KeyboardInterrupt:
         logger.info("收到中断信号，正在关闭...")
     except Exception as e:
-        logger.error(f"Worker异常退出: {e}")
+        logger.error(f"Worker异常退出: {e}", exc_info=True)
         sys.exit(1)
 
     logger.info("Worker已安全退出")

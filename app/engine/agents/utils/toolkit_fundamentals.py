@@ -124,7 +124,7 @@ def get_stock_fundamentals_unified(
 
                 result_data.append(f"## A股当前价格信息\n{current_price_data}")
             except Exception as e:
-                logger.error(f"❌ [基本面工具调试] A股价格数据获取失败: {e}")
+                logger.error(f"❌ [基本面工具调试] A股价格数据获取失败: {e}", exc_info=True)
                 result_data.append(f"## A股当前价格信息\n获取失败: {e}")
                 current_price_data = ""
 
@@ -140,7 +140,7 @@ def get_stock_fundamentals_unified(
 
                 result_data.append(f"## A股基本面财务数据\n{fundamentals_data}")
             except Exception as e:
-                logger.error(f"❌ [基本面工具调试] A股基本面数据获取失败: {e}")
+                logger.error(f"❌ [基本面工具调试] A股基本面数据获取失败: {e}", exc_info=True)
                 result_data.append(f"## A股基本面财务数据\n获取失败: {e}")
 
         elif is_hk:
@@ -176,7 +176,7 @@ def get_stock_fundamentals_unified(
                     )
 
             except Exception as e:
-                logger.error(f"❌ [基本面工具调试] 港股数据获取失败: {e}")
+                logger.error(f"❌ [基本面工具调试] 港股数据获取失败: {e}", exc_info=True)
 
             if not hk_data_success:
                 try:
@@ -217,7 +217,8 @@ def get_stock_fundamentals_unified(
 """
                     result_data.append(fallback_info)
                     logger.error(
-                        f"❌ [统一基本面工具] 港股所有数据源都失败: {e2}"
+                        f"❌ [统一基本面工具] 港股所有数据源都失败: {e2}",
+                        exc_info=True,
                     )
 
         else:
@@ -239,7 +240,7 @@ def get_stock_fundamentals_unified(
                 logger.debug("✅ [统一基本面工具] 美股数据获取成功")
             except Exception as e:
                 result_data.append(f"## 美股基本面数据\n获取失败: {e}")
-                logger.error(f"❌ [统一基本面工具] 美股数据获取失败: {e}")
+                logger.error(f"❌ [统一基本面工具] 美股数据获取失败: {e}", exc_info=True)
 
         # 组合所有数据
         combined_result = f"""# {ticker} 基本面分析数据
@@ -297,5 +298,5 @@ def get_stock_fundamentals_unified(
 
     except Exception as e:
         error_msg = f"统一基本面分析工具执行失败: {str(e)}"
-        logger.error(f"❌ [统一基本面工具] {error_msg}")
+        logger.error(f"❌ [统一基本面工具] {error_msg}", exc_info=True)
         return error_msg

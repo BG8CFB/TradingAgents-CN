@@ -74,7 +74,7 @@ async def get_reports_list(
         }
 
     except Exception as e:
-        logger.error(f"获取报告列表失败: {e}")
+        logger.error(f"获取报告列表失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))
 
 @router.get("/{report_id}/detail")
@@ -105,7 +105,7 @@ async def get_report_detail(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"获取报告详情失败: {e}")
+        logger.error(f"获取报告详情失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))
 
 @router.delete("/{report_id}")
@@ -133,7 +133,7 @@ async def delete_report(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"删除报告失败: {e}")
+        logger.error(f"删除报告失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))
 
 @router.get("/{report_id}/download")
@@ -245,7 +245,7 @@ async def download_report(
                     headers={"Content-Disposition": f"attachment; filename={filename}"}
                 )
             except Exception as e:
-                logger.error(f"Word 文档生成失败: {e}")
+                logger.error(f"Word 文档生成失败: {e}", exc_info=True)
                 raise HTTPException(status_code=500, detail=safe_error_message(e, "Word 文档生成失败"))
 
         elif format == "pdf":
@@ -273,7 +273,7 @@ async def download_report(
                     headers={"Content-Disposition": f"attachment; filename={filename}"}
                 )
             except Exception as e:
-                logger.error(f"PDF 文档生成失败: {e}")
+                logger.error(f"PDF 文档生成失败: {e}", exc_info=True)
                 raise HTTPException(status_code=500, detail=safe_error_message(e, "PDF 文档生成失败"))
 
         else:
@@ -282,5 +282,5 @@ async def download_report(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"下载报告失败: {e}")
+        logger.error(f"下载报告失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "操作失败"))

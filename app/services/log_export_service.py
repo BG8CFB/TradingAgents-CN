@@ -52,7 +52,7 @@ class LogExportService:
                 self.log_dir.mkdir(parents=True, exist_ok=True)
                 logger.info(f"✅ [LogExportService] 已创建日志目录: {self.log_dir}")
             except Exception as e:
-                logger.error(f"❌ [LogExportService] 创建日志目录失败: {e}")
+                logger.error(f"❌ [LogExportService] 创建日志目录失败: {e}", exc_info=True)
         else:
             logger.info("✅ [LogExportService] 日志目录存在")
 
@@ -87,7 +87,7 @@ class LogExportService:
                 for item in all_items[:10]:  # 只显示前10个
                     logger.debug(f"🔍 [list_log_files]   - {item.name} (is_file: {item.is_file()})")
             except Exception as e:
-                logger.error(f"❌ [list_log_files] 列出目录内容失败: {e}")
+                logger.error(f"❌ [list_log_files] 列出目录内容失败: {e}", exc_info=True)
 
             # 搜索日志文件
             logger.debug("🔍 [list_log_files] 搜索模式: *.log*")
@@ -228,7 +228,7 @@ class LogExportService:
             }
             
         except Exception as e:
-            logger.error(f"❌ 读取日志文件失败: {e}")
+            logger.error(f"❌ 读取日志文件失败: {e}", exc_info=True)
             raise
 
     def export_logs(
@@ -330,7 +330,7 @@ class LogExportService:
                 raise ValueError(f"不支持的导出格式: {format}")
                 
         except Exception as e:
-            logger.error(f"❌ 导出日志失败: {e}")
+            logger.error(f"❌ 导出日志失败: {e}", exc_info=True)
             raise
 
     def _cleanup_exports(self, export_dir: Path, keep: int = MAX_EXPORT_FILES_KEPT) -> None:

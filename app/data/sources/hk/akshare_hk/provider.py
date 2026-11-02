@@ -87,7 +87,7 @@ class AKShareHKProvider(BaseProvider):
             logger.debug(f"AKShare-HK 股票列表失败: {e}")
             return None
         except Exception as e:
-            logger.error(f"AKShare-HK 股票列表失败: {e}")
+            logger.error(f"AKShare-HK 股票列表失败: {e}", exc_info=True)
             return None
 
     async def get_daily_quotes(
@@ -103,7 +103,7 @@ class AKShareHKProvider(BaseProvider):
             logger.debug(f"AKShare-HK 行情失败 {symbol}: {e}")
             return None
         except Exception as e:
-            logger.error(f"AKShare-HK 行情失败 {symbol}: {e}")
+            logger.error(f"AKShare-HK 行情失败 {symbol}: {e}", exc_info=True)
             return None
 
     async def get_corporate_actions(

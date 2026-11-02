@@ -58,7 +58,7 @@ class AuthService:
             logger.warning(f"❌ Token无效: {str(e)}")
             return None
         except Exception as e:
-            logger.error(f"❌ Token验证异常: {str(e)}")
+            logger.error(f"❌ Token验证异常: {str(e)}", exc_info=True)
             return None
 
     @staticmethod

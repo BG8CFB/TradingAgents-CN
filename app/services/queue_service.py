@@ -155,7 +155,7 @@ class QueueService:
             return task_data
 
         except Exception as e:
-            logger.error(f"出队失败: {e}")
+            logger.error(f"出队失败: {e}", exc_info=True)
             return None
 
     async def ack_task(self, task_id: str, success: bool = True) -> bool:
@@ -191,7 +191,7 @@ class QueueService:
             return True
 
         except Exception as e:
-            logger.error(f"确认任务失败: {e}")
+            logger.error(f"确认任务失败: {e}", exc_info=True)
             return False
 
     async def create_batch(self, user_id: str, symbols: List[str], params: Dict[str, Any]) -> tuple[str, int]:
@@ -302,7 +302,7 @@ class QueueService:
                 logger.warning(f"处理了 {len(expired_tasks)} 个过期任务")
 
         except Exception as e:
-            logger.error(f"清理过期任务失败: {e}")
+            logger.error(f"清理过期任务失败: {e}", exc_info=True)
 
     async def _handle_expired_task(self, task_id: str):
         """处理过期任务。
@@ -357,7 +357,7 @@ class QueueService:
             )
 
         except Exception as e:
-            logger.error(f"处理过期任务失败: {task_id} - {e}")
+            logger.error(f"处理过期任务失败: {task_id} - {e}", exc_info=True)
 
     async def cancel_task(self, task_id: str) -> bool:
         """取消任务。
@@ -407,7 +407,7 @@ class QueueService:
             return True
 
         except Exception as e:
-            logger.error(f"取消任务失败: {e}")
+            logger.error(f"取消任务失败: {e}", exc_info=True)
             return False
 
 

@@ -169,7 +169,7 @@ class BaseSyncJob(ABC):
 
         except Exception as e:
             elapsed = int((time.time() - start) * 1000)
-            logger.error(f"同步失败 {self.market}/{self.domain}: {e}")
+            logger.error(f"同步失败 {self.market}/{self.domain}: {e}", exc_info=True)
             await self._metadata.insert_event(
                 {
                     "event_type": "SYNC_FAILED",

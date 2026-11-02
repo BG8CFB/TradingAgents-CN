@@ -196,7 +196,7 @@ async def _print_config_summary(logger):
 
         logger.info("=" * 70)
     except Exception as e:
-        logger.error(f"Failed to print config summary: {e}")
+        logger.error(f"Failed to print config summary: {e}", exc_info=True)
 
 
 async def _init_database(logger):
@@ -299,7 +299,7 @@ async def _init_config_bridge(logger):
         if not bridge_success:
             logger.warning("⚠️  配置桥接未成功完成，TradingAgents 将使用 .env 文件中的配置")
     except asyncio.TimeoutError:
-        logger.error("❌ 配置桥接超时（30 秒），启动流程将降级使用 .env 配置")
+        logger.error("❌ 配置桥接超时（30 秒），启动流程将降级使用 .env 配置", exc_info=True)
     except Exception as e:
         logger.warning(f"⚠️  配置桥接失败: {e}")
 
@@ -432,7 +432,7 @@ async def _init_mcp(logger):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"MCP 健康检查失败: {e}")
+                logger.error(f"MCP 健康检查失败: {e}", exc_info=True)
                 await asyncio.sleep(30)
 
     # 通过 task_registry 注册（critical=False：shutdown 时直接 cancel）
@@ -655,7 +655,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"TaskRegistry shutdown 失败: {e}")
 
-        # 5. 关闭数据库连接
+        # 5. 关闭数据库连接（先失效数据侧桥接缓存，防重连后指向已关闭实例）
+        try:
+            from app.data.core.interface import DataInterface
+
+            DataInterface.get_instance().reset_connections()
+        except Exception as e:
+            logger.debug(f"数据侧连接缓存重置失败（可能未初始化）: {e}")
         await close_db()
         logger.info("TradingAgents FastAPI backend stopped")
 

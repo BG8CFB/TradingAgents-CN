@@ -22,7 +22,7 @@ async def get_cache_stats(current_user: dict = Depends(get_current_user)):
         logger.info(f"用户 {current_user['username']} 获取缓存统计")
         return ok(data=stats, message="获取缓存统计成功")
     except Exception as e:
-        logger.error(f"获取缓存统计失败: {e}")
+        logger.error(f"获取缓存统计失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=safe_error_message(e, "获取缓存统计失败"),
@@ -46,7 +46,7 @@ async def cleanup_old_cache(
             message=f"已清理 {days} 天前的缓存",
         )
     except Exception as e:
-        logger.error(f"清理缓存失败: {e}")
+        logger.error(f"清理缓存失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=safe_error_message(e, "清理缓存失败"),
@@ -64,7 +64,7 @@ async def clear_all_cache(current_user: dict = Depends(require_admin)):
         )
         return ok(data={"deletedKeys": deleted}, message="所有缓存已清空")
     except Exception as e:
-        logger.error(f"清空缓存失败: {e}")
+        logger.error(f"清空缓存失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=safe_error_message(e, "清空缓存失败"),
@@ -85,7 +85,7 @@ async def get_cache_details(
         )
         return ok(data=data, message="获取缓存详情成功")
     except Exception as e:
-        logger.error(f"获取缓存详情失败: {e}")
+        logger.error(f"获取缓存详情失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=safe_error_message(e, "获取缓存详情失败"),
@@ -136,7 +136,7 @@ async def delete_cache_item(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"删除缓存项失败: {e}")
+        logger.error(f"删除缓存项失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=safe_error_message(e, "删除缓存项失败"),

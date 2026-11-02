@@ -17,35 +17,43 @@
 """
 
 import logging
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import yaml
 
 logger = logging.getLogger(__name__)
-
-_CONFIG_PATH = Path(__file__).parent.parent / "config" / "data_health.yaml"
-_FRESHNESS_PATH = Path(__file__).parent.parent / "config" / "freshness_rules.yaml"
 
 # 健康快照超过该小时数且内存无热数据 → 视为无信号（修"stale Mongo 快照永远优先"）
 HEALTH_SNAPSHOT_MAX_AGE_HOURS = 2.0
 
 
-def _load_yaml(path: Path) -> Dict:
-    try:
-        with open(path, encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except Exception as exc:
-        logger.warning(f"加载 {path.name} 失败: {exc}")
-        return {}
+def trading_day_budget_hours(health_cfg: Dict, market: str) -> float:
+    """trading_day_after_close 类域的自然日预算（小时），单一真相源。
+
+    解析顺序：data_health.yaml 的 markets.<market>.stale_after_hours.
+    trading_day_default（HK/US 为 96）→ 顶层默认（72）。
+    reader 的新鲜度兜底与本计算器共用此函数，消除两处口径漂移。
+    """
+    override = (
+        (health_cfg.get("markets") or {})
+        .get(market, {})
+        .get("stale_after_hours", {})
+        .get("trading_day_default")
+    )
+    if override is None:
+        override = (health_cfg.get("stale_after_hours") or {}).get(
+            "trading_day_default", 72
+        )
+    return float(override)
 
 
 class DomainHealthCalculator:
     """域健康判定器（无状态，可复用）。"""
 
     def __init__(self, config: Optional[Dict] = None):
-        self._config = config or _load_yaml(_CONFIG_PATH)
-        self._freshness_rules = _load_yaml(_FRESHNESS_PATH)
+        from app.data.config import load_yaml
+
+        self._config = config or load_yaml("data_health.yaml")
+        self._freshness_rules = load_yaml("freshness_rules.yaml")
 
     # ── 配置读取 ─────────────────────────────────────────
 
@@ -72,18 +80,8 @@ class DomainHealthCalculator:
             if minutes:
                 return float(minutes) / 60.0
             return None
-        # trading_day_after_close：自然日预算，市场可覆盖
-        override = (
-            self._config.get("markets", {})
-            .get(market, {})
-            .get("stale_after_hours", {})
-            .get("trading_day_default")
-        )
-        if override is None:
-            override = (self._config.get("stale_after_hours") or {}).get(
-                "trading_day_default", 72
-            )
-        return float(override)
+        # trading_day_after_close：自然日预算，市场可覆盖（单一真相源函数）
+        return trading_day_budget_hours(self._config, market)
 
     # ── 主判定 ───────────────────────────────────────────
 

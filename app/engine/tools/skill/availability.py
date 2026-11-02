@@ -189,7 +189,7 @@ def check_skill_dependencies_raw(name: str) -> Dict:
             "availability": availability.model_dump(),
         }
     except Exception as e:
-        logger.error(f"检查 skill 依赖失败 {name}: {e}")
+        logger.error(f"检查 skill 依赖失败 {name}: {e}", exc_info=True)
         return {
             "satisfied": False,
             "missing": [],

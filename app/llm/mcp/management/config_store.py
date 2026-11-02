@@ -422,7 +422,7 @@ def load_mcp_config(config_file: Optional[Path] = None, *, strict: bool = False)
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as exc:  # pragma: no cover - 保护 IO/解析异常
-        logger.error("[MCP] 读取配置失败: %s", exc)
+        logger.error("[MCP] 读取配置失败: %s", exc, exc_info=True)
         return {"mcpServers": {}}
 
     servers = data.get("mcpServers", {}) or {}

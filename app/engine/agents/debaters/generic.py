@@ -374,4 +374,4 @@ def _save_report_file(
         os.replace(tmp, filename)
         logger.info(f"📄 [{slug}] 已保存报告文件: {filename}")
     except Exception as e:  # noqa: BLE001 - 落盘失败不阻断流程
-        logger.error(f"📄 [{slug}] 保存报告文件失败: {e}")
+        logger.error(f"📄 [{slug}] 保存报告文件失败: {e}", exc_info=True)

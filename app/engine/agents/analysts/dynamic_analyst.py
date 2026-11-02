@@ -49,7 +49,7 @@ class DynamicAnalystFactory:
         try:
             return {"customModes": store.list_agent_specs(phase=1)}
         except Exception as e:  # noqa: BLE001 - 读取失败回退空库（与旧 YAML 失败行为一致）
-            logger.error(f"❌ 加载智能体库失败: {e}")
+            logger.error(f"❌ 加载智能体库失败: {e}", exc_info=True)
             return {}
 
     @classmethod

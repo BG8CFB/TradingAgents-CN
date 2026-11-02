@@ -471,7 +471,7 @@ async def test_saved_database_config(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"测试数据库配置失败: {e}")
+        logger.error(f"测试数据库配置失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"测试数据库配置失败: {str(e)}"
@@ -491,7 +491,7 @@ async def get_database_configs(
         logger.info(f"获取到 {len(configs)} 个数据库配置")
         return _sanitize_database_configs(configs)
     except Exception as e:
-        logger.error(f"获取数据库配置失败: {e}")
+        logger.error(f"获取数据库配置失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取数据库配置失败: {str(e)}"
@@ -541,7 +541,7 @@ async def update_database_config(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"更新数据库配置失败: {e}")
+        logger.error(f"更新数据库配置失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"更新数据库配置失败: {str(e)}"

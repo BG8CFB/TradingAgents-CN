@@ -38,13 +38,13 @@ def load_manifest(skill_dir: str) -> Optional[SkillManifest]:
     try:
         raw = manifest_path.read_text(encoding="utf-8")
     except Exception as e:
-        logger.error(f"读取 manifest 失败 {manifest_path}: {e}")
+        logger.error(f"读取 manifest 失败 {manifest_path}: {e}", exc_info=True)
         return None
 
     try:
         data = yaml.safe_load(raw)
     except yaml.YAMLError as e:
-        logger.error(f"manifest YAML 解析失败 {manifest_path}: {e}")
+        logger.error(f"manifest YAML 解析失败 {manifest_path}: {e}", exc_info=True)
         return None
 
     if not isinstance(data, dict):
@@ -61,7 +61,7 @@ def load_manifest(skill_dir: str) -> Optional[SkillManifest]:
     try:
         manifest = SkillManifest.model_validate(data)
     except ValidationError as e:
-        logger.error(f"manifest 校验失败 {manifest_path}: {e}")
+        logger.error(f"manifest 校验失败 {manifest_path}: {e}", exc_info=True)
         return None
 
     # 校验 skill_name 与目录名一致

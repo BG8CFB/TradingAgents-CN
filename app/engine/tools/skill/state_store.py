@@ -75,7 +75,7 @@ class SkillStateStore:
             )
             return True
         except Exception as e:
-            logger.error(f"写入 skill_state 失败 {state.name}: {e}")
+            logger.error(f"写入 skill_state 失败 {state.name}: {e}", exc_info=True)
             return False
 
     async def set_enabled(self, name: str, enabled: bool) -> bool:
@@ -99,7 +99,7 @@ class SkillStateStore:
             )
             return True
         except Exception as e:
-            logger.error(f"更新 skill 启停状态失败 {name}: {e}")
+            logger.error(f"更新 skill 启停状态失败 {name}: {e}", exc_info=True)
             return False
 
     async def record_installed_dependencies(
@@ -129,7 +129,7 @@ class SkillStateStore:
             )
             return True
         except Exception as e:
-            logger.error(f"记录 skill 已安装依赖失败 {name}: {e}")
+            logger.error(f"记录 skill 已安装依赖失败 {name}: {e}", exc_info=True)
             return False
 
     async def update_last_checked(self, name: str) -> bool:
@@ -153,7 +153,7 @@ class SkillStateStore:
             await db[_SKILL_STATE_COLLECTION].delete_one({"name": name})
             return True
         except Exception as e:
-            logger.error(f"删除 skill_state 失败 {name}: {e}")
+            logger.error(f"删除 skill_state 失败 {name}: {e}", exc_info=True)
             return False
 
     async def write_install_log(self, log: SkillInstallLog) -> bool:
@@ -165,7 +165,7 @@ class SkillStateStore:
             await db[_SKILL_INSTALL_LOG_COLLECTION].insert_one(doc)
             return True
         except Exception as e:
-            logger.error(f"写入 skill_install_log 失败 {log.skill_name}: {e}")
+            logger.error(f"写入 skill_install_log 失败 {log.skill_name}: {e}", exc_info=True)
             return False
 
     async def list_install_logs(

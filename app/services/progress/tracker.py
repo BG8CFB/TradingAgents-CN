@@ -367,7 +367,7 @@ class RedisProgressTracker:
             return self.progress_data
 
         except Exception as e:
-            logger.error(f"[RedisProgress] update failed: {self.task_id} - {e}")
+            logger.error(f"[RedisProgress] update failed: {self.task_id} - {e}", exc_info=True)
             return self.progress_data
 
     def _update_steps_by_progress(self, progress_pct: float) -> None:
@@ -454,7 +454,7 @@ class RedisProgressTracker:
                     f.write(serialized)
             return True
         except Exception as e:
-            logger.error(f"[RedisProgress] save progress failed: {self.task_id} - {e}")
+            logger.error(f"[RedisProgress] save progress failed: {self.task_id} - {e}", exc_info=True)
             # 🔥 修复: 标记进度数据为不同步状态
             self.progress_data['_sync_error'] = str(e)
             self.progress_data['_sync_failed_at'] = time.time()
@@ -473,7 +473,7 @@ class RedisProgressTracker:
             self._save_progress()
             return self.progress_data
         except Exception as e:
-            logger.error(f"[RedisProgress] mark completed failed: {self.task_id} - {e}")
+            logger.error(f"[RedisProgress] mark completed failed: {self.task_id} - {e}", exc_info=True)
             return self.progress_data
 
     def mark_failed(self, reason: str = "") -> Dict[str, Any]:
@@ -489,7 +489,7 @@ class RedisProgressTracker:
             self._save_progress()
             return self.progress_data
         except Exception as e:
-            logger.error(f"[RedisProgress] mark failed failed: {self.task_id} - {e}")
+            logger.error(f"[RedisProgress] mark failed failed: {self.task_id} - {e}", exc_info=True)
             return self.progress_data
 
     def to_dict(self) -> Dict[str, Any]:
@@ -509,7 +509,7 @@ class RedisProgressTracker:
                 'current_step': self.progress_data.get('current_step')
             }
         except Exception as e:
-            logger.error(f"[RedisProgress] to_dict failed: {self.task_id} - {e}")
+            logger.error(f"[RedisProgress] to_dict failed: {self.task_id} - {e}", exc_info=True)
             return self.progress_data
 
 
@@ -578,5 +578,5 @@ def get_progress_by_id(task_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     except Exception as e:
-        logger.error(f"📊 [Redis进度] 获取进度失败: {task_id} - {e}")
+        logger.error(f"📊 [Redis进度] 获取进度失败: {task_id} - {e}", exc_info=True)
         return None

@@ -197,5 +197,5 @@ def get_stock_news(stock_code: str, max_results: int = 10, current_date: str = N
             no_data_result(message=f"未找到 {stock_code} 的新闻数据", suggestion="这是正常状态，不要重试或尝试其他参数")
         )
     except Exception as e:
-        logger.error(f"get_stock_news failed: {e}")
+        logger.error(f"get_stock_news failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

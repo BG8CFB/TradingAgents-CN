@@ -99,7 +99,7 @@ class ProgressLogHandler(logging.Handler):
 
         except Exception as e:
             # 不要让日志处理器的错误影响主程序
-            logger.error(f"📊 [进度日志] 日志处理错误: {e}")
+            logger.error(f"📊 [进度日志] 日志处理错误: {e}", exc_info=True)
 
     def _extract_progress_message(self, message: str) -> Optional[str]:
         """从日志消息中提取进度信息"""

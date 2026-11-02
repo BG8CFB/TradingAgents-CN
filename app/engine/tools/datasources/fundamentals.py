@@ -106,7 +106,7 @@ def get_stock_fundamentals(
                 else:
                     result_data.append("## A股基本面财务数据\n暂无基本面数据（请先同步 financial_data 数据）")
             except Exception as e:
-                logger.error(f"[基本面工具] A股基本面数据获取失败: {e}")
+                logger.error(f"[基本面工具] A股基本面数据获取失败: {e}", exc_info=True)
                 result_data.append(f"## A股基本面财务数据\n获取失败: {e}")
 
         elif is_hk:
@@ -125,7 +125,7 @@ def get_stock_fundamentals(
 """
                 result_data.append(basic_info)
             except Exception as e:
-                logger.error(f"[基本面工具] 港股基础信息获取失败: {e}")
+                logger.error(f"[基本面工具] 港股基础信息获取失败: {e}", exc_info=True)
                 result_data.append(f"## 港股基础信息\n获取失败: {e}")
 
         else:
@@ -159,7 +159,7 @@ def get_stock_fundamentals(
         return format_tool_result(success_result(combined_result))
 
     except Exception as e:
-        logger.error(f"get_stock_fundamentals failed: {e}")
+        logger.error(f"get_stock_fundamentals failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
@@ -255,7 +255,7 @@ def get_company_performance_unified(
         )
 
     except Exception as e:
-        logger.error(f"get_company_performance_unified failed: {e}")
+        logger.error(f"get_company_performance_unified failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))
 
 
@@ -311,5 +311,5 @@ def get_stock_basic_info(
         )
 
     except Exception as e:
-        logger.error(f"get_stock_basic_info failed: {e}")
+        logger.error(f"get_stock_basic_info failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

@@ -86,7 +86,7 @@ class Reflector:
                 user_id=self.user_id,
             )
         except Exception as e:  # noqa: BLE001
-            logger.error(f"反思组件 [{component_key}] 失败: {e}")
+            logger.error(f"反思组件 [{component_key}] 失败: {e}", exc_info=True)
             return False
 
         if result:

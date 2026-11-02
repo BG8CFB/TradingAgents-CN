@@ -224,7 +224,7 @@ class QuotesIngestionService:
             return doc
 
         except Exception as e:
-            logger.error(f"获取同步状态失败: {e}")
+            logger.error(f"获取同步状态失败: {e}", exc_info=True)
             return {
                 "last_sync_time": None,
                 "last_sync_time_iso": None,
@@ -569,9 +569,9 @@ class QuotesIngestionService:
                 logger.warning("⚠️ 历史数据转换后为空，无法导入")
 
         except Exception as e:
-            logger.error(f"❌ 从历史数据导入失败: {e}")
+            logger.error(f"❌ 从历史数据导入失败: {e}", exc_info=True)
             import traceback
-            logger.error(f"堆栈跟踪:\n{traceback.format_exc()}")
+            logger.error(f"堆栈跟踪:\n{traceback.format_exc()}", exc_info=True)
 
     async def backfill_last_close_snapshot(self) -> None:
         """一次性补齐上一笔收盘快照（用于冷启动或数据陈旧）。允许在休市期调用。"""
@@ -588,7 +588,7 @@ class QuotesIngestionService:
                 trade_date = format_date_compact(now_config_tz())
             await self._bulk_upsert(quotes_map, trade_date, source)
         except Exception as e:
-            logger.error(f"❌ backfill 行情补数失败: {e}")
+            logger.error(f"❌ backfill 行情补数失败: {e}", exc_info=True)
 
     async def backfill_last_close_snapshot_if_needed(self) -> None:
         """若集合为空或 trade_date 落后于最新交易日，则执行一次 backfill"""
@@ -667,7 +667,7 @@ class QuotesIngestionService:
                 return None, None
 
         except Exception as e:
-            logger.error(f"从 {source_type} 获取行情失败: {e}")
+            logger.error(f"从 {source_type} 获取行情失败: {e}", exc_info=True)
             return None, None
 
     async def run_once(self) -> None:
@@ -739,7 +739,7 @@ class QuotesIngestionService:
             )
 
         except Exception as e:
-            logger.error(f"❌ 行情入库失败: {e}")
+            logger.error(f"❌ 行情入库失败: {e}", exc_info=True)
             # 记录失败状态
             await self._record_sync_status(
                 success=False,
@@ -767,7 +767,7 @@ class QuotesIngestionService:
             return await di.read_latest(self._market, "daily_quotes", symbol6)
 
         except Exception as e:
-            logger.error(f"获取最新日线数据失败 symbol={symbol}: {e}")
+            logger.error(f"获取最新日线数据失败 symbol={symbol}: {e}", exc_info=True)
             return None
 
     async def get_market_quote(self, symbol: str) -> Optional[Dict]:
@@ -790,7 +790,7 @@ class QuotesIngestionService:
             return result.get("data")
 
         except Exception as e:
-            logger.error(f"获取行情数据失败 symbol={symbol}: {e}")
+            logger.error(f"获取行情数据失败 symbol={symbol}: {e}", exc_info=True)
             return None
 
     async def upsert_market_quote(self, symbol: str, quote_data: Dict) -> bool:
@@ -816,7 +816,7 @@ class QuotesIngestionService:
             return result.modified_count > 0 or result.upserted_id is not None
 
         except Exception as e:
-            logger.error(f"更新行情数据失败 symbol={symbol}: {e}")
+            logger.error(f"更新行情数据失败 symbol={symbol}: {e}", exc_info=True)
             return False
 
     async def sync_latest_to_market_quotes(self, symbol: str) -> None:

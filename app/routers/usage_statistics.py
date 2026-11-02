@@ -55,7 +55,7 @@ async def get_usage_records(
             }
         }
     except Exception as e:
-        logger.error(f"获取使用记录失败: {e}")
+        logger.error(f"获取使用记录失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取使用记录失败"))
 
 
@@ -80,7 +80,7 @@ async def get_usage_statistics(
             "data": stats.model_dump()
         }
     except Exception as e:
-        logger.error(f"获取使用统计失败: {e}")
+        logger.error(f"获取使用统计失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取使用统计失败"))
 
 
@@ -99,7 +99,7 @@ async def get_cost_by_provider(
             "data": cost_data
         }
     except Exception as e:
-        logger.error(f"获取成本统计失败: {e}")
+        logger.error(f"获取成本统计失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取成本统计失败"))
 
 
@@ -118,7 +118,7 @@ async def get_daily_cost(
             "data": cost_data
         }
     except Exception as e:
-        logger.error(f"获取每日成本失败: {e}")
+        logger.error(f"获取每日成本失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取每日成本失败"))
 
 
@@ -148,7 +148,7 @@ async def get_task_usage(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"获取任务用量失败: {e}")
+        logger.error(f"获取任务用量失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务用量失败"))
 
 
@@ -167,6 +167,6 @@ async def delete_old_records(
             "data": {"deleted_count": deleted_count}
         }
     except Exception as e:
-        logger.error(f"删除旧记录失败: {e}")
+        logger.error(f"删除旧记录失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "删除旧记录失败"))
 

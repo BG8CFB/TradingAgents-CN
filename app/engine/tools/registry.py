@@ -142,7 +142,7 @@ class ToolRegistry:
 
             logger.info(f"[ToolRegistry] 内置工具加载完成: {len(self._builtin_tools)} 个")
         except Exception as e:  # noqa: BLE001
-            logger.error(f"[ToolRegistry] 内置工具加载失败: {e}")
+            logger.error(f"[ToolRegistry] 内置工具加载失败: {e}", exc_info=True)
             self._builtin_tools = []
             self._builtin_metas = {}
 

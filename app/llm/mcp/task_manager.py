@@ -441,7 +441,7 @@ class TaskLevelMCPManager:
             if tool_state.failure_count >= self._circuit_config.failure_threshold:
                 with self._lock:
                     self._failed_tools.add(tool_key)
-                logger.error(f"工具 {tool_name} 连续失败 {tool_state.failure_count} 次，已在当前任务中禁用")
+                logger.error(f"工具 {tool_name} 连续失败 {tool_state.failure_count} 次，已在当前任务中禁用", exc_info=True)
 
             # 返回友好的错误信息
             return {

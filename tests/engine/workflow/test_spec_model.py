@@ -100,7 +100,7 @@ class TestSeedRegistryAnchor:
     def _static_identities(self):
         from app.engine.orchestrator import registry
 
-        return [i for i in registry._load_identities() if not i.is_analyst]
+        return [i for i in registry.load_identities() if not i.is_analyst]
 
     def test_node_slug_set_matches_registry(self, seed_spec):
         reg_slugs = {i.slug for i in self._static_identities()}

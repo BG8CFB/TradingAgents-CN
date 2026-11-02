@@ -257,7 +257,7 @@ async def websocket_notifications_endpoint(
                 logger.info(f"🔌 [WS] 客户端主动断开: user={user_id}")
                 break
             except Exception as e:
-                logger.error(f"❌ [WS] 接收消息错误: {e}")
+                logger.error(f"❌ [WS] 接收消息错误: {e}", exc_info=True)
                 break
     
     finally:

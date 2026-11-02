@@ -577,11 +577,17 @@ class Reader:
                     except Exception:
                         pass  # 日历不可用时走下方时间兜底
                 # 时间兜底：age 在阈值内 → fresh；超过阈值但未跨自然日预算
-                # （收盘后数据跨周末属正常，72h 预算对齐 data_health 语义）
+                # （收盘后数据跨周末属正常；预算取 data_health.yaml 单一真相源
+                #   ——HK/US 96h/默认 72h，此前硬编码 72 与域健康判定口径相左）
                 age_minutes = (now - updated).total_seconds() / 60
                 if age_minutes < threshold_minutes:
                     return FreshnessState.FRESH
-                max_hours = domain_rule.get("max_stale_hours", 72)
+                from app.data.config import load_yaml
+                from app.data.core.health import trading_day_budget_hours
+
+                max_hours = trading_day_budget_hours(
+                    load_yaml("data_health.yaml"), market
+                )
                 return (
                     FreshnessState.FRESH
                     if age_minutes < max_hours * 60

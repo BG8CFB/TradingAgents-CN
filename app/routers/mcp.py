@@ -125,7 +125,7 @@ async def reload_mcp(user: dict = Depends(require_admin)) -> Dict[str, Any]:
         connected = await mcp_service.startup()
         return {"success": True, "data": {"connected": connected}, "message": "MCP 连接已重载"}
     except Exception as e:
-        logger.error(f"重载 MCP 连接失败: {e}")
+        logger.error(f"重载 MCP 连接失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "重载 MCP 连接失败"))
 
 
@@ -172,7 +172,7 @@ async def install_connector_deps(
         result = await install_server_deps(name, model, installed_by=f"user:{user.get('username', 'admin')}")
         return {"success": True, "data": result}
     except Exception as e:
-        logger.error(f"安装服务器 {name} 依赖失败: {e}")
+        logger.error(f"安装服务器 {name} 依赖失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "安装依赖失败"))
 
 
@@ -225,7 +225,7 @@ async def toggle_connector(
             }
         }
     except Exception as e:
-        logger.error(f"切换服务器 {name} 状态失败: {e}")
+        logger.error(f"切换服务器 {name} 状态失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "切换服务器状态失败"))
 
 
@@ -278,5 +278,5 @@ async def list_all_mcp_tools(user: dict = Depends(get_current_user)) -> Dict[str
             "serverStats": server_stats,
         }
     except Exception as exc:
-        logger.error(f"获取 MCP 工具列表失败: {exc}")
+        logger.error(f"获取 MCP 工具列表失败: {exc}", exc_info=True)
         return {"success": False, "message": safe_error_message(exc, "获取 MCP 工具列表失败"), "data": []}

@@ -82,7 +82,7 @@ async def submit_single_analysis(
             "message": "分析任务已在后台启动"
         }
     except Exception as e:
-        logger.error(f"❌ 提交单股分析任务失败: {e}")
+        logger.error(f"❌ 提交单股分析任务失败: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=safe_error_message(e, "提交分析任务失败"))
 
 
@@ -120,7 +120,7 @@ async def get_task_status_new(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ 获取任务状态失败: {e}")
+        logger.error(f"❌ 获取任务状态失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务状态失败"))
 
 @router.get("/tasks/{task_id}/result", response_model=Dict[str, Any])
@@ -520,7 +520,7 @@ async def get_task_result(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ [RESULT] 获取任务结果失败: {e}")
+        logger.error(f"❌ [RESULT] 获取任务结果失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取分析结果时发生内部错误"))
 
 @router.get("/tasks", response_model=Dict[str, Any])
@@ -554,7 +554,7 @@ async def list_user_tasks(
         }
 
     except Exception as e:
-        logger.error(f"❌ 获取任务列表失败: {e}")
+        logger.error(f"❌ 获取任务列表失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取任务列表失败"))
 
 @router.post("/batch", response_model=Dict[str, Any])
@@ -760,7 +760,7 @@ async def get_user_analysis_history(
             "message": "历史查询成功"
         }
     except Exception as e:
-        logger.error(f"❌ 获取用户分析历史失败: {e}")
+        logger.error(f"❌ 获取用户分析历史失败: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=safe_error_message(e, "获取分析历史失败"))
 
 # WebSocket 端点
@@ -930,7 +930,7 @@ async def websocket_task_progress(websocket: WebSocket, task_id: str):
     except WebSocketDisconnect:
         logger.info(f"🔌 WebSocket 客户端断开连接: task_id={task_id}")
     except Exception as e:
-        logger.error(f"❌ WebSocket 连接错误: {e}")
+        logger.error(f"❌ WebSocket 连接错误: {e}", exc_info=True)
     finally:
         await websocket_manager.disconnect(websocket, task_id)
 
@@ -1106,7 +1106,7 @@ async def mark_task_as_failed(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ 标记任务失败: {e}")
+        logger.error(f"❌ 标记任务失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "标记任务失败"))
 
 
@@ -1137,7 +1137,7 @@ async def delete_task(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ 删除任务失败: {e}")
+        logger.error(f"❌ 删除任务失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "删除任务失败"))
 
 
@@ -1167,7 +1167,7 @@ async def get_analysis_stats(
             "message": "统计获取成功"
         }
     except Exception as e:
-        logger.error(f"❌ 获取分析统计失败: {e}")
+        logger.error(f"❌ 获取分析统计失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "获取分析统计失败"))
 
 
@@ -1187,5 +1187,5 @@ async def search_stocks(
 
         return {"success": True, "data": results, "message": f"搜索完成，共 {len(results)} 条"}
     except Exception as e:
-        logger.error(f"❌ 搜索股票失败: {e}")
+        logger.error(f"❌ 搜索股票失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=safe_error_message(e, "搜索股票失败"))

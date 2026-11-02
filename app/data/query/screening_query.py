@@ -643,7 +643,7 @@ class ScreeningQueryService:
             return {"field": field, "count": 0}
 
         except Exception as e:
-            logger.error(f"获取字段统计失败: {e}")
+            logger.error(f"获取字段统计失败: {e}", exc_info=True)
             return {"field": field, "error": str(e)}
 
     async def get_available_values(self, field: str, limit: int = 100) -> List[str]:
@@ -659,7 +659,7 @@ class ScreeningQueryService:
                 return values[:limit]
             return []
         except Exception as e:
-            logger.error(f"获取字段可选值失败: {e}")
+            logger.error(f"获取字段可选值失败: {e}", exc_info=True)
             return []
 
     # ── 通用条件构建 ──

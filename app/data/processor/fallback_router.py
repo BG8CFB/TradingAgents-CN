@@ -159,13 +159,9 @@ class FallbackRouter:
 
         读取失败返回空 dict，调用方回退到构造参数的全局默认值。
         """
-        import yaml
-        from pathlib import Path
-
-        config_path = Path(__file__).parent.parent / "config" / "source_limits.yaml"
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                limits_config = yaml.safe_load(f) or {}
+            from app.data.config import load_yaml
+            limits_config = load_yaml("source_limits.yaml")
         except Exception as e:
             logger.warning(f"加载重试配置失败，使用全局默认: {e}")
             return {}

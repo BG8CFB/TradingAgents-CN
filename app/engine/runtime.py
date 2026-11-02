@@ -454,7 +454,7 @@ class AnalysisRuntime:
                     user_id=(self.curr_state or {}).get("user_id") or "",
                 )
             except Exception as e:  # noqa: BLE001
-                logger.error(f"❌ 信号处理客户端初始化失败: {e}")
+                logger.error(f"❌ 信号处理客户端初始化失败: {e}", exc_info=True)
                 return {
                     "action": "持有",
                     "target_price": None,

@@ -269,6 +269,6 @@ class ScreeningService:
                 return []
 
         except Exception as e:
-            logger.error(f"❌ 从数据层获取股票列表失败: {e}")
+            logger.error(f"❌ 从数据层获取股票列表失败: {e}", exc_info=True)
             return []
 

@@ -337,7 +337,7 @@ async def ensure_all_skills_dependencies() -> Dict:
             else:
                 skipped_count += 1
         except Exception as e:
-            logger.error(f"[SkillInstaller] 启动时安装 {name} 异常: {e}")
+            logger.error(f"[SkillInstaller] 启动时安装 {name} 异常: {e}", exc_info=True)
             failed_count += 1
             details[name] = {"installed": False, "satisfied": False, "error": str(e)}
 

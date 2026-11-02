@@ -131,7 +131,7 @@ def get_stock_market_data_unified(
 
                 result_data.append(f"## A股市场数据\n{stock_data}")
             except Exception as e:
-                logger.error(f"❌ [市场工具调试] A股数据获取失败: {e}")
+                logger.error(f"❌ [市场工具调试] A股数据获取失败: {e}", exc_info=True)
                 result_data.append(f"## A股市场数据\n获取失败: {e}")
 
         elif is_hk:
@@ -147,7 +147,7 @@ def get_stock_market_data_unified(
 
                 result_data.append(f"## 港股市场数据\n{hk_data}")
             except Exception as e:
-                logger.error(f"❌ [市场工具调试] 港股数据获取失败: {e}")
+                logger.error(f"❌ [市场工具调试] 港股数据获取失败: {e}", exc_info=True)
                 result_data.append(f"## 港股市场数据\n获取失败: {e}")
 
         else:
@@ -191,5 +191,5 @@ def get_stock_market_data_unified(
 
     except Exception as e:
         error_msg = f"统一市场数据工具执行失败: {str(e)}"
-        logger.error(f"❌ [统一市场工具] {error_msg}")
+        logger.error(f"❌ [统一市场工具] {error_msg}", exc_info=True)
         return error_msg

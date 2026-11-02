@@ -29,7 +29,7 @@ async def init_collections(market: str = "CN") -> None:
         from app.core.database import get_mongo_db
         db = get_mongo_db()
     except Exception as e:
-        logger.error("无法连接 MongoDB: %s", e)
+        logger.error("无法连接 MongoDB: %s", e, exc_info=True)
         return
 
     collection_map = get_all_collections(market)

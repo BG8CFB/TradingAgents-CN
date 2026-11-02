@@ -5,7 +5,7 @@
 - ``source_name``：决定 Token 解析链（复用 ds_key_utils._DS_ENV_MAP 既有映射，
   DB 优先、ENV 回退），如 "tushare" / "tushare_hk" / "tushare_us"
 - ``probe_endpoint`` / ``probe_kwargs``：连接试探接口（stock_basic / hk_basic / us_basic）
-- ``min_credits``：积分门槛（仅用于错误消息，来自 markets.yaml）
+- ``min_credits``：积分门槛（仅用于错误消息，各市场构造处硬编码）
 
 错误分类优先使用 map_tushare_code（Tushare 官方错误码），
 错误码缺失时保留最小限度的消息嗅探兜底（tushare 对无效 Token 的
@@ -129,7 +129,7 @@ class TushareClient:
             ts.set_token(token)
             api = ts.pro_api()
         except Exception as e:
-            logger.error(f"{self.source_name}: set_token/pro_api 失败: {e}")
+            logger.error(f"{self.source_name}: set_token/pro_api 失败: {e}", exc_info=True)
             return False
 
         probe = getattr(api, self.probe_endpoint, None)
@@ -153,7 +153,7 @@ class TushareClient:
             classified = classify_tushare_error(e, self.source_name, self.probe_endpoint, self.min_credits)
             if classified is not None:
                 raise classified
-            logger.error(f"{self.source_name} 连接失败: {e}")
+            logger.error(f"{self.source_name} 连接失败: {e}", exc_info=True)
             return False
 
     async def connect(self) -> bool:
@@ -206,5 +206,5 @@ class TushareClient:
                 return method(**kwargs)
             return self.api.query(api_name, **kwargs)
         except Exception as e:
-            logger.error(f"{self.source_name} query({api_name}) 失败: {e}")
+            logger.error(f"{self.source_name} query({api_name}) 失败: {e}", exc_info=True)
             raise

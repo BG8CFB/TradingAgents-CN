@@ -116,5 +116,5 @@ def get_stock_sentiment(
         return format_tool_result(success_result(combined_result))
 
     except Exception as e:
-        logger.error(f"get_stock_sentiment failed: {e}")
+        logger.error(f"get_stock_sentiment failed: {e}", exc_info=True)
         return format_tool_result(error_result(ErrorCodes.DATA_FETCH_ERROR, str(e)))

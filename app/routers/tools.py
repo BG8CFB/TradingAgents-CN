@@ -46,7 +46,7 @@ def _get_disabled_tools() -> Set[str]:
             data = json.loads(_DISABLED_TOOLS_FILE.read_text(encoding="utf-8"))
             return set(data.get("disabled", []))
     except Exception as e:
-        logger.error(f"读取禁用工具列表失败: {e}")
+        logger.error(f"读取禁用工具列表失败: {e}", exc_info=True)
     return set()
 
 

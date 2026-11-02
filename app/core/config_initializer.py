@@ -56,7 +56,7 @@ def ensure_config_files():
         return True
 
     except Exception as e:
-        logger.error(f"❌ 配置文件初始化失败: {e}")
+        logger.error(f"❌ 配置文件初始化失败: {e}", exc_info=True)
         # 不抛出异常，允许应用继续启动
         return False
 
@@ -90,6 +90,6 @@ def _handle_config_file(src: Path, dst: Path, config_name: str) -> bool:
         return True
 
     except Exception as e:
-        logger.error(f"❌ {config_name}初始化失败: {e}")
+        logger.error(f"❌ {config_name}初始化失败: {e}", exc_info=True)
         return False
 
